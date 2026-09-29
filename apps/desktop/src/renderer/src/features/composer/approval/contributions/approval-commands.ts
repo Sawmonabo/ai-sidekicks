@@ -112,7 +112,7 @@ export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalC
 }
 
 /**
- * Whether this record's two answers are offered right now, on both surfaces.
+ * Whether this record's two answers are offered right now, on the card and in the palette.
  *
  * The in-flight test is this palette's own — a card mid-resolve has its buttons
  * disabled rather than absent, and a row for a disabled button is a row that does

@@ -5,8 +5,9 @@
 // `DefinitionAuthoringActs.tsx` and from nothing else.
 //
 // `idle` RENDERS NOTHING, deliberately: a row saying an act has not been attempted is
-// the console narrating its own inactivity, and rule 8's kinds of nothing are about
-// READS a person is waiting on rather than controls they have not pressed.
+// the console narrating its own inactivity. The absences the console tells apart (not
+// loaded, empty, error, not checked, unknown) describe READS a person is waiting on,
+// not controls they have not pressed.
 //
 // AND THE IN-FLIGHT SENTENCE IS THE ACT'S, NOT THIS ROW'S. One word here read
 // "Submitting…" under every act, which is false of the export — it submits nothing and

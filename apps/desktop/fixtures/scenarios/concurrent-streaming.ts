@@ -11,7 +11,7 @@
 // WHAT THE SESSION DOES, IN THE ORDER IT DOES IT
 //
 //   • One person, four agents, and the implementer's run opened — the opening this
-//     scenario has always had, and the one every surface built against it expects.
+//     scenario has always had, and the one every view built against it expects.
 //   • The other three lanes spin up, and from the architect's `running` transition
 //     onward all four are streaming: thinking, messages, and tool calls interleaved
 //     across four run groups rather than four runs taken in turn.
@@ -54,7 +54,7 @@
 // who granted it, and `run_lifecycle` records what the RUN did about it. Neither is
 // derivable from the other — a run can block on an ask nobody answers, and an approval
 // can be granted for a run that has already ended — so a session carrying only the run
-// pair would leave the approvals surface nothing to render.
+// pair would leave the approvals view nothing to render.
 //
 // TWO CONSEQUENCES A READER WILL NOTICE FIRST:
 //
@@ -130,7 +130,7 @@ const STARTED_AT_ISO: string = new Date(startedAtMs).toISOString();
  * of one agent would drift in exactly the direction nothing catches.
  *
  * The drivers and models are deliberately mixed. A fixture whose whole cast runs
- * one provider cannot show a surface what a two-provider session looks like, and
+ * one provider cannot show a view what a two-provider session looks like, and
  * that is the session this console is for.
  */
 const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
@@ -169,7 +169,7 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
 // and shared data moves there on its second use.
 
 /**
- * One cost reading, in the shape the usage-telemetry family registers for it.
+ * One cost reading, in the shape the usage-telemetry events register for it.
  *
  * The three required members are carried in full — `usage.cost_update` MUST set
  * `costStatus` and `costSource`, and post-2026-08-26 emitters MUST set
@@ -214,10 +214,10 @@ const APPROVAL_SCOPE = "run";
 const PROVIDER_ACCOUNT_ID = "019b79ee-0280-7c34-8160-b21a0c150001";
 
 /**
- * One approval row, in the shape the approval-flow family registers.
+ * One approval row, in the shape the approval-flow events register.
  *
  * The members that differ between a request and its resolution are the caller's —
- * that family's row makes `requestedBy` and `resourceDescriptor` present on the
+ * that row shape makes `requestedBy` and `resourceDescriptor` present on the
  * request and `approver` and `effectiveScope` present on the resolution, and a row
  * carrying the other pair would be a shape no emitter produces.
  */
@@ -251,7 +251,7 @@ const lane = createRunEntryBuilders(SESSION_ID);
 
 const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
   // The opening, unchanged in shape: the room, the cast in join order, and the
-  // implementer's run opened by the signed-in user. Every surface built against this
+  // implementer's run opened by the signed-in user. Every view built against this
   // scenario reads these eight beats, so they stay first and stay as they were.
   ...composeOpeningEntries({
     sessionId: SESSION_ID,
@@ -615,7 +615,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
   replies: [
     {
       // `session.read`, not a `session.list`: the registry carries no list method,
-      // and a fixture answering one would put a call in front of a surface that
+      // and a fixture answering one would put a call in front of a view that
       // has nowhere to send it.
       call: "session.read",
       result: {
@@ -627,7 +627,7 @@ export const CONCURRENT_STREAMING_SCENARIO: Scenario = {
           // registered session shape has a first-class name field, and
           // `session.created` is `.strict()` with no title member at all. So the
           // console reads one from here or renders the session by its identifier.
-          metadata: { title: "Ship the ledger" },
+          metadata: { title: "Ship the transcript" },
           createdAt: STARTED_AT_ISO,
           updatedAt: "2026-01-01T14:20:02.450Z",
         },

@@ -16,7 +16,7 @@
  *
  * A list of these rather than a thrown error, so one run reports every defect in
  * every scenario at once. A predicate that threw on the first would make fixing a
- * family's scenario a one-defect-per-run loop.
+ * feature's scenario a one-defect-per-run loop.
  */
 export interface ScenarioContractDefect {
   readonly scenarioId: string;

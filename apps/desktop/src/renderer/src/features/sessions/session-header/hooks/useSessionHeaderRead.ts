@@ -20,7 +20,7 @@ import { useSubjectRead } from "@renderer/hooks/useSubjectRead.js";
  * What the header knows about one of its reads at one moment.
  *
  * There is no `unasked` arm: where the header holds no subject it renders no reading at
- * all, so a route naming no session stays at `reading` and the surface says the absence
+ * all, so a route naming no session stays at `reading` and the header says the absence
  * in its own words.
  */
 export type SessionHeaderReadState<TValue> =

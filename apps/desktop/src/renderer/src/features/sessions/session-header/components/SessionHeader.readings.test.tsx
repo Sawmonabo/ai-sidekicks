@@ -1,7 +1,7 @@
 // The title the session header renders, once a session carries one.
 //
 // The title is handed to the header as data, so these cases drive it directly and assert the
-// header renders it VERBATIM: a surface that renders its absences correctly and its answers
+// header renders it VERBATIM: a view that renders its absences correctly and its answers
 // approximately is the worse of the two bugs, because a wrong title is not visibly wrong.
 
 import { describe, expect, it } from "vitest";
@@ -10,7 +10,7 @@ import { SessionHeader } from "./SessionHeader.js";
 import { SESSION_ID, renderSessionHeader, storeWith } from "./SessionHeader.test-support.js";
 
 /** How the session names itself, where it does. */
-const DISPLAY_TITLE = "Ship the ledger";
+const DISPLAY_TITLE = "Ship the transcript";
 
 describe("the session header — the session it is naming", () => {
   it("renders a display title and says on the element that it is metadata", () => {

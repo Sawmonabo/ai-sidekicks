@@ -1,6 +1,6 @@
 // Watching the composer's own line, without owning a second copy of it.
 //
-// The discovery surface opens on a leading slash in the message input. That input is
+// The command list opens on a leading slash in the message input. That input is
 // the send bar's — its text is the send controller's single source of truth, and the
 // controller is what clears it, walks its history, and locks it while a dispatch is
 // in flight. A popover that held its own copy would be a second answer to "what is in
@@ -16,7 +16,7 @@
 // The controlled line's value comes from the draft store, and several composer paths
 // write there without a keystroke: ArrowUp history recall replaces the draft, a send
 // clears it, and a command run by clicking the button clears it too. Each of those
-// left this surface reading a value the line no longer held — a recalled slash
+// left the command list reading a value the line no longer held — a recalled slash
 // command with the list still shut, a recalled ordinary line with a stale popover
 // standing over it, and a cleared line with the popover for the command that had
 // just run. The store is the one source every path writes through and it notifies
@@ -25,12 +25,12 @@
 // displayed text cannot change without a write the store announces. The listener the
 // hook still installs is for KEYS, which the store knows nothing about.
 //
-// THREE KEYS PRESSED IN THE LINE ARE THIS SURFACE'S AND THE REST ARE THE LINE'S.
+// THREE KEYS PRESSED IN THE LINE ARE THE COMMAND LIST'S AND THE REST ARE THE LINE'S.
 // Escape dismisses the popover; ArrowDown steps into the list; Enter belongs to Send
 // and is treated as a dismissal so a sent line never leaves a popover standing over a
 // cleared input. Only the first two stop propagating — Enter is passed straight
-// through, because a discovery surface that swallowed Send would be a discovery
-// surface that broke the composer. And all three are scoped to keystrokes whose
+// through, because a command list that swallowed Send would be a command list
+// that broke the composer. And all three are scoped to keystrokes whose
 // target IS the line: the listener sits on the region because that is the node this
 // zone was handed, and a region-wide arrow interception would swallow the keys of the
 // list it just opened.
@@ -41,21 +41,21 @@ import type { DraftStore } from "@renderer/store/draft-store.js";
 import { readSlashCommandName } from "../../slash-command-syntax.js";
 import { useComposerDraftText } from "../../hooks/useComposerDraftText.js";
 
-/** What the composer's line is currently asking the discovery surface for. */
+/** What the composer's line is currently asking the command list for. */
 export interface CommandListTrigger {
-  /** The typed name after the trigger, or `undefined` while the surface is closed. */
+  /** The typed name after the trigger, or `undefined` while the command list is closed. */
   readonly prefix: string | undefined;
   /** Bumped when the person asks the list to take the arrow keys. */
   readonly stepIntoListToken: number;
-  /** Close the surface for the text now in the line. */
+  /** Close the command list for the text now in the line. */
   readonly dismiss: () => void;
 }
 
 /** Where the composer's unsent body lives, and under which address. */
 export interface DraftLineSource {
-  /** The window-lifetime store the composer seat is handed. */
+  /** The window-lifetime store the composer is handed. */
   readonly draftStore: DraftStore;
-  /** This composer's address key, so the surface watches its own line. */
+  /** This composer's address key, so the command list watches its own line. */
   readonly draftKey: string;
 }
 
@@ -87,7 +87,7 @@ export function useCommandListTrigger(
     // Keyed on the same reading the open decision is made from, so a dismissal and
     // the text it was raised at can never be two different strings.
     setDismissedAtText(readLineText());
-    // Focus follows the surface that closed. A list dismissed while it held focus
+    // Focus follows the command list that closed. A list dismissed while it held focus
     // would otherwise drop focus onto the document body, which leaves a keyboard
     // reader nowhere — and the place they were is the line they were typing in.
     if (line !== null && element !== null && element.contains(document.activeElement)) {

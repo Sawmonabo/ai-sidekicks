@@ -3,8 +3,8 @@
 //
 // Its own module rather than a section inside `xterm-adapter.ts`, on
 // `renderer-pool.ts`'s and `link-guard.ts`'s reason: the adapter's job is to
-// COMPOSE one terminal surface, and this owns a different question — which library
-// objects that surface loads, which of them the page's WebGL budget lets it keep,
+// COMPOSE one terminal, and this owns a different question — which library
+// objects that terminal loads, which of them the page's WebGL budget lets it keep,
 // and what happens when the host takes a context away. Every constraint below is a
 // property of `@xterm/xterm`'s own behavior, so it is testable through the adapter
 // against the real library rather than against a mirror of it.
@@ -36,7 +36,7 @@
 // emulator — and its twelve-bytes-per-cell buffer — reachable after the adapter
 // nulled its own handle, which is a disposal that frees nothing. Measured: holding
 // them left almost all of a full instance's bytes retained across a teardown, which
-// is what `test/console/endurance/terminal-endurance.test.ts` holds this object to.
+// is what `tests/endurance/xterm-adapter.test.ts` holds this object to.
 
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -109,7 +109,7 @@ export class TerminalAddonSuite {
    * Build and load the addons a fresh emulator gets.
    *
    * `allowProposedApi` is the adapter's, and only the `unicode` getter needs it —
-   * every other API this family touches is stable — so the version is set here,
+   * every other API the terminal feature touches is stable — so the version is set here,
    * where the addon that provides it is loaded.
    */
   public loadInto(terminal: Terminal): void {
@@ -129,7 +129,7 @@ export class TerminalAddonSuite {
    * for.
    *
    * THE CONTEXT-LOSS FLAG IS READ FIRST, before the addon check and before the
-   * ledger is asked. A lost context clears the addon and reclaims the slot, so on
+   * ledger is asked. A lost context clears the addon and gives its context back to the pool, so on
    * the next `attach()` to a different host the other two conditions both say yes:
    * without this the instance would build a second addon after a fallback its own
    * documentation calls permanent, and churn a context per remount.
@@ -230,7 +230,7 @@ export class TerminalAddonSuite {
    *
    * EVERY STATE CHANGE HAPPENS BEFORE THE NOTIFICATION, and the ledger is the one
    * that has to. `Emitter` delivers to every sink and then re-raises what any of them
-   * threw, so a consumer of `onRendererMode` that fails — a surface mid-render, a
+   * threw, so a consumer of `onRendererMode` that fails — a component mid-render, a
    * diagnostic that asserted — ends this method wherever the emission sits. With the
    * reclaim after it, the fall-back was already permanent and the addon already
    * disposed while the page-wide ledger went on counting a context the host had
@@ -246,7 +246,7 @@ export class TerminalAddonSuite {
     webglAddon.dispose();
     this.#webglAddon = undefined;
     // The one write. Everything around it is reversible by a remount — the addon
-    // reference and the pool slot both are — and this is what makes the fallback the
+    // reference and the pool's context both are — and this is what makes the fallback the
     // permanent thing the header above claims it is.
     this.#hasLostWebglContext = true;
     if (this.#contextLease !== undefined) {

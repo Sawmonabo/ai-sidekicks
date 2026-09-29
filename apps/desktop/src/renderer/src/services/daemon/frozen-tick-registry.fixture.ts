@@ -23,7 +23,7 @@
 // deciding thoughtlessly easy, which is the wrong trade for a table this small.
 //
 // WHAT A NAME MEANS. `settled` is the tick at which every beat the script carries has
-// been delivered — the longest the session gets, and the frame most surfaces are worth
+// been delivered — the longest the session gets, and the frame most views are worth
 // photographing at. `money-shot` is the concurrent-streaming scenario's own composed frame. A
 // scenario that wants a second frame adds a second row with its own name; the rules
 // below hold the pair to an ascending, uniquely-named sequence.
@@ -36,7 +36,7 @@ import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** One pinned frame of one scenario: what it is called, and the tick it is taken at. */
 export interface ScenarioFrozenTick {
-  /** Unique within its scenario. Names the FRAME, never the surface it is captured for. */
+  /** Unique within its scenario. Names the FRAME, never the view it is captured for. */
   readonly name: string;
   /** Milliseconds from scenario start — what a driver advances the frozen clock to. */
   readonly atMs: number;
@@ -169,7 +169,7 @@ function describeTickSequenceDefects(
     if (tick.atMs <= previousTickAtMs) {
       defects.push({
         scenarioId,
-        reason: `the frame "${tick.name}" is pinned at ${String(tick.atMs)}ms, at or before the frame in front of it at ${String(previousTickAtMs)}ms. A scenario's pinned frames read as a timeline; order them.`,
+        reason: `the frame "${tick.name}" is pinned at ${String(tick.atMs)}ms, at or before the frame in front of it at ${String(previousTickAtMs)}ms. A scenario's pinned frames ascend in time; order them.`,
       });
     }
     previousTickAtMs = tick.atMs;

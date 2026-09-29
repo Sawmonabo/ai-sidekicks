@@ -105,10 +105,10 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   return (
     <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
       <Dialog.Trigger className="meridian-bind__trigger">Bind a workspace</Dialog.Trigger>
-      {/* The popup shell is the primitive's, which is also what puts this dialog in the
-          window's airspace: a native browser-pane view yields to whatever is
-          registered there, and a form that
-          mounted its own portal would be a dialog the view paints over. */}
+      {/* The portal, backdrop and popup are the primitive's, which is also what puts
+          this dialog in the window's airspace: a native browser-pane view yields to
+          whatever is registered there, and a form that mounted its own portal would be
+          a dialog the view paints over. */}
       <OverlayDialogPopup
         backdropClassName="meridian-bind__backdrop"
         className="meridian-bind__dialog"

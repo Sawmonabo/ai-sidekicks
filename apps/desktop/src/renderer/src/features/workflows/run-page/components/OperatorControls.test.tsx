@@ -2,10 +2,10 @@
 //
 // Three rules, three groups. Each one is checked on the shape rather than on the copy
 // — a `disabled` attribute, an option list, the argument a call received — because
-// the copy is this family's to reword and the shape is the rule.
+// the copy is the workflows feature's to reword and the shape is the rule.
 //
-// What the component does with an OUTCOME is a different subject and lives next door
-// in `OperatorControls.outcome.test.tsx`: these cases are about what an operator can
+// What the component does with an OUTCOME is a different subject and lives beside this
+// suite in `OperatorControls.outcome.test.tsx`: these cases are about what an operator can
 // compose and submit, those are about what comes back. What the CHAIN does when it
 // moves under a held selection is a third, in `OperatorControls.chain-move.test.tsx`.
 
@@ -96,9 +96,9 @@ describe("cancel is never gated, queued or disabled", () => {
     });
     expect(screen.getByText("reason-past-bound")).toBeDefined();
     const button = screen.getByRole("button", { name: /cancel this run/iu });
-    // The refused act does not travel AND the control stays pressable — rule 9 keeps
-    // a refusal beside its control rather than removing it, and rule 1 of this
-    // surface says cancel is never disabled on any path.
+    // The refused act does not travel AND the control stays pressable — a refusal sits
+    // beside its control rather than removing it, and cancel is never disabled on any
+    // path.
     expect(button.hasAttribute("disabled")).toBe(false);
     fireEvent.click(button);
     expect(cancel).not.toHaveBeenCalled();

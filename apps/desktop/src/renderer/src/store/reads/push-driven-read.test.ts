@@ -2,7 +2,7 @@
 //
 // Each one is driven against the real module on a frozen clock: the class takes the
 // clock as a dependency precisely so a test never needs a real timer, and
-// `ManualClock.pendingCount` after teardown is how "no timer outlives the surface"
+// `ManualClock.pendingCount` after teardown is how "no timer outlives the view"
 // is checked rather than asserted.
 
 import { describe, expect, it, vi } from "vitest";
@@ -217,7 +217,7 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
     // `String(value)` runs ToPrimitive, which THROWS for a null-prototype object
     // carrying no `toString`. The throw escapes the `catch` that was converting it
     // and lands in the scheduler's error handler, which converts it AGAIN — so the
-    // surface used to render the console's own TypeError as though it were the
+    // view used to render the console's own TypeError as though it were the
     // daemon's answer. The detail is the assertion, not the arm: settling `failed`
     // was already true of the wrong sentence.
     const clock = new ManualClock();

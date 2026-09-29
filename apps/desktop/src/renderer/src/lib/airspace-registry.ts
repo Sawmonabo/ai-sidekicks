@@ -7,36 +7,30 @@
 // airspace registry. The wire table for both reads `renderer-local`, and this module
 // is that locality.
 //
-// WHY IT IS AT THE DAG FLOOR. It was minted in `browser/geometry/`, beside the one
-// surface that reads it, and its own header recorded the consequence: `primitives/`
-// sits BELOW a view family, so no overlay primitive could import it and the registry
-// shipped with zero registrants — a set the visibility predicate consulted and that
-// nothing ever put anything into. The registrants are the primitive layer and the
-// reader is a view family, and `core/` is the only rung both of them can reach — one
-// airspace per window, not one per family that draws into it. Nothing but review keeps
-// that true: the session screen's pane layout once carried a second class of this name for the same
-// rule, and because it built none and reached no accessor it passed every automated
-// claim made about it.
+// WHY IT IS IN `lib/`. The registrants are the shared overlay components, through
+// `hooks/useAirspaceRegistration.ts`, and the readers are the preview feature's
+// geometry and the session pane layout. Shared components sit below every feature, so
+// a registry kept inside a feature could have no registrant at all; `lib/` is the one
+// layer both sides can import — one airspace per window, not one per feature that
+// draws into it. Nothing but review keeps that true: a second class of this name inside
+// a feature would build no registrant, reach no accessor, and pass every automated
+// check made about it.
 //
 // WHAT IT HOLDS AND WHAT IT DOES NOT. It holds registrations, their rectangle
 // READERS, and the change stream a publisher re-samples on. It observes nothing by
-// itself: `core/` may not import the size-observer chokepoint in `primitives/` and
-// may not reach the motion sampler in the browser family, and neither restriction is
-// a loss, because the only consumer that needs sub-frame accuracy is the one drawing
-// a native view. So OBSERVATION IS INSTALLED BY THAT CONSUMER through
-// {@link AirspaceRegistry.installMotionObserver}, and while no such consumer exists
-// no frame is ever armed — which is a stronger reading of the idle-CPU budget than
-// the standing arrangement it replaces, where every overlay sampled whether or not
-// anything was watching.
+// itself: the motion sampler lives in the preview feature, which `lib/` may not
+// import, and that is no loss, because the only consumer that needs sub-frame accuracy
+// is the one drawing a native view. So OBSERVATION IS INSTALLED BY THAT CONSUMER
+// through {@link AirspaceRegistry.installMotionObserver}, and while no such consumer
+// exists no frame is ever armed, so no overlay samples while nothing is watching.
 //
-// AND IT NAMES NO DOM TYPE, on `clock.ts`'s precedent and for its reason: `core/` is
-// compiled by a Node-context program with no DOM lib (the assets tier imports this
-// family's door), so `Element` does not resolve here and `Document` resolves to
-// something that is not a document. The two things this module holds on an overlay's
-// behalf — the element an installed observer watches, and the window an airspace
-// belongs to — are opaque here because this module never reads either one. The types
-// below say exactly that, and the consumer that DOES read an element narrows to the
-// platform type at its own boundary.
+// AND IT NAMES NO DOM TYPE, on `clock.ts`'s precedent and for its reason: `lib/` is
+// reached from Node-context programs with no DOM lib, so `Element` does not resolve
+// there and `Document` resolves to something that is not a document. The two things
+// this module holds on an overlay's behalf — the element an installed observer watches,
+// and the window an airspace belongs to — are opaque here because this module never
+// reads either one. The types below say exactly that, and the consumer that DOES read
+// an element narrows to the platform type at its own boundary.
 
 import { Emitter, type Unsubscribe } from "./emitter.js";
 
@@ -61,7 +55,7 @@ export interface AirspaceRect {
 export type AirspaceRectReader = () => AirspaceRect | undefined;
 
 /**
- * The overlay kinds 12.3 enumerates. Closed, and the enumeration is the claim: a new
+ * The closed set of overlay kinds the console draws. The enumeration is the claim: a new
  * overlay primitive joins this tuple in the edit that makes it register.
  */
 export const AIRSPACE_OVERLAY_KINDS = [
@@ -95,7 +89,7 @@ export interface AirspaceRegistration {
  * How a consumer that draws a native view watches one overlay element for movement.
  *
  * Installed rather than owned, for the reason the header gives: the machinery lives
- * two families above this one, and a registry that armed it unconditionally would run
+ * in the preview feature, above this module, and a registry that armed it unconditionally would run
  * a frame loop for overlays nothing is yielding to.
  */
 export type AirspaceMotionObserver = (

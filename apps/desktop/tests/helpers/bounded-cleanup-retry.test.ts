@@ -72,7 +72,7 @@ describe("bounded cleanup — a tree that refuses the kill", () => {
     // runs, so a settle-time disposer handed `unterminable` had no way to retry
     // and the tree it could not kill outlived the worker. The retry therefore
     // belongs inside the one pass — bounded, and by the same figure the child
-    // disposal next door uses rather than a second `3` written here.
+    // disposal in `managed-electron-child.ts` uses rather than a second `3` written here.
     const terminator = terminatorRefusingThenDelivering(DISPOSAL_ATTEMPTS - 1);
     const outcome = await new BoundedCleanup(
       applicationThatNeverCloses(4242),

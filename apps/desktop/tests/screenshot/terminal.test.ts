@@ -2,7 +2,7 @@
 //
 // `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
 // `__screenshots__/` and compared against nothing, so this file gates on whether the
-// surface can be captured at all.
+// pane can be captured at all.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 

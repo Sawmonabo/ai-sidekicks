@@ -1,9 +1,9 @@
-// The transcript row renderer registered for the transcript row seat: one row, through the
-// row component its kind names.
+// The transcript's registered row renderer: one row, through the row component its kind
+// names.
 //
 // NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The renderer is generic over
 // `TranscriptRowProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
-// three list decisions the seat carries, and nothing else. Modeling the timeline's own
+// three list decisions its props carry, and nothing else. Modeling the timeline's own
 // entry vocabulary here would author a second body beside the real one.
 //
 // IT HOLDS NO STATE OF ITS OWN. A disclosure press writes the row's density to the list's
@@ -19,11 +19,11 @@
 //
 // LIVE TEXT IS A DIFFERENT CASE. It is published by the reveal engine, which the feed
 // owns, and it reaches a row through the frame's own per-row channel rather than through
-// the seat — `reveal/components/RowRevealProvider.tsx` states why the seat is the wrong
-// home for it. The row asks for its own lane and gets `undefined` while nothing is
+// the row renderer's props — `reveal/components/RowRevealProvider.tsx` states why those
+// props are the wrong home for it. The row asks for its own lane and gets `undefined` while nothing is
 // streaming into it, which is every row of a settled log.
 //
-// A ROW THE FAMILY TABLE CALLS A RECEIPT DRAWS NOTHING. An event outside the transcript's
+// A ROW THE KIND TABLE CALLS A RECEIPT DRAWS NOTHING. An event outside the transcript's
 // fold list is not drawn, and the classifier's `receipt` answer is that case.
 
 import { useCallback, useState } from "react";
@@ -43,7 +43,7 @@ import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";
 
 /**
- * One row, through the card its family names.
+ * One row, through the card its kind names.
  *
  * The classifier decides once and this switch spends the answer — the same table the
  * cards themselves read, so the glyph, the label, and the layout a row gets here are the
@@ -57,9 +57,9 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   // THE TOGGLE INVERTS WHAT IS ON SCREEN, which is the density the row was HANDED —
   // the list's answer with the lease already overlaid on it. So the press reverses
   // what a reader can see, and it writes the reversal to the list rather than to this
-  // component: a `useState` here died with the row the moment the virtualizer scrolled
-  // it out of the mounted range, and the choice came back as whatever the list said.
-  // `innerScrollTopPx` is zero because this shell keeps no inner scroll of its own;
+  // component: a `useState` here would die with the row the moment the virtualizer
+  // scrolled it out of the mounted range, and the choice would come back as whatever the
+  // list said. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own;
   // a body that does parks its offset in the same lease.
   const toggleDensity = useCallback(() => {
     rowLease.setLease(rowId, {
@@ -68,7 +68,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
     });
   }, [density, rowId, rowLease]);
 
-  const family = classifyTranscriptRow(props.row);
+  const rowKind = classifyTranscriptRow(props.row);
   // THE REASONING READ IS NOT ARMED HERE, AND THAT IS A COST RULE RATHER THAN A STYLE
   // ONE. It binds a COMPONENT, not a tree, so it lives in the component that renders it,
   // and the ordinary row builds no reading for a control it does not draw. Measured on a
@@ -82,10 +82,10 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   // run instead would give two machine rows of one turn one body between them.
   const liveText = useRowReveal(rowId);
 
-  if (family === undefined) {
+  if (rowKind === undefined) {
     return null;
   }
-  switch (family.kind) {
+  switch (rowKind.kind) {
     case "tool-call":
       return (
         <ToolRow
@@ -105,7 +105,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
       return (
         <MessageRow
           row={props.row}
-          rowKind={family}
+          rowKind={rowKind}
           actorHue={props.actorHue}
           isSuperseded={props.isSuperseded}
           density={density}
@@ -113,7 +113,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
           {...(liveText === undefined ? {} : { liveText })}
           editControl={editControlOf(props)}
           thinkingRow={
-            family.kind === "thinking" ? (
+            rowKind.kind === "thinking" ? (
               <BoundThinkingRow runId={attributedRunId} liveText={liveText} />
             ) : undefined
           }
@@ -122,7 +122,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   }
 }
 
-/** The edit control the seat's owner draws, or nothing; the message row shows it on a user's own. */
+/** The edit control the footer renderer draws, or nothing; the message row shows it on a user's own. */
 function editControlOf(props: TranscriptRowProps): React.ReactNode {
   return findTranscriptRowFooterRenderer()?.({ row: props.row, isSuperseded: props.isSuperseded });
 }

@@ -1,7 +1,8 @@
 // The walk back past a window's head, driven end to end.
 //
 // Every case here drives the REAL reader over the REAL session store: the rows land in
-// the store's own log through its own head door. The read is the one seam a test
+// the store's own log through `prependEarlierEvents`, the one call that grows it at its
+// head. The read is the one seam a test
 // supplies, because the walk takes it from whichever composition has one.
 //
 // THE READ ANSWERS THREE WINDOWS. The store opens on the newest one, and two
@@ -298,8 +299,8 @@ describe("EarlierHistoryReader — a refresh lands while a page is in flight", (
 describe("EarlierHistoryReader — the pane leaves while a page is in flight", () => {
   it("stops the read and installs neither the page nor a refusal", async () => {
     // WHAT THE ABANDONMENT HAS TO BUY, stated as both halves. The page must not land —
-    // it belongs to a walk nobody is offering a control for — and the door's own
-    // `read-abandoned` refusal must not land either, because a surface that left is
+    // it belongs to a walk nobody is offering a control for — and `callDaemon`'s own
+    // `read-abandoned` refusal must not land either, because a pane that left is
     // not a failure to report. The control is the case directly above: the same
     // read, the same hold, and the same page merges when the line is still
     // anybody's, so what stops it here is the abandonment and not the wait.

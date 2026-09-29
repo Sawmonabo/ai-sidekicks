@@ -21,7 +21,7 @@ import { RefusalError, refuse } from "@renderer/lib/refusal.js";
  * same failure: `reply-abandoned` means the engine was torn down before the frozen
  * clock reached the reply — advance it before disposing it — and `reply-backlog-full`
  * means the caller has parked more delayed replies than the cap admits without ever
- * moving the clock forward. A single merged code would tell a reader which surface
+ * moving the clock forward. A single merged code would tell a reader which call
  * failed and not which mistake produced it.
  */
 const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-full"] as const;
@@ -32,7 +32,7 @@ export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[num
 /**
  * Why the fixture could not answer. Rendered verbatim; never swallowed.
  *
- * `reply-unscripted` is an AUTHORING error: every method a surface reaches through the
+ * `reply-unscripted` is an AUTHORING error: every method a view reaches through the
  * daemon's call is one the corpus registers, so a scenario that scripts none has a gap in
  * it. The last two name a reply the frozen clock never released.
  *
@@ -46,9 +46,9 @@ export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[num
  * response seam rather than the subscription one: the scenario scripted a reply for
  * a method the corpus HAS registered, and the value does not match the shape
  * `daemon-reply-registry.ts` binds to it. It refuses rather than resolving, because
- * a fixture that hands a surface a shape the live wire cannot send teaches that
- * surface to render a frame production never produces — the same defect the
- * projection arm above exists to prevent, arriving through the call door.
+ * a fixture that hands a view a shape the live wire cannot send teaches that
+ * view to render a frame production never produces — the same defect the
+ * projection arm above exists to prevent, arriving through the bridge's `call`.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",
@@ -71,12 +71,11 @@ export type FixtureBridgeRefusalCode = (typeof FIXTURE_BRIDGE_REFUSAL_CODES)[num
 export const FIXTURE_BRIDGE_REFUSAL_ORIGIN = "fixture-bridge";
 
 /**
- * Thrown when a surface asks the fixture for something no scenario scripts.
+ * Thrown when a caller asks the fixture for something no scenario scripts.
  *
- * A `RefusalError` and not a bare `Error` carrying a code of its own.
- * `core/refusal.ts` names this module as one of the five that had minted their own
- * refusal vocabulary, and the cost was concrete: a surface wanting to render a
- * fixture failure had to translate it to reach one renderer. It stays a NAMED
+ * A `RefusalError` and not a bare `Error` carrying a code of its own: a bare `Error`
+ * would be a second refusal vocabulary, and a view rendering a fixture failure
+ * would have to translate it to reach the one refusal renderer. It stays a NAMED
  * subclass because a fixture failure is worth catching by name — the seam has to
  * travel as an exception, since these are rejections from methods whose signatures
  * the preload contract fixes.

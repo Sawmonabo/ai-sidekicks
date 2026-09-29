@@ -21,7 +21,7 @@ import { describeAttentionSettlement } from "../attention-sentences.js";
  *
  * SEPARATE FROM {@link useAttentionProjection} rather than folded into it, for the
  * same reason that precedent keeps them apart: the read is performed by a destination
- * and the announcement is made by a surface, and a read hook that announced would
+ * and the announcement is made by a view, and a read hook that announced would
  * make every future caller of it — including one that renders nothing — speak.
  */
 export function useAttentionSettlementAnnouncement(reading: AttentionReading): void {

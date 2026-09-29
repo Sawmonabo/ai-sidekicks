@@ -6,7 +6,7 @@ import type { SubjectKey, SubjectScopedHolder } from "./subject-scoped-holder.js
 /**
  * Address a holder and confirm it, which is what one committed render does.
  *
- * The React-free door. A suite that called `address` alone would be driving a pass
+ * The React-free call. A suite that called `address` alone would be driving a pass
  * that never reached the screen, and every claim about the visit on screen would be
  * about a proposal instead.
  */

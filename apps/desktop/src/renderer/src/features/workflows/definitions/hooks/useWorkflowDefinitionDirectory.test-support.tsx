@@ -18,7 +18,7 @@ import {
 
 /**
  * One row per id, which is what these cases read back: the id is the only member that
- * says WHICH read committed. Everything else is the family's row, built once at
+ * says WHICH read committed. Everything else is the workflows feature's shared row, built once at
  * `../workflows-probe.test-support.ts` — including `scopeRef`, whose default is this
  * same probe session.
  */

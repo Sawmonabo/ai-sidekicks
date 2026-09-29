@@ -1,7 +1,7 @@
 // What this message is carrying, beside the line it is being written on.
 //
 // THE STRIP IS ABSENT WHEN NOTHING IS ATTACHED. A composer with no attachments has no
-// attachment surface, and an empty row reserving space would be a permanent reminder of a
+// attachment strip, and an empty row reserving space would be a permanent reminder of a
 // thing nobody has done.
 //
 // THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole staged list at

@@ -54,7 +54,7 @@ afterEach(() => {
 });
 
 describe("tokenizing a small block", () => {
-  it("returns lines whose tokens carry family references and never colors", () => {
+  it("returns lines whose tokens carry token-kind references and never colors", () => {
     const created = scheduler();
     return created.requestTokens("const answer = 1;\n", "typescript").then((outcome) => {
       expect(outcome.status).toBe("highlighted");
@@ -249,10 +249,10 @@ describe("a worker that dies", () => {
   });
 
   it("declines a later block instead of posting to a thread that is gone", async () => {
-    // The whole defect, in one assertion: before the fix a request arriving after the
-    // failure registered a settle nobody could ever call and posted to a terminated
-    // worker, so this promise never settled at all and the caller's closure — and its
-    // slot in the pending map — was retained for the life of the page.
+    // The whole failure, in one assertion: a request arriving after the thread died
+    // must not register a settle nobody can ever call or post to a terminated worker,
+    // or this promise never settles and the caller's closure — and its entry in the
+    // pending map — is retained for the life of the page.
     const created = scheduler();
     const answered = created.requestTokens(overThresholdSource("c"), "typescript");
     const worker = FakeHighlightWorker.latest;

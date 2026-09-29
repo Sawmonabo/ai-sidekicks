@@ -1,23 +1,23 @@
 // The `approval` partition's projector: approval-flow events folded into approval
 // entities.
 //
-// WHY IT EXISTS. `store/entities/entities.ts` has declared an `approval` partition since it
-// was written and no family projected into it, so `session.subscribe` carried every
+// WHY IT EXISTS. `store/session/entities/entities.ts` has declared an `approval` partition
+// since it was written and nothing projected into it, so `session.subscribe` carried every
 // `approval.*` beat into the timeline and none of them reached the partition a pane
 // reads. The members that live on the EVENT and on no read went nowhere at all —
-// `askId` above all, which the approval-flow event family registers on
+// `askId` above all, which the approval-flow event category registers on
 // `approval.requested` exactly when the request originates from a provider
 // permission ask. The projection read carries no marker of that origin, so a
 // console with no fold here cannot tell a provider's mid-run permission ask from a
 // request some caller made directly, and renders both as the same card.
 //
-// WHY IT LIVES BESIDE THE PANE. `frame/run-projection/run-lifecycle-projector.ts` states the two
-// constraints that decide a projector's home: it reads WIRE member names, which
-// `store/` deliberately does not, and it is REGISTERED by a composition, which puts
-// it at or below the composing family. Both are satisfied here — the approvals
-// family already narrows this wire at one boundary (`approval-records.ts`) and the
-// composer family composes it — and the frame is not this fold's owner, because the
-// surface that reads the result is this pane.
+// WHY IT LIVES BESIDE THE RUN FOLD. `run-lifecycle-projector.ts` states the two
+// constraints that decide a projector's home: it reads WIRE member names, which the
+// session store's entities deliberately do not, and it is REGISTERED by the composition
+// root, so no one feature can own it. Both hold here: the approvals service already
+// narrows this wire's reads at one boundary (`services/approvals/approval-records.ts`),
+// and the composition registers this fold under the composer's name, because the pane
+// that reads the result is the composer's.
 //
 // WHAT IT DERIVES RATHER THAN DECLARES
 //
@@ -32,7 +32,7 @@
 // `packages/contracts` registers no approval payload variant at all —
 // `SessionEventSchema` carries none, which `approval-vocabulary.ts` says in as many
 // words — so there is no registered shape to derive a member union from. The list
-// comes from the approval-flow event family, which fixes the payload at
+// comes from the approval-flow event category, which fixes the payload at
 // `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
 // resourceDescriptor?, expiryAt?, approver?, effectiveScope?, nodeId?,
 // rememberedScope?, ruleId?, invalidationTrigger?}`, and from the approval payload
@@ -43,7 +43,7 @@
 // table would read either off whichever beat happened to spell it — a body member
 // with no registration behind it.
 //
-// PARSED THROUGH ZOD, which is this family's own boundary idiom rather than a second
+// PARSED THROUGH ZOD, which is the approvals code's own boundary idiom rather than a second
 // one: `approval-records.ts` narrows the two READS through zod schemas, and a member
 // reader table written here would be a second implementation of "did the payload
 // supply a value of the right shape" for the same wire. A wrong-typed member reads
@@ -54,7 +54,7 @@
 // STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set the entity's
 // state and leave the row where it is: history is a read, and what the pane lists is
 // the pane's decision. The state values come from `approval-vocabulary.ts`'s closed
-// five, so this module mints no sixth spelling of a vocabulary the surface already
+// five, so this module mints no sixth spelling of a vocabulary the console already
 // declares once.
 //
 // A PROJECTOR IS PURE, and that decides the malformed case exactly as it does for
@@ -83,7 +83,7 @@ import { type ApprovalState } from "@renderer/lib/approval-vocabulary.js";
  *
  * `moderation.review_flagged` and the three `plan.*` kinds are registered under
  * `approval_flow` and carry no `approvalRequestId`. Claiming one here would take the
- * kind off the board for the family that renders it, and this fold would answer
+ * kind off the board for the feature that renders it, and this fold would answer
  * nothing for it anyway, since it names no approval to key on. `Extract`ed from the
  * census rather than typed `string`, so a rename upstream fails to compile here
  * instead of silently widening the claim.
@@ -243,9 +243,8 @@ export const projectApprovalFlowEvent: EntityProjector = (
   // delivered into, so a payload that names another session names an entity this
   // store must not hold. `sessionId` is a REQUIRED member of the registered shape,
   // so an omission is malformed rather than terse — which is the arm
-  // `core/wire-session-attribution.ts` names `payloadNamesSession`, and the rule is
-  // held there rather than here because three folds at three heights on the family DAG
-  // make the same claim.
+  // `lib/wire-session-attribution.ts` names `payloadNamesSession`, and the rule is
+  // held there rather than here because several folds make the same claim.
   if (!payloadNamesSession(payload, event.sessionId)) {
     return [];
   }
@@ -274,7 +273,7 @@ export const projectApprovalFlowEvent: EntityProjector = (
 };
 
 /**
- * The projector registry the composer family claims its kinds with.
+ * The projector registry the composer feature claims its kinds with.
  *
  * One function under every kind rather than one per kind: the fold is the same for
  * all six, and six near-copies is how a seventh gets a subtly different one.

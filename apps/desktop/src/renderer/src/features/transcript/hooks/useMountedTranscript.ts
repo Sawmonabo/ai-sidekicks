@@ -7,20 +7,20 @@ import {
 } from "../mounted-transcript.js";
 
 /**
- * Hold the seat for as long as this component is mounted.
+ * Make this feed the mounted transcript for as long as this component is mounted.
  *
  * The acts are read at act time through a ref rather than adopted directly: a feed
  * rebuilds its callbacks on every render, and adopting the object itself would either
- * re-seat the transcript on each pass or keep the first render's callbacks.
+ * re-adopt the transcript on each pass or keep the first render's callbacks.
  */
 export function useMountedTranscript(
   acts: TranscriptActs,
-  seat: MountedTranscript = mountedTranscript,
+  transcript: MountedTranscript = mountedTranscript,
 ): void {
   const actsRef = useRef(acts);
   actsRef.current = acts;
   const forwarding = useMemo(() => forwardingActs(() => actsRef.current), []);
-  useEffect(() => seat.adopt(forwarding), [seat, forwarding]);
+  useEffect(() => transcript.adopt(forwarding), [transcript, forwarding]);
 }
 
 /** An act set that reads the live one on every call and holds none of it. */

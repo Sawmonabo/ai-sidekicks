@@ -1,4 +1,4 @@
-// A route mounts the surface registered for its slot.
+// A route mounts the screen registered under its name.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -7,11 +7,8 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { type AppRoute } from "@renderer/routing/routes.js";
 import { AppRouter } from "./router.js";
 import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
-// The module-scope registration door by its own specifier: the seats door does not
-// publish it, no production module calling it having landed yet.
-import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
 
-/** The rail's middle destination, whose slot this suite claims for one case. */
+/** The rail's middle destination, whose screen this suite claims for one case. */
 const WORKFLOWS_ROUTE: AppRoute = { kind: "workflows" };
 
 /**
@@ -30,16 +27,16 @@ function contextFor(route: AppRoute): ScreenContext {
   } as unknown as ScreenContext;
 }
 
-describe("AppRouter — a registered slot", () => {
+describe("AppRouter — a registered screen", () => {
   afterEach(() => {
     cleanup();
   });
 
-  it("mounts the family that claims the slot", () => {
-    const owner = "route-surface-test";
+  it("mounts the screen its owner registered", () => {
+    const owner = "router-test";
     try {
-      registerScreen({
-        slot: "workflows",
+      screenRegistry.register({
+        name: "workflows",
         owner,
         render: () => <p>the workflow builder rendered</p>,
       });

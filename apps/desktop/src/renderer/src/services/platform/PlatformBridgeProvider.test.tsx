@@ -15,7 +15,7 @@
 // with any composition: build once, install once, take both down, and dispose only what
 // it built.
 //
-// `AppProviders` states the same rule one family up — "one store per window,
+// `AppProviders` states the same rule for the stores it composes — "one store per window,
 // created once; `useRef` rather than `useMemo`, because a memo may be discarded
 // and recomputed and store identity is correctness" — and `app/hooks/useSessionStoreRegistry.ts`
 // is where the re-mint arm this file's last case drives comes from.
@@ -44,7 +44,7 @@ interface BridgeProbeProps {
   readonly onObserve: (bridge: PlatformBridge) => void;
 }
 
-/** A component that does exactly what a console surface does: read the bridge. */
+/** A component that does exactly what any view does: read the bridge. */
 function BridgeProbe(props: BridgeProbeProps): null {
   const resolution = useBridgeResolution();
   if (resolution.status === "ready") {
@@ -215,7 +215,7 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
   });
 });
 
-/** A component that does what a console surface does with time: read the clock. */
+/** A component that does what any view does with time: read the clock. */
 function ClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null {
   props.onObserve(useClock());
   return null;

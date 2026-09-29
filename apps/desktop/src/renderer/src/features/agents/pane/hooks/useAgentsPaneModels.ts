@@ -14,7 +14,7 @@ import { AgentsPaneModels } from "../agents-pane-models.js";
  * and a body that built them would build a new set on every pass React discarded,
  * each leaving a subscription behind it. `undefined` in either argument is a real
  * state — an auxiliary address that named no session — and answers `undefined`, which
- * the surfaces render as the absence it is.
+ * the pane renders as the absence it is.
  *
  * A MODEL NEVER BELONGS TO A SUBJECT IT IS NOT FOR. State replaced from an effect
  * lags its own inputs by one committed frame, so a console moving directly from one
@@ -28,7 +28,7 @@ import { AgentsPaneModels } from "../agents-pane-models.js";
  * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID. A replacement bridge or a rebuilt
  * store for the SAME session passes an id comparison, so the first committed render
  * after either replacement would hand back models whose reads are bound to the
- * transport and the projection that were just retired. `seats/session-subject.ts`
+ * transport and the projection that were just retired. `store/subject-scoped/session-subject.ts`
  * owns the comparison, so the predicate has one copy.
  *
  * `calls` is held stable by the caller: a new object rebuilds the models.

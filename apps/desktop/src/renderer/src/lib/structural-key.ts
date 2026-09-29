@@ -23,9 +23,9 @@
 // injectivity and stability within one window, and both are properties of the encoding
 // rather than of a digest nobody could check.
 //
-// AT THE FLOOR because its readers sit at two different heights on the console's DAG —
-// `bridge/quotas/`'s `(accountId, limitId)` reading key and `settings/`'s
-// scope-qualified MCP binding key — and neither of those families may reach the other.
+// IN `lib/` because its readers sit in different layers — the store's provider-account
+// and waiting-on-person folds, and the settings feature's scope-qualified MCP binding
+// key — and shared code is the one place all of them can import.
 
 /**
  * The one string that identifies this tuple of segments.

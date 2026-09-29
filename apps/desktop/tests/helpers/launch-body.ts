@@ -42,7 +42,7 @@ const TEST_BODY_PHASE = "the launched console's test body";
 /**
  * The bound one in-window step gets before the console is called stopped.
  *
- * A surface mounting, an overlay opening, a durable write landing: each is a
+ * A view mounting, an overlay opening, a durable write landing: each is a
  * store update and a React commit, or one IndexedDB round trip — sub-second work
  * on any runner. So this bounds a console that has STOPPED responding rather than
  * one that is being slow, and it is deliberately one figure for the class rather

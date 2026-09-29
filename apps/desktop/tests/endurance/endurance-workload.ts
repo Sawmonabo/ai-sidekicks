@@ -8,9 +8,9 @@
 // wait that stopped waiting still passes. The heap itself is read through
 // `heap-instrument.ts`, which measures rather than drives.
 //
-// WHY THE ROUTE WAITS NAME A SURFACE AND NOT THE FRAME
+// WHY THE ROUTE WAITS NAME A SCREEN AND NOT THE FRAME
 //
-// `.meridian-frame` is the window's permanent shell. It is on the page before a
+// `.meridian-frame` is the app's permanent chrome. It is on the page before a
 // route change and still there after, so a wait on it returns immediately and
 // the next navigation can land before React has mounted anything — which is a
 // churn loop that reports clean heap growth precisely because it never performed
@@ -19,23 +19,21 @@
 // So each transition waits on something only its own destination renders, and
 // the two locators below are asserted route-EXCLUSIVE by
 // `steady-state.test.ts` — the assertion that fails the day either one goes back
-// to naming the shell.
+// to naming the frame.
 //
 // Both are production markup, and neither is a test-only attribute added to the
 // renderer to make this observable.
 //
-// Each locator names a STRUCTURE only its own route mounts, and both routes have
-// shipped their surface now. The settings destination is the settings frame, so its
-// locator is that frame's own section rail; the session screen is the transcript, so
-// its locator is the scroll container the whole surface is built around. Neither was
-// always so: each was an absence class while its surface was a reserved slot, and the
-// pair stopped being route-exclusive the moment either family shipped — the transcript
-// renders its own `empty` when a session has no rows yet, and the settings pages
-// render `not-checked` absences of their own.
+// Each locator names a STRUCTURE only its own route mounts. The settings destination is
+// the settings frame, so its locator is that frame's own section rail; the session screen
+// is the transcript, so its locator is the scroll container the whole screen is built
+// around. An absence class would not do: neither is route-exclusive, because the
+// transcript renders its own `empty` when a session has no rows yet, and the settings
+// pages render `not-checked` absences of their own.
 //
-// When either surface changes shape, its locator stops matching and this tier fails
+// When either screen changes shape, its locator stops matching and this tier fails
 // on a wait timeout naming the selector. That is the right direction: a driver that
-// can no longer see the surface it drives should stop, not continue measuring an
+// can no longer see the screen it drives should stop, not continue measuring an
 // unobserved loop.
 
 import { expect } from "vitest";
@@ -90,15 +88,15 @@ export const SETTINGS_ROUTE: string = "#/settings";
 /**
  * What the settings route renders and the session screen does not.
  *
- * Anchored under the frame's screen slot, so an element of the same class mounted
- * in the rail, a banner, or an overlay cannot satisfy the wait for a surface that
+ * Anchored under the frame's screen region, so an element of the same class mounted
+ * in the rail, a banner, or an overlay cannot satisfy the wait for a screen that
  * never mounted.
  *
- * The section rail rather than one of the surface's absences: the pages inside the
+ * The section rail rather than one of the screen's absences: the pages inside the
  * settings frame render absences of their own — several of them `not-checked`,
  * because the reads behind them are unregistered — so an absence-kind selector here
  * would no longer be route-exclusive against the session screen's. The rail is the one
- * piece of markup that exists if and only if this surface mounted.
+ * piece of markup that exists if and only if this screen mounted.
  */
 export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-settings__rail";
 
@@ -113,14 +111,14 @@ export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridi
  * that box is a container whose children are all conditional, so before the session's
  * first read settles it holds a virtualized list with nothing in it and has no box at
  * all. It satisfied a visibility wait only because the rail beside the window drew an
- * unconditional strip — a wait that passed on the presence of a surface it was not
+ * unconditional strip — a wait that passed on the presence of an element it was not
  * asking about. The pane is the element the ROUTE mounts, which is the claim this
  * constant is making.
  */
 export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-pane--transcript";
 
 /**
- * One transcript row, anchored under the frame's surface.
+ * One transcript row, anchored under the frame's screen region.
  *
  * The PANE says the session screen mounted; a ROW says the projection, the window
  * fold and the viewport's reconcile have all run and something is on screen. The
@@ -131,7 +129,7 @@ export const TRANSCRIPT_ROW_SELECTOR: string =
   ".meridian-frame__screen .meridian-transcript-row-layout";
 
 /**
- * Assign the hash and wait for the surface only that route mounts.
+ * Assign the hash and wait for the screen only that route mounts.
  *
  * The wait carries `IN_WINDOW_STEP_TIMEOUT_MS` — a route change is a store update
  * and one React commit, so that figure bounds a console that has STOPPED
@@ -144,12 +142,12 @@ export const TRANSCRIPT_ROW_SELECTOR: string =
 async function openRoute(
   consoleApplication: AppUnderTest,
   hash: string,
-  surfaceSelector: string,
+  screenSelector: string,
 ): Promise<void> {
   await consoleApplication.window.evaluate((targetHash: string) => {
     globalThis.location.hash = targetHash;
   }, hash);
-  await consoleApplication.window.locator(surfaceSelector).waitFor({
+  await consoleApplication.window.locator(screenSelector).waitFor({
     state: "visible",
     timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
   });
@@ -208,7 +206,7 @@ export async function readPlayingScenarioId(
  * How many events the store for one session has ADMITTED, or `null`.
  *
  * Admitted to the apply chokepoint, which is a different number from the beats
- * the engine delivered and from anything a timeline is long. That is why both are
+ * the engine delivered and from the transcript's row count. That is why both are
  * read: they answer different questions, and this one answers whether a stream
  * reached this window's stores at all.
  */
@@ -245,8 +243,8 @@ export async function readBoundSessionIds(
  * THE ROW COUNT IS HERE BECAUSE THE ROUTE WAIT STOPPED CARRYING IT. The session screen
  * wait names the transcript PANE, which mounts its chrome whether or not the transcript
  * inside it ever draws a row — so a run whose transcript never mounted churns the whole
- * loop, waits successfully every time, and reports clean heap growth over a surface
- * that is not there. The pane says the route arrived; this says the surface under it
+ * loop, waits successfully every time, and reports clean heap growth over a transcript
+ * that is not there. The pane says the route arrived; this says the transcript under it
  * came up.
  */
 export interface ChurnCycleReading {
@@ -278,7 +276,7 @@ export async function churnOnce(
   advanceMilliseconds: number,
 ): Promise<ChurnCycleReading> {
   const consoleWindow = consoleApplication.window;
-  // Through the shared door, which waits for the input to hold focus before this
+  // Through the shared palette helper, which waits for the input to hold focus before this
   // returns. Typing into an unfocused palette is silent here rather than red — the
   // keystrokes go to the document, the filter never runs, and the cycle reports a
   // clean churn over machinery it did not touch. That is the worse failure of the
@@ -287,7 +285,7 @@ export async function churnOnce(
   await consoleWindow.keyboard.type("Go to");
   await closePalette(consoleApplication);
 
-  // Route changes mount and unmount the surface subtree through the error
+  // Route changes mount and unmount the screen subtree through the error
   // boundary's keyed remount — the path most likely to strand a listener. One of
   // the two routes is the scenario's own session, so the cycle also opens and
   // re-reads the store the beats are landing in.

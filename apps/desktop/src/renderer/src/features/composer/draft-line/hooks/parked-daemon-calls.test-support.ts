@@ -1,8 +1,8 @@
 // Send calls that park until the case settles them.
 //
-// A scripted answer arrives on its own schedule, which suits "what does this surface
+// A scripted answer arrives on its own schedule, which suits "what does this composer
 // do with the reply" and not "what does it do while the reply is still traveling":
-// a call issued under one address, completing after the surface has moved to another.
+// a call issued under one address, completing after the composer has moved to another.
 // Parking the call puts the case in charge of that interval.
 //
 // The transport the held state belongs to is the shipped fixture and not a cast
@@ -13,9 +13,7 @@
 // settle-by-method helper would answer the wrong call the first time one case issued
 // the same method twice.
 //
-// It sits in the composer family and not under `test/console/` because the renderer
-// project compiles under `rootDir: apps/desktop/src`, so a renderer file cannot import
-// from `apps/desktop/test/...`.
+// It sits beside the send controller's settlement suite, the one suite that parks a call.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";

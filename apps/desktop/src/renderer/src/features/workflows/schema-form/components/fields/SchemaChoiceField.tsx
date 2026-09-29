@@ -8,7 +8,7 @@
 //
 // AN ENUM MEMBER IS A WIRE VALUE AND WEARS THE SIGNATURE. It is the string the engine
 // stores and the phase is answered with, not prose about it, so the options are set in
-// mono like every other wire figure on a console surface. The boolean pair is named rather
+// mono like every other wire figure on screen. The boolean pair is named rather
 // than spelled `true` and `false` — a person answers a yes-or-no question with a word, and
 // the value it carries is the option's own and never its text.
 //

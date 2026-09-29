@@ -1,21 +1,21 @@
 // The console's declaration of a workflow definition's own BODY — the shapes the
 // definition read, the version read, and the authoring write carry.
 //
-// OWNER. The workflow plane owns the three operations; the typed request and reply
+// OWNER. The workflow engine owns the three operations; the typed request and reply
 // shapes are registered in the payload contracts and every vocabulary below is
 // transcribed from that registry rather than re-derived from prose.
 //
 // WHY THIS IS A SIBLING OF `workflow-projection.ts` RATHER THAN MORE OF IT. That
 // module declares what a RUN looks like — states, parks, gates, the summary a picker
-// ranks — and it moves when the run plane moves. This one declares what a DEFINITION
+// ranks — and it moves when the run shapes move. This one declares what a DEFINITION
 // is made of: phase records, gate types, the entry node, the tool bindings a phase
-// references. The two are read by different surfaces and change for different
+// references. The two are read by different views and change for different
 // reasons, and holding them in one module took it past the size a reader can carry.
 //
-// WHY THE VOCABULARIES ARE TUPLES. Same rule the run plane already keeps: the tuple is
+// WHY THE VOCABULARIES ARE TUPLES. Same rule the run shapes already keep: the tuple is
 // the declaration and the union derives from it, so a fifth phase type is an amendment
 // to the owning document rather than a string a component invents. The three that a
-// surface renders a label for are read through a table keyed by the union, so a widened
+// view renders a label for are read through a table keyed by the union, so a widened
 // vocabulary is a compile error at the label rather than a blank cell. The count is
 // deliberately not written down: it moved the first time a start mode needed the same
 // treatment, and a number in a header is a claim nothing reads.
@@ -29,19 +29,19 @@
 //
 // DELETION OBLIGATION. When `packages/contracts` registers these types this module is
 // DELETED and its importers take them from the contracts package instead — the
-// obligation `workflow-projection.ts` states for the run plane.
+// obligation `workflow-projection.ts` states for the run shapes.
 
 import type { WorkflowDefinitionScope } from "./workflow-projection.js";
 
 /**
  * The scope-qualified MCP server binding a phase's tool reference names.
  *
- * THE MCP PLANE'S SHAPE, DECLARED HERE BECAUSE THE WORKFLOW BINDING COMPOSES IT AND
- * NO CODE PACKAGE CARRIES EITHER. The payload contracts fix the union, and
+ * THE MCP SERVER BINDING'S SHAPE, DECLARED HERE BECAUSE THE WORKFLOW BINDING COMPOSES
+ * IT AND NO CODE PACKAGE CARRIES EITHER. The payload contracts fix the union, and
  * `WorkflowToolBinding` composes it by reference rather than restating its
  * members — a flat restatement would admit the `(codex, local)` combination the union
  * rejects at the schema layer. This is the console's one home for it: the MCP
- * governance surface takes it from here when it lands rather than declaring a second.
+ * governance settings take it from here when they land rather than declaring a second.
  *
  * `local` is admissible only with `claude`, and `user` carries no `scopeRef` at all —
  * which is why this is three arms and not one shape with two optional members.
@@ -83,7 +83,7 @@ export const MCP_BINDING_SCOPES = ["user", "project", "local"] as const;
  * A phase's tool binding: a REFERENCE, and never a policy.
  *
  * Two members and exactly two. It carries no `enabled`, no `approvalMode` and no
- * `idempotencyClass` — those three are node-operator surface resolved live at phase
+ * `idempotencyClass` — those three are node-operator settings resolved live at phase
  * launch, and a definition carrying one is rejected at parse rather than ignored at
  * launch, so an imported definition cannot smuggle a weakened posture onto a machine.
  * The console renders the pair and derives nothing from it.
@@ -121,7 +121,7 @@ export type WorkflowFailureBehavior = (typeof WORKFLOW_FAILURE_BEHAVIORS)[number
  *
  * Required exactly when a phase is a join — a `dependsOn` list carrying more than one
  * id — and refused on a phase that is not. The wire and the store never default it,
- * so an authoring surface writes the `fail-fast` default into what it submits.
+ * so an authoring form writes the `fail-fast` default into what it submits.
  */
 export const WORKFLOW_PARALLEL_JOIN_POLICIES = ["fail-fast", "all-settled", "any-success"] as const;
 
@@ -156,7 +156,7 @@ export interface WorkflowPhaseDefinition {
 /**
  * The entry node's record: a single-value structure and deliberately not a union.
  *
- * No `schedule`, `event` or `webhook` arm is declared at V1, so no surface draws one —
+ * No `schedule`, `event` or `webhook` arm is declared at V1, so no view draws one —
  * greyed or otherwise. A stored definition always carries exactly one of these,
  * because the daemon materializes it when an authoring request omitted it.
  */

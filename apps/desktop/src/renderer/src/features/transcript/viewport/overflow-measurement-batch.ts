@@ -2,7 +2,7 @@
 // the pass measures.
 //
 // The transcript clamps rows, and a clamped row's real height is knowable only after
-// layout. Three unrelated things want that re-measured — the surface resized, a
+// layout. Three unrelated things want that re-measured — the scroll container resized, a
 // webfont swapped, a caller asked outright — and each can fire several times in one
 // frame. Running the pass per trigger reads a layout the browser has not settled
 // and pays for the read once per trigger; this batch turns all three into one pass.
@@ -13,7 +13,7 @@
 //   • Batching is not scrolling. A scroll fires none of these triggers, so the
 //     arming, the single-frame coalescing, and the cancellation are one idea that
 //     none of the chokepoint's four decisions contains.
-//   • It carries NO domain type. The geometry and the surface are the chokepoint's
+//   • It carries NO domain type. The geometry and the scroll container are the chokepoint's
 //     vocabulary and the chokepoint imports this module, so an import back would be
 //     the cycle the layering gate refuses. What the pass does is a `() => void` the
 //     caller closes over, and the observed subject is narrowed to an element here —
@@ -90,8 +90,8 @@ export class OverflowMeasurementBatch {
   /**
    * Re-run the pass whenever the observed subject resizes.
    *
-   * Typed as `object` rather than as the caller's surface: this module has no
-   * business knowing what a scroll surface is, and the only property it needs is
+   * Typed as `object` rather than as the caller's scroll container: this module has no
+   * business knowing what a scroll container is, and the only property it needs is
    * the one the narrowing below establishes — that the subject happens to be an
    * element the platform can observe. A subject that is not one, which is what a
    * unit tier drives, is skipped rather than handed to an observer that could never

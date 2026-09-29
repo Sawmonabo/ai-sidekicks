@@ -29,9 +29,7 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { PageTabStrip } from "@renderer/features/preview/components/PageTabStrip.js";
 import { threePreviewPages } from "@renderer/features/preview/page-list-reading.test-support.js";
 import { PAGE_TAB_DRAG_MEDIA_TYPE } from "@renderer/features/preview/tab-reorder.js";
-// The family door, imported for its side effect: this package puts a family's
-// stylesheet behind its own barrel and nowhere else, and two of the cases below are
-// about what that stylesheet computes to.
+// The preview feature's pane registration, imported for its side effect.
 import "@renderer/features/preview/contributions/panes.js";
 
 /**
@@ -121,11 +119,11 @@ describe("dragging a tab, against the browser's own drag store", () => {
 
     expect(await dispatchDrag(strip.tabs[2] as HTMLElement, "dragover", transfer)).toBe(true);
     await dispatchDrag(strip.tabs[2] as HTMLElement, "drop", transfer);
-    // Slot 2 among three drawn tabs, with the dragged tab taken out, is index 1.
+    // Position 2 among three drawn tabs, with the dragged tab taken out, is index 1.
     expect(strip.reordered).toEqual([{ pageId: "page-a", toIndex: 1 }]);
   });
 
-  it("paints the drop marker on the slot the drag is over, and only while it is", async () => {
+  it("paints the drop marker on the tab the drag is over, and only while it is", async () => {
     const strip = await mountStrip();
     const transfer = new DataTransfer();
     await dispatchDrag(strip.tabs[0] as HTMLElement, "dragstart", transfer);

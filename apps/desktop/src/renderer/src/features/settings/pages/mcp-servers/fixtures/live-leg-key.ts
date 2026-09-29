@@ -7,7 +7,7 @@
 // `bindingId` under two different `sessionId`s — which is exactly why both leg shapes
 // name both members. A list keyed on `bindingId` alone gives those two rows ONE React
 // identity, and React then reuses the wrong row the moment a leg is added, removed, or
-// reordered: one session's status renders beside the other session's id, on a surface
+// reordered: one session's status renders beside the other session's id, in a list
 // whose whole reason for keeping the per-leg grain is that two legs may honestly
 // disagree.
 //
@@ -19,7 +19,7 @@
 // HERE RATHER THAN INSIDE EITHER LIST, because two of them render a leg: the per-binding
 // legs on a row, and the per-leg outcomes a mutation answers with. Two spellings would
 // drift the moment a member moved, and the two lists would then key one leg two ways.
-// It stays inside this shell rather than beside the leg SHAPES, because both readers are
+// It stays here rather than beside the leg SHAPES, because both readers are
 // this directory's.
 
 import { structuralKey } from "@renderer/lib/structural-key.js";

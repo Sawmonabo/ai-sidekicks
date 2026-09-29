@@ -39,7 +39,7 @@ describe("OverlayDialogPopup — the accessible name, however the caller supplie
     expect(popup.hasAttribute("aria-label")).toBe(false);
   });
 
-  it("takes the label where the surface heads its popup with an ordinary element", () => {
+  it("takes the label where the caller heads its popup with an ordinary element", () => {
     render(
       <Dialog.Root open modal="trap-focus">
         <OverlayDialogPopup backdropClassName="backdrop" className="popup" label="Command palette">
@@ -54,7 +54,7 @@ describe("OverlayDialogPopup — the accessible name, however the caller supplie
   it("negative control: a label beside a title is inert, and the title is the name", () => {
     // Without this the rule above would be a preference. `aria-labelledby` wins the
     // accessible-name computation, so the label is carried on the element and read by
-    // nothing — which is exactly why the surfaces that mount a title pass none.
+    // nothing — which is exactly why the callers that mount a title pass none.
     render(
       <Dialog.Root open modal="trap-focus">
         <OverlayDialogPopup

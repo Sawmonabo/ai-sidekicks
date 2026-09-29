@@ -2,15 +2,12 @@
 // carries in both directions.
 //
 // WHY A REGISTRY AND NOT A PARSE AT EACH CALL SITE. `PlatformBridge.daemon.call`
-// is one generic door: a branded method name in, `unknown` out, until the daemon
+// is one generic call: a branded method name in, `unknown` out, until the daemon
 // lands its own method-to-result mapping. Every caller therefore has to widen the
 // signature and then narrow the reply, and a caller that widens and forgets to
-// narrow gets a fulfilled promise carrying `unknown` — which reads as success. The
-// console has already shipped that mistake in three independent shapes: a reply
-// cast to the response type with no parse at all, a mutation typed `void` whose
-// registered reply carries members the surface needed, and a per-family helper that
-// parsed correctly and had to be written a third time to do it. One table, keyed by
-// method name, is what makes the parse unskippable rather than merely available.
+// narrow gets a fulfilled promise carrying `unknown` — which reads as success. One
+// table, keyed by method name, is what makes the parse unskippable rather than
+// merely available.
 //
 // THE SET IS CLOSED, AND IT IS CLOSED TWICE OVER. `RegisteredDaemonMethodContract`
 // enumerates the methods; `DAEMON_METHOD_BINDINGS` is annotated as a total
@@ -18,11 +15,11 @@
 // not compile — a missing key is a missing-property error and a stray key is an
 // excess-property error on the object literal. That is deliberately a COMPILE-time
 // claim: a registry that answered `undefined` for an unknown method would push the
-// failure to whichever surface called it first, at runtime, on the one path nobody
+// failure to whichever caller reached it first, at runtime, on the one path nobody
 // exercises.
 //
-// WHAT IS IN THE SET, STATED AS AN ADMISSION RULE. A method belongs here when a
-// console surface calls it, the daemon registers a handler for it, and
+// WHAT IS IN THE SET, STATED AS AN ADMISSION RULE. A method belongs here when the
+// console calls it, the daemon registers a handler for it, and
 // `@ai-sidekicks/contracts` publishes BOTH its request and its response shape. Each
 // conjunct does work. Without the third there is nothing to parse against and the
 // registry would be inventing shapes. Without the second the client would list a call

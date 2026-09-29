@@ -17,8 +17,8 @@
 // `integer` KEEPS ITS STEP OF ONE, and that is the same rule arriving earlier rather
 // than a second authority: the platform's whole-number constraint and the schema's
 // `integer` say one thing, so a control that refuses `1.5` refuses exactly what the
-// compiled validator refuses. A declared `multipleOf` is the same shape of rule and
-// takes the same seat: the schema expressed a step, the validator enforces it, and the
+// compiled validator refuses. A declared `multipleOf` is the same shape of rule and is
+// handled the same way: the schema expressed a step, the validator enforces it, and the
 // control stepping by it refuses nothing the verdict would not. Everything the control
 // and the validator do NOT share — requiredness, ranges, enum membership — stays the
 // validator's alone.

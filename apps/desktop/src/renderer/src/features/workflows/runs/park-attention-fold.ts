@@ -25,9 +25,9 @@
 //
 // THE FOLD GATES NOTHING. It is a reading for a person, not an input to a control:
 // cancel, resume, re-pin and start are the daemon's adjudications and an attention
-// entry never suppresses, delays, or enables one. Nor does it notify — this surface
-// mints no OS notification, which is the notifications surface's to decide and not a
-// run list's.
+// entry never suppresses, delays, or enables one. Nor does it notify — the run list
+// mints no OS notification; whether one is raised is decided by notifications, not by
+// a run list.
 //
 // ORDER IS FIRST ENCOUNTER OVER ROWS THE PROJECTION ALREADY SORTED. The rows arrive
 // newest first, so walking them gives a stable order with no second comparator to
@@ -38,7 +38,7 @@ import type { WorkflowParkedPhase, WorkflowParkReason } from "./run-list-rows.js
 import { parkAwaitsPerson } from "./run-list-rows.js";
 
 /**
- * One line of the attention surface: either a correlated wait, or one park the engine
+ * One line of the run list's attention list: either a correlated wait, or one park the engine
  * could not correlate.
  *
  * TWO ARMS RATHER THAN ONE SHAPE WITH AN OPTIONAL KEY, because the two are different
@@ -67,8 +67,8 @@ export interface WorkflowFoldedParks {
    * The park reasons folded here, distinct and in first-encounter order.
    *
    * Carried rather than assumed: the key is minted for provider-capacity waits in
-   * practice, but the wire admits it on any parked phase, and a surface that hard-
-   * coded one reason would mislabel the day the engine correlates the other. A reader
+   * practice, but the wire admits it on any parked phase, and a list that hard-coded
+   * one reason would mislabel the day the engine correlates the other. A reader
    * naming the reasons reads them off this.
    */
   readonly parkReasons: readonly WorkflowParkReason[];
@@ -78,7 +78,7 @@ export interface WorkflowFoldedParks {
    * ANY rather than ALL, which is the fail-closed direction: an entry standing for
    * six waits, one of which needs somebody, needs somebody. The per-park reading is
    * `parkAwaitsPerson`'s and is not remade here — the badge, the phase node and this
-   * entry all spend amber on the same answer, which is what keeps two surfaces from
+   * entry all spend amber on the same answer, which is what keeps any two of them from
    * disagreeing about one phase.
    */
   readonly awaitsPerson: boolean;
@@ -110,30 +110,32 @@ export function foldParkAttention(
   runParks: readonly WorkflowRunParks[],
 ): readonly WorkflowParkAttentionEntry[] {
   const accumulatorsByKey = new Map<string, ParkAttentionAccumulator>();
-  // One slot per entry, in first-encounter order. A fold's slot holds the ACCUMULATOR
-  // rather than its key, so the settling pass below needs no second lookup and has no
-  // absent case to answer for — a key written into a slot is a key already in the map,
-  // and a `Map.get` there would have made that invariant something to re-check.
-  const slots: (WorkflowUncorrelatedPark | ParkAttentionAccumulator)[] = [];
+  // One pending entry per line, in first-encounter order. A fold's pending entry is
+  // its ACCUMULATOR rather than its key, so the settling pass below needs no second
+  // lookup and has no absent case to answer for — a key pushed here is a key already in
+  // the map, and a `Map.get` there would have made that invariant something to re-check.
+  const pendingEntries: (WorkflowUncorrelatedPark | ParkAttentionAccumulator)[] = [];
   for (const { workflowRunId, parkedPhases } of runParks) {
     for (const parked of parkedPhases) {
       const { parkAttentionKey } = parked.park;
       if (parkAttentionKey === undefined) {
-        slots.push({ kind: "uncorrelated", workflowRunId, parked });
+        pendingEntries.push({ kind: "uncorrelated", workflowRunId, parked });
         continue;
       }
       let accumulator = accumulatorsByKey.get(parkAttentionKey);
       if (accumulator === undefined) {
         accumulator = new ParkAttentionAccumulator(parkAttentionKey);
         accumulatorsByKey.set(parkAttentionKey, accumulator);
-        slots.push(accumulator);
+        pendingEntries.push(accumulator);
       }
       accumulator.admit(workflowRunId, parked);
     }
   }
   // Settled only once every park has been admitted, so an entry's count is the whole
-  // fold rather than however much of it had been walked when its slot was taken.
-  return slots.map((slot) => (slot instanceof ParkAttentionAccumulator ? slot.settle() : slot));
+  // fold rather than however much of it had been walked when its entry was placed.
+  return pendingEntries.map((pending) =>
+    pending instanceof ParkAttentionAccumulator ? pending.settle() : pending,
+  );
 }
 
 /**

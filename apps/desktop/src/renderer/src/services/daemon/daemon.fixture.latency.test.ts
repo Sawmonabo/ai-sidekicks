@@ -62,7 +62,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
 
     await crossMacrotaskBoundary();
     // The whole point of a scripted latency: there is a window in which the
-    // surface is loading. A reply that resolved on the calling turn has none.
+    // view is loading. A reply that resolved on the calling turn has none.
     expect(settled).toBe(false);
     expect(fixture.engine.pendingReplyCount).toBe(1);
 
@@ -104,7 +104,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
     fixture.engine.dispose();
 
     // Settled rather than left hanging: a promise nobody can ever resolve is a
-    // surface stuck on its loading state for the life of the window.
+    // view stuck on its loading state for the life of the window.
     await expect(pending).rejects.toBeInstanceOf(FixtureBridgeError);
     await expect(pending).rejects.toMatchObject({
       refusal: { code: "reply-abandoned", origin: "fixture-bridge" },

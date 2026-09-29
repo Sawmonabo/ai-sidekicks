@@ -1,4 +1,4 @@
-// What every suite in this family needs before it can assert anything: the shared
+// What every suite in the workflows feature needs before it can assert anything: the shared
 // identities, a definition-row factory, one `settle` boundary, and the runs the suites read.
 //
 // `settle` is one `act` boundary awaiting a macrotask boundary rather than a count of
@@ -37,7 +37,7 @@ export function definition(overrides: Partial<WorkflowDefinitionRow> = {}): Work
   };
 }
 
-/** Let every read a surface put reach its own settlement, so an assertion is about answers. */
+/** Let every read the rendered tree put settle, so an assertion is about answers. */
 export async function settle(): Promise<void> {
   await act(async () => {
     await crossMacrotaskBoundary();

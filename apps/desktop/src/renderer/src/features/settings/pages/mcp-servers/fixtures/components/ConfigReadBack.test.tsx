@@ -12,7 +12,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 
-/** Indexed off the entry rather than imported: the config view has no door of its own. */
+/** Indexed off the entry rather than imported: the config view has no exported type of its own. */
 type McpServerConfigView = McpServerInventoryEntry["config"];
 
 afterEach(() => {

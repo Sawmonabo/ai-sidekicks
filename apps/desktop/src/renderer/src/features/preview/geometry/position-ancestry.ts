@@ -12,7 +12,7 @@
 //
 //   • WHO the ancestry is — every box whose relayout carries this element.
 //   • WHO IS BESIDE IT — the siblings whose intrinsic size can grow and push it.
-//   • THE CHILD LISTS MOVING — a pane layout reordering its seats.
+//   • THE CHILD LISTS MOVING — a pane layout reordering its panes.
 //   • THE LAYOUT ATTRIBUTES CHANGING — a width written in one step, which animates
 //     nothing and so is heard by no motion source at all.
 //

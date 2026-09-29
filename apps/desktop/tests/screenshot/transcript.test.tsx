@@ -1,26 +1,26 @@
-// The screenshot tier's transcript arm: the app's signature surface, captured.
+// The screenshot tier's transcript arm: the app's signature view, captured.
 //
 // Two captures. The whole window with the concurrent-streaming session loaded, in both
 // schemes: its claim is a composition (the rail, the session header, the pane layout,
 // the run groups and the agent hues all true at once), which a shot cropped to the
 // transcript's box would miss. It is that scenario because it carries every signature
-// surface at one tick: several runs streaming in their own hues, an approval asked and
+// state at one tick: several runs streaming in their own hues, an approval asked and
 // granted mid-stream, a run parked on a provider quota with its reset instant, a child
 // run threaded to the turn that spawned it, and the committed cost figure.
 //
 // And the empty-session transcript's own region: a session with a roster and an empty
 // log is the one kind of nothing a scripted stream can never reach, and its claim is
-// the copy and shape of an absence, a surface rather than a composition.
+// the copy and shape of an absence, a single view rather than a composition.
 //
 // Each capture is preceded by assertions, because a screenshot of an empty transcript
 // is a perfectly stable image. The loaded arm asserts the window plays the named
 // scenario, every beat reached it, and rows are on screen; the empty arm asserts no beat
 // reached it and the empty sentence is on screen, which a mount alone cannot show,
-// since a window whose first read has not landed draws loading shells.
+// since a window whose first read has not landed draws skeleton rows.
 //
 // `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
 // `__screenshots__/` and compared against nothing, so this file gates on whether each
-// surface can be captured at all.
+// view can be captured at all.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -61,7 +61,7 @@ interface TranscriptMount {
    *
    * The SAME element the mount wait above observes, rather than a second selector
    * for the same box: a capture element resolved independently of the wait could
-   * name a surface the wait never guaranteed had arrived, and the two would drift.
+   * name an element the wait never guaranteed had arrived, and the two would drift.
    */
   readonly transcriptBody: Element;
 }
@@ -77,7 +77,7 @@ interface TranscriptMount {
  *
  * The wait is the harness's, and it names the TRANSCRIPT's scroll container rather than
  * the frame, which is the whole reason it is a wait at all: the frame is the
- * window's permanent shell and is on the page from the first commit, so a wait on it
+ * app's permanent chrome and is on the page from the first commit, so a wait on it
  * hands back a console whose session route has not resolved yet. It observes the
  * MOUNT rather than the arrival of content, which is what the empty-state capture
  * needs it to observe.
@@ -161,8 +161,8 @@ describe("screenshot — the transcript's empty state", () => {
 
     // The same walk the pair above takes, over a script that plays nothing. What it
     // is here for is the OTHER thing a walk does: the window's own first read is
-    // armed on this frozen clock, and an unwalked mount photographs twelve loading
-    // shells — a session whose emptiness the console has not been told yet, which is
+    // armed on this frozen clock, and an unwalked mount photographs twelve skeleton
+    // rows — a session whose emptiness the console has not been told yet, which is
     // a different picture and a different claim from the one this capture is named
     // for.
     const deliveredBeatCount = await walkScenarioToFrozenTick(
@@ -197,7 +197,7 @@ describe("the transcript mount wait", () => {
 
   // The negative control for the deadline above. Every capture in this file is
   // taken through a wait that reports an absent body, and a wait that cannot
-  // report one is a wait that reports every surface as present — so this drives
+  // report one is a wait that reports every body as present — so this drives
   // the real `awaitSessionRouteMounted` against a route that mounts none and
   // asserts the refusal, which is the one path the three captures never take.
   //
@@ -216,7 +216,7 @@ describe("the transcript mount wait", () => {
     expect(
       container.querySelector(SESSION_ROUTE_BODY_SELECTOR),
       "the session directory mounted a transcript body, so this control is asserting the refusal of a " +
-        "route that in fact reaches the surface and would pass whatever the wait did",
+        "route that in fact reaches the transcript body and would pass whatever the wait did",
     ).toBeNull();
 
     vi.useFakeTimers({ toFake: ["Date"] });

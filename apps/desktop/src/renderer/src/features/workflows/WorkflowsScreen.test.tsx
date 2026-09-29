@@ -7,7 +7,7 @@
 //
 // THE BOARD IS THE COMPOSITION'S AND IS BUILT PER CASE. `registerFeatureContributions` takes a
 // pane registry so a test and an auxiliary window can compose their own, and this screen
-// resolves from the one on its surface context. A suite that registered into the
+// resolves from the one on its screen context. A suite that registered into the
 // process-wide singleton instead would prove only that the screen reads a global.
 
 import { render } from "@testing-library/react";
@@ -102,7 +102,7 @@ describe("the workflows screen — what its list opens", () => {
   });
 
   it("negative control: nothing is opened until something is pressed", async () => {
-    // Without this the case above would pass over a surface that opened a pane on
+    // Without this the case above would pass over a screen that opened a pane on
     // mount, which is a different defect wearing the same assertions.
     const { openedContexts } = renderDestination({ directory: SERVED_DIRECTORY });
     await settle();
@@ -117,25 +117,25 @@ describe("what the workflows screen mounts", () => {
     await settle();
 
     expect(container.querySelector(".meridian-run-row__open")).not.toBeNull();
-    expect(container.querySelector(".meridian-workflows-pane-host")).toBeNull();
+    expect(container.querySelector(".meridian-workflows-open-pane")).toBeNull();
   });
 
   it("swaps the runs for the run pane when a run opens, and goes back", async () => {
-    // The registered body, resolved through the pane layout's own door — so this screen
+    // The registered body, resolved through the pane layout's own lookup — so this screen
     // renders what the pane layout will render and cannot drift from it.
     const container = renderScreen();
     await settle();
 
     pressOpenRun(container);
     await settle();
-    expect(container.querySelector(".meridian-workflows-pane-host")).not.toBeNull();
+    expect(container.querySelector(".meridian-workflows-open-pane")).not.toBeNull();
     expect(container.querySelector(".meridian-run-row__open")).toBeNull();
 
-    pressFirst(container, ".meridian-workflows-pane-host__back");
+    pressFirst(container, ".meridian-workflows-open-pane__back");
     await settle();
 
     expect(container.querySelector(".meridian-run-row__open")).not.toBeNull();
-    expect(container.querySelector(".meridian-workflows-pane-host")).toBeNull();
+    expect(container.querySelector(".meridian-workflows-open-pane")).toBeNull();
   });
 
   it("draws only its back control where the pane kind has no registered body", async () => {
@@ -150,7 +150,7 @@ describe("what the workflows screen mounts", () => {
     pressOpenRun(container);
     await settle();
 
-    expect(container.querySelector(".meridian-workflows-pane-host")?.children).toHaveLength(1);
+    expect(container.querySelector(".meridian-workflows-open-pane")?.children).toHaveLength(1);
   });
 });
 
@@ -218,7 +218,7 @@ describe("which pane board the screen opens out of", () => {
       await settle();
 
       expect(container.textContent).not.toContain(PROCESS_WIDE_RUN_TEXT);
-      expect(container.querySelector(".meridian-workflows-pane-host")?.children).toHaveLength(1);
+      expect(container.querySelector(".meridian-workflows-open-pane")?.children).toHaveLength(1);
     } finally {
       paneRegistry.unregister("workflow-run");
     }
@@ -230,7 +230,7 @@ describe("the pane about to open is warmed before the address is published", () 
     // The ordering IS the claim. Publishing the address re-renders this screen and mounts
     // the pane, and a loader-backed body reached at that mount would show its reserved
     // frame first; one statement earlier, the fetch is already in flight. So the spy
-    // asserts where the screen was when it warmed — the runs still up, the pane host not
+    // asserts where the screen was when it warmed — the runs still up, the open pane not
     // yet in the tree — rather than merely that a warm happened at all.
     const composed = composeWindow();
     const warmedWhileRunsShowing: string[] = [];
@@ -238,7 +238,7 @@ describe("the pane about to open is warmed before the address is published", () 
     await settle();
 
     const preload = vi.spyOn(composed.paneRegistry, "preload").mockImplementation(async (kind) => {
-      if (container.querySelector(".meridian-workflows-pane-host") === null) {
+      if (container.querySelector(".meridian-workflows-open-pane") === null) {
         warmedWhileRunsShowing.push(kind);
       }
       return await Promise.resolve();
@@ -247,13 +247,13 @@ describe("the pane about to open is warmed before the address is published", () 
     await settle();
 
     expect(warmedWhileRunsShowing).toStrictEqual(["workflow-run"]);
-    expect(container.querySelector(".meridian-workflows-pane-host")).not.toBeNull();
+    expect(container.querySelector(".meridian-workflows-open-pane")).not.toBeNull();
     preload.mockRestore();
   });
 
   it("negative control: nothing is warmed while the runs are merely showing", async () => {
     // Without this, both cases above would pass over a screen that warmed every kind on
-    // its board at mount — every loader-backed body fetched for a surface a person may
+    // its board at mount — every loader-backed body fetched for a screen a person may
     // never open a pane from, which is the static import back under another name.
     const composed = composeWindow();
     const preload = vi.spyOn(composed.paneRegistry, "preload");

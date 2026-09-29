@@ -17,7 +17,7 @@ import { SessionEventSubscriber } from "@renderer/services/session-events/sessio
 import { SessionProbe } from "./session-store-hooks.test-support.js";
 
 /** The diagnostics a composition was handed, as the page would hold them. */
-interface DiagnosticsSlot {
+interface DiagnosticsHolder {
   installed: SessionDiagnostics | undefined;
 }
 
@@ -26,13 +26,13 @@ interface DiagnosticsSlot {
  * handed, so a case reads what the hook gave over rather than a page property.
  */
 function compositionHarness(): {
-  readonly slot: DiagnosticsSlot;
+  readonly diagnosticsHolder: DiagnosticsHolder;
   readonly wrapper: (props: { readonly children: ReactNode }) => React.JSX.Element;
 } {
   const { bridge, scenarioEngine } = createFixtureBridge({
     scenario: CONCURRENT_STREAMING_SCENARIO,
   });
-  const slot: DiagnosticsSlot = { installed: undefined };
+  const diagnosticsHolder: DiagnosticsHolder = { installed: undefined };
   const composition: BridgeComposition = {
     createBridge: () => ({
       bridge,
@@ -41,14 +41,14 @@ function compositionHarness(): {
       installHandles: () => () => undefined,
     }),
     installSessionDiagnostics: (diagnostics) => {
-      slot.installed = diagnostics;
+      diagnosticsHolder.installed = diagnostics;
       return () => {
-        slot.installed = undefined;
+        diagnosticsHolder.installed = undefined;
       };
     },
   };
   return {
-    slot,
+    diagnosticsHolder,
     wrapper: function CompositionHost(props: { readonly children: ReactNode }) {
       return (
         <PlatformBridgeProvider
@@ -69,14 +69,14 @@ afterEach(() => {
 
 describe("useSessionStoreRegistry — the window's registry and the binder that feeds it", () => {
   it("mints a binder beside the registry and binds the open session", () => {
-    const { slot, wrapper } = compositionHarness();
+    const { diagnosticsHolder, wrapper } = compositionHarness();
     render(<SessionProbe sessionId="session-bound" onObserve={() => undefined} />, { wrapper });
 
     // Read through what the composition was handed rather than through a returned
     // object, because the hook deliberately does not hand the binder out — this is
     // what the fixture composition puts on the page for the endurance tier, so the
     // case also proves the tier has something to read.
-    const diagnostics = slot.installed;
+    const diagnostics = diagnosticsHolder.installed;
     expect(diagnostics).toBeDefined();
     expect(diagnostics?.openSessionIds()).toEqual(["session-bound"]);
 
@@ -89,7 +89,7 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     // could be ordered any way at all.
     const disposeBinder = vi.spyOn(SessionEventSubscriber.prototype, "dispose");
     const disposeRegistry = vi.spyOn(SessionStoreRegistry.prototype, "disposeAll");
-    const { slot, wrapper } = compositionHarness();
+    const { diagnosticsHolder, wrapper } = compositionHarness();
     const { unmount } = render(
       <SessionProbe sessionId="session-teardown" onObserve={() => undefined} />,
       { wrapper },
@@ -109,7 +109,7 @@ describe("useSessionStoreRegistry — the window's registry and the binder that 
     // down. The order is the assertion.
     expect(binderCallOrder ?? 0).toBeLessThan(registryCallOrder ?? 0);
     // Nothing is left installed once the window is gone.
-    expect(slot.installed).toBeUndefined();
+    expect(diagnosticsHolder.installed).toBeUndefined();
   });
 
   it("negative control: the ordering comparison notices the opposite order", () => {

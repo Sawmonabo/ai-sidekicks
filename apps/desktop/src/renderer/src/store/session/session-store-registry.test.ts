@@ -34,7 +34,7 @@ describe("SessionStoreRegistry — one store per open session", () => {
     const other = registry.open("session-2");
 
     // Two stores for one session would each hold half the stream, and every
-    // surface would render whichever half it was handed.
+    // view would render whichever half it was handed.
     expect(second).toBe(first);
     expect(other).not.toBe(first);
     expect(registry.openCount).toBe(2);

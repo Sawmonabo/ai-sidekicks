@@ -3,7 +3,7 @@
 // SYMMETRIC WITH `JumpToLatest.tsx`, and the symmetry is the design rather
 // than a coincidence. The tail affordance is the way back to rows that arrived while
 // somebody was reading; this is the way back to rows that were never delivered at all,
-// and both sit outside the scroll surface at the end of the log they are about, so
+// and both sit outside the scroll container at the end of the log they are about, so
 // neither is a row and neither moves when the window does.
 //
 // OFFERED ONLY WHILE THERE IS SOMETHING TO READ. An absence names its cause, which is

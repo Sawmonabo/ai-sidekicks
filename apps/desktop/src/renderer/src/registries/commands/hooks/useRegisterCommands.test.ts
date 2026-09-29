@@ -1,7 +1,7 @@
-// What a surface's contribution does to this window's registry, and to the palette.
+// What a component's contribution does to this window's registry, and to the palette.
 //
 // Two claims, and the second is the one a hand-written effect gets wrong. The first
-// is the ordinary lifecycle: rows are in the registry while the surface is mounted
+// is the ordinary lifecycle: rows are in the registry while the component is mounted
 // and gone when it is not. The second is that a contribution SIGNALS — the palette
 // memoizes its search against a revision, so a registration nothing announces is a
 // command a person cannot find — and that a stale mount's teardown never clears a
@@ -19,9 +19,9 @@ import { commandRegistry } from "../window-command-registry.js";
 import { useRegisterCommands } from "./useRegisterCommands.js";
 import type { CommandDefinition } from "../command-types.js";
 
-const OWNER = "command-seat-suite";
+const OWNER = "command-registration-test";
 
-/** One inert command. The seat is about registration, not about what a command does. */
+/** One inert command. The suite is about registration, not about what a command does. */
 function command(id: string): CommandDefinition {
   return {
     id,
@@ -39,7 +39,7 @@ function registeredSuiteIds(): readonly string[] {
     .filter((id) => id.startsWith("suite."));
 }
 
-describe("a surface's command seat", () => {
+describe("a component's command registration", () => {
   it("registers on mount and removes on unmount", () => {
     const commands = [command("suite.one"), command("suite.two")];
     const mounted = renderHook(() => {
@@ -87,8 +87,8 @@ describe("a surface's command seat", () => {
     first.unmount();
   });
 
-  it("leaves a live surface's rows alone when a superseded mount tears down", () => {
-    // Two mounts of one surface, the second arriving before the first goes: the
+  it("leaves a live component's rows alone when a superseded mount tears down", () => {
+    // Two mounts of one component, the second arriving before the first goes: the
     // pane layout can hold two panes of a kind, and development-mode React remounts one.
     // Owner-scoped replace means the second owns the rows, so the FIRST one's
     // cleanup must not take them — which is what a plain effect does, leaving a
@@ -167,7 +167,7 @@ describe("the live-contributor register belongs to the composition, not to the m
     // process shared: a second window — or a second test building its own registry —
     // contributing under the same owner superseded a token it holds no rows for, and
     // the first composition's release then became a permanent no-op. Its rows would
-    // have outlived the surface that owned them with nothing on screen to say so.
+    // have outlived the component that owned them with nothing on screen to say so.
     const firstRegistry = new CommandRegistry();
     const secondRegistry = new CommandRegistry();
     const first = new CommandContributionRegistry(firstRegistry);

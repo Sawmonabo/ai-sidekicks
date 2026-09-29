@@ -4,7 +4,7 @@
 // bundle handler, and the main window. Later work layers Sentry init, the
 // daemon supervisor (`utilityProcess.fork`), the `sidekicks://` DEEP-LINK
 // handler (a different scheme from the renderer's), the auto-updater, the crash
-// reporter, and second-instance focus handling against this same surface.
+// reporter, and second-instance focus handling in this same module.
 //
 // Startup order is load-bearing and is asserted by `startup-order.test.ts`:
 //
@@ -16,7 +16,7 @@
 // A scheme registered after ready is refused by Electron, and a window created
 // before the handler is installed would load against an unhandled scheme. When
 // the crash reporter lands it COMPOSES this order rather than re-authoring it,
-// taking the top-level slot immediately AFTER `registerRendererScheme()` — the
+// taking the top-level position immediately AFTER `registerRendererScheme()` — the
 // one named exception to its own crash-first rule, because Electron pins the
 // registration ahead of ready and the call touches no network, no file, and no
 // crash-relevant state. `startup-order.test.ts` therefore asserts the two

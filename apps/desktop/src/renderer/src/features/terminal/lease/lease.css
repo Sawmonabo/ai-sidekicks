@@ -4,10 +4,10 @@
  * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal color,
  * every value read back out of a custom property.
  *
- * One of the terminal family's three sheets, one per sub-module directory and named
+ * One of the terminal feature's three sheets, one per sub-module directory and named
  * for that directory. Every one is imported from `pane/terminal-pane-body.ts` and from
  * nowhere else, so the bundler sees exactly one edge into each — which is what keeps
- * this family out of the document the operator waits for.
+ * this feature out of the document the operator waits for.
  *
  * The console's design rules govern every rule here:
  *   • one desaturated cyan on the interactive thing, and nothing else. The take
@@ -45,7 +45,7 @@
   gap: var(--meridian-space-2);
 }
 
-/* The one interactive thing on this surface, so the one place cyan is spent — and it
+/* The one interactive thing on the lease line, so the one place cyan is spent — and it
    is spent on the control's BOUNDARY rather than behind its label.
    `--meridian-accent` is a NON-TEXT token: `tokens/tokens.ts` holds it to the 3:1
    control-boundary floor and to nothing more, so a label sitting on it was a text

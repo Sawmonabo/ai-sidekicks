@@ -60,7 +60,7 @@ export function storeThrough(transitionOrdinal: number): SessionStore {
 /**
  * The pane's region, or a raise. One reader, because three suites reach for it.
  *
- * The section is `seats/PaneFrame`'s now, so the query stays on the element
+ * The section is `components/PaneFrame`'s, so the query stays on the element
  * rather than moving to an accessible name: the chrome names a pane by its whole
  * address trail, and a suite mounting the pane with no session and one with a session
  * would then be looking the region up under two different names for the same reason
@@ -79,11 +79,11 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
  *
  * Exported because two suites outside this module mount the pane themselves rather
  * than through `renderPane`: the browser tier's box measurement and its pane layout fill
- * check, which mount the pane inside a sized slot.
+ * check, which mount the pane inside a sized box.
  *
  * The address arm carries no `entity` member: `terminal` is session-scoped, so the
- * union's arm has none and the seat refuses one at this call site. The pane id is the
- * seat's own derivation — `pane-terminal` — because no case here is about which pane
+ * union's arm has none and the type refuses one at this call site. The pane id is the
+ * shared builder's own derivation — `pane-terminal` — because no case here is about which pane
  * this is.
  */
 export function terminalPaneContext(

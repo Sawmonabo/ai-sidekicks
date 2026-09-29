@@ -5,18 +5,18 @@
 // clusters are the ones the cases already formed: this file owns the leaf controls and
 // the values they compose, `SchemaForm.groups.test.tsx` owns the group fieldset, and
 // `SchemaForm.findings.test.tsx` owns where a description and a finding are attached. The
-// collection surface is `SchemaFieldList.test.tsx`; the arm that draws no controls at all
+// collection field list is `SchemaFieldList.test.tsx`; the arm that draws no controls at all
 // is `SchemaJsonEditor.test.tsx`.
 //
 // Driven through the real hook rather than a hand-built state, because the two are one
-// surface: a test that fed the component a fabricated plan would pass with the mapper
+// unit: a test that fed the component a fabricated plan would pass with the mapper
 // deleted. Which is also why the presence cases below read the COMPOSED ANSWER: whether a
 // member is in it is the half a rendered control cannot show.
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { composedAnswer, renderForm } from "./SchemaFormHost.test-support.js";
+import { composedAnswer, renderForm } from "./SchemaFormWithReadout.test-support.js";
 
 afterEach(cleanup);
 

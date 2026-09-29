@@ -272,7 +272,7 @@ export type PaneOpener = (address: PaneAddress, link?: PaneLink) => void;
  * One pane kind's entity scope, for the callers that decide at runtime — the
  * pane layout's validator and a card's open-pane call.
  *
- * The read door onto the table above, so no caller keeps its own copy of a row.
+ * The one reader of the table above, so no caller keeps its own copy of a row.
  */
 export function paneEntityScopeFor(kind: PaneKind): PaneEntityScopeDeclaration {
   return PANE_ENTITY_SCOPES[kind];

@@ -33,11 +33,11 @@ const COMPOSER_KEYBINDING_OWNER = "composer-keybindings";
 /**
  * Contribute the composer's keybindings to a window.
  *
- * Takes the surface rather than reaching for the module-scope one, so a test contributes
- * into a surface it owns.
+ * Takes the registry rather than reaching for the module-scope one, so a test contributes
+ * into a registry it owns.
  */
-export function registerComposerKeybindings(surface: CommandContributionRegistry): void {
-  surface.contribute({
+export function registerComposerKeybindings(registry: CommandContributionRegistry): void {
+  registry.contribute({
     owner: COMPOSER_KEYBINDING_OWNER,
     commands: [],
     keyBindings: [COMPOSER_FOCUS_KEYBINDING],

@@ -30,7 +30,7 @@
 // AND ONE REMOVER IS NOT ENOUGH IF THE KILL WAS REFUSED. The removal used to be
 // a settle-time registration of the harness's own, made after the one the spawn
 // armed — and those run in registration STACK order, so it ran FIRST, removed
-// the directory under a tree whose kill had been refused, and left the door's
+// the directory under a tree whose kill had been refused, and left the spawner's
 // disposer to kill it afterwards with no removal behind it. One spawn argument
 // and one disposer is what closes that; the refusal case below is what makes the
 // retry-then-remove order a property rather than a comment, and the refusal is

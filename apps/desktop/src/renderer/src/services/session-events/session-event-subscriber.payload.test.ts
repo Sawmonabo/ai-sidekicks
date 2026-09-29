@@ -58,7 +58,7 @@ describe("SessionEventSubscriber — the payload boundary", () => {
   it("refuses a delivery that carries every member but the canonical event id", () => {
     // The id is what a later read of this event's body is keyed by, so a payload
     // without one is not an envelope the console can hold. Without this case the
-    // boundary could admit it and leave a row in the store that no surface could
+    // boundary could admit it and leave a row in the store that no view could
     // ever open — and the alternative fix, composing an id from the members that
     // ARE present, would look identical from every other assertion in this file.
     const { registry, binder, engine } = createHarness(

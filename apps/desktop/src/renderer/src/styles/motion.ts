@@ -1,6 +1,6 @@
 // The console's one motion module.
 //
-// Design-language rule 5 fixes what motion may do — settle, never bounce; 120 to 180 ms
+// The design language fixes what motion may do — settle, never bounce; 120 to 180 ms
 // ease-out; a 2 px rise on entrances; a 240 ms line-grow for attribution threads;
 // `prefers-reduced-motion` collapsing everything to opacity — and the console's motion
 // rules fix what may implement it: platform primitives (CSS transitions,
@@ -24,27 +24,23 @@
 // sampler is `spring-sampler.test-support.ts`, which nothing that ships imports.
 // Nothing about the curve is taken on trust: `motion.test.ts` holds the constant to
 // `sampleSpringEasing(CHROME_SETTLE_SPRING)`, so the two cannot drift, and every
-// claim rule 5 makes about the shape is still asserted against the sampler there.
+// claim the motion rule makes about the shape is still asserted against the sampler there.
 //
-// WHY THIS LIVES IN `tokens/` AND CARRIES NO DOM TYPE. `tokens/` is a VOCABULARY
-// family: the assets tier reads it from Node to check the generated sheet against
+// WHY THIS LIVES IN `styles/` AND CARRIES NO DOM TYPE. `styles/` holds VOCABULARY
+// modules: the assets tier reads it from Node to check the generated sheet against
 // the palette it came from, so a module here that names `Document` or `Window`
 // puts types into a program that has neither. Everything below is therefore a plain
 // value, and this module reaches no global, which is also why its own tests need no
 // DOM.
 //
-// WHAT THIS MODULE PUBLISHES IS WHAT THE SHEET SPENDS, AND NOTHING ELSE. The scale
-// and the easing both left `palette.ts`, which answers "what color is this?" and
-// had been answering "how long does this take?" beside it. What did NOT come with
-// them is a reduced-motion allowance vocabulary and a View Transitions wrapper that
-// this branch shipped with no caller: nothing in the console starts a view
-// transition, and reduced motion is collapsed by the generated sheet's own media
-// block rather than read in TypeScript by anybody. They are deleted rather than
-// tagged, and they come back with the surface that needs them — which is also when
-// their shape can be decided against a real caller instead of a guess.
+// WHAT THIS MODULE PUBLISHES IS WHAT THE SHEET SPENDS, AND NOTHING ELSE. There is no
+// reduced-motion allowance vocabulary and no View Transitions wrapper: nothing in the
+// console starts a view transition, and reduced motion is collapsed by the generated
+// sheet's own media block rather than read in TypeScript. Either arrives with the
+// view that needs it, when its shape can be decided against a real caller.
 
 /**
- * Motion durations, in milliseconds. Rule 5: settles, never bounces — 120-180 ms
+ * Motion durations, in milliseconds. Motion settles, never bounces — 120-180 ms
  * for chrome, 240 ms for an attribution thread drawing itself.
  *
  * Here rather than in `palette.ts`, which answers "what color is this?": a

@@ -19,7 +19,7 @@
 // declare this?" — so the reports are RETAINED BY DRIVER and resolved per run, and one
 // driver's declaration never answers for another driver's run.
 //
-// THE READ ITSELF IS THE BRIDGE'S, NOT THIS FAMILY'S. The declaration is addressed at
+// THE READ ITSELF IS THE BRIDGE'S, NOT THE RUN CONTROLS'. The declaration is addressed at
 // the node rather than at a run, so `bridge/driver-capabilities/driver-capability-read.ts`
 // performs one call per bridge and every gate resolves against the readout it hands
 // back. This module keeps which control is gated on which flag, and which driver a RUN
@@ -43,7 +43,7 @@
 //
 // This is a projection of what the daemon DECLARED, never a rule the renderer
 // derives. A control that is offered can still be refused — eligibility belongs to
-// the daemon and reaches the surface as a typed refusal — and this file decides
+// the daemon and reaches the control as a typed refusal — and this file decides
 // only whether a person is shown a button for a capability the driver does not
 // have at all.
 

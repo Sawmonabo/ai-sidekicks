@@ -2,7 +2,7 @@
 //
 // There is one control, so there is no key; the act names no subject that can move
 // underneath the call, so there is no supersession; and neither call changes anything
-// this family holds a copy of, so there is no local application.
+// this feature holds a copy of, so there is no local application.
 //
 // THE THREE STATES ARE THE POINT. A form with a boolean `isSending` renders "nothing
 // happened" and "it worked" identically, and a person who pressed Import and saw the

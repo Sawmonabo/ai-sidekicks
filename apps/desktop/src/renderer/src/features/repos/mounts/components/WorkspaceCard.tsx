@@ -1,6 +1,6 @@
 // One workspace row: its binding, its lifecycle position, and its root.
 //
-// WHAT A ROW CARRIES IS FIXED HERE, because a surface's composition lives in the
+// WHAT A ROW CARRIES IS FIXED HERE, because a view's composition lives in the
 // console's code: exactly
 // what `WorkspaceListResponse` gives — `id`, `repoMountId`, `executionMode`, `state`,
 // `fsRoot?`, `lastError?` — and two of the field notes are rules rather than
@@ -114,7 +114,7 @@ export function WorkspaceCard(props: WorkspaceCardProps): React.JSX.Element {
 
       {workspace.lastError !== undefined ? (
         // The daemon's captured detail, quoted verbatim. Inline on the row it is
-        // about, because a failure that reached a different surface would be a
+        // about, because a failure that reached a different view would be a
         // failure the person reading this row never sees.
         <p className="meridian-workspace-card__last-error" role="status">
           {workspace.lastError}

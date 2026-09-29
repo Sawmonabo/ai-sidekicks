@@ -8,7 +8,7 @@
 // vocabulary with one author is a set that can be closed: one more code cannot be
 // minted at a call site without this list, and so without a reviewer, noticing.
 //
-// `geometry/view-host.ts` carries its own set and its own origin, because a refusal's
+// `geometry/page-host.ts` carries its own set and its own origin, because a refusal's
 // origin is what tells a person which subsystem authored the sentence.
 
 import type { RejectionFallback } from "@renderer/lib/wire-rejection.js";

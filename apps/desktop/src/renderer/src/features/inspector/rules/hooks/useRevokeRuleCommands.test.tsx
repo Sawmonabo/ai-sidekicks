@@ -7,7 +7,7 @@
 // would pass over exactly the drift the shared predicate exists to prevent.
 //
 // The sharpest claim is the one about what a row may NOT do: revocation is
-// irreversible from this surface, so a palette press that reached the wire would be a
+// irreversible from the rules list, so a palette press that reached the wire would be a
 // weaker second path to an act the list made deliberately two-step.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
@@ -60,7 +60,7 @@ function revokeCommandFor(ruleId: string) {
  * A palette press arrives from outside React — the registry holds the callback and
  * the dialog invokes it — so the state it moves is flushed here rather than awaited
  * per case. That is what the palette itself does on a real press; wrapping it once
- * keeps every case below asserting the SETTLED surface rather than a frame of it.
+ * keeps every case below asserting the SETTLED list rather than a frame of it.
  */
 function pressRevokeRow(ruleId: string): void {
   act(() => {

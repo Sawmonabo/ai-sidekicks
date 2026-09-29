@@ -1,6 +1,6 @@
-// One glyph, drawn from the closed family in `tokens/glyphs.ts`.
+// One glyph, drawn from the closed set in `styles/glyphs.ts`.
 //
-// The component's whole job is to make the family's rendering options
+// The component's whole job is to make the set's rendering options
 // non-negotiable. Stroke, caps, joins, fill, and viewBox are baked into each
 // face at compile time by `vitest/icon-compilation.ts` — one normalization over
 // both collections, so a borrowed Tabler face and one of our own arrive at the

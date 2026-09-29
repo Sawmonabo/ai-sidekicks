@@ -32,9 +32,7 @@
 // CONSUMER's to obey: read up from where this user was last acknowledged rather
 // than from the bottom of the window every time. `timeline-resume.ts` decides — and
 // says there which arms are real and why there is no lost-event one — and this entry
-// is what ACTS on the decision, which is the half that was missing. The decision was
-// computed on every read, kept here, forwarded by the registry, and submitted nowhere:
-// the position was decided and the next read still opened wherever it opened before.
+// is what ACTS on the decision, by submitting the position on the next read.
 //
 // SO THE CURSOR RIDES THE READ, AND THE READ IS THE ONE THAT ALREADY HAPPENS. The
 // resume position is the third argument of `SessionSnapshotReader`, supplied from the
@@ -46,14 +44,14 @@
 // cursor answers `event.cursor_unresolvable`, and the entry does three things in one
 // act rather than silently falling back: it forgets the position, it re-reads the
 // window from its beginning through the same reader, and it RECORDS the refusal so the
-// surface says the remembered position could not be resumed. The refusal is not
+// view says the remembered position could not be resumed. The refusal is not
 // permanent — the next completed read settles whatever the daemon then acknowledges —
 // and the cursor that was refused is remembered so the very next read does not submit
 // it again, which would cost two reads per refresh for as long as it stayed refused.
 //
-// WHY THE DECISION CARRIES ITS OWN NOTIFICATION. It used to ride the store's revision
-// bump on the claim that a completed read writes the decision AND calls `initialize`
-// in the same tick. That pairing is not sound and the refusal path is where it breaks:
+// WHY THE DECISION CARRIES ITS OWN NOTIFICATION. The store's revision bump cannot carry
+// it, even though a completed read writes the decision AND calls `initialize` in the
+// same tick. That pairing is not sound and the refusal path is where it breaks:
 // `initialize` consults `admitsSnapshotAt`, which REFUSES a snapshot behind the store's
 // cursor — and the re-read after a refused position answers at the beginning of the
 // window, which is exactly behind it. So the read completes, the decision settles, the
@@ -124,7 +122,7 @@ export interface OpenSessionEntryOptions {
    * subscribe to the decision rather than to a store transition that may not happen.
    *
    * A callback the registry supplies rather than an emitter of this entry's own: the
-   * fan-out belongs to the object surfaces already hold, and an emitter per open
+   * fan-out belongs to the object views already hold, and an emitter per open
    * session would be one subscription per session per reading for a fact every
    * reading answers by asking the registry anyway.
    */
@@ -160,7 +158,7 @@ export class OpenSessionEntry {
    *
    * Held apart from the decision above because the two answer different questions and
    * diverge on exactly one path: after a refused position the decision is the refusal
-   * a surface renders, while what the next read submits is whatever the recovering
+   * a view renders, while what the next read submits is whatever the recovering
    * re-read then acknowledged. Folding them would make the notice clear itself.
    */
   #resumeFromCursor: string | undefined = undefined;
@@ -207,7 +205,7 @@ export class OpenSessionEntry {
         await this.#performRead(options.read, sessionId, reasons);
       },
       // A failed read is a real degradation with a named cause, not an unhandled
-      // rejection: the surface renders "could not re-read" instead of stale rows
+      // rejection: the view renders "could not re-read" instead of stale rows
       // that look current.
       onError: () => {
         this.store.markDegraded("read-failed");
@@ -223,7 +221,7 @@ export class OpenSessionEntry {
    *
    * Read by whatever renders the refused arm. `undefined` is deliberately not folded
    * into any of the settled arms: "no read has completed" is a different fact from
-   * every one of them, and a surface that showed the refusal for it would report a
+   * every one of them, and a view that showed the refusal for it would report a
    * failed resume every time a session opened.
    */
   public get timelineResume(): TimelineResumeDecision | undefined {
@@ -271,7 +269,7 @@ export class OpenSessionEntry {
         return;
       }
       // The refusal STANDS as the decision: it is what happened to this session's
-      // resume cycle and it is what a surface has to say. What the recovering read
+      // resume cycle and it is what a view has to say. What the recovering read
       // acknowledged is carried forward as the next position, and nothing else.
       this.#rememberNextResumePosition(resolveTimelineResume(snapshot.timelineCursors));
       // The recovering read submitted nothing, so the window it established opens at

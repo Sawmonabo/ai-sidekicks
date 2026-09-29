@@ -515,7 +515,7 @@ export class RendererHeapProbe {
    * What the named constructors retained in a snapshot this probe wrote.
    *
    * A method rather than a bare import at the case, so the capture and the reading are
-   * reached through one door and a case cannot analyze a snapshot no probe here took.
+   * reached through one probe and a case cannot analyze a snapshot no probe here took.
    */
   public async readRetainedByConstructor(
     snapshotPath: string,

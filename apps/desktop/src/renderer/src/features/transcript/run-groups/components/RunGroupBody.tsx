@@ -6,7 +6,7 @@
 // counted and gone. This is the bounded viewport those rows live in — the same
 // ceiling, read as a window rather than as a deletion.
 //
-// IT IS A READING SURFACE AND NOT A SECOND FEED. Each row is one line — the time it
+// IT IS A READ-ONLY LIST AND NOT A SECOND FEED. Each row is one line — the time it
 // carries, the daemon's own word for what it was, and its summary — and nothing here
 // opens a card, streams, or offers an act. The rows in the outer list keep every
 // affordance they have; these are the ones scrolled past, and a second full row

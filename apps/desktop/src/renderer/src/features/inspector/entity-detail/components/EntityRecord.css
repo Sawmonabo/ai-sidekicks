@@ -1,7 +1,7 @@
 /* The entity record's sheet, imported by `EntityRecord.tsx`.
 
    Every value here is a Meridian token. There is no color literal, no font stack,
-   and no spacing number: rule 3 puts the palette in one place, and a pane that
+   and no spacing number: the palette lives in one place, and a pane that
    hard-coded one would be a second palette nobody could re-theme. */
 
 .meridian-entity-record {

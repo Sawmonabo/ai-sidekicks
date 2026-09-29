@@ -3,22 +3,18 @@
  * One sheet for the components under `nodes/`, `footnotes/` and `highlight/`, imported
  * by the transcript's chunk root.
  *
- * The nine code-token families the code block spends are colors rather than boxes
+ * The code-token colors the code block spends are colors rather than boxes
  * and live in `styles/palette.ts`; the note below the first banner says why.
  */
 
 /* --- Cards: the code palette -------------------------------------------- */
 
 /*
- * The nine code-token families live in `tokens/palette.ts` and are emitted by
- * `tokens/generate-css.ts`, not declared here.
+ * The five code-token colors live in `styles/palette.ts` and are emitted by
+ * `styles/generate-css.ts`, not declared here, so they are fitted into the sRGB gamut
+ * and `styles/contrast.test.ts` measures them against the well they are painted on.
  *
- * They were `oklch()` literals in this sheet, restated across three scheme blocks,
- * and the cost of that home was not tidiness: nothing fitted them into the sRGB
- * gamut and nothing measured them against the well they are painted on. Both are now
- * `tokens/contrast.test.ts`' subject.
- *
- * The theme in `code-theme.ts` still emits a reference to the per-family
+ * The theme in `code-theme.ts` emits a reference to each token kind's
  * custom property as each token's foreground rather than a color, which is what
  * makes one token cache serve both schemes: a cached line is theme-independent, and
  * flipping the scheme repaints through the cascade.
@@ -32,7 +28,7 @@
 }
 
 /*
- * One measure. Rule 4's reading column, applied where a body is prose rather than a
+ * One measure. The transcript's reading column, applied where a body is prose rather than a
  * figure — a code block and a table opt out below, because both are structures whose
  * width is their own.
  */
@@ -48,7 +44,7 @@
 
 /*
  * A message's headings are not the page's. Every level renders as one element carrying
- * its depth, so a `#` inside a message cannot out-shout the surface it sits in; the
+ * its depth, so a `#` inside a message cannot out-shout the transcript it sits in; the
  * weights below are the whole of the difference.
  */
 .meridian-markdown__heading {
@@ -157,7 +153,7 @@
 }
 
 /* The head reads as the head without a second ground behind it — weight and a rule
-   under the row, which is what the surrounding surface already uses to separate a
+   under the row, which is what the surrounding transcript already uses to separate a
    label from what it labels. */
 .meridian-markdown__table th {
   border-bottom-width: 2px;

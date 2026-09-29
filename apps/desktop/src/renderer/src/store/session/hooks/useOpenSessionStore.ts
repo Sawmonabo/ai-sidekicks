@@ -25,15 +25,14 @@
 // these hooks are the callers of), and derivation happens in the component under
 // `useMemo`.
 //
-// WHAT IS NOT HERE. `session-projection-hooks.ts` holds the readings that answer a
+// WHAT IS NOT HERE. `useSessionInitialized.ts` holds the readings that answer a
 // question ABOUT a session's projection rather than out of it — whether a base state
 // landed, whether the projection moved, whether it is known incomplete, and what the
 // newest read said about resuming the stream. This file resolves stores and selects
 // content; that one reports on the read behind the content, and it is the half whose
 // inputs stop being "a store and a selector".
 //
-// WHAT IS DELIBERATELY NOT HERE. The frame store's hooks are `shell/frame-hooks.ts`'s,
-// and the door publishes each hook from the module that declares it.
+// WHAT IS DELIBERATELY NOT HERE. The window store's hooks sit beside the window store.
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
@@ -77,12 +76,12 @@ export function useOpenSessionStore(
  *
  * The console has no session-DIRECTORY read — no `PlatformBridge` member lists the
  * sessions on a node — so this registry is the only session set the renderer can name,
- * and a surface that needs one reads it here rather than inventing a source.
+ * and a view that needs one reads it here rather than inventing a source.
  *
  * Subscribed through the registry's own change emitter, so it costs no timer and no
  * poll, and the read returns the registry's stable array rather than building one.
  *
- * @consumedBy a surface that lists the sessions this window has open
+ * @consumedBy a view that lists the sessions this window has open
  */
 export function useOpenSessionIds(registry: SessionStoreRegistry): readonly string[] {
   const subscribe = useCallback(

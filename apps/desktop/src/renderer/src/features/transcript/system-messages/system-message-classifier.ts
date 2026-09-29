@@ -70,7 +70,7 @@ export interface SystemMessageReading {
  * A class because it holds two derived tables — wire type to seam kind, and the
  * set of types the contract registers — and both are wasteful to rebuild per row.
  * Module-level tables would be module-level mutable state, which this tree does
- * not keep; an instance built once per surface is the same table with an owner.
+ * not keep; an instance built once per transcript is the same table with an owner.
  */
 export class SystemMessageClassifier {
   readonly #kindByWireType: ReadonlyMap<string, SystemMessageKind>;

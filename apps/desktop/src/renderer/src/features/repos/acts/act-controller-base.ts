@@ -12,7 +12,7 @@
 // compiles, still renders, and is simply never refreshed.
 //
 // THE HALVES ARE HELD, NOT INHERITED. `ask`, `withdraw`, and `act` stay off a
-// controller's public surface, so a dialog cannot reach past `requestCapabilities` into
+// controller's public members, so a dialog cannot reach past `requestCapabilities` into
 // the primitive and name its own question.
 //
 // AND THE PREREQUISITE ARRIVES AS AN ABSTRACT METHOD RATHER THAN AS A CLOSURE IN THE
@@ -43,7 +43,7 @@ import type { SessionStoreScoped } from "./hooks/useSessionStoreRebind.js";
 export interface ActControllerBaseOptions {
   /** What this controller's emitters report under when a sink throws. */
   readonly label: string;
-  /** The window's one clock, so this refresh coalesces on its surface's time base. */
+  /** The window's one clock, so this refresh coalesces on the window's time base. */
   readonly clock: Clock;
   /** The session whose reconnect edge and named frames re-ask the prerequisite. */
   readonly sessionStore: SessionStore;
@@ -52,9 +52,9 @@ export interface ActControllerBaseOptions {
 }
 
 /**
- * One act, its prerequisite question, and the members every surface reads them by.
+ * One act, its prerequisite question, and the members every dialog reads them by.
  *
- * ONE PER SUBJECT AND NOT PER SURFACE — per mount for the modes it admits, per
+ * ONE PER SUBJECT AND NOT PER DIALOG — per mount for the modes it admits, per
  * workspace-and-mode for an execution root — which is why a prerequisite survives a
  * dialog that is closed and reopened.
  */
@@ -86,7 +86,7 @@ export abstract class ActControllerBase<TValue, TSettlement extends ActSettlemen
         await this.readPrerequisite(question, signal),
     });
     this.#acts = new ActController<TSettlement>({ label: options.label });
-    // One reading for both halves, rebuilt as either moves, so a surface reading the
+    // One reading for both halves, rebuilt as either moves, so a dialog reading the
     // snapshot gets the same object until something changed.
     this.#prerequisite.subscribe((prerequisite) => {
       this.#publish({ ...this.#reading, prerequisite });

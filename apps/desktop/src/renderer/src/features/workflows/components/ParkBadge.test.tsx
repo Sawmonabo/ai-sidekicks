@@ -112,7 +112,7 @@ describe("an armed instant that falls on another day", () => {
   it("negative control: the transcript's date-free reading renders the two identically", () => {
     // This is the finding. Without it the case above would pass over a badge that
     // differed for some other reason, and it would not say why the transcript's own
-    // formatter cannot serve a surface with no divider above it.
+    // formatter cannot serve a card with no day divider above it.
     expect(formatClockTime(armedOnTheFourth.autoResumeAt ?? "")).toBe(
       formatClockTime(armedOnTheFirst.autoResumeAt ?? ""),
     );
@@ -132,9 +132,9 @@ describe("a park whose armed instant this console cannot read", () => {
   it("negative control: the fixture really is unreadable", () => {
     // Both cases below rest on this. A fixture that quietly parsed would make them
     // pass over a badge that treated it as an ordinary schedule. Asserted through the
-    // family's own classification rather than the host parser, because what the badge
+    // projection's own classification rather than the host parser, because what the badge
     // acts on is that reading — the host parser accepts values it refuses and refuses
-    // values it accepts, so agreeing with it proves nothing about this surface.
+    // values it accepts, so agreeing with it proves nothing about the badge.
     expect(parkSchedule(CAPACITY_WITH_AN_UNREADABLE_BOUNDARY).kind).toBe("unreadable");
   });
 
@@ -211,16 +211,15 @@ describe("what the badge quotes and what it writes", () => {
 
   it("identifies the phase by its wire key even when no name was read", () => {
     // The badge is handed a name only where a read carries one, and the run READ
-    // carries none — so a card that showed only the name showed nothing, and two
-    // parks from one fan-out read identically. The caller papered over that by
-    // passing the id INTO the name slot, which put an opaque key on screen in the
-    // face an authored name would have had.
+    // carries none — so a card that showed only the name would show nothing, and two
+    // parks from one fan-out would read identically. Passing the id in as the name would
+    // put an opaque key on screen in the face an authored name would have had.
     const badge = renderBadge(WAITING_ON_A_PERSON);
     const identity = badge.querySelector(".meridian-park__phase");
 
     expect(identity?.querySelector(".meridian-figure--wire")?.textContent).toBe("phase-1");
-    // The control: nothing is invented in the name's place — the slot is the figure
-    // and nothing else.
+    // The control: nothing is invented in the name's place — the phase identity is the
+    // figure and nothing else.
     expect(identity?.querySelector(".meridian-park__phase-name")).toBeNull();
     expect(identity?.textContent).toBe("phase-1");
   });

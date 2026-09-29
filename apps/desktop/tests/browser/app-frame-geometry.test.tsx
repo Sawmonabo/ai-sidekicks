@@ -120,7 +120,7 @@ describe("browser — the token sheet reaches the cascade", () => {
 });
 
 describe("browser — the frame lays out", () => {
-  it("gives the rail a real width and the surface the rest of the row", async () => {
+  it("gives the rail a real width and the screen the rest of the row", async () => {
     const { container } = await renderSettled(
       <AppProviders composition={createFixtureComposition(FIRST_RUN_SCENARIO_ID)} />,
     );
@@ -143,7 +143,7 @@ describe("browser — the frame lays out", () => {
   });
 
   it("opens the palette on its chord and lists the frame's own commands", async () => {
-    // The palette is shell chrome: it has to work before any family has
+    // The palette is part of the app's chrome: it has to work before any feature has
     // registered anything, so the frame's own navigation and appearance commands
     // are what it lists on a first run. Driving it with a real key press rather
     // than by setting state proves the whole path — the chord listener, the
@@ -189,17 +189,17 @@ describe("browser — a pane that changed size reaches the transcript's geometry
     // The unit tier drives the measurement pass by hand. Only a real engine has a
     // `ResizeObserver`, a layout, and a box that answers a height at all — and the
     // whole defect this covers is a size change that no scroll event follows.
-    const scrollSurface = document.createElement("div");
-    scrollSurface.style.cssText = "overflow:auto;width:200px;height:300px";
+    const scrollContainer = document.createElement("div");
+    scrollContainer.style.cssText = "overflow:auto;width:200px;height:300px";
     const content = document.createElement("div");
     content.style.cssText = "height:5000px";
-    scrollSurface.append(content);
-    document.body.append(scrollSurface);
+    scrollContainer.append(content);
+    document.body.append(scrollContainer);
 
     const clock = new ManualClock();
     const controller = new ScrollController({ clock });
     try {
-      controller.attach(scrollSurface);
+      controller.attach(scrollContainer);
       const viewportHeights: number[] = [];
       controller.subscribeToGeometry((geometry) => viewportHeights.push(geometry.viewportHeight));
       // `observe` delivers an initial observation of its own; drain it so what
@@ -207,7 +207,7 @@ describe("browser — a pane that changed size reaches the transcript's geometry
       await runObservedResizeFrame(clock);
       expect(viewportHeights).toStrictEqual([300]);
 
-      scrollSurface.style.height = "180px";
+      scrollContainer.style.height = "180px";
       expect(await runObservedResizeFrame(clock)).toBe(true);
       expect(viewportHeights).toStrictEqual([300, 180]);
       expect(controller.geometry?.cause).toBe("resize");
@@ -219,7 +219,7 @@ describe("browser — a pane that changed size reaches the transcript's geometry
       expect(viewportHeights).toStrictEqual([300, 180]);
     } finally {
       controller.dispose();
-      scrollSurface.remove();
+      scrollContainer.remove();
     }
   });
 });

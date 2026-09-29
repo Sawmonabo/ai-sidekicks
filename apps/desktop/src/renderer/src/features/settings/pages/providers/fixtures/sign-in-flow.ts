@@ -1,5 +1,5 @@
 // The brokered sign-in and the non-interactive token registration: what each call
-// answers, and what the surface holds while it is in flight.
+// answers, and what the page holds while it is in flight.
 //
 // WHY A FLOW STATE AND NOT A BOOLEAN. A sign-in has outcomes a person can act on and
 // they are not degrees of one thing: nothing has been started; a request is out; a flow
@@ -7,7 +7,7 @@
 //
 // COMPLETION IS NOT A VERDICT, AND THIS MODULE CANNOT MINT ONE. A brokered flow ending
 // means the flow ended — never that the account is authenticated — so nothing here
-// answers `authenticated`, and the only way this shell learns what became of an
+// answers `authenticated`, and the only way this fixture body learns what became of an
 // account is to read the registry again. That is why every settled arm below is a
 // state of the FLOW and not a state of the account.
 //
@@ -32,8 +32,8 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 /**
  * Where a brokered sign-in has got to.
  *
- * THE THREE HELD ARMS CARRY THE ACCOUNT, and that is what makes the plane sayable. A
- * flow that recorded only its own progress could tell a surface that something was
+ * THE THREE HELD ARMS CARRY THE ACCOUNT, and that is what lets a disabled row say why. A
+ * flow that recorded only its own progress could tell a page that something was
  * running and never which account was running it — so a second row's control could be
  * disabled with no reason a person could act on, which is worse than one that stays
  * pressable and refuses.
@@ -53,7 +53,7 @@ export type SignInFlowState =
     }
   | { readonly kind: "ended"; readonly because: string };
 
-/** The state a shell starts in and returns to. Shared so it has one spelling. */
+/** The state a flow starts in and returns to. Shared so it has one spelling. */
 export const IDLE_PROVIDER_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
 
 /**
@@ -64,7 +64,7 @@ export const IDLE_PROVIDER_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
  * correlated on the attempt id, and the registered contract is explicit that it is a
  * report FROM THE PROVIDER that its flow finished and never a verdict about the
  * account — so the words say exactly that and send the reader to the registry, which is
- * the same thing every other settled arm of this plane does.
+ * the same thing every other settled arm of this flow does.
  */
 export const SIGN_IN_ENDED_BY_REGISTRY =
   "This machine reports the provider's sign-in finished. That is not a claim the account is authenticated — the registry is being read again to see what became of it.";
@@ -76,10 +76,10 @@ export const SIGN_IN_ENDED_BY_REGISTRY =
  * than a list of the three kinds that hold: the compiler refuses a missing key and
  * refuses an unknown one, so an arm added to the state above is a compile error here
  * rather than a control that silently stays pressable through it. A predicate
- * spelled at each call site is how two surfaces come to disagree about what "running"
- * means, which for this plane is the difference between one flow and two.
+ * spelled at each call site is how two views come to disagree about what "running"
+ * means, which for a brokered sign-in is the difference between one flow and two.
  */
-const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boolean>> = {
+const SIGN_IN_RUNNING_BY_KIND: Readonly<Record<SignInFlowState["kind"], boolean>> = {
   idle: false,
   starting: true,
   live: true,
@@ -88,8 +88,8 @@ const SIGN_IN_PLANE_HELD_BY_KIND: Readonly<Record<SignInFlowState["kind"], boole
 };
 
 /**
- * What one start attempt answered: a live flow. It carries the account so the plane
- * can seat it, and it is the only arm because a start that never became a flow raises.
+ * What one start attempt answered: a live flow. It carries the account so the tracker
+ * can record it, and it is the only arm because a start that never became a flow raises.
  */
 export interface SignInStartOutcome {
   readonly kind: "live";
@@ -103,7 +103,7 @@ export interface SignInCancelOutcome {
   readonly because: string;
 }
 
-/** What a token registration did, as far as this shell may claim. */
+/** What a token registration did, as far as this fixture body may claim. */
 export type TokenRegistrationOutcome =
   | { readonly kind: "idle" }
   | { readonly kind: "submitting" }
@@ -131,9 +131,9 @@ export type ProviderAccountRegisterCall = (
   request: ProviderAccountRegisterRequest,
 ) => Promise<ProviderAccountRegisterResponse>;
 
-/** Whether this flow is holding the plane. The one reading of the table above. */
+/** Whether this flow is running. The one reading of the table above. */
 export function isSignInRunning(flow: SignInFlowState): boolean {
-  return SIGN_IN_PLANE_HELD_BY_KIND[flow.kind];
+  return SIGN_IN_RUNNING_BY_KIND[flow.kind];
 }
 
 /**
@@ -210,7 +210,7 @@ export type RegistrationFieldReading =
  * IT REFUSES ON EVERY ARM RATHER THAN RETURNING SILENTLY. The two selects offer closed
  * vocabularies the wire publishes, so an unadmitted value is not reachable by pressing
  * anything — but a narrowing that answers `undefined` on the impossible arm is a
- * surface that goes quiet when it is surprised, and the whole point of the refusal
+ * control that goes quiet when it is surprised, and the whole point of the refusal
  * shape is that a press is answered.
  *
  * NO REFUSED VALUE IS ECHOED. A label is user content, and `detail` says what

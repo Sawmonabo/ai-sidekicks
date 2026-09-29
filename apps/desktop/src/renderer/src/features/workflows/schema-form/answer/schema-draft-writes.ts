@@ -81,7 +81,7 @@ export function withLeafDrafted(
  * Activating seeds the members exactly as the mount would have, so a section answered
  * later holds what it would have held had it been required. Leaving it unanswered drops
  * those members: the group is absent from the answer, and a person who opens it again
- * meets the seed rather than a half-remembered draft the surface never showed them.
+ * meets the seed rather than a half-remembered draft the form never showed them.
  */
 export function withGroupActivation(
   plan: SchemaFormPlan,
@@ -111,7 +111,7 @@ export function withGroupActivation(
  * have, so a collection answered later holds what it would have held had it been required.
  * Leaving it unanswered drops those rows: the collection is absent from the answer, and a
  * person who answers it again meets the seed rather than a half-remembered draft the
- * surface never showed them.
+ * form never showed them.
  *
  * Written through `withLeafDrafted` rather than at the root, so a collection inside a
  * section nobody has opened answers that section too — the same rule every other write in

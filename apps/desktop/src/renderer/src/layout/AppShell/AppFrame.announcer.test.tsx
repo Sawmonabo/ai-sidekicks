@@ -1,7 +1,7 @@
 // The window has one live announcer, a raised banner reaches it, and it runs on
 // the window's own clock.
 //
-// The regions are the frame's because they have to outlive every surface in it and
+// The regions are the frame's because they have to outlive every view in it and
 // sit outside the `inert` wrapper; the banner is their first consumer because a
 // refusal that changes what the whole room can do is the frame's own event. So the
 // count is a claim in its own right — a second announcer anywhere in the window is
@@ -49,7 +49,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       { wrapper: liveBridgeWrapper() },
     );
 
-    // One PAIR, not one per surface: the count is the claim, because a second
+    // One PAIR, not one per view: the count is the claim, because a second
     // announcer anywhere in the window is a second speaker.
     expect(container.querySelectorAll("[data-live-region]")).toHaveLength(2);
     expect(liveRegionText(container, "polite")).toBe("");

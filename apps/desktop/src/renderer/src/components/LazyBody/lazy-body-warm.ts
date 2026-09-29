@@ -25,9 +25,9 @@
 // re-read between steps, and a board releases a key's memo when its load REJECTS — so a
 // chunk that will not fetch is offered back to the walk, and with two of them the walk
 // alternates between the two forever, one background refetch per idle callback, for a
-// surface nobody has opened. The attempted set below is what bounds it: a walk asks for
-// each key once and then ends, and the retry a failed chunk gets is the one a person
-// asks for by opening the surface.
+// pane or screen nobody has opened. The attempted set below is what bounds it: a walk
+// asks for each key once and then ends, and the retry a failed chunk gets is the one a
+// person asks for by opening that pane or screen.
 
 import type { PreloadableRegistry } from "./lazy-body.js";
 
@@ -52,8 +52,8 @@ export interface IdleWarmScheduler {
 /**
  * Walk a board's unloaded bodies, one per idle callback, once.
  *
- * GENERIC IN THE KEY BECAUSE THE WALK IS. The pane layout's board is keyed by pane kind and the
- * frame's by screen slot, and the walk is the same walk over both — a second copy keyed
+ * GENERIC IN THE KEY BECAUSE THE WALK IS. The pane registry is keyed by pane kind and the
+ * screen registry by screen name, and the walk is the same walk over both — a second copy keyed
  * on the other would be one scheduler to keep in step with another, and the two would
  * drift the first time either grew a rule.
  *
@@ -68,7 +68,7 @@ export class LazyBodyIdleWarm<TKey> {
   /**
    * Every key this walk has armed a step for, so none is armed twice.
    *
-   * Bounded by the board's own closed key set — pane kinds, screen slots, settings
+   * Bounded by the board's own closed key set — pane kinds, screen names, settings
    * sections — and released with the walk, which is the effect's lifetime.
    */
   readonly #attemptedKeys = new Set<TKey>();
@@ -114,7 +114,7 @@ export class LazyBodyIdleWarm<TKey> {
     if (this.#isCanceled) {
       return;
     }
-    // Re-read the board on every step rather than snapshotting it once. A family that
+    // Re-read the board on every step rather than snapshotting it once. A feature that
     // registered late, and a kind a person opened mid-walk, both change what is left to
     // do — and a snapshot would go on requesting a body that is already resolved while
     // missing one that is not.
@@ -147,7 +147,7 @@ export class LazyBodyIdleWarm<TKey> {
     // The preload's own rejection is deliberately swallowed HERE and nowhere else. A
     // chunk that will not load is a damaged install, and this walk is speculative — the
     // person has not asked for this pane — so the honest place for that failure is the
-    // mount, where someone is waiting for it and the surface error boundary can say so.
+    // mount, where someone is waiting for it and the region's error boundary can say so.
     // An unhandled rejection from a background warm would surface as a crash report for
     // a pane nobody opened.
     void this.#board.preload(key).catch(() => undefined);

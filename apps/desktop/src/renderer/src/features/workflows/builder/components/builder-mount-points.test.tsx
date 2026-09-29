@@ -38,7 +38,7 @@ function unopenedUiStateStore(): UiStateStore {
 }
 
 /** Every mount point's unfilled rendering, as one table so a third cannot skip a case. */
-function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
+function unfilledMountPoints(): readonly (readonly [string, React.JSX.Element])[] {
   return [
     [
       "node graph",
@@ -60,13 +60,16 @@ function unfilledSlots(): readonly (readonly [string, React.JSX.Element])[] {
 }
 
 describe("an unfilled builder mount point is an empty frame", () => {
-  it.each(unfilledSlots())("%s stands as its own frame and holds nothing", (_name, element) => {
-    const { container } = render(element);
-    const frames = container.querySelectorAll(".meridian-workflow__mount-point");
-    expect(frames).toHaveLength(1);
-    expect(frames[0]?.childElementCount).toBe(0);
-    expect(frames[0]?.textContent).toBe("");
-  });
+  it.each(unfilledMountPoints())(
+    "%s stands as its own frame and holds nothing",
+    (_name, element) => {
+      const { container } = render(element);
+      const frames = container.querySelectorAll(".meridian-workflow__mount-point");
+      expect(frames).toHaveLength(1);
+      expect(frames[0]?.childElementCount).toBe(0);
+      expect(frames[0]?.textContent).toBe("");
+    },
+  );
 });
 
 describe("a filled builder mount point receives exactly what the mount promised", () => {

@@ -5,10 +5,10 @@ import { createElement } from "react";
 import type { ScreenRegistry } from "@renderer/console/seats/index.js";
 import { SessionsFlyout } from "../SessionsFlyout.js";
 
-/** Claim the sessions screen slot. */
+/** Register the sessions screen. */
 export function registerSessionsFlyout(registry: ScreenRegistry): void {
   registry.register({
-    slot: "sessions",
+    name: "sessions",
     owner: "sessions",
     render: () => createElement(SessionsFlyout),
   });

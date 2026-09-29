@@ -44,7 +44,7 @@ function pendingAsk(overrides: Partial<QuestionReading> = {}): QuestionReading {
   };
 }
 
-/** One refused delivery, carrying the door's own refusal shape. */
+/** One refused delivery, carrying `callDaemon`'s own refusal shape. */
 const REFUSED_DELIVERY: AnswerDelivery = {
   status: "refused",
   response: "develop",
@@ -138,7 +138,7 @@ describe("the countdown", () => {
     expect(renderCard(pendingAsk()).textContent).toContain("Answer within");
   });
 
-  // THE RULE THIS SURFACE MOST HAS TO KEEP: a countdown at zero is a statement about
+  // THE RULE THIS CARD MOST HAS TO KEEP: a countdown at zero is a statement about
   // the console, never about the ask. An input ask that expires parks its run, and
   // only the `driver_ask.expired` row may say that it did.
   it("waits for the daemon past zero rather than settling a terminal", () => {
@@ -239,7 +239,7 @@ describe("what became of the answer", () => {
   });
 
   it("leaves every answer control pressable after a refusal", () => {
-    // Rule 9: a refusal never hides the control that produced it. Without this the
+    // A refusal never hides the control that produced it. Without this the
     // refusal would be readable and the retry unreachable.
     const container = renderCard(
       pendingAsk({ options: [{ value: "develop", label: undefined }] }),
@@ -305,7 +305,7 @@ describe("what became of the answer", () => {
 });
 
 describe("the plan-owned body", () => {
-  it("replaces the shell entirely once it is mounted", () => {
+  it("replaces the built-in card entirely once it is mounted", () => {
     const container = renderCard(pendingAsk(), { body: () => <p>the real ask card</p> });
     expect(container.textContent).toBe("the real ask card");
   });

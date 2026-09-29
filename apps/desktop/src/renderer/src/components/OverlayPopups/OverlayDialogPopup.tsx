@@ -5,10 +5,10 @@
 // site. Both are only enforceable if a consumer cannot MOUNT one by hand either: an
 // attach form that rendered its own `Dialog.Portal` never went near the registration,
 // so there was nothing at that site to forget and the rule had nothing to bite on. So
-// the popup shell is the primitive and the body is the caller's.
+// the portal, backdrop, and popup are the primitive and the body is the caller's.
 //
 // WHAT STAYS WITH THE CALLER. `Dialog.Root` — the open state, the modality, and the
-// trigger — is state and not airspace, and a surface that wraps its dialog in a
+// trigger — is state and not airspace, and a caller that wraps its dialog in a
 // combobox root (the palette does) composes those roots itself. What crosses into
 // here is the part of the tree that leaves the layout.
 //
@@ -17,10 +17,10 @@
 // parts, a different thing on screen — so the kind is a parameter defaulted to the
 // common answer rather than fixed here.
 //
-// AND SO IS THE NAME, WHICHEVER WAY THE CALLER GIVES IT. A surface that mounts a
+// AND SO IS THE NAME, WHICHEVER WAY THE CALLER GIVES IT. A caller that mounts a
 // `Dialog.Title` has already named its dialog — Base UI hands the popup that title's
 // id as `aria-labelledby` (`DialogPopup`'s own `'aria-labelledby': titleElementId`,
-// measured against the installed 1.7.0) — so `label` is for the surface that heads its
+// measured against the installed 1.7.0) — so `label` is for the caller that heads its
 // popup with an ordinary element instead. It is optional for that reason and not as a
 // relaxation: a `label` passed beside a title is a second spelling of one name that no
 // accessible-name computation ever reads, since `aria-labelledby` wins over
@@ -33,13 +33,13 @@ import { useModalOverlayAirspace } from "@renderer/hooks/useModalOverlayAirspace
 import type { AirspaceOverlayKind } from "@renderer/lib/airspace-registry.js";
 
 export interface OverlayDialogPopupProps {
-  /** Which of 12.3's overlay kinds this is. `dialog` unless the surface is its own. */
+  /** Which of the console's closed set of overlay kinds this is; `dialog` unless it is its own kind. */
   readonly airspaceKind?: AirspaceOverlayKind;
   /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly container?: HTMLElement | null | undefined;
   readonly backdropClassName: string;
   readonly className: string;
-  /** The popup's accessible name, for a surface that mounts no `Dialog.Title` of its own. */
+  /** The popup's accessible name, for a caller that mounts no `Dialog.Title` of its own. */
   readonly label?: string | undefined;
   /** What takes focus when the dialog opens, where the caller owns a better answer. */
   readonly initialFocus?: React.RefObject<HTMLElement | null> | undefined;

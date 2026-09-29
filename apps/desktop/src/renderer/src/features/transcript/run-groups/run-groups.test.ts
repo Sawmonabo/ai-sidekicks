@@ -87,7 +87,7 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("seals a reopened run group again at its next ending", () => {
-    // The clearing is not a one-way door either. A run that came back and then
+    // The clearing is not final either. A run that came back and then
     // failed is a finished run, and its header says which ending it reached — the
     // second one.
     const fold = groupRowsByRun([

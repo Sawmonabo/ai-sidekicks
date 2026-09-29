@@ -43,7 +43,7 @@ export type SubjectScopedDisposal<TResource> =
  * How any subject-scoped controller ends, and the whole of what {@link CONTROLLER_DISPOSAL}
  * needs from one.
  *
- * NARROWER THAN AN ACT CONTROLLER'S SURFACE ON PURPOSE. A controller that publishes
+ * NARROWER THAN AN ACT CONTROLLER'S PUBLIC API ON PURPOSE. A controller that publishes
  * into a host rather than off a snapshot of its own has no reading to subscribe to and
  * still has exactly this lifetime, so typing the disposal on the pair it actually
  * calls is what lets one constant serve both shapes.

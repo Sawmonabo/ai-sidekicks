@@ -1,14 +1,14 @@
 // How a park card reaches the form that ends its wait, where the caller can offer one.
 //
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `ParkBadge.tsx`, for the reason
-// `ParkSchedule.tsx` beside it states: one component per `.tsx`, reached by a deep
-// relative import from its host and published through no door line.
+// `ParkSchedule.tsx` beside it states: one component per `.tsx`, imported by the badge
+// by relative path and not exported from the feature's `index.ts`.
 //
 // THE ROUTE TYPE IS DECLARED HERE, WITH THE COMPONENT THAT CONSUMES IT, rather than in
 // the badge that merely passes it through. Declared on the badge it would have to be
 // imported back by this module, which closes a cycle the layering gate rejects; every
-// other reader — the badge's own props, and the pane surface that builds one — reaches
-// the one declaration from here.
+// other reader — the badge's own props, and the run page's park list that builds one —
+// reaches the one declaration from here.
 
 /**
  * How this card reaches the form that ends its wait, where the caller can offer one.

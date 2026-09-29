@@ -1,7 +1,7 @@
 // The workflow builder pane's body, as the pane layout's registry loads it.
 //
 // A loader-backed body for `workflow-run-pane-body.ts`'s reason, and the case is
-// stronger here: the builder is the console's authoring surface, reached from the rail's
+// stronger here: the builder is where a person authors a workflow, reached from the rail's
 // workflows destination, and a session that never authors a workflow paid for all of it
 // on every launch.
 //

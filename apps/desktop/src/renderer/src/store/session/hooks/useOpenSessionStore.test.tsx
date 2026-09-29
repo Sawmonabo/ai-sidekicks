@@ -22,7 +22,7 @@ describe("useOpenSessionStore — components resolve a store, never construct on
     }
 
     const view = render(<StoreProbe />);
-    // A session that is not open is a real answer the surface renders, and NOT a
+    // A session that is not open is a real answer the view renders, and NOT a
     // reason to open one from inside a render pass React may discard.
     expect(view.getByTestId("probe").textContent).toBe("none");
     expect(registry.openCount).toBe(0);

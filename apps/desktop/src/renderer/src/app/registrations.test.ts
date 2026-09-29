@@ -36,7 +36,7 @@ import {
 } from "@renderer/store/session-events/run-lifecycle-projector.js";
 import { registerFeatureContributions } from "./registrations.js";
 
-/** Registries a case owns outright, with the command registry the surface writes into. */
+/** Registries a case owns outright, with the command registry the contributions write into. */
 function ownedRegistries(): {
   readonly commands: CommandContributionRegistry;
   readonly projectors: EntityProjectorRegistry;
@@ -55,15 +55,15 @@ function ownedRegistries(): {
 
 describe("registerFeatureContributions", () => {
   it("composes every feature without a conflicting claim, and again as a hot reload does", () => {
-    // A second owner on one slot, pane kind, card kind, chord or event kind throws.
+    // A second owner on one screen, pane kind, card kind, chord or event kind throws.
     const registries = ownedRegistries();
     registerFeatureContributions(registries);
-    const firstSlots = registries.screens.registeredSlots();
+    const firstScreenNames = registries.screens.registeredScreenNames();
     const firstPaneKinds = registries.panes.registeredPaneKinds();
 
     registerFeatureContributions(registries);
 
-    expect(registries.screens.registeredSlots()).toStrictEqual(firstSlots);
+    expect(registries.screens.registeredScreenNames()).toStrictEqual(firstScreenNames);
     expect(registries.panes.registeredPaneKinds()).toStrictEqual(firstPaneKinds);
   });
 
@@ -75,7 +75,7 @@ describe("registerFeatureContributions", () => {
     expect({
       keyBindings: registries.commands.keyBindings().length > 0,
       projectors: Object.keys(registries.projectors.snapshot()).length > 0,
-      screens: registries.screens.registeredSlots().length > 0,
+      screens: registries.screens.registeredScreenNames().length > 0,
       panes: registries.panes.registeredPaneKinds().length > 0,
       inlineCards: registries.inlineCards.registeredCardKinds().length > 0,
     }).toStrictEqual({
@@ -88,7 +88,7 @@ describe("registerFeatureContributions", () => {
     expect({
       keyBindings: contributedKeybindings(),
       projectors: entityProjectorRegistry.snapshot(),
-      screens: screenRegistry.registeredSlots(),
+      screens: screenRegistry.registeredScreenNames(),
       panes: paneRegistry.registeredPaneKinds(),
       inlineCards: inlineCardRegistry.registeredCardKinds(),
     }).toStrictEqual({ keyBindings: [], projectors: {}, screens: [], panes: [], inlineCards: [] });

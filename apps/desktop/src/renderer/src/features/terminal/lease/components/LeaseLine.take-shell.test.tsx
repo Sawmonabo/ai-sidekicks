@@ -1,4 +1,4 @@
-// The take control, from the surface's side: one press is one acquire, the control is
+// The take control, from the lease line's side: one press is one acquire, the control is
 // disabled while a call is out, and a served call moves no holder. The hook that makes
 // a rebound pane get its own control is `useTakeShell.test.tsx`.
 

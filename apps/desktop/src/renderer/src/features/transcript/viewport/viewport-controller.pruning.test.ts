@@ -8,7 +8,7 @@
 // against the same conditions, which is what `viewport-controller.test-support.ts` is
 // for.
 //
-// The surface is a real detached element and no case asserts a pixel: every geometry
+// The scroll container is a real detached element and no case asserts a pixel: every geometry
 // read under `happy-dom` answers zero, so the claims are about which objects were
 // CALLED and with what.
 
@@ -33,8 +33,10 @@ describe("the viewport controller — pruning under a reader", () => {
   const LOADED_ROW_COUNT = 4400;
   const INITIAL_SCROLL_TOP_PX = 2000;
 
-  /** A surface tall enough that no compensation this case performs is clamped. */
-  function tallSurface(initialScrollTop: number): ReturnType<typeof createCountingScrollContainer> {
+  /** A scroll container tall enough that no compensation this case performs is clamped. */
+  function tallScrollContainer(
+    initialScrollTop: number,
+  ): ReturnType<typeof createCountingScrollContainer> {
     return createCountingScrollContainer({
       initialScrollTop,
       clientHeight: 300,
@@ -43,9 +45,9 @@ describe("the viewport controller — pruning under a reader", () => {
   }
 
   it("stops the prune at the reader's row and moves the offset by exactly what it took", () => {
-    const surface = tallSurface(INITIAL_SCROLL_TOP_PX);
+    const scrollContainer = tallScrollContainer(INITIAL_SCROLL_TOP_PX);
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
 
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
@@ -58,7 +60,7 @@ describe("the viewport controller — pruning under a reader", () => {
     // And the reader keeps their pixel, by arithmetic rather than by a virtualizer
     // read that would still answer in the pre-prune index space.
     expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
-    expect(surface.scrollTop).toBe(
+    expect(scrollContainer.scrollTop).toBe(
       INITIAL_SCROLL_TOP_PX - READER_ROW_INDEX * TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
     );
     expect(controller.scroll.writeCount("hold-reading-position")).toBe(0);
@@ -66,7 +68,7 @@ describe("the viewport controller — pruning under a reader", () => {
 
   it("defers by name when the reader is on the oldest row it could have taken", () => {
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(tallSurface(INITIAL_SCROLL_TOP_PX));
+    controller.attach(tallScrollContainer(INITIAL_SCROLL_TOP_PX));
     controller.anchor.capture({ rowKey: "row-0", offsetWithinViewportPx: 0 });
 
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
@@ -77,7 +79,7 @@ describe("the viewport controller — pruning under a reader", () => {
 
   it("takes the rows it had to leave once the reader returns to the tail", () => {
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(tallSurface(INITIAL_SCROLL_TOP_PX));
+    controller.attach(tallScrollContainer(INITIAL_SCROLL_TOP_PX));
     controller.anchor.capture({ rowKey: READER_ROW_KEY, offsetWithinViewportPx: -12 });
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
 
@@ -93,7 +95,7 @@ describe("the viewport controller — pruning under a reader", () => {
   it("negative control: a reader at the tail prunes as it always did, compensating nothing", () => {
     // Without this the floor could have been a cap that never lets go at all.
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(tallSurface(399_700));
+    controller.attach(tallScrollContainer(399_700));
     expect(controller.anchor.state.mode).toBe("following");
 
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
@@ -115,20 +117,20 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   /** A reader parked above the tail, on the oldest row the cap wanted to take. */
   function readerAboveTheTail(): {
     controller: ViewportController;
-    surface: ReturnType<typeof createCountingScrollContainer>;
+    scrollContainer: ReturnType<typeof createCountingScrollContainer>;
   } {
-    const surface = createCountingScrollContainer({
+    const scrollContainer = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.anchor.capture({ rowKey: "row-0", offsetWithinViewportPx: 0 });
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
     expect(controller.snapshot().lastPrune?.deferredBecause).toBe("reading-floor");
     expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT);
-    return { controller, surface };
+    return { controller, scrollContainer };
   }
 
   it("takes the rows the reading floor held back, with no second reconcile", () => {
@@ -136,9 +138,9 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     // reader comes back to the tail, so the reconcile that would have re-asked never
     // arrives on a quiet session — and the window stayed over its cap for as long as
     // nobody typed. `reconcile` is deliberately not called again here.
-    const { controller, surface } = readerAboveTheTail();
+    const { controller, scrollContainer } = readerAboveTheTail();
 
-    surface.moveTo(TAIL_OFFSET_PX);
+    scrollContainer.moveTo(TAIL_OFFSET_PX);
     expect(controller.anchor.state.mode).toBe("following");
     controller.retryDeferredPrune();
 
@@ -155,13 +157,13 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     // no deferral named, and 4 390 rows still resident against a cap of 400. Read
     // through the deferral alone the re-ask saw nothing owed and never fired, and on
     // a session that had gone quiet those rows stayed for the life of the mount.
-    const surface = createCountingScrollContainer({
+    const scrollContainer = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.anchor.capture({ rowKey: "row-10", offsetWithinViewportPx: -12 });
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
     const partial = controller.snapshot().lastPrune;
@@ -170,7 +172,7 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     expect(partial?.owedBecause).toBe("reading-floor");
     expect(controller.snapshot().rowKeys).toHaveLength(LOADED_ROW_COUNT - 10);
 
-    surface.moveTo(TAIL_OFFSET_PX);
+    scrollContainer.moveTo(TAIL_OFFSET_PX);
     expect(controller.anchor.state.mode).toBe("following");
     controller.retryDeferredPrune();
 
@@ -219,13 +221,13 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
     // reconcile under it is from a subscriber the glide itself wakes — which is
     // exactly how the effect that reconciles reaches it in a tree. Nothing observes
     // the veto lifting, which is why the retry is keyed on the refusal instead.
-    const surface = createCountingScrollContainer({
+    const scrollContainer = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
       scrollHeight: CONTENT_HEIGHT_PX,
     });
     const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     let reconciledUnderTheVeto = false;
     controller.scroll.subscribeToGeometry(() => {
       if (reconciledUnderTheVeto || !controller.scroll.vetoesPrune()) {
@@ -333,7 +335,7 @@ describe("the viewport controller — a page landing in front of the window", ()
   });
 
   it("negative control: re-supplying a trimmed set pins nothing and keeps pruning", () => {
-    // The cap takes rows from the oldest end and the surrounding surface keeps handing
+    // The cap takes rows from the oldest end and the surrounding feed keeps handing
     // over the whole projection, so the rows it took lead the very next set. Read as a
     // page landing at the head, this pins history on an ordinary reconcile and the cap
     // never trims again for the life of the session.

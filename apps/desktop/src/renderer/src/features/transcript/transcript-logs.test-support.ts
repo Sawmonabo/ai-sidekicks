@@ -1,4 +1,4 @@
-// The logs every ledger-feed case is driven over.
+// The logs every transcript-feed case is driven over.
 //
 // Split from the render harness beside it because the two are different jobs and
 // only one of them needs a DOM: these are pure store builders — a real
@@ -17,11 +17,10 @@ export const SESSION_ID = "session-transcript-feed";
 /**
  * The wire instant of the row at one log position — one second apart, from one epoch.
  *
- * ONE EXPRESSION FOR THE WHOLE FAMILY'S FIXTURE CLOCK. Every transcript case reads a log
- * whose rows are a second apart, and every one of them used to spell that out for
- * itself: six byte-identical `at` helpers and four inlined copies of the same
- * `Date.UTC` call. Move the epoch — which a case wanting two sessions on different
- * days would — and ten sites have to move together; miss one and the ordering
+ * ONE EXPRESSION FOR THE WHOLE FEATURE'S FIXTURE CLOCK. Every transcript case reads a log
+ * whose rows are a second apart, and spelling that out per case would scatter copies of
+ * one `Date.UTC` call. Move the epoch — which a case wanting two sessions on different
+ * days would — and every copy would have to move together; miss one and the ordering
  * assertions still pass while the run group boundaries silently shift.
  *
  * `Date.UTC` rather than a parsed literal, because `Date.parse`
@@ -73,11 +72,9 @@ export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 /**
  * The row id the projection carries for one sequence of a log this file seeds.
  *
- * THE SAME VALUE THE EVENT CARRIES, because the projection copies it. It used to
- * delegate to a composition the shell minted from `(sessionId, sequence)`; the shell
- * now carries `ProjectedSessionEvent.id` verbatim, so the row id a case asks for is the
- * id the fixture stamped and the session is no longer part of it. The name stays
- * because every case in this family reads in that vocabulary.
+ * THE SAME VALUE THE EVENT CARRIES, because the projection copies
+ * `ProjectedSessionEvent.id` verbatim, so the row id a case asks for is the id the
+ * fixture stamped.
  */
 export function projectedRowId(sequence: number): string {
   return transcriptFixtureEventId(sequence);
@@ -86,7 +83,7 @@ export function projectedRowId(sequence: number): string {
 /**
  * A live run whose rows are tool rows, which are the ones that carry a disclosure.
  *
- * The only card in the shell that offers one, so it is the only row through which a
+ * The only card in the transcript that offers one, so it is the only row through which a
  * reader's expansion can be pressed at all — and therefore the only one that can show
  * the lease making the round trip out of the row and back.
  */

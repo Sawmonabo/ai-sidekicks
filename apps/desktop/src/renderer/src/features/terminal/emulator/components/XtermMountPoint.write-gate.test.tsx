@@ -3,29 +3,29 @@
 // Two claims, and neither is about a field of ours. The gate reaches the LIBRARY: xterm
 // mirrors `disableStdin` onto the hidden textarea it listens on, so the emulator's own
 // input state is what these cases read. And it reaches a person: the region's accessible
-// name says whether this surface may be typed into, and it distinguishes the two
+// name says whether this terminal may be typed into, and it distinguishes the two
 // read-only states — somebody else holds the shell, versus there is nowhere to send what
-// you type — because a lease this user holds over a surface with no output stream
+// you type — because a lease this user holds over a terminal with no output stream
 // registered is still read-only, and a name that said otherwise would be a promise the
 // wire has not made.
 //
 // A lease change forwards the gate WITHOUT tearing the emulator down, which is the other
 // half: the scrollback and the operator's scroll position survive a claim.
 //
-// The readers are `XtermHost.test-support.tsx`'s, and the loader is the real one there
+// The readers are `XtermMountPoint.test-support.tsx`'s, and the loader is the real one there
 // too.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { XtermHost } from "./XtermHost.js";
+import { XtermMountPoint } from "./XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,
   isEmulatorAcceptingInput,
-  mountHost,
+  renderSettledMountPoint,
   reclaimComponentHolds,
   emulatorElementOf,
-} from "./XtermHost.test-support.js";
+} from "./XtermMountPoint.test-support.js";
 
 afterEach(() => {
   reclaimComponentHolds(COMPONENT_TERMINAL_IDS);
@@ -35,10 +35,10 @@ describe("the write gate reaches assistive technology by name", () => {
   /** A writer, so the lease is the only thing a case about the lease is varying. */
   const sendToWire = (): void => undefined;
 
-  it("names the surface read-only while the lease is not this device's", async () => {
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+  it("names the terminal read-only while the lease is not this device's", async () => {
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -50,9 +50,9 @@ describe("the write gate reaches assistive technology by name", () => {
   });
 
   it("drops the read-only suffix when this device holds the shell and can reach the wire", async () => {
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -66,9 +66,9 @@ describe("the write gate reaches assistive technology by name", () => {
     // a gate forwarded only when the lease MOVES would leave a holder watching a
     // shell they hold — the emulator would be built closed and stay closed until
     // the next transition.
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -78,9 +78,9 @@ describe("the write gate reaches assistive technology by name", () => {
   });
 
   it("negative control: a watcher's emulator is closed, so the case above is not free", async () => {
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-2"
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-2"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -91,20 +91,20 @@ describe("the write gate reaches assistive technology by name", () => {
 
   it("forwards a lease change without rebuilding the emulator", async () => {
     const observed = vi.fn();
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={sendToWire}
         onRendererMode={observed}
       />,
     );
-    const surfaceBefore = emulatorElementOf(container).firstElementChild;
+    const emulatorBefore = emulatorElementOf(container).firstElementChild;
     act(() => {
       rerender(
-        <XtermHost
-          terminalId="host-1"
+        <XtermMountPoint
+          terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"
           onKeystroke={sendToWire}
@@ -116,7 +116,7 @@ describe("the write gate reaches assistive technology by name", () => {
     // same instance — the mount effect did not run a second time — and only the
     // gate moved.
     expect(observed).toHaveBeenCalledTimes(1);
-    expect(emulatorElementOf(container).firstElementChild).toBe(surfaceBefore);
+    expect(emulatorElementOf(container).firstElementChild).toBe(emulatorBefore);
     expect(emulatorElementOf(container).getAttribute("aria-label")).toBe("Terminal output");
   });
 
@@ -126,9 +126,9 @@ describe("the write gate reaches assistive technology by name", () => {
     // fresh binding on its default shut stdin while the box below still read
     // `data-write-enabled="true"`, and every character the holder typed was dropped
     // until the shell next changed hands.
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -138,8 +138,8 @@ describe("the write gate reaches assistive technology by name", () => {
 
     act(() => {
       rerender(
-        <XtermHost
-          terminalId="host-2"
+        <XtermMountPoint
+          terminalId="terminal-2"
           isWriteEnabled
           label="Terminal output"
           onKeystroke={sendToWire}
@@ -154,9 +154,9 @@ describe("the write gate reaches assistive technology by name", () => {
   it("negative control: a shut lease stays shut across the same terminal id change", async () => {
     // Without it the case above would pass against a component that opened stdin on
     // every adapter it built, which is watch mode failing open on a rebuild.
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -164,8 +164,8 @@ describe("the write gate reaches assistive technology by name", () => {
     );
     act(() => {
       rerender(
-        <XtermHost
-          terminalId="host-2"
+        <XtermMountPoint
+          terminalId="terminal-2"
           isWriteEnabled={false}
           label="Terminal output"
           onKeystroke={sendToWire}
@@ -175,43 +175,43 @@ describe("the write gate reaches assistive technology by name", () => {
     expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
 
-  it("carries the gate on the host box too, for the styling that has no text", async () => {
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+  it("carries the gate on the mount point's box too, for the styling that has no text", async () => {
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={sendToWire}
       />,
     );
-    const host = container.querySelector(".meridian-terminal-host");
-    expect(host?.getAttribute("data-write-enabled")).toBe("false");
+    const box = container.querySelector(".meridian-terminal-mount-point");
+    expect(box?.getAttribute("data-write-enabled")).toBe("false");
     act(() => {
       rerender(
-        <XtermHost
-          terminalId="host-1"
+        <XtermMountPoint
+          terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"
           onKeystroke={sendToWire}
         />,
       );
     });
-    expect(host?.getAttribute("data-write-enabled")).toBe("true");
+    expect(box?.getAttribute("data-write-enabled")).toBe("true");
   });
 
   it("negative control: the name is not read-only in both states", async () => {
     // Every case above would pass against a component that hardcoded one name.
-    const watching = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const watching = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={sendToWire}
       />,
     );
-    const holding = await mountHost(
-      <XtermHost
-        terminalId="host-2"
+    const holding = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-2"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={sendToWire}
@@ -230,16 +230,16 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
   // character while the adapter, built without an `onData` subscription, forwarded
   // none of them.
 
-  it("keeps the emulator's own gate shut when the surface has no writer", async () => {
-    const { container } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
+  it("keeps the emulator's own gate shut when the terminal has no writer", async () => {
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
     );
     expect(isEmulatorAcceptingInput(emulatorElementOf(container))).toBe(false);
   });
 
-  it("names the missing channel rather than announcing the surface writable", async () => {
-    const { container } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
+  it("names the missing channel rather than announcing the terminal writable", async () => {
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
     );
     // The old component announced "Terminal output" here — a name that says a
     // person may type into a shell that will discard everything they send.
@@ -247,7 +247,7 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
       "Terminal output, read-only: no input channel",
     );
     expect(
-      container.querySelector(".meridian-terminal-host")?.getAttribute("data-write-enabled"),
+      container.querySelector(".meridian-terminal-mount-point")?.getAttribute("data-write-enabled"),
     ).toBe("false");
   });
 
@@ -255,12 +255,12 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
     // Two different next moves: wait for the shell, or stop waiting because this
     // build has nowhere to put a keystroke. One suffix for both would send a holder
     // to wait for a lease they already have.
-    const noWriter = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
+    const noWriter = await renderSettledMountPoint(
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
     );
-    const noLease = await mountHost(
-      <XtermHost
-        terminalId="host-2"
+    const noLease = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-2"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={() => undefined}
@@ -271,12 +271,12 @@ describe("a held lease with nowhere to send a keystroke is still read-only", () 
     );
   });
 
-  it("negative control: adding the writer to that same lease opens the surface", async () => {
+  it("negative control: adding the writer to that same lease opens the terminal", async () => {
     // Without this the cases above would pass against a component that never opened
     // the gate at all, which is a different bug and not a fix.
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-2"
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-2"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={() => undefined}

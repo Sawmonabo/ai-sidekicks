@@ -5,7 +5,7 @@
 // entity, and it lends nothing to a session the scenario is not playing.
 //
 // IT CARRIES NO ENTITIES, AND THE CASE THAT SAYS SO IS LOAD-BEARING. Every partition a
-// surface reads is projected from the delivered log, so a base state that filed rows of
+// view reads is projected from the delivered log, so a base state that filed rows of
 // its own would be a second source of truth for them.
 
 import { describe, expect, it } from "vitest";

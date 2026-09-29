@@ -2,10 +2,11 @@
 //
 // WHAT THIS MODULE IS. `schema-form-body.ts` is the kit's chunk root and states why the
 // kit is off the initial import graph; this module is the half that stays ON it — the
-// loader the seats door publishes, the two mounts the door's component lines became, and
-// nothing else. It holds no schema knowledge and imports no module of this directory at
-// run time: the two `import type` lines below are erased by the compiler, so the only
-// runtime edge into the chunk is the `import()` inside {@link SchemaFormChunk}.
+// chunk's loader and the two mounts that `console/seats/index.ts` exports in place of the
+// components themselves, and nothing else. It holds no schema knowledge and imports no
+// module of this directory at run time: the two `import type` lines below are erased by
+// the compiler, so the only runtime edge into the chunk is the `import()` inside
+// {@link SchemaFormChunk}.
 //
 // WHY A CLASS AND NOT A MODULE-LEVEL PROMISE, on `run-graph-loader.ts`'s reasoning and
 // for its reason: the promise has to be memoized so a run pane and a definition row
@@ -21,13 +22,13 @@
 // dedupes the fetch, and still two answers to whether the kit has arrived.
 //
 // WHAT THE RESERVED REGION IS. A form whose module is in flight draws the marker
-// `pending-pane-body.ts` owns and nothing else, through that module's own
-// `reservedBodyRegion` — the construction was private here until a second and third
-// loader-backed body wanted it: no spinner, no skeleton, and none of
-// rule 8's five kinds of nothing — `PendingPaneBody.tsx` states that reasoning in full
-// and it holds unchanged here, because what is absent is a MODULE rather than anything
-// about the phase. The marker rides a `hidden` element, so what the wait costs the
-// layout is nothing, and the screenshot tier refuses to photograph a tree carrying one.
+// `pending-body-marker.ts` owns and nothing else, through that module's own
+// `reservedBodyRegion`: no spinner, no skeleton, and none of the five absences (not
+// loaded, empty, error, not checked, unknown) that tell a person their next move, because
+// what is absent is a MODULE rather than anything about the phase — `PendingPaneBody.tsx`
+// states that reasoning in full. The marker rides a `hidden` element, so what the wait
+// costs the layout is nothing, and the screenshot tier refuses to photograph a tree
+// carrying one.
 
 import { LoaderBackedBody } from "@renderer/components/LazyBody/lazy-body.js";
 import { reservedBodyRegion } from "@renderer/components/LazyBody/pending-body-marker.js";

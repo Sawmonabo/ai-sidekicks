@@ -10,7 +10,7 @@
 // CANDIDATES ARE A DIFFERENT QUESTION AND SO A DIFFERENT FUNCTION. What a person is
 // still typing is a prefix by definition, and a list offered against it is a list —
 // nothing starts from it without the exact name landing on the line first. Both
-// readings fold case the same way and both are here, so the surface that offers a
+// readings fold case the same way and both are here, so the command list that offers a
 // candidate and the path that starts it cannot come apart on what a name matches.
 
 import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";

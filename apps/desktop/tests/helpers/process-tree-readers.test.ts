@@ -93,7 +93,7 @@ describe("the process table — parsed as the platform emits it", () => {
     // empty map for the second let `terminateExternalTree` report a live
     // browser under a reaped launcher as a terminated tree. An exhausted
     // budget is the one way to reach that state without breaking the host:
-    // the shared door spawns nothing at or below zero.
+    // `runBoundedHostCommand` spawns nothing at or below zero.
     expect(readProcessTable(0)).toBeUndefined();
     // The foil, and what makes the sentinel a reading rather than the only
     // answer: a real listing on this host is a table, and it is not empty.
@@ -179,8 +179,8 @@ describe("the host query bound — a relation rather than a number", () => {
   });
 });
 
-describe("the one bounded door — every host command this package runs goes through it", () => {
-  // WHY THE BOUND IS ON THE DOOR AND NOT AT THE CALL SITES. Every reading here
+describe("`runBoundedHostCommand` — every host command this package runs goes through it", () => {
+  // WHY THE BOUND IS IN ONE FUNCTION AND NOT AT THE CALL SITES. Every reading here
   // is a `spawnSync`, which blocks this thread until its child exits, and each
   // one is taken from inside a disposal that is already racing a teardown: a
   // `ps` under a hung filesystem, or PowerShell whose CIM service is not

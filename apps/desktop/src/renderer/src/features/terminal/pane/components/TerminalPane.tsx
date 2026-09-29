@@ -5,13 +5,13 @@
 // one decision it makes: whether a session was addressed at all. Everything that
 // needs a session is `SessionTerminalPane.tsx` beside it, because the store hooks it
 // calls may only run when there IS a store and a hook behind a condition is the one
-// React rule a surface cannot bend.
+// React rule a component cannot bend.
 //
-// THE FRAME AROUND IT IS `seats/PaneFrame`, which draws the section, the kind
+// THE FRAME AROUND IT IS `components/PaneFrame`, which draws the section, the kind
 // glyph, the address trail, the control strip, and the body box for every pane kind in
 // the console. So this module names no region and sets no tab stop: the pane is named
 // by its whole trail — the session it holds the shell of, then "Terminal" — and the
-// emulator's own name inside it is the one accessible name this family still spells.
+// emulator's own name inside it is the one accessible name this feature still spells.
 //
 // The lease is wire-true: `pty.control_changed` carries the holder, the holder it replaced
 // and a closed reason, so the holding line comes from the session log through
@@ -32,7 +32,7 @@ export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Elem
         {sessionStore === undefined ? (
           <Nothing
             kind="not-checked"
-            placement="surface"
+            placement="block"
             title="This pane is not bound to a session."
             detail="A session's shared shell is reached through the session it belongs to, and this pane was opened without one. Nothing here says the session has no terminal — only that none was addressed."
           />

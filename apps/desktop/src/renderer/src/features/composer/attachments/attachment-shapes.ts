@@ -6,7 +6,7 @@
 // entries may still send. It holds no copy, formats no figure, and performs no
 // arithmetic, so a card's wording and a card's numbers both change without touching it.
 // It rests on `attachment-policy.ts` for the daemon's vocabulary and on nothing else in
-// this family.
+// the attachment modules.
 //
 // WIRE TRUTH FIRST. `packages/contracts` registers NO attachment type. The nearest
 // thing on the wire is `SteerPayload.attachments`, typed `z.array(z.unknown())` with a
@@ -26,7 +26,7 @@
 // caller's claim as the server's finding.
 //
 // WHAT THIS MODULE REFUSES TO MODEL — its own Never list, because no committed
-// document carries one for this surface:
+// document carries one for attachments:
 //   • No payload bytes, in any field. An attachment REFERENCE is a typed, ordered list
 //     of artifact ids and never bytes, and no shape here carries a manifest's content.
 //     The source below holds the user's own `Blob` — a handle the browser owns,

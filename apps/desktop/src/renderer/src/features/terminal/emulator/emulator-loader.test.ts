@@ -17,7 +17,7 @@ describe("the emulator loader", () => {
   it("resolves the real adapter class, not a stand-in for it", async () => {
     const { XtermTerminalAdapter: loaded } = await new TerminalEmulatorLoader().load();
     // Identity, not shape: a wrapper that merely looked like the class would let a
-    // surface build an emulator this tree does not own.
+    // component build an emulator this tree does not own.
     expect(loaded).toBe(XtermTerminalAdapter);
   });
 
@@ -28,7 +28,7 @@ describe("the emulator loader", () => {
     expect(loader.isLoadStarted).toBe(true);
   });
 
-  it("memoizes: two surfaces mounting together share one fetch", () => {
+  it("memoizes: two terminal panes mounting together share one fetch", () => {
     const loader = new TerminalEmulatorLoader();
     // Promise identity is the observable. Two distinct promises would mean two
     // entries into the module, which is the race the memo exists to prevent.

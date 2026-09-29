@@ -87,7 +87,7 @@ export interface OpenUiStateDatabaseOptions {
    * The clock the open timeout is armed on. Defaults to `RealClock`.
    *
    * A seam rather than a bare `setTimeout` for the same reason every other timer
-   * in the console is one: the open race is the only timer this family arms, and
+   * in the console is one: the open race is the only timer persistence arms, and
    * a timer that cannot be counted cannot be part of the "no timer fires except
    * the refresh scheduler's deadline" claim. It also makes the timeout arm
    * testable in milliseconds of frozen time rather than in three real seconds.
@@ -197,7 +197,7 @@ export class IndexedDbPersistenceAdapter implements PersistenceAdapter {
     // Every arm carries `unavailableReason: undefined` — this adapter IS the
     // durable one, so an unmeasurable browser quota here means "the browser told
     // us nothing", never "there is no durable store". That is exactly the
-    // distinction a surface reading three absent numbers cannot make on its own.
+    // distinction a view reading three absent numbers cannot make on its own.
     if (this.#storageManager === undefined || typeof this.#storageManager.estimate !== "function") {
       // Not "zero used" — unknown. The five kinds of nothing are distinct.
       return unmeasuredQuota(undefined);

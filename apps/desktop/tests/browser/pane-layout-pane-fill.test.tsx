@@ -1,19 +1,19 @@
-// Whether a pane fills the slot the pane layout gives it, in the arrangement the pane layout
+// Whether a pane fills the cell the pane layout gives it, in the arrangement the pane layout
 // actually uses.
 //
-// THE RULE, AND WHY IT HAD NO CASE. `seats/pane-chrome.css`' `.meridian-pane` is a
+// THE RULE, AND WHY IT HAD NO CASE. `PaneFrame.css`' `.meridian-pane` is a
 // column flex container with `min-height: 0` and no `flex` and no `height`, so its
 // used `flex` is the initial `0 1 auto`. Under a GRID parent that is harmless — a grid
 // item stretches to its area — and under a COLUMN FLEX parent it is decisive: `0` grow
-// means the section never takes its slot and is sized by its content instead. The pane layout
+// means the section never takes its cell and is sized by its content instead. The pane layout
 // is a column flex chain (`pane-layout/components/pane-layout.css`), so every pane the pane layout mounts was
 // content-sized, while `terminal-pane-box.test.tsx` — the one case that measures a pane
-// against a slot — builds its harness as a grid and says so in its own comment. Both
+// against a cell — builds its harness as a grid and says so in its own comment. Both
 // paths ship; only the grid one was covered.
 //
 // WHAT IT COST, AND WHAT IT DID NOT. A pane sized by its content hands the transcript's
-// scroll surface a box a fraction of the pane layout's height, and the virtualizer ranges
-// against that box — measured here at 200 px of a 600 px slot. It is deliberately NOT
+// scroll container a box a fraction of the pane layout's height, and the virtualizer ranges
+// against that box — measured here at 200 px of a 600 px cell. It is deliberately NOT
 // the endurance tier's 149 px viewport: that reading survives this repair, because the
 // composer takes 463 px of that window and the transcript's share is what is left. Two
 // defects on one chain, and crediting this one with the other's symptom would have
@@ -52,12 +52,12 @@ const PANE_LAYOUT_HEIGHT_PX = 600;
  * INLINE at runtime and this tier is measuring CSS: `pane-layout.css` records
  * that the group's `display`, `flex-direction` and `overflow` are the library's, and
  * the only property of that arrangement this case depends on is that the group is a
- * ROW — which is what makes the pane slot inside it stretch vertically.
+ * ROW — which is what makes the pane cell inside it stretch vertically.
  */
 const RESIZABLE_GROUP_LAYOUT = { display: "flex", flexDirection: "row" } as const;
 
 interface MountedPane {
-  readonly slot: HTMLElement;
+  readonly layoutCell: HTMLElement;
   readonly pane: HTMLElement;
 }
 
@@ -73,16 +73,16 @@ async function mountPaneInPaneLayout(): Promise<MountedPane> {
       </div>
     </div>,
   );
-  const slot = container.querySelector(".meridian-pane-layout__pane");
+  const layoutCell = container.querySelector(".meridian-pane-layout__pane");
   const pane = container.querySelector(".meridian-pane");
-  if (!(slot instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
-    throw new Error("the pane did not mount into a pane layout slot");
+  if (!(layoutCell instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
+    throw new Error("the pane did not mount into a pane layout cell");
   }
-  return { slot, pane };
+  return { layoutCell, pane };
 }
 
 /** The same pane under the arrangement that always worked, for the control below. */
-async function mountPaneInGridSlot(): Promise<MountedPane> {
+async function mountPaneInGridCell(): Promise<MountedPane> {
   installMeridianTokens(document);
   const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
   const { container } = await renderSettled(
@@ -90,42 +90,42 @@ async function mountPaneInGridSlot(): Promise<MountedPane> {
       <TerminalPane {...terminalPaneContext(undefined, bridge)} />
     </div>,
   );
-  const slot = container.firstElementChild;
+  const layoutCell = container.firstElementChild;
   const pane = container.querySelector(".meridian-pane");
-  if (!(slot instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
-    throw new Error("the pane did not mount into a grid slot");
+  if (!(layoutCell instanceof HTMLElement) || !(pane instanceof HTMLElement)) {
+    throw new Error("the pane did not mount into a grid cell");
   }
-  return { slot, pane };
+  return { layoutCell, pane };
 }
 
-describe("browser — a pane fills the slot the pane layout gives it", () => {
-  it("takes the whole slot height in the pane layout's column-flex arrangement", async () => {
-    const { slot, pane } = await mountPaneInPaneLayout();
+describe("browser — a pane fills the cell the pane layout gives it", () => {
+  it("takes the whole cell height in the pane layout's column-flex arrangement", async () => {
+    const { layoutCell, pane } = await mountPaneInPaneLayout();
 
-    expect(slot.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
+    expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(
       pane.getBoundingClientRect().height,
-      "the pane is sized by its content rather than by its slot, so every box below it — the transcript's scroll surface included — is measuring against a height the pane layout never gave it",
+      "the pane is sized by its content rather than by its cell, so every box below it — the transcript's scroll container included — is measuring against a height the pane layout never gave it",
     ).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 
-  it("still fills a grid slot, which is the arrangement that already worked", async () => {
+  it("still fills a grid cell, which is the arrangement that already worked", async () => {
     // The control that keeps the rule about GROWING rather than about a height: a
     // pane handed `height: 100%` would satisfy the case above and would break here
-    // the moment a slot stopped being the full height of its own parent. It also
+    // the moment a cell stopped being the full height of its own parent. It also
     // pins that the flex path's repair leaves the grid path exactly where it was —
     // `flex` is inert on a grid item, so this case must not move.
-    const { slot, pane } = await mountPaneInGridSlot();
+    const { layoutCell, pane } = await mountPaneInGridCell();
 
-    expect(slot.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
+    expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
     expect(pane.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
   });
 
   it("negative control: a pane in a column-flex box with no height hugs its content", async () => {
     // Without this the two cases above would pass over a `.meridian-pane` that had
     // simply been given a height, and the claim being made is the opposite one: the
-    // pane takes what its slot HAS, and a slot with nothing to give leaves it at its
-    // content. This is also the shape the defect wore — the pane layout's slot did have a
+    // pane takes what its cell HAS, and a cell with nothing to give leaves it at its
+    // content. This is also the shape the defect wore — the pane layout's cell did have a
     // height, and the pane was reading it as though it did not.
     installMeridianTokens(document);
     const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });

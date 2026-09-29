@@ -1,7 +1,7 @@
 // One artifact manifest row: the figures on its face, its manifest re-read, and its
 // disclosure.
 //
-// Split from `ArtifactsSection.tsx`, which owns the session-scoped surface (the head count,
+// Split from `ArtifactsSection.tsx`, which owns the session-scoped section (the head count,
 // the type filter, and which absence the body renders). Everything here is scoped to one
 // manifest. No element can hold a payload.
 
@@ -18,11 +18,11 @@ import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-
 
 export interface ArtifactRowProps {
   readonly row: ArtifactManifestRow;
-  /** The instant the row was rendered against. Ages move when the surface re-reads. */
+  /** The instant the row was rendered against. Ages move when the section re-reads. */
   readonly nowMilliseconds: number;
   /** Whether this row's manifest re-read is on the wire. Holds the control that sent it. */
   readonly isManifestReadInFlight?: boolean | undefined;
-  /** Re-read this row's manifest. Absent means the surface offers no re-read. */
+  /** Re-read this row's manifest. Absent means the section offers no re-read. */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
 }
 

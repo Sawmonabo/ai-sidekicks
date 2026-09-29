@@ -50,7 +50,7 @@ export interface ProcessTerminator {
    * reads because the implementation cannot know it: a tree kill is several
    * blocking host commands — a start-stamp read, a process-table listing, the
    * `taskkill` itself — each held to `HOST_QUERY_TIMEOUT_MS` on its own and to
-   * nothing collectively. The shared door takes the smaller of that ceiling and
+   * nothing collectively. `runBoundedHostCommand` takes the smaller of that ceiling and
    * this, and spawns nothing at all once it reaches zero.
    *
    * It is a REMAINDER AT THE MOMENT OF THE CALL and not an allowance for each of

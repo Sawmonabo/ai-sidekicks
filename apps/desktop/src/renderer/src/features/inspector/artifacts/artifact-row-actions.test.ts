@@ -1,6 +1,6 @@
-// The manifest re-read, driven through the reader that hosts it.
+// The manifest re-read, driven through the reader that owns it.
 //
-// Every case presses a control on a live reader rather than supplying a hand-written host,
+// Every case presses a control on a live reader rather than supplying a hand-written publisher,
 // so the act is asserted against the half it is meant to be correct against.
 //
 // The load-bearing block is the re-read register: each row's re-read is single-flight by
@@ -67,7 +67,7 @@ function listedDigest(reader: ArtifactListReader): string | undefined {
   return state.kind === "listed" ? state.rows[0]?.digest : undefined;
 }
 
-describe("artifact pane actions — one manifest re-read per row, each with its own identity", () => {
+describe("artifact list actions — one manifest re-read per row, each with its own identity", () => {
   it("sends one read when the row is pressed twice, and refuses the second in words", async () => {
     // Two reads of one manifest settle in either order, so the older answer could
     // overwrite the newer row.
@@ -109,7 +109,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
 
   it("negative control: the register is given back, so the next press is sent rather than refused", async () => {
     // A register taken and never released would pass both cases above and reject every
-    // later re-read of that row for the life of the pane, with the control held.
+    // later re-read of that row for the life of the section, with the control held.
     const clock = new ManualClock();
     const { reader, artifactRead, releaseNthRead } = readerWithHeldManifestReads(clock);
     reader.start();
@@ -132,7 +132,7 @@ describe("artifact pane actions — one manifest re-read per row, each with its 
 
   it("negative control: a second row is read while the first is still on the wire", async () => {
     // Two rows re-reading are two calls about two manifests that cannot collide, and a
-    // pane that held one row's control because another was waiting would block a press
+    // section that held one row's control because another was waiting would block a press
     // for a reason that is not about it.
     const clock = new ManualClock();
     const { reader, artifactRead } = readerWithHeldManifestReads(clock);

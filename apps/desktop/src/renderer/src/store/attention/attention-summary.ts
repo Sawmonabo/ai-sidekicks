@@ -1,4 +1,4 @@
-// The attention plane: what the console may say about "what needs me".
+// The attention summary: what the console may say about "what needs me".
 //
 // The whole answer lives in the daemon's projection: items are read, never counted
 // here. So this module holds a fold and a reading vocabulary — and no derivation of
@@ -43,7 +43,7 @@ export type AttentionReading =
   | { readonly phase: "reading" }
   | {
       readonly phase: "read";
-      readonly plane: AttentionSummary;
+      readonly summary: AttentionSummary;
       /** Members the boundary refused. A fact about the reader, not about attention. */
       readonly droppedCount: number;
       /** Sessions that never answered. Non-empty means the coverage is incomplete. */
@@ -52,7 +52,7 @@ export type AttentionReading =
        * Every session this read asked about, carried through from the fan-out.
        *
        * The denominator the refusals are a numerator over, and the only member that
-       * says which sessions a settled read speaks FOR. A surface that renders the
+       * says which sessions a settled read speaks FOR. A view that renders the
        * projection needs neither; the emitter needs both, because an item from a
        * session this read has only just begun addressing is the state of the world
        * rather than something that happened.
@@ -176,7 +176,7 @@ function groupBySession(items: readonly AttentionItem[]): readonly AttentionSess
   }));
 }
 
-/** What every surface and every announcement calls what this read was of. */
+/** What every view and every announcement calls what this read was of. */
 export const ATTENTION_SUBJECT = "what needs you";
 
 /**
@@ -191,7 +191,7 @@ export const ATTENTION_SUBJECT = "what needs you";
  * `refusedSessions` is deliberately NOT folded in here. The nearest kind is a
  * refusal `beside-an-answer`, whose sentence carries no figure — and how many of the
  * sessions asked never answered is the whole of what that fact tells a person, so
- * mapping it there would trade a count for a grammar. It stays the family's own
+ * mapping it there would trade a count for a grammar. It stays the attention read's own
  * sentence until the vocabulary carries a counted coverage reading.
  *
  * The phase that is still reading maps to nothing: the panel renders it through

@@ -1,6 +1,6 @@
-// When the pane reads, what makes it read again, and which answers it drops.
+// When the section reads, what makes it read again, and which answers it drops.
 //
-// What a served answer means is next door, in `services/artifact-reads.test.ts`; nothing below
+// What a served answer means is in `services/artifact-reads.test.ts`; nothing below
 // asserts a row's members, because a case that did would fail for a reason that has nothing
 // to do with scheduling.
 //
@@ -29,7 +29,7 @@ import {
   readThrough,
 } from "@test/helpers/artifact-list-readers.js";
 
-describe("artifact pane reader — before the first read answers", () => {
+describe("artifact list reader — before the first read answers", () => {
   it("starts on the read that has not answered", () => {
     const reader = new ArtifactListReader({
       ...artifactOperations(),
@@ -49,7 +49,7 @@ function readerOver(sessionStore: SessionStore, clock: ManualClock): ArtifactLis
   });
 }
 
-describe("artifact pane reader — the four reasons to read, and no fifth", () => {
+describe("artifact list reader — the four reasons to read, and no fifth", () => {
   it.each(["artifact.published", "artifact.superseded", "artifact.visibility_updated"])(
     "reads again when a %s frame arrives",
     async (kind) => {
@@ -139,7 +139,7 @@ describe("artifact pane reader — the four reasons to read, and no fifth", () =
   });
 });
 
-describe("artifact pane reader — a pane that has gone", () => {
+describe("artifact list reader — a section that has gone", () => {
   it("negative control: a disposed reader publishes nothing further", async () => {
     const clock = new ManualClock();
     const reader = new ArtifactListReader({
@@ -154,7 +154,7 @@ describe("artifact pane reader — a pane that has gone", () => {
   });
 });
 
-describe("artifact pane reader — reading again is coalesced, not raced", () => {
+describe("artifact list reader — reading again is coalesced, not raced", () => {
   it("costs one read when the user presses twice in one window", async () => {
     // Two presses inside the coalescing window are one reason to re-read, not two. A
     // reader that called the daemon on every press issues two list calls here.
@@ -178,7 +178,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
   });
 
   it("never drops answered rows back to loading on a re-read", async () => {
-    // Dropping the rows back to `loading` on every press would blank a surface that has an
+    // Dropping the rows back to `loading` on every press would blank a section that has an
     // answer on it.
     const clock = new ManualClock();
     const reader = new ArtifactListReader({
@@ -198,8 +198,8 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
     expect(reader.snapshot.artifacts.kind).toBe("listed");
   });
 
-  it("discards a completion that outlived the pane it was read for", async () => {
-    // The generation stamp, exercised: the read is in flight when the pane unmounts,
+  it("discards a completion that outlived the section it was read for", async () => {
+    // The generation stamp, exercised: the read is in flight when the section unmounts,
     // and its answer arrives afterwards with a stamp that is no longer current.
     const clock = new ManualClock();
     const listCall = handAnsweredCall<readonly ArtifactManifest[]>();
@@ -221,7 +221,7 @@ describe("artifact pane reader — reading again is coalesced, not raced", () =>
   });
 });
 
-describe("artifact reader — the frames this pane re-reads on", () => {
+describe("artifact reader — the frames this section re-reads on", () => {
   it("watches every registered artifact kind, derived from the contract's census", () => {
     // A SET claim rather than a behavior, so the case re-derives the expected members
     // from the same registry the module reads. A literal list here would be the
@@ -233,7 +233,7 @@ describe("artifact reader — the frames this pane re-reads on", () => {
     );
     expect([...ARTIFACT_TERMINAL_EVENT_KINDS].sort()).toStrictEqual([...registered].sort());
     // Non-vacuity: a filter that matched nothing would satisfy the equality above on
-    // both sides, and the pane would re-read on no frame at all.
+    // both sides, and the section would re-read on no frame at all.
     expect(ARTIFACT_TERMINAL_EVENT_KINDS.length).toBeGreaterThan(1);
   });
 

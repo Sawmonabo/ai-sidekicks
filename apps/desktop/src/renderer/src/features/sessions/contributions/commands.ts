@@ -1,15 +1,14 @@
 // What the pane layout contributes to the palette, and how a press reaches the pane layout that is
 // actually on screen.
 //
-// The five acts are `pane-layout-acts.ts`'; this file is the seam between them and the
-// window's command surface: a mounted-surface seat plus a contribution made at
-// composition time. Nothing here crosses a family boundary and nothing here belongs in
-// `seats/`.
+// The five acts are `pane-layout-acts.ts`'; this file ties them to the window's command
+// registry: a contribution made at composition time that reaches the newest mounted pane
+// layout through `MountedPaneLayouts` when a row is pressed.
 //
 // CONTRIBUTED AT COMPOSITION TIME, RESOLVED AT PRESS TIME. A command is built once per
 // window, before any pane layout exists; the pane layout comes and goes with the route. So each row
-// resolves the mounted pane layout when it runs, and an empty seat is a REFUSAL a person
-// reads rather than a press that does nothing.
+// resolves the mounted pane layout when it runs, and no mounted pane layout is a REFUSAL a
+// person reads rather than a press that does nothing.
 //
 // WHY NO CHORD IS CLAIMED HERE, WHICH IS A DECISION AND NOT AN OMISSION.
 //
@@ -20,15 +19,14 @@
 // records that pairing as the fix for a measured defect, where typing in a pane's find
 // field rearranged or closed the pane it was typed in.
 //
-// The window's binding table asks the NARROW question (`isTextEntryTarget`) and
-// installs in the CAPTURE phase, and it consumes any press whose command RAN —
-// `preventDefault` plus `stopPropagation`, on the reasoning that a press which ran
-// something is the console's. Binding these same keystrokes there would therefore
-// preempt the pane layout's handler and, inside a listbox or a combobox, run the pane layout act and
-// eat the widget's arrow key. Moving the wide guard into the acts would not help: the
-// act would decline and the table would consume the press anyway, because a command
-// that ran is what the table measures. The only place the guard could live is a
-// `when` clause, and the console's clause vocabulary is a closed set of route keys.
+// The window's binding table asks the NARROW question (`isTextEntryTarget`) and installs in the
+// CAPTURE phase, and it consumes any press whose command RAN — `preventDefault` plus
+// `stopPropagation`, on the reasoning that a press which ran something is the console's. Binding
+// these same keystrokes there would therefore preempt the pane layout's handler and, inside a
+// listbox or a combobox, run the pane layout act and eat the widget's arrow key. Moving the wide
+// guard into the acts would not help: the act would decline and the table would consume the press
+// anyway, because a command that ran is what the table measures. The only place the guard could
+// live is a `when` clause, and the console's clause vocabulary is a closed set of route keys.
 //
 // So the keystrokes stay the pane layout's, where the wide guard is, and the palette rows are
 // what this file adds: the same five acts, discoverable by name, reachable from
@@ -47,7 +45,7 @@ import {
  * The palette group these rows sit under.
  *
  * One binding rather than a literal per command: the group is also a secondary match
- * field, so two spellings would split the surface's rows across two categories.
+ * field, so two spellings would split the palette's rows across two categories.
  */
 export const PANE_LAYOUT_COMMAND_GROUP = "Panes";
 
@@ -63,7 +61,7 @@ const WHEN_SESSION_ACTIVE = "sessionActive";
 /**
  * The owner string this contribution carries.
  *
- * The contribution door is owner-scoped, so composing twice — a hot reload, a second
+ * The command registry is owner-scoped, so composing twice — a hot reload, a second
  * test — replaces these rows instead of raising on their ids.
  */
 export const PANE_LAYOUT_COMMAND_OWNER = "pane-layout";
@@ -117,14 +115,14 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Comman
 /**
  * Contribute the pane layout's commands to a window.
  *
- * Takes the surface rather than reaching for the module-scope door, for
- * `registerTranscriptCommands`' reason: a test contributes into a surface it owns.
+ * Takes the registry rather than reaching for the module-scope one, so a test
+ * contributes into a registry it owns.
  */
 export function registerPaneLayoutCommands(
-  surface: CommandContributionRegistry,
+  registry: CommandContributionRegistry,
   mountedLayouts: MountedPaneLayouts = mountedPaneLayouts,
 ): void {
-  surface.contribute({
+  registry.contribute({
     owner: PANE_LAYOUT_COMMAND_OWNER,
     commands: paneLayoutPaletteCommands(actsOnTheMountedPaneLayout(mountedLayouts)),
     keyBindings: [],

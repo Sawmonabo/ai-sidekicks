@@ -17,7 +17,7 @@ import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 /**
  * One inventory row: the binding's identity, what is known about it, and the two
- * controls this shell sends.
+ * controls this fixture body sends.
  *
  * THE IDENTITY IS THE SCOPE-QUALIFIED TUPLE AND NEVER THE NAME. Two same-named servers
  * in two scopes are two bindings, and a row keyed on the name would collapse them —
@@ -25,7 +25,7 @@ import type { McpMutationOutcome } from "../mcp-mutation.js";
  * the other. The provider, the scope, and the scope reference are all on screen for
  * exactly that reason.
  *
- * EVERY CONTROL IS OFFERED AND NONE IS ELIGIBILITY-GATED. The governing surface says
+ * EVERY CONTROL IS OFFERED AND NONE IS ELIGIBILITY-GATED. The design for this page says
  * so in terms: eligibility is not projected at all and no field reports it. So this
  * row disables a control only while its own call is in flight — which is about this
  * press and not about permission.

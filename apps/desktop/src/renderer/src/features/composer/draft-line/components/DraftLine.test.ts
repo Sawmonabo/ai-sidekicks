@@ -96,7 +96,7 @@ describe("DraftLine — the line without Send", () => {
 
 describe("DraftLine — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
-    // The finding at the surface: fulfillment was treated as success, so the line
+    // The finding on screen: fulfillment was treated as success, so the line
     // emptied and the user's words were gone for an intervention the run had
     // declined. Nothing about the reply says the message traveled, so nothing about
     // the composer may say so either.
@@ -163,7 +163,7 @@ describe("DraftLine — a refusal about the whole session leaves the bar", () =>
 
   it("raises the frame's banner while the composer keeps the daemon's words", async () => {
     // A banner goes across the frame, and a session that has left the node is the whole
-    // window's fact — every other pane is drawing it. The composer is a pure surface
+    // window's fact — every other pane is drawing it. The composer is a pure view
     // with no store of its own, so the handover is this bar's explicit act; the line
     // and the card stay exactly as they were, because the person is standing here and
     // their words are unsent.

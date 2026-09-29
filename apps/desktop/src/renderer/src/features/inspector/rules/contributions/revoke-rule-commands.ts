@@ -7,7 +7,7 @@
 
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 
-/** The owner these rows are contributed under. One per surface, one live at a time. */
+/** The owner these rows are contributed under. One per rules list, one live at a time. */
 export const REVOKE_RULE_COMMAND_OWNER = "inspector-rules";
 
 /** One contributed row: which rule, under what title. */
@@ -35,7 +35,7 @@ export interface RevokeRuleCommandInput {
 /**
  * Whether this rule's revoke act is offered right now — on the row and in the palette.
  *
- * One predicate for both surfaces rather than two expressions that agree today. A
+ * One predicate for the row and the palette rather than two expressions that agree today. A
  * revoked rule is history and offers nothing, and a rule already settling offers a
  * status rather than a second press; the palette must withdraw its row on exactly
  * those two conditions or it becomes a way to press a button that is not there.

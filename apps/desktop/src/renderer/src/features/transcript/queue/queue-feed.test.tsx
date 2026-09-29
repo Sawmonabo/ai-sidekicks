@@ -1,8 +1,8 @@
-// One session's queue is read once for every surface, and its rows fold in from the
+// One session's queue is read once for every view, and its rows fold in from the
 // tail.
 //
 // The tail delivers already-parsed rows: parsing the wire belongs to the call that
-// opens the stream, so this fold seats what it is handed and nothing else.
+// opens the stream, so this fold places what it is handed and nothing else.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -21,8 +21,8 @@ import {
 } from "./queue-feed.test-support.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
-describe("one session's queue is read once for every surface", () => {
-  it("opens one stream and takes one snapshot for two surfaces on one session", async () => {
+describe("one session's queue is read once for every view", () => {
+  it("opens one stream and takes one snapshot for two views on one session", async () => {
     const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     render(
       <TwoQueueReaders
@@ -86,12 +86,12 @@ describe("one session's queue is read once for every surface", () => {
     expect(second.tailedSessionIds).toStrictEqual([SESSION_ID]);
   });
 
-  it("leaves one live registered reading when one surface replaces another in a commit", async () => {
+  it("leaves one live registered reading when one view replaces another in a commit", async () => {
     // React runs cleanups BEFORE setups, so this pane swap retires the reading
-    // between the arriving surface's render and its subscribe. A surface that
-    // subscribed through the reading it captured at render revived that one — live,
-    // open, and outside the registry — and the next surface then minted a second,
-    // so one session carried two snapshot reads and two tails.
+    // between the arriving view's render and its subscribe. A view that subscribed
+    // through the reading it captured at render would revive that one — live, open,
+    // and outside the registry — and the next view would then mint a second, so one
+    // session would carry two snapshot reads and two tails.
     const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     const view = render(
       <QueueFeedProbe
@@ -114,9 +114,9 @@ describe("one session's queue is read once for every surface", () => {
       />,
     );
 
-    // A third surface arriving afterwards must JOIN what the swap left behind rather
+    // A third view arriving afterwards must JOIN what the swap left behind rather
     // than mint its own, which is the reading that says the registry holds one. Both
-    // arrivals settle together, which is the case's own claim: two surfaces sharing
+    // arrivals settle together, which is the case's own claim: two views sharing
     // one reading ask it for one read.
     render(
       <QueueFeedProbe
@@ -173,8 +173,8 @@ describe("one session's queue is read once for every surface", () => {
     await act(async () => {
       await crossMacrotaskBoundary();
     });
-    // The swapped-in surface leaves; the joiner stays, so the reading is still live
-    // and still registered, and a fourth surface joins it rather than minting one.
+    // The swapped-in view leaves; the joiner stays, so the reading is still live
+    // and still registered, and a fourth view joins it rather than minting one.
     swapped.unmount();
     render(
       <QueueFeedProbe
@@ -192,7 +192,7 @@ describe("one session's queue is read once for every surface", () => {
     joined.unmount();
   });
 
-  it("reads afresh once the last surface has left, rather than serving a stale list", async () => {
+  it("reads afresh once the last view has left, rather than serving a stale list", async () => {
     const { bridge, clock, queueCalls, tailedSessionIds } = queueFeedBridge();
     const mounted = render(
       <QueueFeedProbe
@@ -224,7 +224,7 @@ describe("one session's queue is read once for every surface", () => {
 });
 
 describe("the queue feed folds the rows the tail delivers", () => {
-  it("seats a row from a delivery and reads once the snapshot lands", async () => {
+  it("places a row from a delivery and reads once the snapshot lands", async () => {
     const { deliver, latest } = await openFeed();
     deliver(QUEUED_ROW);
     expect(latest().items).toHaveLength(1);

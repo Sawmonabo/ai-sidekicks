@@ -208,7 +208,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
       { resumeFromCursor: undefined },
     ]);
     // The refusal STANDS as the decision — a recovery that overwrote it would leave
-    // the surface with nothing to say about a position it silently gave up.
+    // the view with nothing to say about a position it silently gave up.
     expect(entry.timelineResume?.outcome).toBe("refused");
     // And the store keeps its projection: the recovery answered at the beginning of
     // the window, which `admitsSnapshotAt` refuses for arriving behind the cursor.

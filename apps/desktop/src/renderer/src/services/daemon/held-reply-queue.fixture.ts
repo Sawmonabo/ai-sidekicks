@@ -27,7 +27,7 @@
  * Three outcomes rather than a promise that resolves or hangs, because two of
  * them are refusals the caller has to render: an engine torn down under a request
  * and a backlog that is already full both leave the caller with nothing to show,
- * and a promise that never settles leaves a surface loading for the life of the
+ * and a promise that never settles leaves a view loading for the life of the
  * window. The engine reports which; naming the refusal belongs to the bridge.
  */
 export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
@@ -41,9 +41,9 @@ export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
  * the order a real transport would settle them. Keeping that in one place is what
  * stops `advance` from growing a second sort.
  *
- * INTRA-FAMILY AND OFF THE DOOR. The engine is its only reader, and a door line for a
- * class one sibling constructs would publish an edge into the engine's own internals to
- * every reader of the engine.
+ * USED BY THE ENGINE ALONE. The engine is its only reader, and exporting a class one
+ * sibling constructs for wider use would publish an edge into the engine's own
+ * internals to every reader of the engine.
  */
 export class HeldReplyQueue {
   readonly #held: HeldScenarioReply[] = [];

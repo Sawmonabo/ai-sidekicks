@@ -127,7 +127,7 @@ describe("PaneRectTracker — when it writes", () => {
     expect(writes).toHaveLength(2);
   });
 
-  it("arms nothing once disposed, so no timer outlives the surface", () => {
+  it("arms nothing once disposed, so no timer outlives the pane layout", () => {
     const { clock, tracker, writes } = harness();
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
     tracker.dispose();
@@ -187,7 +187,7 @@ describe("PaneRectTracker — what it reports as visible", () => {
 
   it("negative control: an airspace change that does not move occupancy asks for nothing", () => {
     // The registry publishes EVERY change — a second overlay, and a registered one
-    // moving — because the browser family's publisher re-samples rectangles on those.
+    // moving — because the preview feature's geometry publisher re-samples rectangles on those.
     // This consumer reads only whether the count is above zero, so without the
     // transition filter each of them would re-measure every tracked pane for an answer
     // that cannot differ.
@@ -258,7 +258,7 @@ describe("PaneRectTracker — what a clipping ancestor does to the rect", () => 
 
   it("publishes the intersection with a scrolling ancestor rather than the border box", () => {
     // A native view is composited by the host and is not clipped by the DOM ancestor
-    // that clips the pane, so a pane scrolled half out of the frame surface would have
+    // that clips the pane, so a pane scrolled half out of the frame would have
     // its view drawn over whatever sits beside it.
     const { clock, tracker, writes } = harness();
     tracker.track(

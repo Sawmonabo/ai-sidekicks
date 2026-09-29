@@ -16,7 +16,7 @@ import { paneBinding, resolvedPaneBody } from "./pane-body-resolution.js";
 
 /** The preview pane, mounted and settled. */
 export async function mountPreviewPane(): Promise<MountedView> {
-  const fixture = createFixtureBridge({ scenario: unscriptedScenario("preview-surface") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("preview-pane") });
   const { bridge } = fixture;
   const PreviewPaneBody: FunctionComponent<PaneContext> = await resolvedPaneBody(
     "browser",
@@ -26,7 +26,7 @@ export async function mountPreviewPane(): Promise<MountedView> {
     <FixtureBridgeProvider fixture={fixture}>
       <PreviewPaneBody
         kind="browser"
-        {...paneBinding({ paneId: "pane-preview-surface", bridge, sessionStore: undefined })}
+        {...paneBinding({ paneId: "pane-preview", bridge, sessionStore: undefined })}
       />
     </FixtureBridgeProvider>,
   );

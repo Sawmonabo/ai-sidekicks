@@ -34,7 +34,7 @@ export function AccountPlaneRefusal(props: {
    * So the handoff never offers to open the page a person is already reading, which
    * is a control that appears to do something and does nothing. The sentence still
    * renders: what has to happen is worth saying even when the place to do it is the
-   * surface it is said on.
+   * page it is said on.
    */
   readonly currentSection?: SettingsPageId | undefined;
 }): ReactNode {

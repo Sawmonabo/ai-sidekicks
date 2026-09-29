@@ -7,7 +7,7 @@
 // — those are two different claims, and asserting the reader only through the fold is
 // what made the second one carry both.
 //
-// Two of the surface's "never" clauses are properties of THIS module: the holder
+// Two of the lease line's "never" clauses are properties of THIS module: the holder
 // comes off the wire and nowhere else, and a reason and a holder shape that disagree
 // are not a transition. Each has a negative control, because both would pass against
 // a reader that simply returned the payload it saw.
@@ -136,7 +136,7 @@ describe("reading the transition it could NOT read", () => {
 
   it("negative control: a payload with nothing to name carries nothing", () => {
     // Without it the case above would pass against a reader that stringified whatever
-    // the member held, which is the surface inventing a vocabulary.
+    // the member held, which is the lease line inventing a vocabulary.
     expect(
       readTerminalLeaseUnreadTransition(
         leaseEventWithPayload(READER_EVENT_SEQUENCE, { reason: "" }),

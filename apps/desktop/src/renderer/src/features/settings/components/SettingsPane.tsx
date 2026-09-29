@@ -18,7 +18,7 @@ export interface SettingsPaneProps {
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
   /**
-   * How many search hits this surface has opened. Moves on every hit, including a
+   * How many search hits this pane has opened. Moves on every hit, including a
    * second hit on the section already open — which is the case a boolean could not
    * express, and the one where a reader most needs to be told they did not move.
    */
@@ -41,7 +41,7 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
       return (
         <Nothing
           kind="error"
-          placement="surface"
+          placement="block"
           title="That settings address does not name a section."
           detail={`Nothing in settings is called “${props.attempted}”. The rail on the left lists every section this console has.`}
         />
@@ -50,7 +50,7 @@ export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="Choose a section."
         detail="Settings are grouped by what they govern. Search above to jump straight to one."
       />

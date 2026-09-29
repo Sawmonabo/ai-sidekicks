@@ -10,12 +10,12 @@
 // competition.
 //
 // A SCOPE, A ROUND, AND WHY THEY ARE TWO THINGS. A scope is a read LINE — one
-// surface's reads of one subject — and it lives exactly as long as that pairing
+// view's reads of one subject — and it lives exactly as long as that pairing
 // does. A round is one read on that line. The two endings are different facts and a
 // caller has to be able to tell them apart: a round ends because a NEWER read
-// superseded it and the line goes on, and a scope ends because the surface that
+// superseded it and the line goes on, and a scope ends because the view that
 // owned it is gone and nothing on that line will be read again. Collapsing them
-// would make a re-read look like a teardown, which is how a live surface comes to
+// would make a re-read look like a teardown, which is how a live view comes to
 // hold a signal that is already aborted.
 //
 // THE ROUND IS THE LATCH CLAIM PLUS THE SIGNAL, AND THAT IS THE WHOLE OF THE
@@ -29,15 +29,15 @@
 //
 // FIRE AND FORGET, IN BOTH DIRECTIONS. Nothing awaits an abort and nothing is queued
 // behind one: aborting is a synchronous flag flip and a listener call, and the read
-// it ends was already unowned. A surface that comes back issues a fresh read
+// it ends was already unowned. A view that comes back issues a fresh read
 // immediately — the scope it returns to is a NEW scope, because the subject pairing
 // that addresses it was re-addressed. So there is no state to unwind and no window in
-// which a returning surface is waiting for a cancellation to complete.
+// which a returning view is waiting for a cancellation to complete.
 //
 // WHAT IS DELIBERATELY NOT CANCELABLE, AND WHY THE LIST IS SHORT AND HARD. Reads,
 // and reads only. A mutation is never handed a signal — a durable act that has
 // reached the daemon has HAPPENED, and abandoning the console's half of it would
-// leave a person looking at a surface that says an act did not occur while the record
+// leave a person looking at a view that says an act did not occur while the record
 // says it did. A run control (pause, interrupt, cancel, stop) is a mutation by that
 // same reading. A store-owned subscription is not a read at all: it belongs to the
 // session's store rather than to any pane, it outlives every pane that reads through
@@ -100,14 +100,14 @@ export interface ReadRound extends CurrentGenerationClaim {
  * to several of the reads this settles and a caller cannot be asked to tell "the wire
  * said nothing" from "nobody is listening". The abandoned arm carries nothing on
  * purpose: there is no answer to carry, and a diagnostic here would be a sentence
- * composed for a surface that is gone.
+ * composed for a view that is gone.
  */
 export type ReadSettlement<TValue> =
   | { readonly status: "settled"; readonly value: TValue }
   | { readonly status: "abandoned" };
 
 /**
- * One surface's read line, and the two ways a read on it ends.
+ * One view's read line, and the two ways a read on it ends.
  *
  * ONE PER `(subject, key)` AND NEVER A SINGLETON. Its whole meaning is that the reads
  * on it belong to one owner; shared between two owners it would let either one end
@@ -143,7 +143,7 @@ export class ReadScope {
    * that had to branch on "may I read" before every read would write that branch at
    * each call site and eventually not write it; a round whose signal is already
    * aborted reaches the same place through the path the caller already has, and the
-   * read never leaves the console because the call door checks the signal before it
+   * read never leaves the console because `callDaemon` checks the signal before it
    * sends.
    */
   public openRound(): ReadRound {
@@ -207,7 +207,7 @@ export class ReadScope {
  * {@link settleUnlessAbandoned} rather than a second mechanism: the combinator answers
  * which of two events came FIRST, and this answers whether anybody is still waiting
  * once both have. A read that reaches the wire once needs the first; a COMPOSED read —
- * one that calls the door, folds the answer, and calls it again — needs the second at
+ * one that calls the daemon, folds the answer, and calls it again — needs the second at
  * every boundary between its calls, because an abort landing in one of those gaps
  * reaches no listener the combinator has left attached.
  *
@@ -238,7 +238,7 @@ export function isReadAbandoned(signal: AbortSignal | undefined): boolean {
  *
  * A REJECTION IS STILL THE CALLER'S. This answers the abandoned arm and nothing else:
  * where `pending` rejects first, the rejection travels out of here untouched, so the
- * call door's own reading of a rejected promise is the one that runs. Where the
+ * `callDaemon`'s own reading of a rejected promise is the one that runs. Where the
  * abandonment won and `pending` rejects afterwards, `Promise.race` has already
  * attached to it, so that rejection is handled and reaches no unhandled-rejection
  * sink.
@@ -283,8 +283,8 @@ export function settleUnlessAbandoned<TValue>(
       },
       (rejection: unknown) => {
         signal.removeEventListener("abort", onAbandoned);
-        // The rejection travels out untouched: what a failed read MEANS is the call
-        // door's reading, not this one's. Where the abandonment already resolved this
+        // The rejection travels out untouched: what a failed read MEANS is
+        // `callDaemon`'s reading, not this one's. Where the abandonment already resolved this
         // promise, rejecting it is inert — and the rejection is still handled here,
         // which is what keeps it off the host's unhandled-rejection path.
         reject(rejection);

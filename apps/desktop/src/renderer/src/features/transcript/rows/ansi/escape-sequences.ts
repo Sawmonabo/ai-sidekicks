@@ -9,7 +9,7 @@
 // A SCANNER RATHER THAN A REGULAR EXPRESSION, and not for speed: a pattern carrying
 // these bytes is what `no-control-regex` exists to stop, and the escape it would need
 // to get past that rule is the escape a later reader cannot check. Written out, each
-// sequence family is one branch a person can read against the standard.
+// kind of sequence is one branch a person can read against the standard.
 
 /** The one byte every ANSI sequence opens with. */
 const ESCAPE = "\u001b";
@@ -33,10 +33,10 @@ const STRING_TERMINATOR = "\u009c";
  * The four string controls whose payload runs until a terminator ends it: DCS
  * (`ESC P`), SOS (`ESC X`), PM (`ESC ^`) and APC (`ESC _`).
  *
- * THEY ARE NOT TWO-BYTE ESCAPES, which is what this scan read them as — so a terminal
- * that sent a DCS put its whole payload on the page as text, up to the trailing ST the
- * scan never looked for. OSC is the fifth member of the family and keeps a branch of its
- * own, because it is the one that also ends at BEL.
+ * THEY ARE NOT TWO-BYTE ESCAPES: a scan that read them as such would put a DCS's whole
+ * payload on the page as text, up to a trailing ST it never looked for. OSC is the fifth
+ * string sequence and keeps a branch of its own, because it is the one that also ends
+ * at BEL.
  */
 const STRING_CONTROL_INTRODUCERS: readonly string[] = ["P", "X", "^", "_"];
 
@@ -65,7 +65,7 @@ export function carriesAnsiEscapes(source: string): boolean {
 }
 
 /**
- * Text with every escape sequence removed, whatever family it belongs to.
+ * Text with every escape sequence removed, whatever kind it is.
  *
  * MEASURED AGAINST THE PINNED LIBRARY RATHER THAN ASSUMED. `anser`'s `ansiToJson`
  * consumes CSI sequences — the SGR ones it styles and the cursor, erase and scroll
@@ -121,7 +121,7 @@ function endOfSequenceAt(text: string, escapeAt: number): number {
     return endOfParameterizedSequence(text, escapeAt + 2, "0", "?");
   }
   if (isWithin(introducer, " ", "/")) {
-    // An escape carrying intermediate bytes — `ESC ( B` and its family.
+    // An escape carrying intermediate bytes — `ESC ( B` and its kind.
     return endOfParameterizedSequence(text, escapeAt + 1, " ", "/");
   }
   // A parameterless escape, and anything else: the introducer and one byte.

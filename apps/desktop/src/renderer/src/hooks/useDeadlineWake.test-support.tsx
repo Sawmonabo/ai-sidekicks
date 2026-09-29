@@ -1,8 +1,4 @@
-// The clock and the surface every deadline-wake suite drives, in one place.
-//
-// AT THE FAMILY ROOT AND NOT BESIDE `subject-scoped/deadline-wake.ts`, for
-// `session-event.test-support.ts`'s reason: a suite outside this family may drive the
-// same clock and the same harness.
+// The clock and the probe component every deadline-wake suite drives, in one place.
 //
 // Two suites read this module — the timer-and-dependency claims in
 // `store/subject-scoped/deadline-wake.test.tsx` and the late-wake-up catch-up in

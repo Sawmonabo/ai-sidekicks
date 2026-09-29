@@ -1,6 +1,6 @@
 // The one Electron launcher, shared by the end-to-end and endurance tiers.
 //
-// Both tiers need the same thing — a real shell, a real renderer, the fixture
+// Both tiers need the same thing — a real main process, a real renderer, the fixture
 // bridge serving the console — and they need it built the same way, or the
 // endurance tier would be measuring a different application from the one the
 // end-to-end tier proved. So the launch lives here and neither tier owns a copy.
@@ -297,7 +297,7 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
  * it — the inversion `cleanup-disposition.ts` exists to stop.
  *
  * AND THE REGISTERED CLOSE FAILS THE TEST RATHER THAN BEING SWALLOWED, which is
- * the one place this package asks that of the settle-time door. On a vitest
+ * the one place this package asks that of `disposeWhenTestFinishes`. On a vitest
  * timeout this registration is the only close there is: the body's own
  * settlement never runs, so nothing else can report the verdict later, and the
  * close is idempotent by a `closed` guard set before its cleanup runs — so a
@@ -351,7 +351,7 @@ export async function withLaunchedApp<TResult>(
   // does not run the body's settlement at all, so without a settle-time
   // registration a tier that overran its own budget left a real Electron and a
   // real profile directory behind. `close` is idempotent, so on every ordinary
-  // outcome this is a no-op — the shared door swallows the rejection, because by
+  // outcome this is a no-op — `disposeWhenTestFinishes` swallows the rejection, because by
   // then the test's own failure is the one that explains the run.
   //
   // AWAITED, because the registration can refuse. A caller in a `beforeAll` is

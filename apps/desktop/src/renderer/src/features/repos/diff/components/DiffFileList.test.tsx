@@ -3,7 +3,7 @@
 //
 // A rename, a copy, a mode change, and a binary change all live in a git patch's
 // extended headers and produce no hunks, so such a file counted `+0 −0` and its
-// entry read as a path nothing had happened to. The subject is the family's own
+// entry read as a path nothing had happened to. The subject is the diff tests' own
 // fixture, parsed by the real parser, so what is asserted is what the console
 // renders for a patch a daemon could actually send.
 //

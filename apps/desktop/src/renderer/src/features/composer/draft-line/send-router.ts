@@ -12,7 +12,7 @@
 //      slash rules and every refusal drivable from a test without any call, and it
 //      is what makes the decision `send` performs the same one a reader can inspect
 //      rather than a second guess beside it.
-//   2. **Every identifier is read through the bridge family's reader.** The store
+//   2. **Every identifier is read through the bridge's own reader.** The store
 //      holds wire-verbatim strings; `run.queueCreate` and `run.intervene` take
 //      branded ids. Reading here means the console never dispatches a shape the
 //      daemon would refuse, and an unreadable id becomes a rendered refusal
@@ -43,7 +43,7 @@
 // command opens its line, and indented text beginning with a slash is prose.
 //
 // WHAT THIS MODULE DOES NOT DO. It does not decide whether the person MAY send:
-// eligibility is the daemon's and reaches the surface as a typed refusal, which
+// eligibility is the daemon's and reaches the composer as a typed refusal, which
 // this module carries through verbatim rather than re-deriving.
 
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
@@ -142,7 +142,7 @@ export class ComposerSendRouter {
    *
    * The one place a composed message reaches the wire. A refusal — this module's or
    * an intervention the run did not take — comes back as a value, because a refused
-   * send is an ordinary answer the surface renders beside the control that was
+   * send is an ordinary answer the composer renders beside the control that was
    * pressed. A call that rejects is not caught here.
    */
   public async send(text: string, target: ComposerTarget): Promise<ComposerSendOutcome> {
@@ -187,7 +187,7 @@ export class ComposerSendRouter {
    * The refusal for a name the bound provider published, or `undefined` for any
    * other name.
    *
-   * NAMED RATHER THAN SENT. The enumeration is a discovery surface: this console does
+   * NAMED RATHER THAN SENT. The enumeration is for discovery only: this console does
    * not dispatch a provider command from the line on any path, and the person who
    * typed one read it off a list this composer showed them — so the refusal says what
    * the entry is, rather than telling them to check their spelling (which was right)

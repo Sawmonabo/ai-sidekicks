@@ -1,7 +1,7 @@
-// What `surfaces/schema-form.tsx`'s three readings answer, over the documents a mount
+// What `feature-mounts/schema-form.tsx`'s three readings answer, over the documents a mount
 // cannot be asked to produce.
 //
-// THE DEFECT THEY PIN. The workflows family's parked-run mount read
+// THE DEFECT THEY PIN. The workflows feature's parked-run mount read
 // `region.querySelector("[aria-busy]")` — unscoped — and called a match "the compiler
 // has not arrived yet". React renders an ARIA attribute as a STRING, so a control
 // rendered with `aria-busy={false}` is the literal `aria-busy="false"` in the document
@@ -15,12 +15,12 @@
 // WHY THE INPUTS ARE BUILT HERE. The readings' subjects are shapes the fixture cannot be
 // asked to produce: no scenario mounts a pane holding a settled `aria-busy="false"`
 // control and no form, and none mounts a FORM carrying that attribute at all, since the
-// seat renders `undefined` on its settled arm. A fixture written to produce either would
+// form renders `undefined` on its settled arm. A fixture written to produce either would
 // be a fixture written to satisfy this file rather than to describe the product. The
 // readings themselves are the real ones, imported from the module the mounts use — a
 // local re-reading of the selector would prove nothing about either wait.
 //
-// WHY THIS TIER. The module under test mounts a React seat through `app-harness.ts`
+// WHY THIS TIER. The module under test mounts the schema form through `app-harness.ts`
 // and reaches the renderer's own barrels, so it belongs to a browser-mode project rather
 // than a Node one — and this is the project whose glob claims a `tests/browser/`
 // file, and whose neighbors already drive that mount. The cases below build detached
@@ -69,9 +69,9 @@ describe("the schema form's own busy state", () => {
   });
 
   it("does not report a form that has its compiler", () => {
-    // The seat renders `aria-busy={undefined}` once the validator has a verdict, so the
+    // The form renders `aria-busy={undefined}` once the validator has a verdict, so the
     // attribute is absent rather than `"false"` — asserted separately from the case
-    // above because the two are different documents and only one of them is the seat's.
+    // above because the two are different documents and only one of them is the form's.
     const region = regionHolding(
       `<form class="meridian-schema-answer"><button>Submit answer</button></form>`,
     );
@@ -82,7 +82,7 @@ describe("the schema form's own busy state", () => {
 
   it("holds a form that says it is not busy to be waiting anyway", () => {
     // The one shape the two candidate rules disagree on, pinned so the choice between
-    // them is checkable rather than a paragraph. The seat does not draw this today; if
+    // them is checkable rather than a paragraph. The form does not draw this today; if
     // it ever does, presence keeps a caller waiting to its deadline and fails loudly,
     // while a value match would return and let a tier audit a form still compiling.
     const region = regionHolding(

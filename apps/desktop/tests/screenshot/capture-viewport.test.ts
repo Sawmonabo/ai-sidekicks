@@ -1,16 +1,16 @@
 // The capture-window rule's own controls.
 //
 // The rule decides four things and two of them are refusals, so a suite that only
-// ever handed it a surface which already fits would prove what a function returning
+// ever handed it an element which already fits would prove what a function returning
 // one arm unconditionally proves. Every case here drives the real rule; the DOM
 // read that produces its `required` argument is `settled-capture.ts`'s and has the
 // probe in `tall-capture.test.ts` behind it, which reads the captured pixels rather
 // than the arithmetic.
 //
-// THE THIRD ARM IS DRIVEN ON BOTH SIDES OF ITS CONFIRMATION. A surface sized by its
-// window and a surface that reflowed once while the first window was opening show the
+// THE THIRD ARM IS DRIVEN ON BOTH SIDES OF ITS CONFIRMATION. An element sized by its
+// window and an element that reflowed once while the first window was opening show the
 // SAME non-closing overhang on one observation, and the pair of cases below is what
-// keeps them apart: the reflow is grown for and then fits, the coupled surface hangs
+// keeps them apart: the reflow is grown for and then fits, the coupled element hangs
 // over by the same constant again and takes the arm. A rule that armed on the first
 // observation passes every other case in this file.
 //
@@ -35,16 +35,16 @@ import {
 const CONSOLE_WINDOW = { width: 1440, height: 900 };
 
 describe("the window a capture opens", () => {
-  it("leaves a surface that already fits alone", () => {
+  it("leaves an element that already fits alone", () => {
     expect(
       captureWindowStep(CONSOLE_WINDOW, { width: 1440, height: 900 }, [], "frame-first-run-light"),
     ).toStrictEqual({ kind: "fits" });
   });
 
-  it("grows to a surface taller than the window, keeping the width", () => {
+  it("grows to an element taller than the window, keeping the width", () => {
     // The width is carried rather than taken from `required`: a capture never widens
-    // its window, and a surface narrower than the page must not shrink it either —
-    // the console would relayout and the capture would pin a different surface.
+    // its window, and an element narrower than the page must not shrink it either —
+    // the console would relayout and the capture would pin a different element.
     expect(
       captureWindowStep(CONSOLE_WINDOW, { width: 1200, height: 2050 }, [], "repos-diff-pane-light"),
     ).toStrictEqual({
@@ -55,7 +55,7 @@ describe("the window a capture opens", () => {
   });
 
   it("grows again while the overhang is still closing", () => {
-    // A surface that answered the first grow with a taller box — a deferred image
+    // An element that answered the first grow with a taller box — a deferred image
     // landed, a container reflowed — is still worth growing for, because the gap it
     // leaves is smaller than the one before it.
     expect(
@@ -73,8 +73,8 @@ describe("the window a capture opens", () => {
     // taken. A grow is itself a layout change, so a deferred image can land during the
     // settle and add back as much as the window just gained: the box was 2 050 in a
     // 900 px window, the window opened to 2 050, and the image took it to 3 250. One
-    // non-closing overhang is all a surface sized BY its window shows either, and
-    // reading this one as that put the window back and photographed the surface with
+    // non-closing overhang is all an element sized BY its window shows either, and
+    // reading this one as that put the window back and photographed the element with
     // 1 200 px of unpainted tail — the defect the whole module exists to refuse.
     expect(
       captureWindowStep(
@@ -86,8 +86,8 @@ describe("the window a capture opens", () => {
     ).toStrictEqual({ kind: "grow", viewport: { width: 1440, height: 3250 }, overhangPx: 1200 });
   });
 
-  it("reports that surface as fitting on the pass the second grow buys", () => {
-    // The other half of the same claim: the surface that was misread is now in a
+  it("reports that element as fitting on the pass the second grow buys", () => {
+    // The other half of the same claim: the element that was misread is now in a
     // window that holds it, which is the capture the arm was replacing with a restored
     // window and a blank band.
     expect(
@@ -100,12 +100,12 @@ describe("the window a capture opens", () => {
     ).toStrictEqual({ kind: "fits" });
   });
 
-  it("stops on a surface whose overhang did not close twice over, and says how far it hangs", () => {
+  it("stops on an element whose overhang did not close twice over, and says how far it hangs", () => {
     // The console's two full-height destinations: `min-height: 100%` around 32px of
     // their own padding, so each measures 64px past whatever window it is in — at 900,
     // at 964, and again at 1 028. That third measurement is what separates them from
     // the reflow above. The arm carries the overhang because that figure is the whole
-    // claim — it is the band no window paints, and it is the surface's padding rather
+    // claim — it is the band no window paints, and it is the element's padding rather
     // than its content.
     expect(
       captureWindowStep(
@@ -117,10 +117,10 @@ describe("the window a capture opens", () => {
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 64 });
   });
 
-  it("stops on a surface whose overhang grew rather than closing", () => {
-    // The other half of the same conjunct. `>=` rather than `===` because a surface
+  it("stops on an element whose overhang grew rather than closing", () => {
+    // The other half of the same conjunct. `>=` rather than `===` because an element
     // that hangs over FURTHER after a grow is tracking its window at more than 1:1,
-    // and chasing that one is how a loop reaches the ceiling on a surface nothing
+    // and chasing that one is how a loop reaches the ceiling on an element nothing
     // was ever going to hold.
     expect(
       captureWindowStep(
@@ -132,7 +132,7 @@ describe("the window a capture opens", () => {
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 136 });
   });
 
-  it("refuses a surface taller than the ceiling, naming both figures", () => {
+  it("refuses an element taller than the ceiling, naming both figures", () => {
     expect(() => {
       captureWindowStep(
         CONSOLE_WINDOW,
@@ -143,7 +143,7 @@ describe("the window a capture opens", () => {
     }).toThrowError(new RegExp(`${String(CAPTURE_WINDOW_HEIGHT_CEILING + 1)}px tall`, "u"));
   });
 
-  it("takes a surface of exactly the ceiling", () => {
+  it("takes an element of exactly the ceiling", () => {
     // The boundary in the direction that matters: a rule written with `>=` would
     // refuse the tallest window it is built to open.
     expect(
@@ -161,7 +161,7 @@ describe("the window a capture opens", () => {
   });
 
   it("refuses a suspected coupling whose confirming grow would pass the ceiling", () => {
-    // The order the rule states, on the side that is still a guess: a surface that has
+    // The order the rule states, on the side that is still a guess: an element that has
     // hung over ONCE is not yet known to track its window, and exempting it from the
     // ceiling to spare it the second grow is the misread above wearing the arm's name.
     // So a confirming grow is bounded like any other, and the refusal names the height.
@@ -177,7 +177,7 @@ describe("the window a capture opens", () => {
 
   it("takes the third arm on a confirmed coupling the ceiling would have refused", () => {
     // And the side that is not a guess. Two non-closing overhangs prove no window
-    // holds this surface, so it is photographed at the tier's own window — where it is
+    // holds this element, so it is photographed at the tier's own window — where it is
     // nowhere near the ceiling — rather than refused for a height it only ever has in
     // the window the loop climbed to.
     expect(
@@ -190,7 +190,7 @@ describe("the window a capture opens", () => {
     ).toStrictEqual({ kind: "grows-with-its-window", overhangPx: 2000 });
   });
 
-  it("refuses a surface wider than the window rather than widening it", () => {
+  it("refuses an element wider than the window rather than widening it", () => {
     expect(() => {
       captureWindowStep(
         CONSOLE_WINDOW,
@@ -233,7 +233,7 @@ describe("how long a capture of that window is given to settle", () => {
 
   it("gives a capture smaller than the window the whole wait rather than a fraction", () => {
     // The floor, which the rounding is rather than something written beside it. A
-    // surface half a window tall is `0.5`, and a rule that multiplied by it — or that
+    // element half a window tall is `0.5`, and a rule that multiplied by it — or that
     // rounded the other way — would hand a small capture a fraction of the wait the
     // tier has always given it, so a change meant to make one class of capture more
     // patient would quietly make every small one less so. Planted: rounding DOWN here

@@ -34,7 +34,7 @@
 //
 // So "`packages/contracts` names no members for this type" is never a reason for a
 // scenario to decline a beat. A scenario that scripts such a type carries every member
-// the taxonomy makes required of an emitter, because a partial row teaches a surface to
+// the taxonomy makes required of an emitter, because a partial row teaches a view to
 // read a shape no daemon produces: the same class of defect as an invented member, and
 // one nothing here can catch. A scenario that declines the beat declines it for a
 // reason about the session it is scripting, and says which.

@@ -36,7 +36,7 @@ interface ImportMeta {
  * `unplugin-icons` resolves these specifiers at build time and `@svgr` compiles
  * each one to a React component that forwards its props onto the root `<svg>`,
  * so a caller sets the size and the accessible name and the face carries the
- * family's geometry (see `vitest/icon-compilation.ts`). There is no file on
+ * icon set's geometry (see `vitest/icon-compilation.ts`). There is no file on
  * disk for a Tabler face and no `.d.ts` beside a signature one, so the shape is
  * declared here — the same reason the two build-time signals above are.
  */

@@ -7,12 +7,12 @@
 // behind them are the largest single block of the renderer, and a chunk keeps them off the
 // initial import graph.
 //
-// THE ROW SEAT IS FILLED HERE BECAUSE THIS CHUNK IS WHAT READS IT. `TranscriptPane.tsx` is
-// the only module that calls `findTranscriptRowRenderer()`, so the seat's reader and the seat's
-// filler arrive together; filling it from the eager registration would put the whole row
-// subtree, and every markdown dependency behind it, back on the initial graph. The call
-// runs at module scope, once per realm, which is the right number for a process-wide single
-// slot, and a suite that wants the rows without the pane around them calls
+// THE ROW RENDERER IS REGISTERED HERE BECAUSE THIS CHUNK IS WHAT READS IT. `TranscriptPane.tsx`
+// is the only module that calls `findTranscriptRowRenderer()`, so the renderer's reader and its
+// registration arrive together; registering it with the eager contributions would put the whole
+// row subtree, and every markdown dependency behind it, back on the initial graph. The call
+// runs at module scope, once per realm, which is the right number for a process-wide
+// single-entry registry, and a suite that wants the rows without the pane around them calls
 // `registerTranscriptRows` itself (`tests/accessibility/transcript-pane.test.tsx` does).
 //
 // THE SHEETS BELOW STYLE SEVERAL COMPONENTS EACH, across the feature's folders, so the
@@ -39,7 +39,7 @@ registerTranscriptRows();
  * The transcript, at an address the pane layout resolved to this kind.
  *
  * The narrowing and the mismatch refusal are `paneBodyForKind`'s, for the reason every
- * other pane body gives about them: six families writing that comparison themselves is
+ * other pane body gives about them: six features writing that comparison themselves is
  * six answers to one question, and a mismatched arm is a rendered refusal rather than a
  * throw because one bad layout row must lose that row and not the pane layout. `createElement`
  * rather than JSX: this is a `.ts` module, and the naming rule reserves `.tsx` for a

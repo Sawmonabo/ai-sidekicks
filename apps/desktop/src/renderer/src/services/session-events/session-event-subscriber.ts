@@ -1,21 +1,20 @@
-// The one thing in the console that subscribes to the bridge.
+// The one thing in the renderer that subscribes to the bridge.
 //
 // `store/session/session-hooks.ts` states the rule this module realizes: "No component subscribes
 // to the bridge. Components subscribe to a STORE, and exactly one thing subscribes
-// to the bridge — the apply chokepoint." Until this class there was no such thing.
-// `SessionStoreRegistry.enqueue` had no caller anywhere in the tree and nothing
-// called `daemon.subscribe`, so a session opened in the console received nothing:
-// the fixture scenario's beats reached nobody, every view family would have
-// rendered an empty projection of a live session, and the endurance tier was
-// measuring an idle loop rather than a console under load.
+// to the bridge — the apply chokepoint." Without it nothing calls
+// `SessionStoreRegistry.enqueue` or `daemon.subscribe`, so a session opened in a window
+// receives nothing: the fixture scenario's beats reach nobody, every feature renders an
+// empty projection of a live session, and the endurance tier measures an idle loop
+// rather than a window under load.
 //
-// WHY IT LIVES IN `frame/` AND NOT IN `store/`
+// WHY IT LIVES IN `services/` AND NOT IN `store/`
 //
 // It is the one object that has to know both ends — the registry's `enqueue` and
-// the bridge's `daemon.subscribe`. `store/` sits BELOW `bridge/` in the console's
-// family DAG precisely so that a store cannot reach a wire, and putting the binder
-// there would invert that edge for the whole family. `frame/` is the composition
-// root; joining two families it already imports is what a composition root is for.
+// the bridge's `daemon.subscribe`. `store/` sits BELOW `services/` in the import
+// direction precisely so that a store cannot reach a wire, and putting the binder
+// there would invert that edge. `services/` may import `store/`, so the binder sits
+// here, and `app/hooks/useSessionStoreRegistry.ts` composes it with the registry.
 //
 // SIX PROPERTIES, EACH A FAILURE THIS CLASS EXISTS TO MAKE UNREPRESENTABLE
 //
@@ -43,18 +42,18 @@
 //     `daemon.subscribe` that throws leaves the session with no stream and no base
 //     state, and the registry's `opened` change has already been delivered. What is
 //     remembered about that, and what one returning edge is worth, is
-//     `unbound-session-retry.ts` — a second subject this class was carrying.
+//     `failed-subscription-retry.ts` — a second subject, kept out of this class.
 //
 // AND THE EDGE IT RETRIES ON IS NOT ONE THIS CLASS PRODUCES
 //
-// It was, and that was a deadlock rather than an economy. This class reported
-// `unreachable` from its own failed open and `reachable` from its own successful one,
-// and it is the only live-path consumer of the returning edge — so a window whose ONLY
-// session failed to bind held the one state that could never change: the retry needed
-// an edge, and the edge needed a bind. Transport recovery alone could not reach that
-// session, and nothing on screen said why.
+// This class is the only live-path consumer of the returning edge. Were it also the
+// producer — reporting `unreachable` from its own failed open and `reachable` from its
+// own successful one — a window whose ONLY session failed to bind would hold the one
+// state that could never change: the retry needs an edge, and the edge needs a bind.
+// Transport recovery alone could not reach that session, and nothing on screen would
+// say why.
 //
-// So the observation moved DOWN, onto the door every daemon subscription in the window
+// So the observation sits on the one call every daemon subscription in the window
 // goes through (`services/transport/observed-subscription.ts`, reported into by
 // `services/daemon/daemon-streams.ts` and `services/daemon/subscribe-daemon-event.ts` as well as by the open
 // below). This class reports nothing and subscribes once, for its whole life, to a
@@ -140,13 +139,13 @@ export class SessionEventSubscriber {
    *
    * A THIRD SUBSCRIPTION IS TAKEN: the transport's returning edge,
    * which is what re-attempts the sessions whose open threw. ONE subscription for this
-   * binder's whole life, taken at its single lifecycle door rather than per session
+   * binder's whole life, taken once here in `attach` rather than per session
    * bind or per render — the retained set is what a returning edge is walked against,
    * and a per-bind subscription would walk it once per session. The edge is produced by
-   * the console's subscription doors and never by this class, so the retry costs no
-   * probe, no timer, and no second reading of whether the wire is there — and the signal
-   * emits only on `unreachable → reachable`, so a window whose wire never went away pays
-   * nothing.
+   * `openObservedSubscription`, which every subscription goes through, and never by this
+   * class, so the retry costs no probe, no timer, and no second reading of whether the
+   * wire is there — and the signal emits only on `unreachable → reachable`, so a window
+   * whose wire never went away pays nothing.
    *
    * Idempotent, and a no-op once disposed: a disposed binder holds no
    * subscription and must not be able to start one from a late effect.
@@ -254,22 +253,23 @@ export class SessionEventSubscriber {
   /**
    * Open one session's stream, and report what that told us about the transport.
    *
-   * THE OPEN GOES THROUGH THE DOOR THAT OWNS WHAT AN OPEN PROVES, and this class
+   * THE OPEN GOES THROUGH THE CALL THAT OWNS WHAT AN OPEN PROVES, and this class
    * therefore reports nothing itself. `openObservedSubscription` tells the signal what
    * the transport did on this call exactly as it does for every other subscription the
    * window takes; a second, hand-written report here would be the same claim made twice
-   * — and when it was the ONLY claim, this class was both the producer of the returning
+   * — and were it the ONLY claim, this class would be both the producer of the returning
    * edge and its only consumer, which is a deadlock rather than an economy.
    *
-   * A throw used to leave this method as itself, out of the registry callback that
-   * called it and into a mount effect, taking the window down for a transport that
-   * was merely away. It is now recorded on three surfaces, and each one answers a
-   * question the others cannot. The SIGNAL is told the wire is unreachable — by the
-   * door, on the way out — so the returning edge exists at all. The session's own STORE
-   * is marked `subscription-closed` through the registry — the declared degraded cause
-   * `degradation.ts` reserves for "a wire that stopped", so the session shows a stream
-   * it does not have as a named degradation rather than as a quiet, permanently empty
-   * projection. And the id is RETAINED, so the edge has something to re-attempt.
+   * A throw is not re-raised: out of the registry callback that called this method it
+   * would reach a mount effect and take the window down for a transport that was merely
+   * away. It is recorded in three places instead, and each one answers a question the
+   * others cannot. The SIGNAL is told the wire is unreachable — by
+   * `openObservedSubscription`, on the way out — so the returning edge exists at all. The
+   * session's own STORE is marked `subscription-closed` through the registry — the
+   * declared degraded cause `degradation.ts` reserves for "a wire that stopped", so the
+   * session shows a stream it does not have as a named degradation rather than as a
+   * quiet, permanently empty projection. And the id is RETAINED, so the edge has
+   * something to re-attempt.
    *
    * The store's cause is sticky until a completed re-pull clears it, which is exactly
    * right here — the retry asks for that re-pull, so a session that comes back stops
@@ -380,7 +380,6 @@ export class SessionEventSubscriber {
  * genuinely untypeable half) and the payload left `unknown`, which is honest: a
  * tighter payload type here would be a fiction, and `readProjectedSessionEvent`
  * (`services/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
- * store may hold. Same posture as the two shipped renderer families that already
- * subscribe this way.
+ * store may hold.
  */
 type SessionStreamSubscribe = (event: string, handler: (payload: unknown) => void) => Unsubscribe;

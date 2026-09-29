@@ -3,7 +3,7 @@
 // LIFETIME, NOT REFRESH. Which method answers each read and what makes it ask again
 // is `../agent-reads.ts`; this module owns how long a read lives, who is
 // holding it, and what disposes it. The two change for different reasons — a lease
-// policy moves when a surface changes how it mounts, and a refresh story moves when
+// policy moves when a view changes how it mounts, and a refresh story moves when
 // the wire grows a signal.
 //
 // A CACHE OF ONE, TWICE OVER. A console shows one session at a time and one run's
@@ -17,7 +17,7 @@
 // opens a subscription and arms a scheduler, which React's render phase may abandon
 // or replay — an abandoned pass would leave a live read with no committed cleanup to
 // release it, and a replayed one would dispose a read the committed tree is still
-// showing. So the cache hands out a LEASE, the surface takes one from a mount effect
+// showing. So the cache hands out a LEASE, the pane takes one from a mount effect
 // and starts the read there, and the read is disposed when the last lease is given
 // back. `start()` is idempotent, so a second holder joining a live read starts
 // nothing twice.
@@ -126,7 +126,7 @@ export class AgentsPaneModels {
    *
    * Asking for a different run disposes the previous read, so no scheduler and no
    * subscription survives a run the console has left. The read is NOT started here:
-   * starting opens a subscription and arms a scheduler, and the surface that takes
+   * starting opens a subscription and arms a scheduler, and the view that takes
    * the lease does both from a mount effect, where a cleanup exists to undo them.
    */
   public acquireLinkage(parentRunId: string): ChildRunLinksLease {

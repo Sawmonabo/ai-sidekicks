@@ -24,7 +24,7 @@ import { RemedyLine } from "./RemedyLine.js";
  *
  * READINESS BLOCKS NOTHING. The spawn gate stays the daemon's live check, so this row
  * says what a run would find and never withholds a control anywhere else in the
- * console. The one thing that DOES gate this row's own control is the sign-in plane —
+ * console. The one thing that DOES gate this row's own control is the sign-in flow —
  * one brokered flow at a time on this machine — and that gate disables the control with
  * its reason rather than removing it.
  */

@@ -3,9 +3,10 @@
 // The virtualizer mounts only the visible range, so a row's own `useState` dies the moment
 // it scrolls out; a row asks the window to remember its state instead, and a prune re-parks
 // it under a synthetic key rather than dropping it. A context rather than a prop on the row
-// seat: the seat carries what the list decides for a row, and widening it would make every
-// row owner implement a write path. Reads do not come through here: the feed overlays the
-// retained state onto the density it hands the seat, so the list stays the one answer to
+// renderer: its props carry what the list decides for a row, and widening them would make
+// every row owner implement a write path. Reads do not come through here: the feed overlays
+// the retained state onto the density it hands the row renderer, so the list stays the one
+// answer to
 // "is this row open".
 
 import { createContext, type Context } from "react";

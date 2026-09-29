@@ -1,6 +1,6 @@
 // The catalog selectors, and the two distinctions they exist to preserve.
 //
-// An ABSENT effort vocabulary means the model publishes no effort surface; an EMPTY
+// An ABSENT effort vocabulary means the model publishes no effort levels; an EMPTY
 // one would assert an axis with nothing on it, a claim no provider makes. And an
 // unanswered capability flag is not `false` — the console asserts no capability it
 // was not told about, in either direction.
@@ -40,7 +40,7 @@ describe("driver catalog — effort is per model", () => {
     ]);
   });
 
-  it("answers undefined for a model that publishes no effort surface", () => {
+  it("answers undefined for a model that publishes no effort levels", () => {
     // Not `[]`: the form shows NO effort control at all in this case, and an empty
     // array would be a control with an empty choice set.
     expect(effortLevelsFor(DRIVER_CATALOG_FIXTURE, "claude", "claude-haiku")).toBeUndefined();

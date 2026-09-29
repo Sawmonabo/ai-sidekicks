@@ -9,7 +9,7 @@ import { ThinkingRow } from "./ThinkingRow.js";
 
 const SAMPLE_RUN_ID = "01J0000000000000000000000B" as RunId;
 
-function renderSurface(
+function renderThinkingRow(
   overrides: {
     readonly runId?: RunId | undefined;
     readonly liveText?: string;
@@ -45,14 +45,14 @@ function availableReply(bodies: readonly string[]): ReasoningSurfaceReadResponse
 
 describe("the four availability arms", () => {
   it("renders the entries on the available arm", () => {
-    const container = renderSurface({
+    const container = renderThinkingRow({
       reading: { status: "read", response: availableReply(["weighed the two branches"]) },
     });
     expect(container.textContent).toContain("weighed the two branches");
   });
 
   it("says a redaction is a withholding and shows the daemon's own reason", () => {
-    const container = renderSurface({
+    const container = renderThinkingRow({
       reading: {
         status: "read",
         response: { availability: "policy_redacted", policyReason: "org-policy-7" },
@@ -65,13 +65,13 @@ describe("the four availability arms", () => {
   it("negative control: a redaction never renders as an absence of reasoning", () => {
     // Without the arm split, `policy_redacted` and `unavailable` would render the
     // same empty body and a reader could not tell withheld from never-captured.
-    const redacted = renderSurface({
+    const redacted = renderThinkingRow({
       reading: {
         status: "read",
         response: { availability: "policy_redacted", policyReason: "org-policy-7" },
       },
     });
-    const unavailable = renderSurface({
+    const unavailable = renderThinkingRow({
       reading: { status: "read", response: { availability: "unavailable" } },
     });
     expect(redacted.textContent).not.toBe(unavailable.textContent);
@@ -82,11 +82,11 @@ describe("the four availability arms", () => {
     expect(unavailable.textContent).not.toContain("org-policy-7");
   });
 
-  it("negative control: a compacted surface is not an unavailable one", () => {
-    const compacted = renderSurface({
+  it("negative control: compacted reasoning is not unavailable reasoning", () => {
+    const compacted = renderThinkingRow({
       reading: { status: "read", response: { availability: "compacted" } },
     });
-    const unavailable = renderSurface({
+    const unavailable = renderThinkingRow({
       reading: { status: "read", response: { availability: "unavailable" } },
     });
     expect(compacted.textContent).toContain("compacted");
@@ -94,7 +94,7 @@ describe("the four availability arms", () => {
   });
 
   it("says a bounded page has a continuation nobody asked for", () => {
-    const container = renderSurface({
+    const container = renderThinkingRow({
       reading: {
         status: "read",
         response: {
@@ -113,13 +113,13 @@ describe("the four availability arms", () => {
 
 describe("the streaming tail", () => {
   it("shows the newest lines while a turn streams", () => {
-    const container = renderSurface({ liveText: "one\ntwo\nthree\nfour" });
+    const container = renderThinkingRow({ liveText: "one\ntwo\nthree\nfour" });
     expect(container.textContent).toContain("four");
     expect(container.textContent).not.toContain("one");
   });
 
   it("renders the tail beside a read rather than instead of it", () => {
-    const container = renderSurface({
+    const container = renderThinkingRow({
       liveText: "still going",
       reading: { status: "read", response: availableReply(["settled entry"]) },
     });
@@ -128,43 +128,42 @@ describe("the streaming tail", () => {
   });
 
   it("negative control: a settled row renders no tail at all", () => {
-    const container = renderSurface();
+    const container = renderThinkingRow();
     expect(container.querySelector(".meridian-reasoning-surface__tail")).toBeNull();
   });
 });
 
 describe("the expand control", () => {
-  it("asks for the surface when it is pressed", () => {
+  it("asks for the reasoning when it is pressed", () => {
     const onExpand = vi.fn();
-    const container = renderSurface({ onExpand });
+    const container = renderThinkingRow({ onExpand });
     container.querySelector<HTMLButtonElement>(".meridian-reasoning-surface__expand")?.click();
     expect(onExpand).toHaveBeenCalledTimes(1);
   });
 
   it("is absent on a row the run-scoped read could never address", () => {
-    const container = renderSurface({ runId: undefined });
+    const container = renderThinkingRow({ runId: undefined });
     expect(container.querySelector(".meridian-reasoning-surface__expand")).toBeNull();
   });
 
   it("is absent once the read has answered", () => {
-    const container = renderSurface({
+    const container = renderThinkingRow({
       reading: { status: "read", response: { availability: "unavailable" } },
     });
     expect(container.querySelector(".meridian-reasoning-surface__expand")).toBeNull();
   });
 
   it("is absent while a read is in flight", () => {
-    const container = renderSurface({ reading: { status: "reading" } });
+    const container = renderThinkingRow({ reading: { status: "reading" } });
     expect(container.querySelector(".meridian-reasoning-surface__expand")).toBeNull();
   });
 
   it("survives a refusal and says which press it is", () => {
-    // THE DEFECT, EXERCISED. The control was drawn on `not-asked` alone, so a read
-    // refused by a transport that was down for a moment left the refusal on screen
-    // with no way to ask again — which rule 9 forbids in terms ("a refusal never hides
-    // the control that produced it").
+    // THE FAILURE, EXERCISED. A control drawn on `not-asked` alone would leave a read
+    // refused by a transport that was down for a moment on screen with no way to ask
+    // again, and a refusal never hides the control that produced it.
     const onExpand = vi.fn();
-    const container = renderSurface({
+    const container = renderThinkingRow({
       onExpand,
       reading: {
         status: "refused",
@@ -182,7 +181,7 @@ describe("the expand control", () => {
   it("negative control: the refusal is still drawn beside the control that survived it", () => {
     // Without this, offering the retry by REPLACING the refusal would pass the case
     // above while hiding why the first press failed.
-    const container = renderSurface({
+    const container = renderThinkingRow({
       reading: {
         status: "refused",
         refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
@@ -194,12 +193,12 @@ describe("the expand control", () => {
 
 describe("the states around the read", () => {
   it("says nothing at all before anybody asks", () => {
-    const container = renderSurface();
+    const container = renderThinkingRow();
     expect(container.textContent).not.toContain("captured");
   });
 
   it("renders a refusal with the daemon's own code", () => {
-    const container = renderSurface({
+    const container = renderThinkingRow({
       reading: {
         status: "refused",
         refusal: { code: "timeline.run_not_found", detail: "No such run.", origin: "daemon" },
@@ -211,8 +210,8 @@ describe("the states around the read", () => {
 });
 
 describe("the plan-owned body", () => {
-  it("replaces the shell entirely once it is mounted", () => {
-    const container = renderSurface({
+  it("replaces the built-in view entirely once it is mounted", () => {
+    const container = renderThinkingRow({
       body: () => <p>the real reasoning body</p>,
       reading: { status: "read", response: { availability: "unavailable" } },
     });

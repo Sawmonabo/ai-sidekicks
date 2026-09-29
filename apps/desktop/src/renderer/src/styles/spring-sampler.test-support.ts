@@ -14,13 +14,13 @@
 // than a sentence — and its one reader is `motion.test.ts`, which holds the shipped
 // constant to it. That test is this module's suite as well as the constant's: the two
 // are one subject, because a sampler nobody calls and a string nobody derived are
-// each worthless alone. Every claim rule 5 makes about the curve — zero overshoot,
+// each worthless alone. Every claim the motion rule makes about the curve — zero overshoot,
 // the under-damped negative control that proves the assertion can fail, the
 // over-damped branch, monotonicity, the refusal on a sample count that cannot
 // describe a curve — is still asserted there, against this function.
 //
-// IT CARRIES NO DOM TYPE, for the reason the whole `tokens/` family carries none: the
-// generated-asset tier reads this family from node, and a module here that named
+// IT CARRIES NO DOM TYPE, for the reason no module in `styles/` carries one: the
+// generated-asset tier reads these modules from Node, and a module here that named
 // `Document` or `Window` would put those types into a program that has neither. Every
 // function below takes numbers and returns strings.
 
@@ -31,7 +31,7 @@
  * budget: too few and a settle visibly kinks, too many and every animated rule
  * carries a long string the style engine re-parses. Sixteen intervals put the
  * worst-case deviation from the true spring under half a percent of the travel
- * over the durations rule 5 admits, which is well below a pixel on the 2 px rise
+ * over the durations the motion rule admits, which is well below a pixel on the 2 px rise
  * that is the console's largest chrome displacement.
  */
 const SPRING_SAMPLE_COUNT = 16;
@@ -121,7 +121,7 @@ export function sampleSpringEasing(
  * integrator would need a step size, and a step size is a second accuracy knob
  * for a curve that has an exact answer.
  *
- * Private, and `sampleSpringEasing` is the whole public surface: the emitted
+ * Private, and `sampleSpringEasing` is the whole public API: the emitted
  * string is what any caller can spend, and a test that reached the closed form
  * directly would be checking the sampler against the very function it samples.
  */

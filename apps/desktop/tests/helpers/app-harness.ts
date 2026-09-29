@@ -40,15 +40,15 @@ import { type ColorScheme } from "@renderer/styles/tokens.js";
  *
  * WHY THE MOUNT DOES THIS AND NOT THE TIER. A loader-backed body arrives on its own
  * chunk, and a dynamic import needs more than the one macrotask a render settle
- * crosses — so a tier mounting `AppProviders` at an address whose surface or pane is
+ * crosses — so a tier mounting `AppProviders` at an address whose screen or pane is
  * deferred settles onto the reserved region and reads, audits, or PHOTOGRAPHS that.
  * Waiting for it in each spec is the shape that fails: three specs that wait and a
  * fourth that races look identical in a diff, and the fourth is green.
  *
- * THE PROCESS-WIDE BOARDS AND NOT A FAMILY'S. A family mount builds its own registry
+ * THE PROCESS-WIDE BOARDS AND NOT A FEATURE'S. A feature mount builds its own registry
  * and resolves one body through `feature-mounts/pane-body-resolution.ts`; this is the other
  * path — a route commits, the frame opens whatever the address resolves to, and what
- * has to be loaded is whatever the doors this file's importer pulled in registered.
+ * has to be loaded is whatever the modules this file's importer pulled in registered.
  * Nothing here enumerates kinds: both boards report their own registered keys.
  *
  * EVERY REGISTERED KEY, NOT THE UNLOADED ONES — `mount-app.tsx`'s rule,
@@ -66,7 +66,9 @@ import { type ColorScheme } from "@renderer/styles/tokens.js";
 async function loadRegisteredBodies(): Promise<void> {
   await Promise.all([
     ...paneRegistry.registeredPaneKinds().map(async (kind) => paneRegistry.preload(kind)),
-    ...screenRegistry.registeredSlots().map(async (slot) => screenRegistry.preload(slot)),
+    ...screenRegistry
+      .registeredScreenNames()
+      .map(async (screenName) => screenRegistry.preload(screenName)),
   ]);
 }
 
@@ -136,7 +138,7 @@ interface AppMount {
  * depth; review is what holds this file and every other settle to it.
  *
  * It waits on the CLOCK for nothing, which is the other half of settling and is not
- * this function's: a surface built over a fixture scenario schedules its reads on that
+ * this function's: a view built over a fixture scenario schedules its reads on that
  * scenario's frozen clock, and `bridge/readings/scheduled-read.test-support.ts` is
  * what advances one. A caller holding a bridge settles both
  * (`feature-mounts/composer.tsx`); a caller mounting `AppProviders`, which builds its own
@@ -151,8 +153,8 @@ export async function renderSettled(element: ReactElement): Promise<AppMount> {
   await act(async () => {
     render(element, { container });
     await crossMacrotaskBoundary();
-    // After the first settle rather than before it: a board is populated by the family
-    // doors an importer pulled in, and the deferred bodies are only worth loading once
+    // After the first settle rather than before it: a board is populated by the feature
+    // modules an importer pulled in, and the deferred bodies are only worth loading once
     // something has actually mounted against them.
     //
     // AND NOTHING AFTER IT. There was a second boundary here, carrying the load itself:
@@ -190,7 +192,7 @@ async function settleOneTurn(): Promise<void> {
 /**
  * The scroll container the session screen mounts on every session route.
  *
- * The frame is the window's permanent shell and is on the page from the first commit,
+ * The frame is the app's permanent chrome and is on the page from the first commit,
  * so a wait on it returns immediately and hands back a console whose session route has
  * not resolved yet. The session screen mounts this body on every session route whether or
  * not that session has rows, so a wait on it observes the MOUNT rather than the
@@ -213,7 +215,7 @@ export const SESSION_ROUTE_BODY_SELECTOR: string =
  * second, on the same route 1.1 s later, passed.
  *
  * A third of the tier's own timeout, read from the resolved configuration rather than
- * restated, so the two cannot drift apart and the failure names the surface that never
+ * restated, so the two cannot drift apart and the failure names the view that never
  * mounted instead of timing out the whole test. Two thirds of the budget are left for
  * the script walk and the capture, and 5 s is some twenty-six times the warm mount
  * that file was measured at.

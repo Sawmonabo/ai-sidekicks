@@ -28,7 +28,7 @@ declare const PANE_BODY_TAKES_ITS_OWN_KINDS_CONTEXT: unique symbol;
  * one registry holds every kind. A body does not: an inspector reads an entity the
  * terminal's arm does not carry, which is the property the kind-scoped address union
  * exists to hold. So the narrowing happens once, here, rather than six times in six
- * families with six different answers for the arm that cannot be served.
+ * features with six different answers for the arm that cannot be served.
  *
  * A MISMATCH IS A RENDERED REFUSAL AND NEVER A THROW. The pane layout looks a body up BY kind
  * and hands it a context addressed at that kind, so the arm below is unreachable
@@ -64,8 +64,8 @@ export function paneBodyForKind<
  * contravariantly, so a body annotated with a WIDER type than the context — a
  * `Pick<…>` of two members, a hand-written props interface naming a subset — is
  * assignable and compiled silently. That is how one pane body came to declare its own
- * props type while its sibling used the seat's: both compiled, and the seat's contract
- * was restated per family with nothing reporting the divergence. Mutual assignability
+ * props type while its sibling used the registry's `PaneContext`: both compiled, and the
+ * registry's contract was restated per feature with nothing reporting the divergence. Mutual assignability
  * is what separates "safe" from "the same type".
  *
  * A BODY THAT DECLARES NO PARAMETER IS ADMITTED. Ignoring the context is not restating

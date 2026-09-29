@@ -1,8 +1,8 @@
 // The synthetic contexts and the controllable loader every loader-form case is written
 // over.
 //
-// ONE HOME BECAUSE TWO TIERS ASK THE SAME QUESTION. `lazy-body.test.tsx` and
-// `lazy-body.surface-board.test.tsx` prove what the two boards do with a loader;
+// ONE HOME BECAUSE TWO TIERS ASK THE SAME QUESTION. The pane registry's and the screen
+// registry's `lazy-body` suites prove what the two registries do with a loader;
 // `tests/browser/app-harness.test.tsx` proves that the shared browser
 // mount waits for one. All of them need a context the fallback can render from and a
 // promise the case itself decides when to settle, and a second copy of either is how two
@@ -25,9 +25,9 @@ export function syntheticPaneContextAt(kind: PaneContext["kind"]): PaneContext {
 }
 
 /**
- * The same, for the frame's board.
+ * The same, for the screen registry.
  *
- * The route is real because the surface's reserved region names the destination it is
+ * The route is real because the screen's reserved region names the destination it is
  * waiting for, exactly as the pane's names its kind.
  */
 export function createSyntheticScreenContext(): ScreenContext {

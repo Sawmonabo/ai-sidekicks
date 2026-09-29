@@ -125,7 +125,7 @@ describe("keyboard page — a command registered after the page first rendered",
   });
 
   it("drops a row for a command that is unregistered while the page is open", async () => {
-    // The same read, in the other direction: a surface that withdraws its commands
+    // The same read, in the other direction: a view that withdraws its commands
     // leaves no row behind claiming a chord runs something this window cannot run.
     const { container, rerender } = render(
       <LiveAnnouncerProvider>

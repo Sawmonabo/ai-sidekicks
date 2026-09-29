@@ -34,7 +34,7 @@ function observeDetail(
   ).committed;
 }
 
-/** The last state a mount committed, which is what a surface would be showing. */
+/** The last state a mount committed, which is what the definition detail would be showing. */
 function latest(
   committed: readonly WorkflowDefinitionDetailState[],
 ): WorkflowDefinitionDetailState {

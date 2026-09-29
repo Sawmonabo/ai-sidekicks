@@ -1,6 +1,6 @@
 // The row-lease table — what a row body leased, and what survives the row itself.
 //
-// Its own module because it is a different subject from the cap next door.
+// Its own module because it is a different subject from the window's cap.
 // `window-cap.ts` decides WHICH rows the window keeps; this decides what happens to
 // the renderer-local state a body had leased when one of them goes. The two meet at
 // exactly one call — the cap parks a key it is about to drop — and everything else
@@ -22,7 +22,7 @@ import { type TranscriptRowDensity } from "@renderer/console/seats/index.js";
 /**
  * Renderer-local state a row body leases from the list.
  *
- * `density` is the seat's own vocabulary rather than a second collapse enumeration
+ * `density` is the row renderer's own vocabulary rather than a second collapse enumeration
  * (`transcript-row-renderer.ts`): the list decides a row's collapse state
  * and hands it down, so the table parking that decision has to park the same type.
  */

@@ -65,7 +65,7 @@ describe("which refusals reach the frame", () => {
     expect(frameStore.getState().banners).toStrictEqual([]);
   });
 
-  it("raises nothing while the surface has no refusal to hand over", () => {
+  it("raises nothing while the view has no refusal to hand over", () => {
     const frameStore = new WindowStore();
 
     renderHook(() => {

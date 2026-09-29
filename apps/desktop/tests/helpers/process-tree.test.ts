@@ -50,7 +50,7 @@ import {
  *
  * Injected into the real function, never a stand-in for it. The window between
  * the two questions belongs to the kernel, so it cannot be arranged against a
- * live pid — which is the same reason the refused tree kill next door is
+ * live pid — which is the same reason the refused tree kill in the suite beside this one is
  * injected rather than provoked.
  */
 class ScriptedLivenessProbes implements ProcessLivenessProbes {
@@ -333,7 +333,7 @@ describe("process termination — the macOS state read is a command, and a comma
     };
   }
 
-  it("asks `ps` through the one bounded door, and charges the caller's remainder to it", () => {
+  it("asks `ps` through the one bounded host query, and charges the caller's remainder to it", () => {
     const query = recordingQuery("Z+");
     expect(readProcessStateCode(4242, 1_000, "darwin", query.ask)).toBe("Z+");
     expect(

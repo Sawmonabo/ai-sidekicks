@@ -13,7 +13,7 @@
 // leaves the line as typed with nothing drawn.
 //
 // ONE MODULE FOR BOTH SIDES OF THE SEAM, per this package's structure rules — the
-// controller that awaits an outcome and the command family that produces one name
+// controller that awaits an outcome and the command executor that produces one name
 // the same shapes rather than two copies that drift.
 
 import type { Refusal } from "@renderer/lib/refusal.js";

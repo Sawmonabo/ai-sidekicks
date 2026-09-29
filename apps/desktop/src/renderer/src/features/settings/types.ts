@@ -22,12 +22,12 @@ export interface SettingsPageContext {
    * What the address asked this page to be opened FOR, where it asked for anything.
    *
    * `#/settings/<page>/<selection>`'s second segment, carried through untouched. It is
-   * how a surface elsewhere in the console hands a page its subject — the onboarding
+   * how a view elsewhere in the console hands a page its subject — the onboarding
    * walkthrough's provider row deep-links here naming the provider whose remedy the
    * person pressed — so a page opened from a row and the same page opened from the
    * rail are the same page with and without a subject, rather than two entry points.
    *
-   * A BARE STRING AND NEVER A NARROWED ONE. `routing/` sits below this family and owns
+   * A BARE STRING AND NEVER A NARROWED ONE. `routing/` sits below this feature and owns
    * only the grammar; what the segment MEANS is the page's, and the page that reads it
    * narrows it against its own vocabulary fail-closed. A selection this build does not
    * recognize is therefore a page opened for nothing, which is what the rail hands it
@@ -77,13 +77,13 @@ export interface SettingsPageContext {
    * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
    * subscription for it and every consumer — the frame's chip, the palette's
    * read-only line, and the local-runtime page — renders the same value, so the three
-   * surfaces cannot report different supervisor states in one window.
+   * places cannot report different supervisor states in one window.
    */
   readonly mainProcessState: MainProcessState;
   /**
    * This window's durable store, for the one page that reports on the store itself.
    *
-   * Required rather than optional, because the surface that builds this context is
+   * Required rather than optional, because the settings screen that builds this context is
    * handed one and every window has exactly one. An optional member would be a type
    * saying a page might have to do without a store the composition always supplies,
    * and the page reporting the store's own state would then carry an absence arm
@@ -99,5 +99,5 @@ export interface SettingsPageContext {
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
-/** What a page renders. A function rather than a component type, as the seats are. */
+/** What a page renders. A function rather than a component type, as a screen's and a pane's render are. */
 export type SettingsPageBody = (context: SettingsPageContext) => ReactNode;

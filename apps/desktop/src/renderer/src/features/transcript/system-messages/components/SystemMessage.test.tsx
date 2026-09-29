@@ -93,7 +93,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
 
   it("negative control: an ordinary switch is not drawn as a caution", () => {
     // Without this the caution assertion above would pass over a row that painted
-    // every seam amber, which rule 3 spends on attention alone.
+    // every seam amber, which is spent on attention alone.
     const line = renderSeam(
       seamOf(
         runRow({

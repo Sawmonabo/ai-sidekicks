@@ -30,7 +30,7 @@
 //
 // Popups are denied UNCONDITIONALLY, same origin included. A renderer-opened
 // window would be created by Chromium with options this process never reviewed,
-// and there is no console surface that needs one.
+// and nothing the renderer draws needs one.
 //
 // External `http(s)` targets are not simply dropped: a dropped link is a dead
 // link, and the console has legitimate ones (docs, a provider's sign-in page,

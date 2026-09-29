@@ -1,4 +1,4 @@
-// The MCP servers shell: the server list, the per-leg disclosure, the tool overrides and
+// The MCP servers fixture body: the server list, the per-leg disclosure, the tool overrides and
 // the mutation outcomes, drawn from the reading and the calls it is handed.
 //
 // IT AUTHORS NONE OF THE THINGS THE MCP PAGE MUST NOT AUTHOR. It composes no aggregate
@@ -54,7 +54,7 @@ import {
 } from "./mcp-mutation.js";
 import { ServerRow } from "./components/ServerRow.js";
 
-/** The daemon verbs the shell drives. */
+/** The daemon verbs the fixture body drives. */
 export interface McpServerOperations {
   readonly listInventory: ListMcpInventory;
   readonly subscribeInventoryChanges: SubscribeMcpInventoryChanges;
@@ -127,7 +127,7 @@ export function McpFixtureBody(props: {
   const recordOutcome = (key: string, outcome: McpMutationOutcome): void => {
     publishOutcomes((held) => new Map(held).set(key, outcome));
   };
-  // A settled mutation answers with the row as it now stands, and this shell asks the
+  // A settled mutation answers with the row as it now stands, and this fixture body asks the
   // daemon again rather than splicing that row into the list it is holding. The reply
   // is authoritative about the binding it names and says nothing about the others,
   // and a page that patched one row would be maintaining a second copy of an inventory
@@ -147,18 +147,14 @@ export function McpFixtureBody(props: {
   const state = usePushDrivenRead(inventoryRead);
   if (state.kind === "not-loaded") {
     return (
-      <Nothing
-        kind="not-loaded"
-        placement="surface"
-        title="Reading the servers this node governs."
-      />
+      <Nothing kind="not-loaded" placement="block" title="Reading the servers this node governs." />
     );
   }
   if (state.kind === "failed") {
     return (
       <Nothing
         kind="error"
-        placement="surface"
+        placement="block"
         title={state.refusal.code}
         detail={state.refusal.detail}
         action={
@@ -180,7 +176,7 @@ export function McpFixtureBody(props: {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="This node governs no MCP servers."
         detail="That is an ordinary state, not a failure: nothing has been registered for either provider, and an agent here reaches no MCP tool."
       />

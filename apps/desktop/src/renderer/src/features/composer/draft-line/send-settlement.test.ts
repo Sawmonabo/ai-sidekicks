@@ -82,9 +82,9 @@ describe("composer settlement identity — which completions may be written", ()
   });
 
   it("negative control: another ADDRESS's newer attempt does not supersede this one", () => {
-    // The finding this register was re-keyed for: two slots for the whole window let
-    // a send from B retire the attempt made at A, so A's own refusal was dropped
-    // while the person was looking straight at A.
+    // Keyed by operation alone, the register would let a send from B retire the
+    // attempt made at A, so A's own refusal would drop while the person was looking
+    // straight at A.
     const act = identity(ADDRESS_A, "send", 1);
     const elsewhere = identity(ADDRESS_B, "send", 2);
     expect(isSettlementCurrent(act, ADDRESS_A, FIRST_VISIT, newestAttempts(act, elsewhere))).toBe(
@@ -93,19 +93,19 @@ describe("composer settlement identity — which completions may be written", ()
   });
 });
 
-describe("composer settlement slots — a refusal stands until the act settles clean", () => {
+describe("composer refusals by operation — a refusal stands until the act settles clean", () => {
   it("renders the refusal a send settled as", () => {
-    const slots = withSettledRefusal(
+    const refusalsByOperation = withSettledRefusal(
       NO_COMPOSER_REFUSALS,
       identity(ADDRESS_A, "send", 1),
       SEND_REFUSAL,
     );
 
-    expect(slots.send?.refusal).toStrictEqual(SEND_REFUSAL);
-    expect(renderableRefusal(slots)).toStrictEqual(SEND_REFUSAL);
+    expect(refusalsByOperation.send?.refusal).toStrictEqual(SEND_REFUSAL);
+    expect(renderableRefusal(refusalsByOperation)).toStrictEqual(SEND_REFUSAL);
   });
 
-  it("clears the slot when the next send settles without a refusal", () => {
+  it("clears the refusal when the next send settles without a refusal", () => {
     const refused = withSettledRefusal(
       NO_COMPOSER_REFUSALS,
       identity(ADDRESS_A, "send", 1),
@@ -121,9 +121,9 @@ describe("composer settlement slots — a refusal stands until the act settles c
   });
 
   it("negative control: an empty record renders nothing", () => {
-    // The address guard that used to stand here is gone deliberately: the slots are
-    // held under `(bridge, draftKey)` now, so a re-address DROPS them rather than
-    // hiding them behind a read-time comparison the return trip stopped satisfying.
+    // No address guard reads here: the refusals are held under `(bridge, draftKey)`,
+    // so a re-address DROPS them rather than hiding them behind a read-time comparison
+    // the return trip would stop satisfying.
     expect(renderableRefusal(NO_COMPOSER_REFUSALS)).toBeUndefined();
   });
 });

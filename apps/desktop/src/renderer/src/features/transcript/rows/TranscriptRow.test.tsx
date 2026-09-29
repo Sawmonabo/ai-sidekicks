@@ -1,4 +1,5 @@
-// The shell, and the deletion obligation that makes replacing it work.
+// The transcript's row renderer: the card it routes a row to, the density it hands back
+// to the list, and the one owner it registers under.
 
 import { fireEvent, render } from "@testing-library/react";
 import { useState } from "react";
@@ -13,7 +14,8 @@ import {
   findTranscriptRowRenderer,
   type TranscriptRowProps,
 } from "@renderer/console/seats/index.js";
-// Deeply: the teardown is reached by tests alone, so it is not a door line.
+// Imported directly: the teardown is reached by tests alone, so the shared entry does not
+// export it.
 import { unregisterTranscriptRowRenderer } from "../transcript-row-renderer.js";
 import {
   registerTranscriptRowFooterRenderer,
@@ -27,7 +29,7 @@ afterEach(() => {
   unregisterTranscriptRowRenderer();
 });
 
-function slotProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
+function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
   return { row, actorHue: undefined, isSuperseded: false, density: "collapsed" };
 }
 
@@ -49,10 +51,10 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 }
 
 /**
- * The shell inside a list that owns its density, which is what a transcript is.
+ * The row renderer inside a list that owns its density, which is what a transcript is.
  *
  * Every routing case above renders the row bare, and that is deliberate: routing is
- * a decision the shell makes alone. Density is not — the shell writes a lease and
+ * a decision the renderer makes alone. Density is not — the renderer writes a lease and
  * the LIST hands the answer back, so a harness that did not close that loop would be
  * asserting over a component that no longer decides anything.
  */
@@ -72,7 +74,10 @@ function MountedInAList(props: {
           },
         }}
       >
-        <TranscriptRow {...slotProps(props.row)} density={leased?.density ?? props.listDensity} />
+        <TranscriptRow
+          {...rowRendererProps(props.row)}
+          density={leased?.density ?? props.listDensity}
+        />
       </RetainedRowStateProvider>
     </InBridge>
   );
@@ -103,7 +108,7 @@ describe("routing a row to its card", () => {
     expect(container.querySelector(".meridian-message-card")).not.toBeNull();
   });
 
-  it("gives a reasoning row the reasoning surface rather than the machine body", () => {
+  it("gives a reasoning row the reasoning body rather than the machine body", () => {
     const { container } = render(
       <MountedInAList
         row={sampleRunRow({ type: "assistant.thinking_update" })}
@@ -118,7 +123,7 @@ describe("routing a row to its card", () => {
   });
 });
 
-describe("the edit control's seat", () => {
+describe("the edit control's footer renderer", () => {
   afterEach(() => {
     unregisterTranscriptRowFooterRenderer();
   });
@@ -127,7 +132,7 @@ describe("the edit control's seat", () => {
     return Array.from(container.querySelectorAll("button"), (button) => button.textContent);
   }
 
-  it("draws the seat owner's control beside Copy on a user's own message", () => {
+  it("draws the footer renderer's control beside Copy on a user's own message", () => {
     registerTranscriptRowFooterRenderer("a test", () => <button type="button">Edit</button>);
     const { container } = render(
       <MountedInAList
@@ -174,7 +179,7 @@ describe("standing in for the list's density decision", () => {
   });
 
   it("negative control: an untouched row honors a list that opened it", () => {
-    // Without this, a shell that kept any state of its own would pass the case above
+    // Without this, a renderer that kept any state of its own would pass the case above
     // while ignoring the list entirely.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
@@ -184,7 +189,7 @@ describe("standing in for the list's density decision", () => {
 
   it("closes a row the list opened on the first press, not the second", () => {
     // The press inverts the EFFECTIVE density — what is on screen — so one press on
-    // an open row closes it. A shell that inverted some private "have I been
+    // an open row closes it. A renderer that inverted some private "have I been
     // touched" flag would store "open" here and leave the row exactly as it was.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
@@ -210,7 +215,7 @@ describe("standing in for the list's density decision", () => {
     // A no-op default channel would look exactly like a row that will not open,
     // which is the defect this whole change closes. It fails loudly instead.
     expect(() =>
-      render(<TranscriptRow {...slotProps(sampleRunRow({ type: "tool.invoked" }))} />),
+      render(<TranscriptRow {...rowRendererProps(sampleRunRow({ type: "tool.invoked" }))} />),
     ).toThrow(/retained row state provider/);
   });
 });
@@ -228,7 +233,7 @@ describe("registering the transcript row renderer", () => {
     registerTranscriptRows();
     expect(() => {
       registerTranscriptRowRenderer("another owner", () => null);
-    }).toThrow(/transcript row seat/);
+    }).toThrow(/transcript row renderer/);
   });
 
   it("negative control: the same owner may re-register", () => {

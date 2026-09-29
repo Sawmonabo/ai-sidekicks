@@ -4,8 +4,8 @@
 // client owns what is SENT while a stream is still going: three legs, a ledger offset,
 // a refusal a card renders, and a continuation that re-reads after every await. This
 // module owns what is ASKED BACK once a stream has stopped, and every rule here is the
-// opposite of the ones next door: the call is fire-and-forget rather than awaited, and
-// its answer reaches no entry and no card.
+// opposite of the ones in `attachment-ingest-stream.ts`: the call is fire-and-forget
+// rather than awaited, and its answer reaches no entry and no card.
 //
 // CANCEL IS ABANDONMENT, AND THE COPY SAYS SO. There is no cancel call in the ingest
 // trio. A user who stops an upload stops SENDING; the daemon's abandoned-spool reaper
@@ -26,7 +26,7 @@ export class AttachmentSpoolReclaimer {
    * Ask for a spool back, best-effort, for a stream the daemon actually opened.
    *
    * FIRED AND NOT AWAITED, because every caller is synchronous and terminal: a staged list
-   * that waited on a best-effort abort would hold a closed surface open for an answer
+   * that waited on a best-effort abort would hold a closed composer open for an answer
    * nobody is left to render. Nothing catches it, so a rejection surfaces as the page's
    * unhandled rejection.
    *

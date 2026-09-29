@@ -105,13 +105,13 @@ describe("useSendController — an intercepted command awaits its executor", () 
     const driven = driveController(runCommand);
 
     act(() => {
-      driven.latest().changeText("/clear the deck");
+      driven.latest().changeText("/clear the history");
     });
     await act(async () => {
       await driven.latest().send();
     });
 
-    expect(runCommand).toHaveBeenCalledWith({ commandName: "clear", text: "/clear the deck" });
+    expect(runCommand).toHaveBeenCalledWith({ commandName: "clear", text: "/clear the history" });
     expect(driven.draftStore.read(driven.draftKey)).toBeUndefined();
     expect(driven.latest().refusal).toBeUndefined();
   });
@@ -121,13 +121,13 @@ describe("useSendController — an intercepted command awaits its executor", () 
     const driven = driveController(async () => ({ status: "refused", refusal }));
 
     act(() => {
-      driven.latest().changeText("/clear the deck");
+      driven.latest().changeText("/clear the history");
     });
     await act(async () => {
       await driven.latest().send();
     });
 
-    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the deck");
+    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the history");
     expect(driven.latest().refusal).toStrictEqual(refusal);
   });
 
@@ -138,13 +138,13 @@ describe("useSendController — an intercepted command awaits its executor", () 
     const driven = driveController(undefined);
 
     act(() => {
-      driven.latest().changeText("/clear the deck");
+      driven.latest().changeText("/clear the history");
     });
     await act(async () => {
       await driven.latest().send();
     });
 
-    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the deck");
+    expect(driven.draftStore.read(driven.draftKey)?.text).toBe("/clear the history");
     expect(driven.latest().refusal?.code).toBe("command-unexecutable");
   });
 });

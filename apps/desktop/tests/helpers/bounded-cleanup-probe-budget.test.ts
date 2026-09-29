@@ -96,8 +96,8 @@ describe("bounded cleanup — the synchronous probes are charged to the deadline
   it("negative control: probes that cost nothing still spend the whole attempt bound", async () => {
     // Without this the case above is ambiguous between "an exhausted deadline
     // stops the loop" and "the loop stopped asking", and the second would retire
-    // the retry on every refusal — the defect the suite next door exists to keep
-    // closed. Same terminator, same budget, a clock that does not move.
+    // the retry on every refusal — the defect `bounded-cleanup-retry.test.ts` exists to
+    // keep closed. Same terminator, same budget, a clock that does not move.
     const frozenClock = new SteppedClock();
     const terminator: ProcessTerminator & { readonly killed: number[] } = {
       killed: [],

@@ -1,8 +1,8 @@
-// A whole-surface absence, composed rather than left in flow.
+// A whole-screen absence, composed rather than left in flow.
 //
 // The `Nothing` primitive's `empty` arm is a quiet line, which is right where it
 // belongs — inside a list that came back with no rows. A route that resolves to no
-// surface is a different scale of absence: the same quiet line pinned to the
+// screen is a different scale of absence: the same quiet line pinned to the
 // top-left of a 1440 px window reads as a page that failed to finish painting. So
 // this wrapper centers the copy on a measure and pairs it with the one control that
 // definitely works, which keeps "there is nothing here" from also meaning "and
@@ -17,12 +17,12 @@
 //
 // A SHARED COMPONENT RATHER THAN A FEATURE'S OR `app/`'s. A feature cannot import `app/`,
 // which composes every feature, and this is a presentational wrapper that knows no
-// feature: a centered measure, a body slot, and the one hint that is true on every screen. That is the same class as
+// feature: a centered measure, a body region, and the one hint that is true on every screen. That is the same class as
 // `Nothing`, `InlineRefusal`, and `PartialRead` beside it, so it sits with them and
 // every producer reaches DOWN.
 //
 // Its class names carry its own prefix rather than the frame's: a stylesheet in one
-// family carrying another family's prefix is the drift the per-family sheet rule
+// component carrying another's prefix is the drift that one owning sheet per class
 // exists to prevent.
 
 import "./ScreenNotice.css";

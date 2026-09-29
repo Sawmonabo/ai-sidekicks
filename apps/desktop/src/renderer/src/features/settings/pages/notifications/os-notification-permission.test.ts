@@ -41,7 +41,7 @@ async function performScheduledProbe(harness: ProbeHarness): Promise<void> {
   await crossMacrotaskBoundary();
 }
 
-/** The state a surface would render from the reading as it stands. */
+/** The state a view would render from the reading as it stands. */
 function shownState(read: OsNotificationPermissionRead): OsNotificationPermissionState | undefined {
   const reading = read.snapshot();
   return reading.kind === "read" ? reading.state : undefined;
@@ -86,7 +86,7 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
   });
 
   it("shows the answer taken last when a person grants the permission and comes back", async () => {
-    // The sequence both surfaces exist for, end to end: the machine says `denied`
+    // The sequence both views exist for, end to end: the machine says `denied`
     // while the window is away, the person grants the permission outside the
     // application, and the focus that brings them back is what asks again. The reading
     // that shows is the one taken LAST, which is the whole ordering claim.
@@ -108,8 +108,8 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
     expect(shownState(harness.read)).not.toBe("denied");
   });
 
-  it("publishes nothing at all once the surface is gone", async () => {
-    // A probe still traveling when the surface unmounts. `dispose` supersedes every
+  it("publishes nothing at all once the view is gone", async () => {
+    // A probe still traveling when the view unmounts. `dispose` supersedes every
     // round, so its answer finds no key naming its serial.
     const harness = probeHarness();
     harness.read.requestRead("subscribe");

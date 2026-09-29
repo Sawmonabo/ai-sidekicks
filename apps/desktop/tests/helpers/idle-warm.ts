@@ -1,13 +1,8 @@
-// A warm scheduler a case drives by hand, for the two suites that drive one.
+// A warm scheduler a case drives by hand.
 //
-// HOISTED ON THE SECOND USE, which is the package's rule: `lazy-body-warm.test.ts`
-// drives the walk directly and `frame/bindings/lazy-body-warm-binding.test.tsx` drives it through
-// the effect that arms it, and both need the same thing — a scheduler that arms nothing
-// on its own so the case decides when an idle callback happens.
-//
-// It lives in `seats/` beside the scheduler interface it implements rather than in the
-// frame family that also uses it: a view family may not reach another family's modules,
-// and `seats/` is the lower of the two.
+// Shared because `lazy-body-warm.test.ts` drives the walk directly and the idle-warm hook
+// suites drive it through the effect that arms it, and all of them need the same thing — a
+// scheduler that arms nothing on its own so the case decides when an idle callback happens.
 
 import { type IdleWarmScheduler } from "@renderer/components/LazyBody/lazy-body-warm.js";
 

@@ -1,13 +1,13 @@
 /* The tool-kind badge on a tool row's header (`ToolKindBadge`).
  *
- * ONE RULE, because the parts are the console's own primitives and each dresses
- * itself: the chip is `primitives/figures/chip.css`' and every wire-sourced part is
- * `primitives/figures/figure.css`' mono treatment. What is left is the row of them, and a
- * second declaration of either part's color or size here would be this family
- * restating a decision the primitives already made.
+ * ONE RULE, because the parts are the console's own shared components and each dresses
+ * itself: the chip is `components/Chip/Chip.css`' and every wire-sourced part is
+ * `styles/figure.css`' mono treatment. What is left is the row of them, and a
+ * second declaration of either part's color or size here would be this badge
+ * restating a decision the shared components already made.
  */
 
-.meridian-tool-sub-family {
+.meridian-tool-kind-badge {
   display: inline-flex;
   align-items: baseline;
   gap: var(--meridian-space-1);

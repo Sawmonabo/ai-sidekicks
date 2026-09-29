@@ -1,23 +1,16 @@
 // Timeline-row builders for this subtree's co-located tests.
 //
-// NAMED `.test-support.ts`, WHICH IS WHAT IT IS. Every architecture walk in the
-// tier classifies a module by suffix, so scaffolding named `-fixtures` was handed
-// back as PRODUCTION source by all of them — which is how a family door line whose
-// only reader was such a module read as a line with a production reader, and stayed.
+// NAMED `.test-support.ts`, WHICH IS WHAT IT IS: the tools that classify a module by
+// suffix then treat it as test scaffolding rather than production source.
 //
-// WHY IT SITS HERE AND NOT UNDER `test/console/`. `apps/desktop/AGENTS.md` sends
-// cross-TEST scaffolding to `test/console/`, and that home is for shared ROLES —
-// the render harness, the spawn-and-scan harness, a path resolver — reached by the
-// tier suites that live there. This is neither: it is one subtree's fixture
-// vocabulary, used by the seven co-located `console-unit` files beside it and by
-// nothing else, and no co-located console test in this tree reaches across into
-// `test/`. Hoisting it into a shared home would make a private fixture look like a
-// contract every tier may build on.
+// WHY IT SITS HERE AND NOT UNDER `tests/helpers/`. That home is for scaffolding shared
+// across test tiers — the render harness, the spawn-and-scan harness, a path resolver.
+// This is one feature's fixture vocabulary, used by the co-located tests beside it and
+// by nothing else, and hoisting it into a shared home would make a private fixture look
+// like a contract every tier may build on.
 //
-// It is deliberately NOT re-exported from `structure/index.ts`: the family door is
-// what the console's surfaces consume, and a fixture builder is not part of that.
-// The dead-code gate still reaches it, because the Vitest plugin makes every test
-// file an entry point.
+// The dead-code gate still reaches it, because the Vitest plugin makes every test file
+// an entry point.
 //
 // WHAT THE BUILDERS GUARANTEE. Every row they produce is a real `TimelineRow`
 // under the contract's own discriminated union — the arms are selected by `kind`

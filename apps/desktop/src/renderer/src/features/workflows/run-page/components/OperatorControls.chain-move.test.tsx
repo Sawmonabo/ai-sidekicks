@@ -95,7 +95,7 @@ describe("a chain that moves under a held re-pin target", () => {
   });
 
   it("negative control: a chain that still carries the choice keeps it", () => {
-    // Without this, the two cases above would pass over a surface that dropped the
+    // Without this, the two cases above would pass over a component that dropped the
     // target on every chain change — which would discard a person's choice each time
     // an unrelated version was published.
     const resume = vi.fn();

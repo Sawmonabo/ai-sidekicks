@@ -1,7 +1,7 @@
 // The execution-root model, driven directly.
 //
 // A RETIRED ROW WITH FILES ON DISK IS ITS OWN SUB-STATE. Reading `state` alone answers
-// "is this disk free" wrongly, which is the question the surface exists to answer.
+// "is this disk free" wrongly, which is the question the execution-root view exists to answer.
 
 import { describe, expect, it } from "vitest";
 
@@ -48,7 +48,7 @@ describe("worktree-model — the state vocabularies are the contract's", () => {
   });
 
   it("says where a failed row comes from", () => {
-    // The one rule this surface is most likely to get wrong: there is no sixth
+    // The one rule this view is most likely to get wrong: there is no sixth
     // worktree event, so `failed` arrives on a re-read.
     expect(WORKTREE_STATE_PRESENTATION.failed.meaning).toContain("status re-read");
   });

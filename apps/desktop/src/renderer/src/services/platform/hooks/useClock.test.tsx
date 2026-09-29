@@ -1,8 +1,8 @@
-// The clock a surface captures once still reads the window's current time.
+// The clock a component captures once still reads the window's current time.
 //
-// Split from `BridgeProvider.test.tsx` on the seam the provider draws: that file is
-// about the RESOLUTION's lifetime — one engine held, replaced, disposed — and this one
-// about what a component that captured a clock before the replacement now reads.
+// `PlatformBridgeProvider.test.tsx` is about the RESOLUTION's lifetime — one engine
+// held, replaced, disposed — and this file about what a component that captured a
+// clock before the replacement now reads.
 //
 // THE DEFECT IN TERMS. A clock pinned in `useState` keeps the one it was mounted on,
 // and the provider replaces its resolution IN PLACE with no remount below it. So a
@@ -33,7 +33,7 @@ interface ClockProbeProps {
 }
 
 /**
- * A surface that captures the hook's clock and, beside it, the window's own reading.
+ * A component that captures the hook's clock and, beside it, the window's own reading.
  *
  * Both in one component so the two are from the same render: comparing a clock
  * captured here against a reading taken outside would leave which render each came

@@ -5,8 +5,8 @@
 //   2. **The mount obligation is delivered.** The mount point's props type is a promise about what
 //      the body receives, and a promise nothing checks is prose.
 //   3. **The session travels even when there is none.** This is the required-carrying-
-//      undefined rule made observable: a surface that could not resolve a session has to
-//      hand over that fact, and a dropped key would read to the body exactly like a surface
+//      undefined rule made observable: a pane that could not resolve a session has to
+//      hand over that fact, and a dropped key would read to the body exactly like a pane
 //      that never looked.
 //
 // The cases for the other mount points in this folder are `run-mount-points.test.tsx`.

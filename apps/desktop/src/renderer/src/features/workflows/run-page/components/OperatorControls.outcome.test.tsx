@@ -58,15 +58,15 @@ describe("a control is offered, and a refusal stands beside it rather than inste
     expect(screen.getByText("act-already-in-flight")).toBeDefined();
     const button = screen.getByRole("button", { name: /cancel this run/iu });
     expect(button.hasAttribute("disabled")).toBe(false);
-    // Rule 9 exactly: the refusal joined the control, it did not replace it, so the
-    // operator can act again once the outstanding call settles.
+    // The refusal joined the control, it did not replace it, so the operator can act
+    // again once the outstanding call settles.
     fireEvent.click(button);
     expect(cancel).toHaveBeenCalledWith(undefined);
   });
 
   it("negative control: the refusal code is the raiser's own and is not reworded", () => {
     // Without this the case above would pass over a component that printed a fixed
-    // sentence of its own for every refusal, a second vocabulary this surface must
+    // sentence of its own for every refusal, a second vocabulary this component must
     // never grow.
     const refusal = actAlreadyInFlightRefusal("resume");
     render(

@@ -40,16 +40,16 @@ export interface PageTabStripProps {
 /** One tab per open page, with drag reordering; draws nothing below two pages. */
 export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null {
   const { reading, onSelect, onClose, onReorder } = props;
-  // The slot a drag is currently over, held only while a drag is in the air. It is
+  // The drop position a drag is currently over, held only while a drag is in the air. It is
   // renderer-local by nature — nothing outside this window knows a pointer is down —
   // and it is `undefined` between drags rather than a stale number, so the drop
   // indicator cannot be left painted after a drag that ended somewhere else.
-  const [hoveredSlot, setHoveredSlot] = useState<number | undefined>(undefined);
+  const [hoveredDropPosition, setHoveredDropPosition] = useState<number | undefined>(undefined);
   const pages = pagesOf(reading);
   const activePageId = activePageOf(reading)?.pageId;
 
-  const dropAt = (slot: number, transfer: DataTransfer): void => {
-    setHoveredSlot(undefined);
+  const dropAt = (dropPosition: number, transfer: DataTransfer): void => {
+    setHoveredDropPosition(undefined);
     const pageId = readTabDragPayload(transfer);
     if (pageId === undefined) {
       return;
@@ -58,10 +58,10 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
     if (fromIndex < 0) {
       return;
     }
-    // THE ONE CALL SITE. The drop slot is a position among the tabs as drawn and the
+    // THE ONE CALL SITE. The drop position is a position among the tabs as drawn and the
     // registry's index addresses the list without the moved page; `pageMoveIndex` is
     // where that difference is spent, and it is spent here and nowhere else.
-    const toIndex = pageMoveIndex(fromIndex, slot);
+    const toIndex = pageMoveIndex(fromIndex, dropPosition);
     if (toIndex === undefined) {
       return;
     }
@@ -78,13 +78,13 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
         {pages.map((page, index) => (
           <li
             key={page.pageId}
-            className={tabClassName(page.pageId === activePageId, hoveredSlot === index)}
+            className={tabClassName(page.pageId === activePageId, hoveredDropPosition === index)}
             draggable
             onDragStart={(event) => {
               writeTabDragPayload(event.dataTransfer, page.pageId);
             }}
             onDragEnd={() => {
-              setHoveredSlot(undefined);
+              setHoveredDropPosition(undefined);
             }}
             onDragOver={(event) => {
               if (!isTabDrag(event.dataTransfer)) {
@@ -94,7 +94,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
               // all; without it the drop never fires and the tab springs back.
               event.preventDefault();
               event.dataTransfer.dropEffect = "move";
-              setHoveredSlot(index);
+              setHoveredDropPosition(index);
             }}
             onDrop={(event) => {
               event.preventDefault();
@@ -129,11 +129,11 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
             </button>
           </li>
         ))}
-        {/* The trailing slot. There are `n + 1` places a tab can land among `n`
+        {/* The trailing drop position. There are `n + 1` places a tab can land among `n`
             tabs, and without this one the last position is unreachable by drag. */}
         <li
           className={
-            hoveredSlot === pages.length
+            hoveredDropPosition === pages.length
               ? "meridian-preview-tabs__tail meridian-preview-tab--drop-before"
               : "meridian-preview-tabs__tail"
           }
@@ -143,7 +143,7 @@ export function PageTabStrip(props: PageTabStripProps): React.JSX.Element | null
             }
             event.preventDefault();
             event.dataTransfer.dropEffect = "move";
-            setHoveredSlot(pages.length);
+            setHoveredDropPosition(pages.length);
           }}
           onDrop={(event) => {
             event.preventDefault();

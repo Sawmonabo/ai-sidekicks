@@ -70,8 +70,8 @@ describe("paneBodyForKind — a body takes its own kind's context, not a shape l
   // the whole context union and the adapter narrows it, so a body annotated with a WIDER
   // type than its kind's context is assignable — a parameter is contravariant — and
   // compiles in silence. That is how one pane body came to declare its own props type
-  // while its sibling used the seat's, with both green and the seat's contract restated
-  // per family. The directives below fail the typecheck the moment the exactness check
+  // while its sibling used the registry's `PaneContext`, with both green and the registry's
+  // contract restated per feature. The directives below fail the typecheck the moment the exactness check
   // stops holding, because an unused `@ts-expect-error` is itself an error.
 
   it("accepts a body annotated with exactly its kind's context", () => {
@@ -83,7 +83,7 @@ describe("paneBodyForKind — a body takes its own kind's context, not a shape l
 
   it("accepts a body that declares no parameter, and one that infers it", () => {
     // Ignoring the context is not restating it — there is no second spelling to drift
-    // from — and an inline arrow takes its parameter type from the seat by inference,
+    // from — and an inline arrow takes its parameter type from the registry by inference,
     // which is the shape most bodies in the tree are written in.
     const ignoring = paneBodyForKind("inspector", () => <p>ignored</p>);
     const inferring = paneBodyForKind("inspector", (context) => <p>{context.kind}</p>);
@@ -103,8 +103,8 @@ describe("paneBodyForKind — a body takes its own kind's context, not a shape l
   });
 
   it("refuses a body annotated with a hand-written props type", () => {
-    // The second spelling, which is what actually shipped: a family declares its own
-    // interface, it happens to be satisfied by the context, and the seat's contract now
+    // The second spelling, which is what actually shipped: a feature declares its own
+    // interface, it happens to be satisfied by the context, and the registry's contract now
     // has two homes that drift independently.
     interface InspectorPaneProps {
       readonly kind: "inspector";

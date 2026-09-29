@@ -136,7 +136,7 @@ describe("ScrollFrameWrites", () => {
     expect(writes).toEqual([]);
   });
 
-  test("a request whose surface has no sample yet writes nothing", () => {
+  test("a request with no geometry sample yet writes nothing", () => {
     const { clock, coordinator, frameWrites, writes, setGeometry } = constructQueue();
     frameWrites.adopt(coordinator);
     setGeometry(undefined);

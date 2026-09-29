@@ -64,9 +64,9 @@ const RENAME_WITH_HUNK_PATCH = [
 
 describe("parseUnifiedPatch — a change that lives only in the extended headers", () => {
   it("carries the path a rename came from, with the git prefix stripped", () => {
-    // The bug, exercised: the mapping kept the selected path and `hunks`, so this
-    // file reached both surfaces as `+0 −0` under `docs/decisions/after.md` and the
-    // name a reader is actually looking for was gone.
+    // A mapping that kept only the selected path and `hunks` would show this file in
+    // both diff views as `+0 −0` under `docs/decisions/after.md`, and the name a
+    // reader is actually looking for would be gone.
     const file = parsePlainPatch(RENAME_ONLY_PATCH).files[0];
     expect(file?.path).toBe("docs/decisions/after.md");
     expect(file?.renamedFrom).toBe("docs/decisions/before.md");

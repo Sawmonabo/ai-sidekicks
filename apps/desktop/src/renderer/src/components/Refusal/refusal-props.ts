@@ -1,6 +1,6 @@
 // The refusal grammar — three shapes, one contract.
 //
-// Design-language rule 9: controls are offered; refusals are rendered, in one of three
+// The design language's refusal grammar: controls are offered; refusals are rendered, in one of three
 // shapes — **inline** on the control that was pressed, as a **card** in the transcript when
 // the refusal changes history, or as a **banner** across the session screen when it changes
 // what the whole room can do. A refusal never hides the control that produced it and
@@ -24,13 +24,14 @@
 // stylistic choice:
 //
 //   1. **The code is mono, the message is verbatim.** The code is a wire string and
-//      wears the provenance signature (rule 4). The daemon's message text is shown
-//      exactly as sent — the console does not paraphrase it, shorten it, or add a
-//      sentence of its own explaining what the daemon "meant". Rule 9's own wording
-//      puts the code in mono and the message verbatim, and that asymmetry is kept:
+//      wears the mono signature of a value that came from the wire. The daemon's
+//      message text is shown exactly as sent — the console does not paraphrase it,
+//      shorten it, or add a sentence of its own explaining what the daemon "meant".
+//      The grammar puts the code in mono and the message verbatim, and that asymmetry
+//      is kept:
 //      a paragraph set in mono is a paragraph nobody reads.
-//   2. **The next move is the caller's to supply.** `action` is a slot, not a
-//      derivation. The renderer never computes eligibility, so it never computes a
+//   2. **The next move is the caller's to supply.** `action` is a prop the caller
+//      fills, not a derivation. The renderer never computes eligibility, so it never computes a
 //      remedy either.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
@@ -48,9 +49,9 @@ import type { Refusal } from "@renderer/lib/refusal.js";
  *
  * `origin` is deliberately NOT picked. It exists so a refusal that surfaces three
  * layers from where it was raised still names its author, which is a fact for the
- * diagnostic band and the tripwire record — and rule 9 fixes what reaches the
- * screen at the code and the daemon's message. Rendering a third string here would
- * be the console adding a sentence of its own, which the same rule forbids.
+ * diagnostic band and the tripwire record — and the refusal grammar puts only the code
+ * and the daemon's message on screen. Rendering a third string here would be the
+ * console adding a sentence of its own, which the grammar forbids.
  */
 export interface RefusalProps extends Pick<Refusal, "code" | "detail"> {
   /** The operator's next move, when one exists. */

@@ -28,10 +28,10 @@ describe("every scenario on the board names a frozen tick", () => {
   });
 
   it("negative control: a scenario the registry does not name fails the registry", () => {
-    const board = [...SCENARIOS, scenarioNamed("a-family-landed-this-and-pinned-nothing")];
+    const board = [...SCENARIOS, scenarioNamed("a-feature-landed-this-and-pinned-nothing")];
 
     expect(findScenariosWithoutFrozenTick(board)).toStrictEqual([
-      "a-family-landed-this-and-pinned-nothing",
+      "a-feature-landed-this-and-pinned-nothing",
     ]);
     expect(findFrozenTickRegistryDefects(board)[0]?.reason).toContain("names no frozen tick");
   });

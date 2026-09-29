@@ -14,9 +14,9 @@
 /*
  * The column every workflows body is, wherever it stands.
  *
- * IT CARRIES THE INSET: `seats/pane-chrome.css` gives `.meridian-pane__body` no padding of
- * its own — "a feed pane wants none and a form pane wants some, and that is the body's
- * family to decide in its own sheet" — so a strip inside a pane insets itself.
+ * IT CARRIES THE INSET: `PaneFrame.css` gives `.meridian-pane__body` no padding of its
+ * own, because a feed pane wants none and a form pane wants some and each body sets its
+ * own in its own sheet — so a strip inside a pane insets itself.
  */
 .meridian-workflow__strip {
   display: flex;
@@ -35,7 +35,7 @@
 
 /*
  * A mount point is a dotted boundary rather than a filled panel, so an empty one does not
- * compete with the surfaces around it that hold something.
+ * compete with the regions around it that hold something.
  */
 .meridian-workflow__mount-point {
   display: flex;

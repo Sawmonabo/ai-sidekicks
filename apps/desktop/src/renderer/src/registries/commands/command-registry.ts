@@ -4,12 +4,12 @@
 // the command acts on, and one matcher shared with settings search. Categories
 // are `group`; recents are `recordInvocation`; the matcher is `scoreSubsequence`,
 // reached through `command-ranking.ts` rather than re-implemented, because "one
-// matcher" is a claim that fails the moment a second surface writes its own
+// matcher" is a claim that fails the moment a second view writes its own
 // ranking.
 //
 // TWO RULES WORTH STATING BEFORE THE CODE:
 //
-//   • A DUPLICATE ID IS AN ERROR, not an overwrite. Two families contributing the
+//   • A DUPLICATE ID IS AN ERROR, not an overwrite. Two features contributing the
 //     same command id is a wiring bug, and the overwrite arm resolves it by
 //     import order — meaning the surviving command depends on which module the
 //     bundler happened to evaluate last, and the loser fails silently and only
@@ -80,7 +80,7 @@ export class CommandRegistry {
 
   /**
    * Register a set atomically: every id is checked before anything is stored, so
-   * a duplicate half way through a family's contribution leaves the registry
+   * a duplicate half way through a feature's contribution leaves the registry
    * exactly as it was rather than half-populated.
    */
   public registerAll(commands: readonly CommandDefinition[]): void {

@@ -1,6 +1,6 @@
 // Contrast, measured rather than asserted.
 //
-// Design-language rule 3 puts the console at WCAG 2.2 AA. A palette can claim that;
+// The design language holds the console to WCAG 2.2 AA. A palette can claim that;
 // only a computation can hold it. So this file walks every pair the rules name and
 // computes the real ratio from the sRGB the browser will paint — which is why
 // `tokens/color.ts` fits each color into gamut at AUTHORING time. If the values were
@@ -85,7 +85,7 @@ describe("Meridian palette — tinted grounds hold the text floor for their own 
   for (const scheme of COLOR_SCHEMES) {
     for (const [textToken, groundToken] of TINTED_GROUND_PAIRS) {
       it(`${scheme}: ${textToken} on ${groundToken}`, () => {
-        // The amber and red grounds are the only tinted surfaces in the console,
+        // The amber and red grounds are the only tinted grounds in the console,
         // and they carry the two hues that mean "a person is needed" and "this
         // failed". Text on them that fell below the floor would be unreadable
         // exactly where reading matters most.
@@ -205,7 +205,7 @@ describe("Meridian palette — every user hue is findable on every ground", () =
 });
 
 describe("Meridian palette — a code or command-output body clears the text floor on its own well", () => {
-  // The two family vocabularies. They are text — a highlighted token and a colored
+  // The code-token and ANSI vocabularies. They are text — a highlighted token and a colored
   // run of command output are both read — so they carry 1.4.3's floor like any other
   // text, and they are measured on `surface-sunken` alone because that is the only
   // ground the console ever paints them on.

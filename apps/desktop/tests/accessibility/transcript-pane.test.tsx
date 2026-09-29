@@ -1,6 +1,6 @@
 // The accessibility tier — the transcript.
 //
-// WCAG 2.2 AA holds over every console surface, and the transcript is the one a person spends the day inside: a virtualized
+// WCAG 2.2 AA holds over every console view, and the transcript is the one a person spends the day inside: a virtualized
 // feed of cards, a facet bar, and a find field, all of them
 // hue-tinted per user. Almost every rule this tier owns has a way to fail
 // here that it has nowhere else — a card whose muted label sits on a tinted ground,
@@ -9,7 +9,7 @@
 //
 // WHY THE PANE IS MOUNTED DIRECTLY AND NOT THROUGH `AppProviders`
 //
-// The frame's own case next door mounts the root, which is right for the frame. The
+// `app-frame.test.tsx` mounts the root, which is right for the frame. The
 // transcript needs a session with CONTENT in it, and content reaches a store either from
 // a scripted beat — which a frozen clock delivers only when somebody advances it —
 // or from the log the store is handed. Advancing the fixture clock from here would
@@ -19,16 +19,16 @@
 // whole of it.
 //
 // Everything else is the real composition: the real `SessionStore`, the real
-// projection, the real `@tanstack/react-virtual` instance, the real card family
-// through the seat the console actually registers, and the same `SessionScreenShell`
+// projection, the real `@tanstack/react-virtual` instance, the real row renderer
+// the console actually registers, and the same `SessionScreenContainer`
 // wrapper the session screen mounts the panes inside — which is also what gives the scroll container a definite height, since a virtualizer
 // over a zero-height box reports no rows and would leave this file asserting that an
 // empty feed is accessible.
 //
-// TWO SURFACES, NOT ONE. A loaded transcript and an empty one are different documents:
+// TWO STATES, NOT ONE. A loaded transcript and an empty one are different documents:
 // the empty one has no feed items at all and renders an absence in their place, so a
 // rule that only bites over rows and a rule that only bites over the absence are two
-// rules, and running one surface would leave the other unmeasured. Both run in both
+// rules, and running one state would leave the other unmeasured. Both run in both
 // schemes, on the frame case's reasoning about contrast.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -41,9 +41,9 @@ import type { Scenario } from "../../fixtures/scenario.js";
 import { EMPTY_SESSION_SCENARIO } from "../../fixtures/scenarios/empty-session.js";
 import { TRANSCRIPT_STATES_SCENARIO } from "../../fixtures/scenarios/transcript-states.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
-// Deeply, and not through `features/transcript/index.ts`: this tier is the shell claim's only
-// consumer outside the family, and a door line whose one reader is a test is a door
-// widened for testing.
+// Deeply, and not through `features/transcript/index.ts`: this tier is the row registration's only
+// consumer outside the transcript feature, and an export whose one reader is a test is
+// the feature's public entry widened for testing.
 import { registerTranscriptRows } from "@renderer/features/transcript/contributions/transcript-rows.js";
 import {
   TranscriptPane,
@@ -53,7 +53,7 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 import { unregisterTranscriptRowRenderer } from "@renderer/features/transcript/transcript-row-renderer.js";
-import { SessionScreenShell } from "@renderer/features/transcript/SessionScreenShell.js";
+import { SessionScreenContainer } from "@renderer/features/transcript/SessionScreenContainer.js";
 
 /**
  * The cursor a scenario's log is applied on top of.
@@ -61,13 +61,13 @@ import { SessionScreenShell } from "@renderer/features/transcript/SessionScreenS
  * Zero rather than `-1`, because `composeScriptBeats` numbers a scenario's beats from
  * one: a store rebased at `-1` would see its first beat as sequence one arriving
  * after sequence zero never did, record the gap, and render the never-received
- * absence and a degraded banner — a surface neither case here is about, and a difference
+ * absence and a degraded banner — a state neither case here is about, and a difference
  * between the two scenarios only one of them would show.
  */
 const SCENARIO_BASE_CURSOR = 0;
 
 /**
- * The pane context, with the members this surface reads real and the rest cast.
+ * The pane context, with the members this pane reads real and the rest cast.
  *
  * `frameStore` is real because the pane subscribes to it for the breadcrumb, and
  * `sessionStore` is real because it is the whole subject. The three it never touches
@@ -113,7 +113,7 @@ function openStoreOnScenario(scenario: Scenario): SessionStore {
 /**
  * Mount one scenario's transcript the way a window mounts it.
  *
- * `SessionScreenShell` is the production wrapper around the session screen, and it is
+ * `SessionScreenContainer` is the production wrapper around the session screen, and it is
  * what carries the full-height grid down to the scroll container. A bare test wrapper
  * would have been a second layout nobody ships, measured instead of the one that is.
  */
@@ -121,9 +121,9 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
   const sessionStore = openStoreOnScenario(scenario);
   const { container } = await renderSettled(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario })}>
-      <SessionScreenShell>
+      <SessionScreenContainer>
         <TranscriptPane context={transcriptPaneContext(scenario.sessionId, sessionStore)} />
-      </SessionScreenShell>
+      </SessionScreenContainer>
     </FixtureBridgeProvider>,
   );
   return container;
@@ -131,14 +131,14 @@ async function mountTranscript(scenario: Scenario): Promise<HTMLElement> {
 
 beforeEach(() => {
   installMeridianTokens(document);
-  // The row seat, filled with the same shell the console registers. Without it the
+  // The row renderer, registered the same way the console registers it. Without it the
   // pane renders its reserved-not-built absence and this whole file would be
   // measuring a gray line where the transcript is supposed to be.
   registerTranscriptRows();
 });
 
 afterEach(async () => {
-  // The seat is module-scope, so a filled one would outlive this file.
+  // The registration is module-scope, so it would outlive this file.
   unregisterTranscriptRowRenderer();
   await emulateSystemScheme("light");
 });
@@ -169,8 +169,8 @@ describe("accessibility — the transcript", () => {
       const container = await mountTranscript(EMPTY_SESSION_SCENARIO);
 
       // The same control from the other side: this case is only about the empty
-      // state if the surface actually reached it, and a scenario that had grown a
-      // beat would put this file back on the loaded surface without saying so.
+      // state if the pane actually reached it, and a scenario that had grown a
+      // beat would put this file back on the loaded state without saying so.
       expect(container.textContent).toContain("Nothing has happened in this session yet.");
       expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(0);
 
@@ -179,7 +179,7 @@ describe("accessibility — the transcript", () => {
   }
 
   it("finds a violation planted inside the transcript, so a clean result means something", async () => {
-    // Negative control, planted INSIDE the mounted surface rather than beside it: a
+    // Negative control, planted INSIDE the mounted pane rather than beside it: a
     // run scoped to the wrong root, given the wrong tags, or swallowing an exception
     // returns exactly the same nothing as a clean one, and planting within the
     // container proves the run reaches the subtree the cases above assert over.

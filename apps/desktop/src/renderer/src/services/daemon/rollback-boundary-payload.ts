@@ -1,15 +1,14 @@
 // The rollback boundary's payload, decoded at the bridge.
 //
 // WHY IT LIVES HERE AND NOT BESIDE ITS CONSUMER. A contracts schema is a parser, and
-// every parse of a wire value happens at the bridge boundary: a surface that held its
-// own schema would be a second reading of
-// one shape, and the two would drift the moment the contract moved. The transcript's
+// every parse of a wire value happens in `services/`: a feature that held its own
+// schema would be a second reading of one shape, and the two would drift the moment
+// the contract moved. The transcript's
 // fixture projection consumes what this returns and never a schema of its own.
 //
-// WHY IT IS A READER AND NOT A RE-EXPORT. The door publishes this function, not
-// `RunRolledBackEventSchema` — a door that forwarded the schema would put the parser
-// back in the family that consumes it, which is the arrangement this module exists
-// to end.
+// WHY IT IS A READER AND NOT A RE-EXPORT. This module publishes this function, not
+// `RunRolledBackEventSchema`: forwarding the schema would put the parser back in the
+// code that consumes it, which is what this module exists to prevent.
 //
 // THE ARM'S REFINEMENT IS THE POINT. `RunRolledBackEventSchema` refines `position`
 // against `payload.targetPosition`, so a rollback whose payload does not satisfy the

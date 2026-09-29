@@ -3,8 +3,8 @@
 // WHAT THIS EXISTS TO CATCH is a wrapper that drifted into re-implementing what it defers
 // to — a second compile path, a memo that answers with a stale function, a re-export that
 // silently became something else. Identity is the whole assertion, because everything the
-// compiler DOES is pinned next door and a second copy of those cases here would be two
-// answers to what a validator is.
+// compiler DOES is pinned in `json-schema-validator.test.ts` and a second copy of those
+// cases here would be two answers to what a validator is.
 //
 // AND THE CASES THAT ARE NOT ABOUT IDENTITY are about the MEMO, which is two claims and
 // not one. A second call must answer the same compiler — a caller holding two would be
@@ -64,7 +64,7 @@ describe("the schema compiler's loader", () => {
 
 describe("the compiler chunk's memo", () => {
   it("negative control: two chunks do not share one memo", () => {
-    // Without this the door's own case above would pass against a module-level promise,
+    // Without this the one-promise case above would pass against a module-level promise,
     // which is the shared state the class form exists to avoid.
     expect(new SchemaValidatorCompilerChunk().load()).not.toBe(
       new SchemaValidatorCompilerChunk().load(),

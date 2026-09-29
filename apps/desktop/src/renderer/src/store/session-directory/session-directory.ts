@@ -1,4 +1,4 @@
-// The sessions on this node, as a surface can honestly know them.
+// The sessions on this node, as a view can honestly know them.
 //
 // The set this window has open is a different question with a different answer from
 // the node's directory: a node with six sessions and a window that has opened none of
@@ -35,7 +35,7 @@ export type SessionDirectoryReadCall = (
   signal: AbortSignal,
 ) => Promise<readonly SessionDirectoryEntry[]>;
 
-/** What a surface knows about the node's sessions at one moment. */
+/** What a view knows about the node's sessions at one moment. */
 export type SessionDirectoryState =
   | { readonly status: "reading" }
   | { readonly status: "served"; readonly sessions: readonly SessionDirectoryEntry[] };
@@ -63,7 +63,7 @@ export class SessionDirectoryStaleness {
     return this.#revisionByCall.get(call) ?? 0;
   }
 
-  /** Declare this call's directory stale, and wake every surface reading it. */
+  /** Declare this call's directory stale, and wake every view reading it. */
   public declareStale(call: SessionDirectoryReadCall): void {
     this.#revisionByCall.set(call, this.revisionFor(call) + 1);
     // Over a COPY of the watcher set, so a watcher that releases its handle while
@@ -91,7 +91,7 @@ export class SessionDirectoryStaleness {
 export const sessionDirectoryStaleness: SessionDirectoryStaleness = new SessionDirectoryStaleness();
 
 /**
- * Ask every surface reading this node's directory to read it again.
+ * Ask every view reading this node's directory to read it again.
  *
  * FOR A SETTLED ACT AND NOT FOR A PRESS. What makes this honest is that the caller
  * already knows the node's answer changed, so the read it schedules is a read of
@@ -102,7 +102,7 @@ export function requestSessionDirectoryRead(read: SessionDirectoryReadCall): voi
 }
 
 /**
- * The session ids a surface should offer, directory first and this window's own
+ * The session ids a view should offer, directory first and this window's own
  * open sessions after.
  *
  * A union rather than a replacement, because the two sets answer to different

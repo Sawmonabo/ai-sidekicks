@@ -12,7 +12,7 @@
 // and both halves of that expression throw on values a rejection may legitimately
 // carry. A throw inside a rejection handler escapes as an unhandled rejection, so the
 // graph stayed at `loading` forever with nothing on screen saying why — the one failure
-// path on this surface, failing.
+// path on this graph, failing.
 
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -102,7 +102,7 @@ describe("a chunk the browser refused", () => {
 
   it("negative control: both halves of the reading it replaced really do throw", async () => {
     // The finding, asserted rather than described. Without this the three cases above
-    // would pass over a surface that had merely changed its markup, and would not name
+    // would pass over a component that had merely changed its markup, and would not name
     // what made the old reading unsafe.
     const revocable = Proxy.revocable({}, {});
     revocable.revoke();
@@ -111,7 +111,7 @@ describe("a chunk the browser refused", () => {
   });
 
   it("negative control: the banner is not a constant, and no absence stands beside it", async () => {
-    // Without this the cases above would be satisfied by a surface that rendered one
+    // Without this the cases above would be satisfied by a component that rendered one
     // fixed sentence for every failure — and by one that left the read-in-flight
     // skeleton in the box beside the refusal, which reads as a graph still coming.
     const banner = await renderRefusedChunk(new Error("chunk integrity check failed"));

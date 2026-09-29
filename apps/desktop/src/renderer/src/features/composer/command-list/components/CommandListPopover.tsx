@@ -45,7 +45,7 @@ const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
  * Declared once and rendered only in answer to the press: the popover's lede already
  * carries the standing claim ("Choosing an entry starts no turn"), which the listbox
  * names through `aria-describedby`, so this sentence exists to answer a GESTURE
- * rather than to restate the surface's purpose a second time on every open.
+ * rather than to restate the list's purpose a second time on every open.
  */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
@@ -82,7 +82,7 @@ const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
  * The popover itself, mounted only while the line opens it.
  *
  * A separate component for two reasons. The active-entry cursor is born with the
- * surface and dies with it, so a cursor held above the open state cannot survive a
+ * open list and dies with it, so a cursor held above the open state cannot survive a
  * dismissal and point at a row from a list nobody is looking at. And the catalog is
  * READ HERE, on every render this component makes, rather than memoized above it:
  * the console's command registry is filled by the frame's own registration effect
@@ -139,7 +139,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const consoleRows = groupRowsOf(entries, "console");
   const providerRows = groupRowsOf(entries, "provider");
 
-  // The token at mount is the baseline, so a surface reopened after an earlier step
+  // The token at mount is the baseline, so a list reopened after an earlier step
   // into the list does not steal focus the moment it appears.
   const stepIntoListBaselineRef = useRef(stepIntoListToken);
   useEffect(() => {
@@ -252,7 +252,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
       {isServedEmpty ? (
         <Nothing
           kind="empty"
-          placement="surface"
+          placement="block"
           title="No command matches what you have typed"
           detail="Clear the line to see everything on offer."
         />
@@ -314,7 +314,7 @@ function groupRowsOf(
 /**
  * Whether every source that could hold a match has answered.
  *
- * The console's own command surface is local and always settled, so the provider
+ * The console's own command registry is local and always settled, so the provider
  * enumeration is the only source with phases and the only one this asks about.
  * `not-checked` counts as answered and not as pending: this composer addresses a
  * session rather than an agent, so no provider was asked and none is coming — the

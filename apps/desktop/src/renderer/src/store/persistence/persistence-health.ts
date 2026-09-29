@@ -1,10 +1,10 @@
 // What the store knows about itself, and the one place a refusal is classified.
 //
-// The chokepoint next door decides whether a write may land. This module decides
+// The chokepoint in `ui-state-store.ts` decides whether a write may land. This module decides
 // what that decision MEANT: which refusals are the caller handing the store
 // something it may not keep, which are the store failing to keep something
 // legitimate, which of them fires the `persistence-value-class` tripwire, and what
-// an operator reading the diagnostics surface is shown afterwards.
+// an operator reading the diagnostics view is shown afterwards.
 //
 // WHY IT IS ITS OWN MODULE. Two failure modes that share no evidence. The
 // chokepoint is wrong when a write it should have refused lands, or one it should
@@ -60,7 +60,7 @@ const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>>
  */
 export const REFUSED_ADDRESS_SITE = "<address>";
 
-/** What the diagnostics surface renders about storage. */
+/** What the diagnostics view renders about storage. */
 export interface PersistenceHealth {
   readonly adapterKind: PersistenceAdapterKind;
   readonly durable: boolean;
@@ -120,7 +120,7 @@ export class PersistenceHealthTracker {
   }
 
   /**
-   * The reading the diagnostics surface renders, for one adapter.
+   * The reading the diagnostics view renders, for one adapter.
    *
    * The adapter is passed in rather than held: this ledger outlives no adapter and
    * owns none, and a second reference to the one the store already awaited would

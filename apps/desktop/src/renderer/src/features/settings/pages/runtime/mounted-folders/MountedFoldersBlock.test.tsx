@@ -1,6 +1,6 @@
 // The mounts page renders both health axes separately and offers no detach.
 //
-// The refresh signals and the refused read are the suite next door
+// The refresh signals and the refused read are the suite beside this one
 // (`WorkspaceMountsPage.refresh.test.tsx`); both drive the page through the harness
 // in `workspace-mounts-page.test-support.tsx`.
 

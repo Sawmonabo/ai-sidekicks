@@ -1,17 +1,16 @@
 // What a reading is, when it is not the whole of what was asked for — and the one
 // sentence set that says so.
 //
-// Design-language rule 8 closes the FIVE absences a surface may render. It says nothing
-// about the case that is not an absence at all: a reading that arrived, is being shown,
-// and is INCOMPLETE. Every family met that case separately and each wrote its own
-// notice — a queue whose snapshot refused while the tail kept delivering, a quota tail
-// whose deliveries this build could not parse, a provider enumeration the daemon cut, a
-// definitions browser answering per scope. The shapes agreed by accident and the
-// sentences did not, so one console said "may be stale", another "may be behind the
-// registry", and a third said nothing at all and rendered a list that looked
-// exhaustive.
+// The console renders FIVE kinds of nothing differently, because the next move differs
+// for each: not loaded, empty, error, not checked, and still computing. That set says
+// nothing about the case that is not an absence at all: a reading that arrived, is
+// being shown, and is INCOMPLETE — a queue whose snapshot refused while the tail kept
+// delivering, a quota tail whose deliveries this build could not parse, a provider
+// enumeration the daemon cut, a definitions browser answering per scope. One sentence
+// set for all of them keeps one view from saying "may be stale" where another says
+// "may be behind the registry" and a third renders a list that looks exhaustive.
 //
-// THE CLAIM THIS MODULE MAKES IS RULE 8'S, EXTENDED BY ONE STEP: a surface never
+// THE CLAIM THIS MODULE MAKES EXTENDS THE KINDS OF NOTHING BY ONE STEP: a view never
 // claims a completeness it cannot prove. `served` is the only state that claims it,
 // and it is the only state that renders no notice. Everything else renders one — which
 // is why `readingNoticeFor` is TOTAL over the kind tuple and why its `"none"` shape
@@ -19,17 +18,16 @@
 // fails to compile here rather than shipping as a silent claim of completeness —
 // count-free, because the set grows.
 //
-// A SURFACE HANDS OVER EVERY READING IT HOLDS, NOT ONE OF THEM. A queue whose
-// snapshot refused AND whose tail carried an unreadable delivery is incomplete twice
-// over, for two reasons a person can act on differently, and the first version of
-// this module answered that with discipline: "the surface mounts the notice twice
-// with two states". Discipline is the thing this branch exists to replace with a
-// mechanism, so `partialReadNotices` takes the SET and answers a notice per member.
-// `"none"` comes back only when every member is `served`, which is what makes a
-// surface holding a served snapshot beside an unreadable tail unable to render as
-// exhaustive: there is no call shape that shows one reading and hides the other. Two
-// notices and not a merged one, still — a merged sentence would have to drop one of
-// the two refusals, and the refusal is the half that names what to do next.
+// A VIEW HANDS OVER EVERY READING IT HOLDS, NOT ONE OF THEM. A queue whose snapshot
+// refused AND whose tail carried an unreadable delivery is incomplete twice over, for
+// two reasons a person can act on differently, and asking each view to mount the notice
+// twice would be discipline rather than a mechanism. So `partialReadNotices` takes the
+// SET and answers a notice per member. `"none"` comes back only when every member is
+// `served`, which is what makes a view holding a served snapshot beside an unreadable
+// tail unable to render as exhaustive: there is no call shape that shows one reading
+// and hides the other. Two notices and not a merged one, still — a merged sentence
+// would have to drop one of the two refusals, and the refusal is the half that names
+// what to do next.
 //
 // THE CAUSES ARE ONE CLAIM WITH SEVERAL REASONS. A person reading a notice is
 // deciding whether to trust what is in front of them, so every sentence states the
@@ -54,8 +52,8 @@ import { formatCount } from "./wire-figures.js";
 
 /**
  * Closed. The tuple is the declaration and `ReadingStateKind` follows from it, so a
- * claim about the SET is countable at runtime — the same construction rule 8's five
- * kinds are declared under, and for the same reason: the vacuity guard walks the
+ * claim about the SET is countable at runtime — the same construction the five kinds
+ * of nothing are declared under, and for the same reason: the vacuity guard walks the
  * tuple, so a kind added to a hand-written union alone would be a state nothing
  * checked.
  */
@@ -79,14 +77,14 @@ export type ReadingStateKind = (typeof READING_STATE_KINDS)[number];
  * here is not the whole of it" says there is something shown, which is not true of a
  * read that returned nothing at all. The scope is decided where the outcomes are
  * counted and never re-derived in a render body — two views would eventually
- * disagree about whether one refusal is the surface's result or a note beside one.
+ * disagree about whether one refusal is the view's result or a note beside one.
  */
 export const REFUSAL_SCOPES = ["whole-answer", "beside-an-answer"] as const;
 
 export type RefusalScope = (typeof REFUSAL_SCOPES)[number];
 
 /**
- * How completely a surface's reading answered the question it put.
+ * How completely a view's reading answered the question it put.
  *
  * `served` is the only member that claims completeness, and it carries nothing:
  * a complete reading has nothing to say about itself. The others each carry
@@ -145,7 +143,7 @@ export type ReadingState =
    * existed the nearest vocabulary was `refused` `beside-an-answer`, whose sentence
    * carries no figure and so cannot say HOW MUCH went unasked.
    *
-   * It is not rule 8's `not-checked` absence either: that one is the whole read, and
+   * It is not the `not-checked` kind of nothing either: that one is the whole read, and
    * this is a counted part of a read that did answer.
    *
    * `uncheckedCount` is at least one: zero is complete coverage, which is `served`.
@@ -161,8 +159,8 @@ export type ReadingState =
  * What a notice renders. Fewer shapes than there are states, so the component
  * branches on a closed instruction rather than on the state a second time.
  *
- * `"reading"` is its own shape because a read in flight is rule 8's `not-loaded`
- * absence and renders through that primitive; the prose shapes are prose beside the
+ * `"reading"` is its own shape because a read in flight is the `not-loaded` kind of
+ * nothing and renders as that component's skeleton; the prose shapes are prose beside the
  * rows they qualify.
  *
  * The two prose shapes are separate because a figure and the copy that leads with it
@@ -195,12 +193,12 @@ const COMPLETE_NOTICE: PartialReadNotice = { shape: "none" };
 /**
  * The reading a count of unreadable deliveries is.
  *
- * The producer's shape across the families that have one: a running count and the
+ * The producer's shape across the features that have one: a running count and the
  * newest parse refusal it kept. Zero is `served` and not `partial` — a notice
  * reading "0 deliveries could not be read" is a notice for an absence of anything to
  * notice — and `served` is admissible here precisely because this producer proved
  * it: nothing it received failed to parse. That is a claim about the DELIVERIES and
- * not about the read they arrive after, which is why a surface holding both hands
+ * not about the read they arrive after, which is why a view holding both hands
  * both to `partialReadNotices` rather than choosing between them.
  */
 export function unreadableDeliveryReading(
@@ -223,7 +221,7 @@ export function unreadableDeliveryReading(
  * this module exists to remove.
  *
  * Total over `ReadingState` by construction, so a member added to that union fails
- * to compile here before it can reach a surface that renders it as complete.
+ * to compile here before it can reach a view that renders it as complete.
  */
 export function readingNoticeFor(state: ReadingState, subject: string): PartialReadNotice {
   switch (state.kind) {
@@ -275,12 +273,12 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
 }
 
 /**
- * Every notice a surface's readings owe, in the order the surface holds them.
+ * Every notice a view's readings owe, in the order the view holds them.
  *
- * The door, and the reason `readingNoticeFor` is not it: a surface takes ONE reading
+ * The call to use, and the reason `readingNoticeFor` is not it: a view takes ONE reading
  * at a time from its producers and owes a person all of them at once, so the shape
  * that composes is the shape callers reach for. An empty answer means every reading
- * served — the only way this module ever says a surface is showing the whole of it.
+ * served — the only way this module ever says a view is showing the whole of it.
  */
 export function partialReadNotices(
   states: readonly ReadingState[],

@@ -109,7 +109,7 @@ describe("DaemonPage — the reported status", () => {
     // Both halves of the anti-poll claim. A page that re-read on every render would
     // satisfy the two cases above and put a call on the wire per pass — and keying the
     // read on the whole connection would put one per attempt of the supervisor's
-    // ladder, which is interval polling arriving by the back door.
+    // ladder, which is interval polling in another form.
     const { ledger, showMainProcessState } = renderRuntimePage({
       mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
@@ -215,7 +215,7 @@ describe("DaemonPage — the two controls", () => {
     const confirmAction = getButton(container, "Stop");
 
     // Both presses in ONE frame, which is the case a rendered flag cannot catch: the
-    // second handler is the one the first render produced, so it reads the surface as
+    // second handler is the one the first render produced, so it reads the page as
     // idle however fast the re-render is. A double-click on a destructive verb is
     // exactly this shape.
     act(() => {

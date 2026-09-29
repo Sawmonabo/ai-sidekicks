@@ -17,7 +17,7 @@
 // Two shapes of the same report, and the seams they land on are different. The window
 // is served from a scheme that was never registered as standard, so the document has
 // no origin and the renderer boots into a storage error; or the bundle loads, the
-// frame mounts, and the composition is empty — no rail, no mounted surface, and an
+// frame mounts, and the composition is empty — no rail, no mounted screen, and an
 // unowned pane kind rendering as a hole rather than as a composed absence.
 //
 
@@ -47,7 +47,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
     });
   });
 
-  it("boots the frame with its rail, a mounted surface, and a composed absence", async () => {
+  it("boots the frame with its rail, a mounted screen, and a composed absence", async () => {
     // The scenario is NAMED rather than defaulted, and that is this case's premise
     // rather than a detail of it: every claim below is about the first-run
     // composition — a readable session, an unowned pane kind —
@@ -65,9 +65,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       const railButtonCount = await consoleWindow.locator(".meridian-rail__button").count();
       expect(railButtonCount).toBeGreaterThan(0);
 
-      // The sessions destination has an owner — the frame's own all-sessions
-      // surface. The claim is that the OWNER rendered and the frame's
-      // reserved-slot arm did not fire: the owner's section is present and the
+      // The sessions destination has an owner — the all-sessions screen. The
+      // claim is that the OWNER rendered and the frame's unowned-screen arm did
+      // not fire: the owner's section is present and the
       // frame's composed absence wrapper is not.
       await consoleWindow.locator(".meridian-frame").waitFor({
         state: "visible",
@@ -85,36 +85,28 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // altogether. And it must be the composed one, not a bare line, because a bare
       // line at the top-left of a real window is what a half-painted page looks like.
       //
-      // IT IS THE HARNESS'S ADMISSION REFUSAL, AND NO LONGER ITS RESERVED ARM. Every
-      // previous revision of this probe pointed at a destination nobody owned — off
-      // `#/workflows` when the workflows family took it, off `#/window/timeline/…` once the
-      // transcript claimed the last unowned SCREEN slot, and then one layer down at a pane
-      // kind the pane layout declared and no family rendered. That last address is gone too:
-      // `registeredPaneKinds()` now answers with all eleven of `PANE_KINDS`, so no address
-      // anywhere in a built console reaches a reserved arm, and each earlier revision's
-      // own instruction — re-point it, do not delete it — ends here, at the point it
-      // named: there is no slot left to be told to reserve.
-      //
-      // What replaces it is an absence a family can never claim away, because it does
-      // not fire on a pane kind at all: `PaneHarnessScreen` holds the address segment
+      // IT IS THE HARNESS'S ADMISSION REFUSAL. `registeredPaneKinds()` answers with every
+      // one of `PANE_KINDS`, so no address in a built console reaches a reserved arm. What
+      // stands in is an absence no feature can claim away, because it does not fire on a
+      // pane kind at all: `PaneHarnessScreen` holds the address segment
       // to `parsePaneAddress`, the console's one admission point for an address
       // that arrived untyped, and a segment that names no kind is refused there. That
-      // is also the STRONGER end-to-end subject of the two — a reserved arm is a state
+      // is also the STRONGER end-to-end subject — a reserved arm is a state
       // a shipped build can only reach through its own composition mistake, while a
       // mistyped hash is a thing a person actually does. The reserved arms themselves
       // stay pinned where they can be driven directly, with a registry that holds no
       // descriptor: `PaneHarnessScreen.test.tsx` for this one and `app/router.test.tsx`
-      // for the slot layer above it. Point this back at a reserved arm the day a kind is
-      // declared in `PANE_KINDS` ahead of the family that renders it.
+      // for the screen layer above it. Point this back at a reserved arm the day a kind is
+      // declared in `PANE_KINDS` ahead of the feature that renders it.
       //
       // BOTH address segments are required by that route's grammar, and the session
       // is the scenario's own: the session it holds is readable, which is what gets
-      // the store open and the route as far as the surface.
+      // the store open and the route as far as the pane harness.
       await consoleWindow.evaluate((sessionId: string) => {
         window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
       // `--block` is the composed placement, and asserting it is the other half of
-      // "not a bare line": the surface layer proved that with `ScreenNotice`, and
+      // "not a bare line": the screen layer proved that with `ScreenNotice`, and
       // this arm renders its `Nothing` inside the harness region instead, where the
       // placement modifier is what carries the same claim.
       await consoleWindow

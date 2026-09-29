@@ -8,9 +8,9 @@
 // outside every terminal the publisher has — so this suite reads the airspace's own
 // arming count through the pane, on the three states that separate the two readings:
 //
-//   • a window whose host is attached, which is the positive control that keeps the
+//   • a pane whose page host accepts its rectangle, which is the positive control that keeps the
 //     other two from passing over an observation that is never installed at all;
-//   • a pane the host has declared gone, where the publisher disposes itself mid-frame
+//   • a pane the page host has declared gone, where the publisher disposes itself mid-frame
 //     and the observation used to survive it for the life of the mount;
 //   • two panes, because the cost is per pane and the retirement has to be too.
 //
@@ -25,8 +25,8 @@ import { afterEach, describe, expect, it } from "vitest";
 import { airspaceRegistryFor } from "@renderer/lib/airspace-registries.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
-import { RecordingViewHost } from "../geometry/geometry-publisher.test-support.js";
-import { PANE_VIEW_HOST_REFUSAL_ORIGIN } from "../geometry/view-host.js";
+import { RecordingPageHost } from "../geometry/geometry-publisher.test-support.js";
+import { PAGE_HOST_REFUSAL_ORIGIN } from "../geometry/page-host.js";
 import {
   previewPaneContext,
   chromeFor,
@@ -35,7 +35,7 @@ import {
   releaseQueuedPaneFrames,
 } from "../PreviewPane.test-support.js";
 
-/** What the host says when the pane it is addressing has been destroyed. */
+/** What the page host says when the pane it is addressing has been destroyed. */
 const PANE_GONE = "This pane was closed while its view was still reporting.";
 
 /** The second pane, for the case that is about the count being per pane. */
@@ -81,26 +81,26 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     return airspaceRegistryFor(document).observedOverlayCount;
   }
 
-  it("arms one observation for a pane whose host is attached", async () => {
+  it("arms one observation for a pane whose page host accepts its rectangle", async () => {
     // The positive control. Without it every other case here is satisfied by a pane
     // that watches nothing ever, which is the same overlay-yield defect from the
     // other side: a native view painted over a dialog that slid across it.
     registerOverlay();
     const built = previewPaneContext();
     await act(async () => {
-      render(chromeFor(built, recordingActs(), new RecordingViewHost()));
+      render(chromeFor(built, recordingActs(), new RecordingPageHost()));
     });
 
     expect(armedOverlayObservations()).toBe(1);
   });
 
-  it("retires the observation when the host says the pane is gone", async () => {
+  it("retires the observation when the page host says the pane is gone", async () => {
     registerOverlay();
-    const viewHost = new RecordingViewHost();
-    viewHost.rejectNextWith(refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", PANE_GONE));
+    const pageHost = new RecordingPageHost();
+    pageHost.rejectNextWith(refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", PANE_GONE));
     const built = previewPaneContext();
     await act(async () => {
-      render(chromeFor(built, recordingActs(), viewHost));
+      render(chromeFor(built, recordingActs(), pageHost));
     });
     expect(armedOverlayObservations()).toBe(1);
 
@@ -121,8 +121,8 @@ describe("Preview pane geometry — who watches this window's overlays move", ()
     let firstPane: ReturnType<typeof render> | undefined;
     let secondPane: ReturnType<typeof render> | undefined;
     await act(async () => {
-      firstPane = render(chromeFor(first, recordingActs(), new RecordingViewHost()));
-      secondPane = render(chromeFor(second, recordingActs(), new RecordingViewHost()));
+      firstPane = render(chromeFor(first, recordingActs(), new RecordingPageHost()));
+      secondPane = render(chromeFor(second, recordingActs(), new RecordingPageHost()));
     });
 
     expect(armedOverlayObservations()).toBe(2);

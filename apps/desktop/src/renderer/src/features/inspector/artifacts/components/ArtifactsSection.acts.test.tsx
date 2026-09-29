@@ -27,8 +27,8 @@ describe("ArtifactsSection — the acts", () => {
   });
 
   it("asks for the manifest rather than rendering a payload", () => {
-    // The hard rule: payloads are explicit-fetch downloads with no in-product
-    // execution surface. The affordance is a control that ASKS — and it asks for
+    // The hard rule: payloads are explicit-fetch downloads, and nothing in the
+    // product executes one. The affordance is a control that ASKS — and it asks for
     // exactly what the registered read answers with, which is the manifest.
     const onReadManifest = vi.fn();
     const { container } = render(

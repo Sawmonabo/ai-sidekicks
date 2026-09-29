@@ -4,7 +4,7 @@
 // console carries them so it can explain a bound ahead of the refusal rather than after
 // it. Each mirrors its registered source EXACTLY and is never looser — a console that
 // admitted more than the daemon would spend a user's upload to earn a refusal. All three
-// are operator-tunable, so every surface that shows one says "default" until the daemon
+// are operator-tunable, so every view that shows one says "default" until the daemon
 // answers with the effective value. The chunk size is the contract's
 // `ATTACHMENT_INGEST_CHUNK_MAX_BYTES`.
 

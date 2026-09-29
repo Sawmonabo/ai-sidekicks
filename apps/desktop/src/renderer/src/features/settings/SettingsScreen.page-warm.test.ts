@@ -1,10 +1,10 @@
-// When this surface's deferred pages are fetched: after the first frame, before anyone
+// When the settings screen's deferred pages are fetched: after the first frame, before anyone
 // has chosen a section.
 
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 
 // Deeply, as every consumer of a `.test-support` module does: a helper that exists for
-// suites belongs to the module beside it and not on the family's production door.
+// suites belongs to the module beside it and not on the feature's public entry.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { renderSettingsScreen, windowAt } from "./SettingsScreen.test-support.js";
 import { SettingsPageRegistry } from "./settings-pages.js";
@@ -22,7 +22,7 @@ function deferredPageProbe(): DeferredPageProbe {
   const pages = new SettingsPageRegistry();
   pages.register({
     section: "notifications",
-    owner: "settings-surface-warm-test",
+    owner: "settings-screen-warm-test",
     label: "Notifications",
     keywords: [],
     body: () => {
@@ -34,7 +34,7 @@ function deferredPageProbe(): DeferredPageProbe {
   });
   pages.register({
     section: "keyboard",
-    owner: "settings-surface-warm-test",
+    owner: "settings-screen-warm-test",
     label: "Keyboard",
     keywords: [],
     render: () => null,
@@ -43,12 +43,12 @@ function deferredPageProbe(): DeferredPageProbe {
 }
 
 describe("the settings mount's idle walk", () => {
-  let pinnedIdleHost: ManualIdleWarmScheduler;
+  let idleScheduler: ManualIdleWarmScheduler;
 
   beforeEach(() => {
-    pinnedIdleHost = new ManualIdleWarmScheduler();
-    vi.stubGlobal("requestIdleCallback", pinnedIdleHost.schedule);
-    vi.stubGlobal("cancelIdleCallback", pinnedIdleHost.cancel);
+    idleScheduler = new ManualIdleWarmScheduler();
+    vi.stubGlobal("requestIdleCallback", idleScheduler.schedule);
+    vi.stubGlobal("cancelIdleCallback", idleScheduler.cancel);
   });
 
   afterEach(() => {
@@ -63,8 +63,8 @@ describe("the settings mount's idle walk", () => {
     const probe = deferredPageProbe();
     await renderSettingsScreen(settingsWindow.context, probe.pages);
 
-    expect(pinnedIdleHost.pendingCount).toBe(1);
-    pinnedIdleHost.runToQuiescence();
+    expect(idleScheduler.pendingCount).toBe(1);
+    idleScheduler.runToQuiescence();
 
     expect(probe.loadedSections).toStrictEqual(["notifications"]);
     expect(probe.pages.unloadedKeys()).toStrictEqual([]);
@@ -75,12 +75,12 @@ describe("the settings mount's idle walk", () => {
     });
   });
 
-  it("negative control: a board nobody mounted a surface over stays cold", () => {
+  it("negative control: a board no settings screen mounted over stays cold", () => {
     // Without this, the case above would pass over a registry that warmed itself on
     // registration.
     const probe = deferredPageProbe();
 
-    pinnedIdleHost.runToQuiescence();
+    idleScheduler.runToQuiescence();
 
     expect(probe.loadedSections).toStrictEqual([]);
     expect(probe.pages.unloadedKeys()).toStrictEqual(["notifications"]);

@@ -2,11 +2,11 @@
 //
 // These cases drive the SHIPPED board rather than a registry composed here, because a
 // registrar that works and is never called leaves `#/settings/browser` rendering the
-// reserved arm — a surface a person cannot reach by any address.
+// reserved arm — a page a person cannot reach by any address.
 //
 // The registration is loader-backed: the page is a chunk of its own
 // (`pages/browser/browser-settings-page-body.ts`), which keeps a page nobody has opened off
-// every launch's initial import graph, so the shipped surface parked on this address renders
+// every launch's initial import graph, so the shipped screen parked on this address renders
 // the page region and its reservation, and the body lands a turn later.
 
 import { act, cleanup, render } from "@testing-library/react";
@@ -20,8 +20,8 @@ import { SessionStoreRegistry } from "@renderer/store/session/session-store-regi
 import { registerSettingsScreen } from "../../contributions/screens.js";
 import { SETTINGS_PAGES, SettingsPageRegistry } from "../../settings-pages.js";
 import { ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
-// The pending marker's reader by its own leaf specifier: the seats door publishes the
-// ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
+// The pending marker's reader by its own leaf specifier: the registries' shared entry
+// exports the ATTRIBUTE, which a producer needs, and not this reader, whose consumers outside that
 // directory are tests.
 import { findPendingBodies } from "@renderer/components/LazyBody/pending-body-marker.js";
 
@@ -32,10 +32,10 @@ afterEach(() => {
 /**
  * The settings screen a window mounts, parked on the browser address.
  *
- * Driven through `registerSettingsScreen` rather than around it, so the slot claim is
+ * Driven through `registerSettingsScreen` rather than around it, so the screen claim is
  * itself a covered fact. What this answers is whether the shipped board claims the
  * section — the page's own contents are the next helper's subject, because this mount
- * holds the page registry the surface composed and no suite may reach for it.
+ * holds the page registry the screen composed and no suite may reach for it.
  */
 async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   const screens = new ScreenRegistry();
@@ -43,7 +43,7 @@ async function renderShippedSettingsAtBrowser(): Promise<HTMLElement> {
   await screens.preload("settings");
   const descriptor = screens.descriptorFor("settings");
   if (descriptor === undefined) {
-    throw new Error("the settings registrar claimed no screen slot");
+    throw new Error("the settings registrar claimed no screen");
   }
   const frameStore = new WindowStore();
   frameStore.navigate({ kind: "settings", page: "browser" });

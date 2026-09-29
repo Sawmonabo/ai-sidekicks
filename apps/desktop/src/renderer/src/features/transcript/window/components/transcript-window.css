@@ -1,4 +1,4 @@
-/* What a window says about its own read: the shells it draws before the first one lands,
+/* What a window says about its own read: the skeleton rows it draws before the first one lands,
  * and the mark it carries while it is behind. Shared by the components in this folder and
  * imported by the transcript's chunk root.
  */
@@ -6,11 +6,11 @@
 /* --- The window's read state --------------------------------------------- */
 
 /*
- * The shells a window draws before its first read lands.
+ * The skeleton rows a window draws before its first read lands.
  *
  * A column of row-shaped bars rather than a spinner: the shape on screen is the shape
  * the rows will take, so the first read replaces a skeleton with its own content
- * instead of swapping one kind of surface for another.
+ * instead of swapping one kind of view for another.
  */
 
 .meridian-transcript-window-skeleton {
@@ -21,9 +21,9 @@
 }
 
 /*
- * One shell. The pulse is the primitive absence's own keyframe rather than a second
- * one written here — one animation for every skeleton in the console, so a shell in
- * the transcript and a shell in a card breathe together.
+ * One skeleton row. The pulse is the primitive absence's own keyframe rather than a
+ * second one written here — one animation for every skeleton in the console, so a
+ * skeleton row in the transcript and a skeleton in a card breathe together.
  */
 
 .meridian-transcript-window-skeleton__row {

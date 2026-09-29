@@ -1,7 +1,7 @@
 // What the rail is told, and the reading that tells it nothing.
 //
-// The count's whole value is that it is trustworthy: a number on the console's
-// most-seen surface that could be left over from a read that failed would be worse
+// The count's whole value is that it is trustworthy: a number on the rail, the part of
+// the window a person sees most, that could be left over from a read that failed would be worse
 // than no number at all. So every arm of the reading is asserted, and the zero case is
 // asserted to be an absence rather than a zero.
 
@@ -27,7 +27,7 @@ const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
 describe("attentionCountOf", () => {
   it("counts the sessions with actionable attention, not the items", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       attentionItem({ id: "1", sessionId: "session-a" }),
       attentionItem({ id: "2", sessionId: "session-a" }),
       attentionItem({ id: "3", sessionId: "session-b" }),
@@ -35,7 +35,7 @@ describe("attentionCountOf", () => {
     expect(
       attentionCountOf({
         phase: "read",
-        plane,
+        summary,
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -44,14 +44,14 @@ describe("attentionCountOf", () => {
   });
 
   it("does not count a session whose attention is informational only", () => {
-    const plane = new AttentionSummary([
+    const summary = new AttentionSummary([
       attentionItem({ id: "1", sessionId: "session-a" }),
       attentionItem({ id: "2", sessionId: "session-b", severity: "informational" }),
     ]);
     expect(
       attentionCountOf({
         phase: "read",
-        plane,
+        summary,
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,
@@ -62,11 +62,11 @@ describe("attentionCountOf", () => {
   it("answers undefined rather than zero when nothing is waiting", () => {
     // The rail's quietest state is the common one, and a badge reading `0` on it
     // would be permanent furniture reporting the absence of news.
-    const plane = new AttentionSummary([]);
+    const summary = new AttentionSummary([]);
     expect(
       attentionCountOf({
         phase: "read",
-        plane,
+        summary,
         droppedCount: 0,
         refusedSessions: [],
         addressedSessionIds: ADDRESSED_SESSION_IDS,

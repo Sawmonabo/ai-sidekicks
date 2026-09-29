@@ -24,7 +24,7 @@ describe("an instant the console cannot read", () => {
   it("negative control: the fixture really is unreadable", () => {
     // Every case below rests on this. A fixture that quietly parsed would make them
     // all pass over a projection that compared it like any other instant. Asserted
-    // against the reading the plane declares rather than against the host parser,
+    // against the reading `workflowInstant` declares rather than against the host parser,
     // because unreadable HERE means unreadable by that reader — and the two disagree
     // in both directions, which is why the reader exists.
     expect(workflowInstant(UNREADABLE_INSTANT).kind).toBe("malformed");
@@ -49,7 +49,7 @@ describe("an instant the console cannot read", () => {
         ],
       }),
     ]);
-    // Per PARK and never per row: the surface that says which kind of park this is
+    // Per PARK and never per row: the park badge, which says which kind of park this is,
     // draws one park at a time, so a row-level reading could not tell it which of
     // these two the sentence in front of the operator is about.
     expect(projection.rows[0]?.parkedPhases.map((parked) => parked.schedule.kind)).toStrictEqual([

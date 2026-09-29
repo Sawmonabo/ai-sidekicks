@@ -17,7 +17,7 @@ describe("workflows caps — the phase graph's zoom range", () => {
     // The fitted view is 1x, and the range is written around it: a floor above 1
     // could not show a long run whole and a ceiling below it could not show a label
     // at reading size. Both halves, because a range entirely on one side of the fit
-    // is a range the surface never actually offers.
+    // is a range the phase graph never actually offers.
     expect(RUN_GRAPH_MIN_ZOOM).toBeLessThan(1);
     expect(RUN_GRAPH_MAX_ZOOM).toBeGreaterThan(1);
   });

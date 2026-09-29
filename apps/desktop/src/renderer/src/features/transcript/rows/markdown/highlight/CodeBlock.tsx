@@ -4,7 +4,7 @@
 // is an HTML string is avoided. Both halves are the same
 // decision: a highlighter that hands back markup has to be trusted or sanitized, and the
 // one thing this console will not do with model output is parse it as markup. Tokens are
-// data — content and a family — and the spans are built from them, so there is no
+// data — content and a token kind — and the spans are built from them, so there is no
 // `dangerouslySetInnerHTML` on this path and nothing to sanitize.
 //
 // THE STATES A BLOCK PASSES THROUGH, and why none of them is a spinner. A code block is

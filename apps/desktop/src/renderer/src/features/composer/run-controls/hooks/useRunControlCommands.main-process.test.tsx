@@ -27,13 +27,13 @@ const CONTRIBUTED_COMMAND_IDS = ["pause", "interrupt", "steer"].map(
 );
 
 /** The hook under a tree that contributes for one running run and nothing else. */
-function RunControlCommandsHost(props: {
-  readonly surface: RunControlDispatchState;
+function RunningRunCommandContributor(props: {
+  readonly dispatchState: RunControlDispatchState;
 }): React.JSX.Element {
   useRunControlCommands({
     runs: [commandRun(RUN_ID)],
     driverCapabilities: CAPABLE,
-    surface: props.surface,
+    dispatchState: props.dispatchState,
     onRequestSteer: () => undefined,
   });
   return <div />;
@@ -41,7 +41,9 @@ function RunControlCommandsHost(props: {
 
 describe("the run-control palette rows are always open", () => {
   it("lists every contributed row carrying no unavailable sentence", () => {
-    render(<RunControlCommandsHost surface={recordingRunControlDispatch().surface} />);
+    render(
+      <RunningRunCommandContributor dispatchState={recordingRunControlDispatch().dispatchState} />,
+    );
 
     for (const commandId of CONTRIBUTED_COMMAND_IDS) {
       expect(commandRegistry.has(commandId)).toBe(true);
@@ -49,9 +51,9 @@ describe("the run-control palette rows are always open", () => {
     }
   });
 
-  it("runs the row, which dispatches through the pane's own surface", () => {
-    const { surface, calls } = recordingRunControlDispatch();
-    render(<RunControlCommandsHost surface={surface} />);
+  it("runs the row, which dispatches through the caller's dispatch state", () => {
+    const { dispatchState, calls } = recordingRunControlDispatch();
+    render(<RunningRunCommandContributor dispatchState={dispatchState} />);
 
     const outcome = commandRegistry.invoke(PAUSE_COMMAND_ID, { sessionActive: true });
 

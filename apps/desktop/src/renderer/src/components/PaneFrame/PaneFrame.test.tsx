@@ -191,7 +191,7 @@ describe("PaneFrame — the pane-level key claim", () => {
   }
 
   it("hears a key pressed on the head, which is not inside the body", () => {
-    // THE CASE THE SEAM EXISTS FOR. A family that wrapped its own body to get the
+    // THE CASE THE SEAM EXISTS FOR. A feature that wrapped its own body to get the
     // capture would pass every assertion about the body and hear nothing here, and the
     // head is where the drag handle, the detach control, and the close control live —
     // so a pane-level chord pressed while any of them has focus would be lost.

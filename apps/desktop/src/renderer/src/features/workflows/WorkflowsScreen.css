@@ -1,6 +1,6 @@
 /*
  * The workflows screen's own composition: the column its runs section stands in, and the
- * pane host that replaces it while a pane is open. Imported by `WorkflowsScreen.tsx`.
+ * open pane that replaces it while a pane is open. Imported by `WorkflowsScreen.tsx`.
  *
  * Values come from the generated token sheet: there is no literal color and no literal
  * length off the space scale, and nothing animates.
@@ -45,11 +45,11 @@
 }
 
 /*
- * The mount point's opened pane. On a bare route there is no pane layout to put one in, so the pane stands
- * where the destination was, under one control back to it. A column rather than a pane layout: one
- * pane at a time, no layout, nothing beside it.
+ * The opened pane. On a bare route there is no pane layout to put one in, so the pane
+ * stands where the destination was, under one control back to it. A column rather than a
+ * pane layout: one pane at a time, no layout, nothing beside it.
  */
-.meridian-workflows-pane-host {
+.meridian-workflows-open-pane {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-3);
@@ -57,10 +57,10 @@
 }
 
 /*
- * The one control back. It wears the family's own action treatment
+ * The one control back. It wears the workflows feature's own action treatment
  * (`.meridian-workflow__action`) and this rule adds only where it sits, because a second
  * button style for one button is the drift that treatment exists to prevent.
  */
-.meridian-workflows-pane-host__back {
+.meridian-workflows-open-pane__back {
   align-self: flex-start;
 }

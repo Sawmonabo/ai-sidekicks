@@ -16,9 +16,9 @@ export const ENUMERATION_METHOD = "driver.listProviderCommands";
 /**
  * The real fixture bridge with a recorder in front of `daemon.call`.
  *
- * The bridge family's own helper rather than a spread of this suite's: the call
- * door's chokepoint gate holds that a test outside `bridge/` stands in for a surface,
- * and a surface goes through the door.
+ * The fixture bridge's own helper rather than a spread of this suite's: the
+ * daemon-call chokepoint holds that a test outside `bridge/` stands in for a view,
+ * and a view reaches the daemon only through `callDaemon`.
  *
  * `parkedEnumerations`, where a case supplies it, collects a resolver for every
  * enumeration call instead of letting it answer — which is the only way to hold one
@@ -62,8 +62,8 @@ export function enumerationReplyNaming(commandName: string): ProviderCommandList
 /**
  * Two agent addresses, distinct and shaped the way the wire requires.
  *
- * `ListProviderCommandsRequest` declares `agentId` a UUID, and the call door parses
- * the REQUEST before it leaves — so an id shaped like a label refuses at the door and
+ * `ListProviderCommandsRequest` declares `agentId` a UUID, and `callDaemon` parses
+ * the REQUEST before it leaves — so an id shaped like a label refuses there and
  * every case below would be reading `request-unsendable` instead of the enumeration
  * it means to assert on. What these cases need of the two ids is only that they
  * differ, which is why they are written here rather than borrowed from a scenario.

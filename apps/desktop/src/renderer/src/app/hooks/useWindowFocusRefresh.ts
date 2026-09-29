@@ -1,7 +1,7 @@
 // Window focus as a refresh REASON, bound once per window.
 //
 // A small closed set of reasons admits a reading being taken again, and interval polling
-// is forbidden; this module owns one of them for the whole window, so no surface arms a
+// is forbidden; this module owns one of them for the whole window, so no view arms a
 // listener of its own to get it.
 //
 // THE RE-READ RIDES THE TRANSITION INTO FOCUS RATHER THAN THE EVENT ITSELF. A window
@@ -15,7 +15,7 @@
 // scheduler's `window-focus` reason is named for — and a second copy would be the same
 // value recorded twice, free to disagree.
 //
-// It is the frame's binding and not a view family's for the reason the frame's other
+// It is the frame's binding and not a feature's for the reason the frame's other
 // window-lifetime bindings are: it is armed once, for as long as the window holds a
 // bridge, and a listener mounted by a destination would stop hearing the transition the
 // moment a person navigated away.

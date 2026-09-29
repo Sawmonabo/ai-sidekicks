@@ -16,7 +16,7 @@
 // during the window where nothing has checked anything — every case about what a form
 // HOLDS would be asserting against a form that had not finished opening. So `mountForm`
 // waits, and the window itself has its own mount and its own suite
-// (`use-schema-form.compiler.test.tsx`), which is the one place a case may read the form
+// (`useSchemaForm.compiler.test.tsx`), which is the one place a case may read the form
 // before the compiler lands.
 //
 // AND WHAT IT WAITS FOR IS THE CHUNK ITSELF, never a turn count. `settle` crosses one
@@ -24,11 +24,11 @@
 // enough for the dynamic import that resolves it — so a settle alone RACES the first
 // `import()` in a file's isolated module registry, and the first case in that file reads a
 // form whose verdict had not landed while every later case passes on the warmed module.
-// Measured: `use-schema-form.opening.test.tsx`'s first case, alone and in a 36-file batch.
+// Measured: `useSchemaForm.opening.test.ts`'s first case, alone and in a 36-file batch.
 // `resolveSchemaValidatorCompiler` below is the resolve-the-thing answer every other
-// loader-backed mount in this tree already takes (`test/console/surfaces/
-// pane-body-resolution.ts`), and it is warmed BEFORE the mount so what a case then reads is what a person who has already
-// opened one form sees.
+// loader-backed mount in this tree already takes
+// (`tests/helpers/feature-mounts/pane-body-resolution.ts`), and it is warmed BEFORE the
+// mount so what a case then reads is what a person who has already opened one form sees.
 
 import { act, render } from "@testing-library/react";
 
@@ -81,9 +81,9 @@ export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
  * Resolve the schema compiler's chunk, so a form mounted after this opens in ONE step.
  *
  * THE ONE PLACE ANYTHING IN THIS TREE WAITS FOR THAT CHUNK, and it lives here rather than
- * in whichever support was written first: three mounts across two families need it — this
- * hook's, the form host's beside it, and the workflows human-form mount point's — and three copies
- * of one await is exactly the shape where two wait and the third races. The test and
+ * in whichever support was written first: several mounts need it — this hook's,
+ * `SchemaFormWithReadout`'s, the run page's human-form body's and the shared schema-form
+ * test mount — and one copy per mount is exactly the shape where some wait and one races. The test and
  * shared-code rules in `apps/desktop/AGENTS.md` say where the single copy goes: the lowest
  * module that owns the concern, which is the hook's own mount.
  *
@@ -96,7 +96,7 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
 }
 
 /**
- * Resolve BOTH chunks the seat rides, so a form mounted after this opens armed.
+ * Resolve BOTH chunks the form loads from, so a form mounted after this opens armed.
  *
  * The compiler above is one of the two. The other is the kit itself, and a caller that
  * resolved only the compiler mounted a form that suspended on its own body, while a

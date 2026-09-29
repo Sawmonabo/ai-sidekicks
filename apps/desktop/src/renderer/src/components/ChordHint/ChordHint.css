@@ -7,7 +7,7 @@
  * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * Design-language rules that govern this sheet: rule 2's type scale; the palette
+ * Design-language rules that govern this sheet: the one type scale; the palette
  * renders these and formats them nowhere else.
  */
 

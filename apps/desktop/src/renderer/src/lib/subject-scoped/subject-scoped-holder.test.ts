@@ -8,7 +8,7 @@
 //
 // A VISIT IS ADDRESSED AND CONFIRMED, because a render is not a commit. `visit(…)` is
 // both calls in the order React makes them, and it is what every case about the
-// surface ON SCREEN drives; the cases about a proposal that never reached the screen
+// component ON SCREEN drives; the cases about a proposal that never reached the screen
 // call `address` alone, which is exactly what an abandoned render leaves behind.
 //
 // Every clean assertion here is paired with a NEGATIVE CONTROL, because "the late
@@ -24,7 +24,7 @@ import { SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 // Tripwires throw in a development build, which would turn the two backstops below
 // into the very escaping throws they exist to prevent. The recording arm is the one
-// under test, exactly as it is for the surface error boundary next door.
+// under test, the same arm the error boundary around each region reports through.
 let restoreThrowOnReport = false;
 
 beforeEach(() => {
@@ -77,7 +77,7 @@ describe("SubjectScopedHolder — the rule, with no renderer involved", () => {
     // A route round-trip: s1 -> s2 -> s1. The pair is equal on the first and third
     // visits, so a guard that compared only the pair admitted the FIRST visit's
     // reply into the third visit's state — the older read landing last and
-    // overwriting the answer the surface on screen had already been given.
+    // overwriting the answer the component on screen had already been given.
     const holder = new SubjectScopedHolder<string>();
     visit(holder, SUBJECT_ONE, "alpha", () => "seed");
     const settlementFromTheFirstVisit = holder.publisherFor(SUBJECT_ONE, "alpha");

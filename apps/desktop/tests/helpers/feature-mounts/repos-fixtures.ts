@@ -1,8 +1,8 @@
-// Every value and collaborator the repos surfaces are drawn against.
+// Every value and collaborator the repos views are drawn against.
 //
 // SPLIT FROM `repos.tsx` ON THE SEAM BETWEEN WHAT AND HOW: that module owns HOW each
-// surface is reached — what it is mounted into and what settled means for it — and this
-// one owns WHAT it is drawn against: the bridge and store the surfaces are handed, and
+// view is reached — what it is mounted into and what settled means for it — and this
+// one owns WHAT it is drawn against: the bridge and store the views are handed, and
 // the change set no wire produces.
 //
 // NOTHING HERE RENDERS AND NOTHING HERE WAITS. Every export is inert, so a tier that
@@ -21,10 +21,10 @@ import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 
 /**
  * A bridge, the engine playing it, the frozen clock its window runs on, and a store over the
- * family's session, opened with the fold a window composes.
+ * repos scenario's session, opened with the fold a window composes.
  *
  * The fold is not optional. A store built without projectors folds every event into no
- * entity, so a partition a surface reads answers the empty map an empty session answers,
+ * entity, so a partition a view reads answers the empty map an empty session answers,
  * and a mount cannot tell the two apart.
  */
 export function scenarioBridgeAndStore(): {
@@ -47,7 +47,7 @@ export function scenarioBridgeAndStore(): {
  *
  * `EXTENDED_HEADER_DIFF_SHAPE` rather than the small one, so the set includes a file
  * whose whole change is in the patch's headers: a rename with no hunks, which the two
- * surfaces drew as `+0 −0` under a bare path until the parser carried what the headers
+ * views drew as `+0 −0` under a bare path until the parser carried what the headers
  * said. What that note looks like beside a path and inside a file-header row is a claim
  * an image holds and a DOM assertion does not.
  *

@@ -1,4 +1,4 @@
-// The shell both budget harnesses run inside.
+// The runner both budget harnesses run inside.
 //
 // A measuring harness owns its own reading and nothing else: this file owns the
 // report skeleton every reading prints inside, and the mapping from a verdict to
@@ -90,7 +90,7 @@ export function formatBudgetReport(
 
 /**
  * Thrown by a harness whose subject does not exist — no build to measure. The
- * shell prints it and exits 2, so a budget is never reported green for a
+ * runner prints it and exits 2, so a budget is never reported green for a
  * subject nobody read.
  */
 export class BudgetSubjectMissingError extends Error {

@@ -2,7 +2,7 @@
 // card render, and the closed sets that make its illegal states unrepresentable.
 //
 // `DiffLine.segments` carries the line's TEXT, as one whole-line segment. jsdiff is
-// adopted for parse and intraline compute over patch bytes; this family own-builds the
+// adopted for parse and intraline compute over patch bytes; the diff viewer own-builds the
 // row renderer and its virtualization. The word-level SPLIT of that text is derived per
 // rendered row by `intraline-segment-cache.ts` — bounded, memoized, and never at parse time,
 // because computing every pair up front costs the whole change set before the
@@ -187,9 +187,9 @@ export function diffFileChangeCounts(file: DiffFile): DiffFileChangeCounts {
 }
 
 /**
- * What a file's extended headers say changed about it, as sentences a surface draws.
+ * What a file's extended headers say changed about it, as sentences a diff view draws.
  *
- * ONE DERIVATION FOR BOTH SURFACES, because the file list and the row renderer must
+ * ONE DERIVATION FOR BOTH VIEWS, because the file list and the row renderer must
  * not disagree about what a file's change is: two spellings of "renamed from" is two
  * places for one of them to go stale. Ordered rename-or-copy, mode, binary — the
  * order git writes the headers in, so a reader meeting both sees them in the order

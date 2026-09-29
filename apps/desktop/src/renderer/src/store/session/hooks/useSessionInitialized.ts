@@ -1,22 +1,21 @@
-// What a surface reads ABOUT one session's projection, rather than out of it.
+// What a view reads ABOUT one session's projection, rather than out of it.
 //
-// Split from `session-hooks.ts`, which had grown past the length `apps/desktop/AGENTS.md`
-// allows by holding two jobs. That file resolves stores and selects entities out of
-// them — "give me this session's runs", "give me this row" — and every hook in it
-// answers with session CONTENT. These four answer with facts about the READ and the
-// projection: has a base state landed, has the projection moved, is it known
-// incomplete, and what did the newest read say about where the stream picks up. A
-// surface reaching for one of these is not asking what the session contains.
+// `useOpenSessionStore.ts` resolves stores and selects entities out of them — "give me
+// this session's runs", "give me this row" — and every hook in it answers with session
+// CONTENT. These answer with facts about the READ and the projection: has a base state
+// landed, has the projection moved, is it known incomplete, and what did the newest
+// read say about where the stream picks up. A view reaching for one of these is not
+// asking what the session contains.
 //
-// The seam is also where the two files' inputs stop agreeing. Everything in `session-hooks.ts`
-// is a store and a selector; the resume reading below takes the REGISTRY as well,
-// because the decision is a fact about the read that produced a projection rather than
-// a member of the projection, and the registry is what holds it.
+// The two files' inputs differ too. Everything in `useOpenSessionStore.ts` is a store
+// and a selector; the resume reading below takes the REGISTRY as well, because the
+// decision is a fact about the read that produced a projection rather than a member of
+// the projection, and the registry is what holds it.
 //
-// Nothing here builds a value in a selector, for the reason `session-hooks.ts` states in full:
-// zustand v5 compares with `Object.is` and does no shallow-equality pass, so a reading
-// returns a stored reference or a primitive and derivation happens under `useMemo` in
-// the component.
+// Nothing here builds a value in a selector, for the reason `useOpenSessionStore.ts`
+// states in full: zustand v5 compares with `Object.is` and does no shallow-equality
+// pass, so a reading returns a stored reference or a primitive and derivation happens
+// under `useMemo` in the component.
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
@@ -26,7 +25,7 @@ import type { SessionDegradedCause } from "../../session-degradation.js";
 import type { SessionStore, SessionStoreState } from "../session-store.js";
 import type { TimelineResumeDecision } from "../timeline-resume.js";
 
-/** Whether the store has been initialized, so a surface can tell "not loaded" apart. */
+/** Whether the store has been initialized, so a view can tell "not loaded" apart. */
 export function useSessionInitialized(store: SessionStore): boolean {
   return useStore(store.readable, readInitialized);
 }
@@ -34,16 +33,16 @@ export function useSessionInitialized(store: SessionStore): boolean {
 /**
  * The store's monotonic transition counter — "the projection moved", and nothing more.
  *
- * For the one consumer that cannot name a partition: a surface which asks other
- * families to REPORT off their own projections during render, and so has no selector
+ * For the one consumer that cannot name a partition: a view which asks other
+ * features to REPORT off their own projections during render, and so has no selector
  * to narrow to. The counter says a transition happened without saying which kind moved,
- * which is exactly the claim such a surface needs and the widest one this family
- * offers, so a caller reaching for it is saying it could not be narrower.
+ * which is exactly the claim such a view needs and the widest one the store offers, so
+ * a caller reaching for it is saying it could not be narrower.
  *
  * A number, so `Object.is` still decides the re-render and an unchanged store still
  * costs a pointer comparison.
  *
- * @consumedBy a surface that re-renders whenever the session projection moves
+ * @consumedBy a view that re-renders whenever the session projection moves
  */
 export function useSessionProjectionRevision(store: SessionStore): number {
   return useStore(store.readable, readRevision);
@@ -62,11 +61,11 @@ export function useSessionProjectionRevision(store: SessionStore): number {
  *
  * A boolean rather than the cause, because both readers ask only whether one is
  * standing, and a primitive is compared by value under zustand v5's `Object.is` —
- * so a transition between two causes costs no render to a surface that renders
+ * so a transition between two causes costs no render to a view that renders
  * neither. A reader that renders the cause itself takes `useSessionStore` with a
  * selector that returns the stored value.
  *
- * @consumedBy a surface that says when the session projection is incomplete
+ * @consumedBy a view that says when the session projection is incomplete
  */
 export function useSessionDegraded(store: SessionStore): boolean {
   return useStore(store.readable, readDegraded);
@@ -75,9 +74,9 @@ export function useSessionDegraded(store: SessionStore): boolean {
 /**
  * Why the projection is known-incomplete, or `undefined` while it is whole.
  *
- * A hook of its own rather than a `useSessionStore` call at each surface, for the
- * reason `session-hooks.ts` states in full: the selector has to return a stored reference, and
- * one written per surface is one more chance to build a value and re-render every
+ * A hook of its own rather than a `useSessionStore` call in each view, for the reason
+ * `useOpenSessionStore.ts` states in full: the selector has to return a stored reference,
+ * and one written per view is one more chance to build a value and re-render every
  * frame. A sidebar section renders "unavailable" from this rather than rendering a
  * zero, which is the distinction the design language draws between an answered empty
  * read and a read that never landed.
@@ -94,9 +93,9 @@ export function useSessionDegradedCause(store: SessionStore): SessionDegradedCau
  * What one session's newest completed read said about resuming its stream, or
  * `undefined` before one has landed.
  *
- * SUBSCRIBED THROUGH THE REGISTRY'S OWN SETTLEMENT FAN-OUT, and it has to be. This
- * reading used to subscribe to the store's revision counter on the claim that a
- * completed read writes the decision and calls `initialize` in the same tick — but
+ * SUBSCRIBED THROUGH THE REGISTRY'S OWN SETTLEMENT FAN-OUT, and it has to be. The
+ * store's revision counter is not enough, even though a completed read writes the
+ * decision and calls `initialize` in the same tick:
  * `initialize` consults `admitsSnapshotAt` and refuses a snapshot behind the store's
  * cursor, which is exactly what the recovering re-read after a refused resume position
  * answers with. The read completes, the decision settles, the revision does not move,

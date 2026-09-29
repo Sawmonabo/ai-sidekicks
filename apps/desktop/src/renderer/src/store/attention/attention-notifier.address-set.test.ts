@@ -68,19 +68,19 @@ interface OrderingRow {
  * The scripted read as the reading a settled fan-out actually produces.
  *
  * Built through the real `AttentionSummary` rather than handed to the notifier as a
- * list, because the plane is what drops resolved items and fixes their order — a
+ * list, because the summary is what drops resolved items and fixes their order — a
  * hand-built reading would be asserting over a projection this console cannot
  * produce.
  */
 function settledRead(script: ScriptedRead): AnsweredAttentionReading {
   return {
     phase: "read",
-    plane: new AttentionSummary(script.items),
+    summary: new AttentionSummary(script.items),
     droppedCount: 0,
     refusedSessions: (script.refusedSessionIds ?? []).map((sessionId) => ({
       sessionId,
       refusal: refuse(
-        "attention-plane",
+        "attention-projection",
         "session.not_found",
         "That session is not known to the daemon.",
       ),

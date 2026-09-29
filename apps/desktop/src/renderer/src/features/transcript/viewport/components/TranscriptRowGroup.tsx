@@ -19,10 +19,10 @@ export interface TranscriptRowGroupProps {
  * One row group's boundary.
  *
  * A group rather than the whole feed: a single row that throws must not blank the
- * log around it, which is the same reasoning `primitives/ErrorBoundary.tsx` gives for
- * one boundary per surface rather than one per window, applied one level down.
+ * log around it, which is the same reasoning `components/ErrorBoundary/ErrorBoundary.tsx`
+ * gives for one boundary per region rather than one per window, applied one level down.
  *
- * The failure is rendered RED and NAMED (rule 8) through the console's one refusal
+ * The failure is rendered RED and NAMED, as every failure in the console is, through its one refusal
  * grammar — the row's own place in the log, holding the reason it could not be
  * drawn, rather than a gap a reader would read as the session having nothing there.
  */

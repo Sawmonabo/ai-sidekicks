@@ -1,4 +1,4 @@
-// The two catalog readings this family's suites drive against.
+// The two catalog readings the binding suites drive against.
 //
 // Shared rather than copied: `driver-catalog.test.ts` measures the selectors over the
 // first and `dependent-axis-chain.test.ts` drives the second, and two copies would

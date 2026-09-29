@@ -15,11 +15,10 @@
 // viewport satisfies without virtualizing anything. Stating the height makes the
 // bound a bound.
 //
-// THE SHADOW IS NOT THIS MODULE'S AND THE RULE IS. `primitives/element-height-shim.test-support.ts`
+// THE SHADOW IS NOT THIS MODULE'S AND THE RULE IS. `element-height-shim.ts` beside this file
 // owns writing the property on `HTMLElement.prototype` and taking it back, because that
-// write is global to the environment and this family has two windowed lists that each
-// needed it — written twice, one of the two copies could leak a shadow into every later
-// file in the same worker. What stays here is the only part that is the diff's: which
+// write is global to the environment, and a second copy of it could leak a shadow into
+// every later file in the same worker. What stays here is the only part that is the diff's: which
 // element is a scroller, which is a row, and which row a wrapped line grew.
 
 import { ElementHeightShim } from "./element-height-shim.js";

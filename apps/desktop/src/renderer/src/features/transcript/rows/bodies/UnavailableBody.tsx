@@ -62,11 +62,11 @@ export function UnavailableBody(props: UnavailableBodyProps): React.JSX.Element 
           `title` attribute and nothing else, so both the reason and the disposition
           would be a tooltip — unreachable by touch, by keyboard, and by a reader who
           never hovers. The requirement is that the console SAYS what happened,
-          and an absence occupying the body's own region is a surface rather than a
-          value-adjacent badge. */}
+          and an absence occupying the body's own region is a block of its own rather
+          than a value-adjacent badge. */}
       <Nothing
         kind={INTEGRITY_FAILURE_REASONS.has(props.reason) ? "error" : "empty"}
-        placement="surface"
+        placement="block"
         title={REASON_SENTENCES[props.reason]}
         detail="The turn is shown at its position with an empty body."
         action={<WireFigure value={UNAVAILABLE_LOSS_KIND} title="Declared loss" />}

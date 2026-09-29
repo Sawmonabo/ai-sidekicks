@@ -1,9 +1,10 @@
-// One row the seat draws, behind the memo that keeps a frame from redrawing it.
+// One row the row renderer draws, behind the memo that keeps a frame from redrawing it.
 //
 // Most of the list's rows are the transcript's own — a run group header, a system message,
-// and the named notice of a row the cap took mid-frame — and exactly one arm is the seat's.
+// and the named notice of a row the cap took mid-frame — and exactly one arm is the row
+// renderer's.
 // `useTranscriptRowRenderer` does the map reads that pick the arm; this component holds the
-// seat's card behind a memo, because drawing it is where a frame's work is.
+// row renderer's card behind a memo, because drawing it is where a frame's work is.
 //
 // WHY THE BOUNDARY IS HERE AND NOT ON THE VIEWPORT'S ROW. The viewport already memoizes
 // each row's box, and that memo compares the `renderRow` callback — which closes over
@@ -13,8 +14,8 @@
 // and a lookup that could not see a changed window would draw a stale card.
 //
 // So the boundary is drawn one level lower, where the lookups have already happened.
-// `renderRow` runs — cheap, and correct — and what it returns for the seat's arm is a
-// component whose props are the values the seat is actually handed. React
+// `renderRow` runs — cheap, and correct — and what it returns for the row renderer's arm
+// is a component whose props are the values the row renderer is actually handed. React
 // compares those and bails out of the body when none of them moved. The row's own memo
 // keeps the box; this one keeps the CARD, which is where a frame's work is.
 //
@@ -26,7 +27,7 @@
 //   • `actorHue` — the store's own assignment object, read and never minted.
 //   • `isSuperseded` and `density` — a boolean and a two-value union.
 //
-// AND THE RENDERER IS THE SEAT'S, handed down from the pane and stable for the life of
+// AND THE RENDERER IS THE REGISTERED ONE, handed down from the pane and stable for the life of
 // the registration. A caller that rebuilt it per render would move this memo on every
 // render, which is the defect `TranscriptFeed.renders.test.tsx` drives one level up.
 
@@ -37,14 +38,14 @@ import {
   type TranscriptRowProps,
 } from "../../transcript-row-renderer.js";
 
-/** What one row hands the seat's renderer. */
+/** What one row hands the row renderer. */
 export interface TranscriptFeedRowProps extends TranscriptRowProps {
-  /** The seat's renderer. STABLE across renders, or this memo moves with it. */
-  readonly renderTimelineRow: TranscriptRowRenderer;
+  /** The registered row renderer. STABLE across renders, or this memo moves with it. */
+  readonly renderTranscriptRow: TranscriptRowRenderer;
 }
 
 /**
- * Draw one row through the seat.
+ * Draw one row through the row renderer.
  *
  * Adds no BOX of its own: the row box, the error boundary and the ARIA position are
  * the viewport's, and a wrapper element here would put a second box between the feed
@@ -58,7 +59,7 @@ export interface TranscriptFeedRowProps extends TranscriptRowProps {
  */
 export const TranscriptFeedRow: React.NamedExoticComponent<TranscriptFeedRowProps> = memo(
   (props: TranscriptFeedRowProps): React.ReactNode =>
-    props.renderTimelineRow({
+    props.renderTranscriptRow({
       row: props.row,
       actorHue: props.actorHue,
       isSuperseded: props.isSuperseded,

@@ -52,8 +52,8 @@ export function buildTerminalLinkHandler(
 /**
  * The printed-URL half: the provider that turns text a shell wrote into a link.
  *
- * Built only for a surface that HAS somewhere to send one — the caller gates on the
- * sink the way it gates `onData` on the writer, because a surface with nowhere to
+ * Built only for a terminal that HAS somewhere to send one — the caller gates on the
+ * sink the way it gates `onData` on the writer, because a terminal with nowhere to
  * send a link would otherwise underline printed URLs and swallow the click, which is
  * an affordance that lies. The addon is returned rather than held: nothing calls it
  * again, and an addon kept as a field keeps the emulator reachable past disposal,
@@ -66,7 +66,7 @@ export function buildTerminalWebLinksAddon(onActivateLink: (url: string) => void
 }
 
 /**
- * The one place a link reaches the surface that owns the opener.
+ * The one place a link reaches the component that owns the opener.
  *
  * Both paths above end here, so the scheme allow-list is run once against one rule.
  * Two call sites each running their own check is the shape `apps/desktop/AGENTS.md`

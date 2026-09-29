@@ -121,7 +121,7 @@ describe("observeElementPosition — the frame loop it arms, and what that costs
     withDocumentAnimations([motion.animation]);
     expect(clock.pendingFrameCount).toBe(0);
 
-    // The class the surface wrote when it decided to animate — source 4, and the
+    // The class the component wrote when it decided to animate — source 4, and the
     // moment source 5 reads the animations.
     ancestor.className = "is-collapsing";
     await settleMutationRecords();

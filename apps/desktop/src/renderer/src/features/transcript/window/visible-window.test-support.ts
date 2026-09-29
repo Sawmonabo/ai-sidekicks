@@ -1,6 +1,6 @@
 // The one log, and the two names, the visible-window suite is driven over.
 //
-// ONE HOME, because the suite next door and the find walk beside it measure two
+// ONE HOME, because the visible-window suite and the find walk beside it measure two
 // different things about the same seam: what the viewport's own reconciled window
 // keeps, and what a query over it counts. A second session id or a second matching
 // kind would be two fixture epochs, and a case comparing a figure derived under one

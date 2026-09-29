@@ -9,7 +9,7 @@
 //
 // ITS ONE REPLY IS THE FRAME'S READ: `session.read`, the registered method name rather
 // than a `session.list` the method registry does not carry. A call this scenario does
-// not answer is refused by name, and each surface renders that refusal where it
+// not answer is refused by name, and each view renders that refusal where it
 // happened.
 import type { Scenario } from "../scenario.js";
 

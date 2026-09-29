@@ -8,17 +8,17 @@
 // and the mount returned onto the reserved region. Whether a tier then saw the body came
 // down to how many turns a dynamic import happened to take — axe audits the reserved
 // region and a capture photographs it, and both are stable, green, and pictures of the
-// wrong thing. `mount-app.tsx` records the identical finding on the
-// surface board; this is the mount every browser tier shares.
+// wrong thing. `mount-app.tsx` records the identical finding for the
+// composed window; this is the mount every browser tier shares.
 //
 // IT BELONGS TO THE BROWSER TIER BECAUSE THE HARNESS DOES. `app-harness.ts` imports
 // `vitest/browser` for the CDP and user-event seams the three browser tiers share, so it
 // cannot be driven from a happy-dom project at all — and the subject here is that file's
-// own settle rather than any surface it mounts.
+// own settle rather than any view it mounts.
 //
-// THE PROCESS-WIDE BOARD, WITH ONE SYNTHETIC REGISTRATION ON IT. This file imports no
-// family door, so the boards hold exactly what the case registers and the walk under test
-// is exercised without standing up an emulator or a hosted view to do it.
+// THE PROCESS-WIDE REGISTRY, WITH ONE SYNTHETIC REGISTRATION IN IT. This file imports no
+// feature's registration, so the registries hold exactly what the case registers and the
+// walk under test is exercised without standing up an emulator or a hosted view to do it.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -34,7 +34,7 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 /** The kind this case borrows. Nothing else in this file's graph registers one. */
 const SYNTHETIC_KIND = "diff";
 
-/** Named so a duplicate claim would fail by naming this file rather than a family. */
+/** Named so a duplicate claim would fail by naming this file rather than a feature. */
 const SYNTHETIC_OWNER = "app-harness-settle-case";
 
 /** What the loaded body prints, so the assertion is about content and not about a class. */

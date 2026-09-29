@@ -1,10 +1,9 @@
 // The half of the attention panel that is for people who cannot see it.
 //
-// `attention-sentences.test.ts` next door pins WHAT is said. This file pins WHEN,
-// which is the part a sentence composer cannot get wrong on its own and a surface
-// can: silent while the read is in flight, said once when it settles, said again
-// when a later settlement differs, and never repeated because the surface happened
-// to render.
+// `attention-sentences.test.ts` pins WHAT is said. This file pins WHEN, which is the
+// part a sentence composer cannot get wrong on its own and a view can: silent while
+// the read is in flight, said once when it settles, said again when a later
+// settlement differs, and never repeated because the list happened to render.
 //
 // The last one is the case with teeth. This read RE-READS — every session store
 // that moves pushes it — so a hook that spoke on each render would say the same
@@ -46,12 +45,12 @@ function answered(options: {
 }): AttentionReading {
   return {
     phase: "read",
-    plane: new AttentionSummary(options.items ?? []),
+    summary: new AttentionSummary(options.items ?? []),
     droppedCount: 0,
     refusedSessions: (options.refusedSessionIds ?? []).map((sessionId) => ({
       sessionId,
       refusal: refuse(
-        "attention-plane",
+        "attention-projection",
         "session.not_found",
         "That session is not known to the daemon.",
       ),
@@ -121,7 +120,7 @@ describe("the attention reading announces its settlement", () => {
     expect(probe.spoken()).toStrictEqual(["2 items need you."]);
   });
 
-  it("does not say it again because the surface rendered again", async () => {
+  it("does not say it again because the list rendered again", async () => {
     // The negative control for a hook that announced from its render body or from
     // an effect keyed on the reading OBJECT: this read is pushed at from every
     // session store, so an equal reading arrives repeatedly with a new identity.

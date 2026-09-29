@@ -4,10 +4,10 @@
 // A LOADER-BACKED BODY. A run pane opens from the workflows destination's run list and
 // from a run address; nothing paints it before a person asks for one. What rides behind
 // the boundary with it is this pane's whole subtree — the run snapshot, the control
-// dispatch, the park surfaces, the version chain, and the operator controls' own
+// dispatch, the park cards, the version chain, and the operator controls' own
 // stylesheet — none of which a session that never opens a run has any use for.
 //
-// THE CONTROLS' CLASS HAS ONE OWNER. This family's block is
+// THE CONTROLS' CLASS HAS ONE OWNER. Their block is
 // `meridian-workflow-run-controls`, so deferring this body cannot change how its
 // controls lay out by moving its sheet in the cascade, and the module-shape rule in
 // `apps/desktop/AGENTS.md` is what keeps a collision from landing unnoticed.
@@ -15,7 +15,7 @@
 // THE FEATURE'S SHARED CHROME ENTERS HERE. `WorkflowStateStrip.css` styles every workflows
 // body, and each chunk root imports it rather than relying on another root having loaded.
 //
-// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name a loader resolves.
 
 import "../components/WorkflowStateStrip.css";
 

@@ -64,7 +64,7 @@ export type PaletteInvocationRefusalCode = Exclude<CommandInvocationOutcome["sta
  *
  * `core/refusal.ts` states the arrangement: each producer keeps its own closed code
  * union and widens at its boundary, so this renders through the same three refusal
- * renderings as a shell block or a persistence refusal, with no translation where two
+ * renderings as a runtime-stopped block or a persistence refusal, with no translation where two
  * of them are shown at once.
  */
 export interface PaletteInvocationRefusal extends Refusal {
@@ -114,8 +114,8 @@ const REFUSAL_DETAIL: Readonly<
  *
  * The command's own promise is deliberately not returned. The registry hands it back so
  * a synchronous throw inside `run` cannot abort a key dispatch, and the palette must not
- * hold the dialog open waiting on a command that opens another surface — a rejection is
- * the command's to report on its own surface, so it is not swallowed here silently, it
+ * hold the dialog open waiting on a command that opens another view — a rejection is
+ * the command's to report in its own view, so it is not swallowed here silently, it
  * simply is not the palette's to render.
  */
 export function runLatchedCommand(

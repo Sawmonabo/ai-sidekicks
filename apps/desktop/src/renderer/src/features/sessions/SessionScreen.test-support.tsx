@@ -1,7 +1,7 @@
 // What every session screen suite needs to mount one: the session, the registry, and the shape
-// `AppFrame` mounts the surface in.
+// `AppFrame` mounts the screen in.
 //
-// ONE HOME RATHER THAN A COPY PER SUITE. The suites split by subject — what the surface
+// ONE HOME RATHER THAN A COPY PER SUITE. The suites split by subject — what the screen
 // composes and the arrangement it persists — and every one of them renders the same
 // component against the same fixture session. The mount shape is what they share.
 
@@ -61,7 +61,7 @@ export function testRegistry(): PaneRegistry {
 }
 
 /**
- * One opened session store — the family's one home for this role.
+ * One opened session store — the sessions feature's one home for this role.
  *
  * The test rules in `apps/desktop/AGENTS.md` put one home per ROLE: two spellings of "an
  * opened session" is two fixtures that agree until one of them is corrected.
@@ -105,7 +105,7 @@ class SettlementGate {
  * The memory adapter, plus a gate a test closes and a ledger of what was asked.
  *
  * Two things the plain adapter cannot give. The GATE holds a write open, which is
- * what puts a second arrangement in the writer's pending slot — the state a coalescing
+ * what puts a second arrangement in the writer's pending request — the state a coalescing
  * writer spends a whole resize drag in, and the only state in which the partition it
  * files under can disagree with the one that asked. The LEDGER records the partition
  * every write NAMED, so the assertion is about where an arrangement was filed rather
@@ -162,7 +162,7 @@ export function renderSessionScreen(
   return { container, uiStateStore };
 }
 
-/** One in-memory `UiStateStore` — the family's one home for this role. */
+/** One in-memory `UiStateStore` — the sessions feature's one home for this role. */
 export function memoryStore(): UiStateStore {
   return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 }
@@ -177,7 +177,7 @@ export function otherSession(): SessionWithStore {
 /**
  * The session screen for one session, in the shape `AppFrame` mounts it in.
  *
- * The provider carries the SAME bridge the surface is handed, because that is what the
+ * The provider carries the SAME bridge the screen is handed, because that is what the
  * frame does: one window, one transport, and the scenario's frozen clock resolved beside it —
  * the pane layout reads that clock for its rect tracker.
  */

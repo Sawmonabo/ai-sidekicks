@@ -25,7 +25,7 @@ import {
 describe("an unread transition — ignorance about a write lease is not the old holder", () => {
   /**
    * The take that granted this device the lease, followed by a move this build
-   * cannot read. This is the shape the surface has to get right: the console saw
+   * cannot read. This is the shape the lease line has to get right: the console saw
    * itself take the shell, and then saw the daemon do something to it.
    */
   const grantedThenUnread = [
@@ -169,7 +169,7 @@ describe("a holder shape that contradicts its reason is unread, not normalized",
 
   it("negative control: both well-formed directions still read", () => {
     // Without this the three cases above would pass against a fold that called every
-    // transition unreadable, which is a lease surface that never says anything.
+    // transition unreadable, which is a lease line that never says anything.
     const takenByOther = projectTerminalLease([transitionEvent(1, "taken", OTHER_DEVICE_ID)], {
       thisDeviceId: THIS_DEVICE_ID,
     });

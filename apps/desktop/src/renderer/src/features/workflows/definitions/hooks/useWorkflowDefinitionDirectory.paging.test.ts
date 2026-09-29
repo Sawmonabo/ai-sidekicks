@@ -20,7 +20,7 @@ import {
   twoPageCall,
 } from "./useWorkflowDefinitionDirectory.test-support.js";
 
-/** Press the continuation the surface would offer, and let its page settle. */
+/** Press the continuation the definitions list would offer, and let its page settle. */
 async function continueReading(observed: readonly WorkflowDefinitionDirectory[]): Promise<void> {
   await act(async () => {
     latest(observed).continueReading();
@@ -89,7 +89,8 @@ describe("useWorkflowDefinitionDirectory — the pages beyond the first", () => 
 
   it("negative control: a single-page answer offers no continuation at all", async () => {
     // Without this, a hook that reported `available` unconditionally would pass every
-    // case above — and a surface would render a control that fetched one page forever.
+    // case above — and the definitions list would render a control that fetched one page
+    // forever.
     const observed = observeDirectory(
       async () => ({ definitions: [definitionWithId("only")] }),
       PROBE_SESSION_ID,

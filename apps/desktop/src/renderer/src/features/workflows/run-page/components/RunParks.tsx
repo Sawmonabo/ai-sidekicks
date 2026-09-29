@@ -4,7 +4,7 @@
 //
 // THE FORM ROUTE TRAVELS WITH THE CARDS. `formRoutePropsFor` has exactly one caller
 // and it is the component below; splitting the two apart would leave the rule that
-// decides whether a wait is addressable in one module and the only surface it governs
+// decides whether a wait is addressable in one module and the only component it governs
 // in another.
 //
 // THE PARKS THEMSELVES ARE NOT DERIVED HERE. `projectParkedPhases` in
@@ -31,7 +31,7 @@ import type { HumanFormSelection } from "../hooks/useHumanFormSelection.js";
  * A park is read from `parkReason` and never from a phase's `state` — the status
  * union has no suspended arm and the park members are live-scoped, so a phase that
  * has resumed past its park carries none of them and must not be shown as waiting.
- * `phasePark` applies that discriminator once, in the projection, and this surface
+ * `phasePark` applies that discriminator once, in the projection, and this component
  * never re-derives it.
  *
  * A run with nothing parked says so rather than rendering an empty region: "nothing
@@ -85,8 +85,8 @@ export function RunParks(props: {
           key={entry.phaseId}
           parked={entry}
           // Spread on the arm that has one and omitted on every other, rather than
-          // passed as an explicit `undefined`: the prop's PRESENCE is what says this
-          // surface can reach the phase's form, and a park waiting on provider
+          // passed as an explicit `undefined`: the prop's PRESENCE is what says the run
+          // pane can reach the phase's form, and a park waiting on provider
           // capacity has no form to reach at all.
           {...formRoutePropsFor(props.run.workflowRunId, phase, props.humanForms)}
         />

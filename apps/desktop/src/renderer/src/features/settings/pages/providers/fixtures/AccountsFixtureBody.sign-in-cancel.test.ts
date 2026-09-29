@@ -3,9 +3,9 @@
 // A flow ends in two ways: a cancel the daemon answered, and the registry reporting the
 // attempt finished. Either way the card goes, the start controls come back, and the
 // registry is read again, because a flow ending says nothing about the account.
-// `signin-plane.test.ts` states the same rules at the plane; these drive them through
-// the shell, because "the card is gone and the control is offered" is a claim about the
-// rendered page.
+// `sign-in-flow-tracker.test.ts` states the same rules on the tracker; these drive them
+// through the fixture body, because "the card is gone and the control is offered" is a
+// claim about the rendered page.
 
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -30,7 +30,7 @@ afterEach(() => {
 
 const SIGN_IN_CARD = '[aria-label="Sign-in in progress"]';
 
-/** Mount the shell with a start and a cancel that answer, and press its start once. */
+/** Mount the fixture body with a start and a cancel that answer, and press its start once. */
 async function mountWithLiveSignIn(): Promise<MountedAccountsPage> {
   const mounted = mountAccountsPage({
     registry: ACCOUNT_REGISTRY,

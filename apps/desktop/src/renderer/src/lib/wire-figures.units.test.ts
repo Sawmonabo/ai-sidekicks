@@ -19,7 +19,7 @@
 // wire rather than from the console. The currency CODE is a wire string, and
 // `Intl.NumberFormat` throws `RangeError` on anything that is not three ASCII
 // letters, so a code it rejects has to leave the amount rendered and the code
-// verbatim rather than blanking the surface through an error boundary. The minor
+// verbatim rather than blanking the component through an error boundary. The minor
 // unit is read once per code and remembered under a bound, so an evicted entry
 // coming back wrong and a remembered one answering for another currency are both
 // reachable. And the sub-unit floor asks whether the figure HAS a sub-unit part,
@@ -161,7 +161,7 @@ describe("formatMoney — the wire's own precision, and never fewer than two dig
   it("still shows the figure when the currency code is one Intl rejects", () => {
     // `Intl.NumberFormat` throws `RangeError` on anything that is not three ASCII
     // letters, and the currency is a wire string. Throwing inside a render body
-    // would blank the surface through its error boundary and hide a figure the
+    // would blank the component through its error boundary and hide a figure the
     // daemon did send, so the amount keeps its `Intl` formatting and the code
     // renders verbatim beside it.
     expect(() => new Intl.NumberFormat("en-US", { style: "currency", currency: "?" })).toThrow(

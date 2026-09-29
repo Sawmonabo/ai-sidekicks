@@ -4,9 +4,9 @@
 // A SIBLING RATHER THAN A SECOND COMPONENT IN `RunList.tsx`, which is the package's
 // one-component-per-`.tsx` rule: a module holding two components is a module whose
 // name answers for one of them, and the other is reached only by reading the file.
-// `parks/ParkSchedule.tsx` and `definitions/DefinitionListItem.tsx` are this family's
-// own precedents — a deep relative import from the host list, and no door line,
-// because nothing outside the family composes a row on its own.
+// `RunList.tsx` imports it by relative path and the feature's public entry does not
+// export it, because nothing outside this feature composes a row on its own;
+// `components/ParkSchedule.tsx` is the same shape beside `ParkBadge.tsx`.
 //
 // WHAT A ROW SHOWS, and why it stops there. The definition's name, the run's status,
 // the run id, when it started, whichever parks are live, and whether the run's pin
@@ -34,7 +34,7 @@ import type { OpenRun, WorkflowRunListRow } from "../run-list-projection.js";
 import type { WorkflowRunState } from "../run-list-rows.js";
 
 /**
- * What this row prints where the start is a value the plane refused.
+ * What this row prints where the start is a value `workflowInstant` refused.
  *
  * The same em dash `primitives/figures/wire-figures.ts` prints for a figure it cannot stand
  * behind, restated here because that module keeps the glyph private and this row
@@ -48,13 +48,13 @@ const UNREADABLE_START = "—";
 /**
  * The start a row prints, taken from the reading the projection already made.
  *
- * One parse, one truth. The row used to hand `run.startedAt` straight to
- * `formatDateTime`, whose default `"any-offset"` policy is WIDER than the `"utc-only"`
- * one this plane declares and the sort obeys — so a start spelled with a numeric offset
- * sorted last, as the unreadable value the plane made it, and printed a legible time
- * anyway. A reading the plane refused prints the em dash the sort's own placement
- * already stands for; one it admitted goes to the figure chokepoint, which cannot
- * refuse what the stricter reader accepted.
+ * One parse, one truth. `formatDateTime`'s default `"any-offset"` policy is WIDER than
+ * the `"utc-only"` one `workflowInstant` declares and the sort obeys, so handing it
+ * `run.startedAt` directly would print a legible time on a start spelled with a numeric
+ * offset while the sort placed it last as unreadable. A reading `workflowInstant`
+ * refused prints the em dash the sort's own placement already stands for; one it
+ * admitted goes to the figure chokepoint, which cannot refuse what the stricter reader
+ * accepted.
  */
 function startFigureFor(startedAt: InstantReading): string {
   return startedAt.kind === "malformed" ? UNREADABLE_START : formatDateTime(startedAt.text);
@@ -75,7 +75,7 @@ interface RunReasonReading {
    *
    * `undefined` on the failure arm, which is the one arm whose treatment IS the name:
    * red prose under a failed run reads as the failure it is, and a label above it
-   * would be the surface saying twice what it has already said once.
+   * would be the row saying twice what it has already said once.
    */
   readonly label: string | undefined;
 }

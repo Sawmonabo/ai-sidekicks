@@ -1,4 +1,4 @@
-// Which frames the repos family re-reads on, checked against the contract's own census.
+// Which frames the repos feature re-reads on, checked against the contract's own census.
 //
 // The claim worth asserting here is a SET claim rather than a behavior: the watched
 // kinds are derived from the registered type registry, so the case below re-derives the
@@ -10,7 +10,7 @@ import { describe, expect, it } from "vitest";
 
 import { REPO_LIFECYCLE_EVENT_KINDS } from "./repo-lifecycle-events.js";
 
-describe("repo lifecycle events — the frames this family watches", () => {
+describe("repo lifecycle events — the frames this feature watches", () => {
   it("watches every registered workspace and worktree lifecycle kind", () => {
     const registered = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
       (eventType) => eventType.startsWith("workspace.") || eventType.startsWith("worktree."),

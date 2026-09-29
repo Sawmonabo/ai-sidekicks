@@ -6,8 +6,8 @@
 // this decides what the three quiet ones look like — a headline and one line under
 // it, with no badge, no error edge, and no control.
 //
-// It is not on the family door. The three call sites are the arms of the one
-// decision next door, and a surface reaching for a quiet line of its own would be
+// Only `PaletteEmptyState.tsx` renders it: the three call sites are the arms of its
+// one decision, and a component reaching for a quiet line of its own would be
 // rendering a palette absence outside the palette.
 
 export function QuietEmptyState(props: QuietEmptyStateProps): React.JSX.Element {

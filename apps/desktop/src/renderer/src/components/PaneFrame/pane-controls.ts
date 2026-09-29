@@ -3,13 +3,13 @@
 // `PaneFrame.tsx` puts close on the pane's head, and it is the HOST's act: the
 // pane layout owns which panes exist. But a pane body is mounted through `pane-registry.ts`,
 // whose `render(context)` takes a `PaneContext` and nothing else — that contract
-// is shared by six view families and widening it to carry callbacks would be six
+// is shared by six features and widening it to carry callbacks would be six
 // branches changing one merged file.
 //
 // So the controls travel as REACT CONTEXT, provided by the pane layout around each pane body
 // and read by the chrome. Three properties follow, and each is the reason:
 //
-//   • A pane rendered OUTSIDE a pane layout — a full-width surface with no pane layout at all —
+//   • A pane rendered OUTSIDE a pane layout — a full-width view with no pane layout at all —
 //     reads an absent context and offers no controls: a control whose act nobody can
 //     perform is left out, never drawn greyed.
 //   • The pane layout stays the single source of truth for pane lifetime. A body cannot
@@ -22,18 +22,18 @@
 // pane it frames, and handing it a layout-wide object plus an id would make every pane
 // re-derive which one it is.
 //
-// WHY IT SITS IN `seats/` AND NOT IN THE PANE LAYOUT THAT PROVIDES IT. The pane layout is a view
-// family, the six pane-body families are its siblings, and a sibling may not import a
-// sibling. A context the pane layout provides and six families' chrome reads is exactly the
-// contract shape this family exists to hold.
+// WHY IT SITS IN `components/` AND NOT IN THE PANE LAYOUT THAT PROVIDES IT. The pane layout
+// belongs to the sessions feature, the pane bodies belong to their own features, and one
+// feature never imports another. A context the pane layout provides and every pane's
+// chrome reads therefore lives in the shared components below all of them.
 
 import { createContext } from "react";
 
 import { type PaneOpener } from "@renderer/routing/panes/pane-address.js";
 // NO GLYPH SIZE IS DECLARED HERE. The head's controls and the breadcrumb's
 // separators are one chrome at one size, and that size is `GLYPH_SIZE_CHROME` in
-// `tokens/glyphs.ts` — a console-wide token rather than a per-family constant,
-// because the same mark drawn in another family's chrome has to match this one and
+// `styles/glyphs.ts` — a console-wide token rather than a per-feature constant,
+// because the same mark drawn in another feature's chrome has to match this one and
 // two constants agree only while someone keeps them in step. The kind glyph is
 // deliberately NOT that size: it takes `GLYPH_DEFAULT_SIZE` from the same module.
 
@@ -48,7 +48,7 @@ export interface PaneControls {
    * act like the close above, and here for the same reason it is: the pane layout owns
    * which panes exist, and a body reaching for a process-wide opener would open its
    * route in whichever pane layout was composed last. `PaneFrame` forwards it to the
-   * pinned region it draws, which is the surface that has a route to offer and no way
+   * pinned region it draws, which is the region that has a route to offer and no way
    * of its own to take it.
    *
    * Absent where the host opens no panes, which leaves the region stating where its
@@ -73,7 +73,7 @@ export interface PaneControls {
  *
  * The distinction is load-bearing: an empty object means "a host is here and offers
  * nothing", which no host does, while `undefined` means "there is no host", as for a
- * full-width surface with no pane layout. Collapsing them would leave the two cases
+ * full-width view with no pane layout. Collapsing them would leave the two cases
  * indistinguishable at the one place the difference decides what renders.
  */
 export const PaneControlsContext: React.Context<PaneControls | undefined> = createContext<

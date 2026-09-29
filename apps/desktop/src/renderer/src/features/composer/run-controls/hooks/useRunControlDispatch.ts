@@ -9,7 +9,7 @@
 // THE LATCH ANSWERS. A silently dropped latched call is wrong for a form that records
 // a pending baseline of its own before calling: a user could cancel a form with its
 // request still in flight, reopen the same run and control, type a new body, and
-// confirm — the form marked itself pending, the surface dropped the call, and the OLD
+// confirm — the form marked itself pending, the latch dropped the call, and the OLD
 // request's settlement then differed from the new form's baseline and was read as the
 // new body's, an old success closing the form and discarding text that never went
 // anywhere.
@@ -34,7 +34,7 @@
 // ALL THREE HOLDERS BELONG TO THE BRIDGE. When the window's transport is replaced, the
 // dispatcher, the held keys, the busy set and the records rotate together, so a retry of
 // the same run and control through the new bridge is not refused as already in flight,
-// and an old settlement is not appended to a surface it was not about. They rotate by
+// and an old settlement is not appended to records it was not about. They rotate by
 // whose they are rather than by a timer: the console's one `GenerationLatch` holds each
 // key under the bridge it was claimed on, so a settlement releases the round it belongs
 // to and leaves the live one untouched, and `useSubjectScopedState` holds the two
@@ -47,12 +47,12 @@
 // only about the round it owns, so a set is what a component can read a key out of —
 // and because nothing outside the settlement writes it, the two cannot disagree.
 //
-// THE RECORD IS THIS WINDOW'S OWN. The Runs View renders the durable intervention
-// history, including the attempts that failed, with the `origin` discriminator and the
-// admitting principal on the user arm. Those live on the `interventions` table
-// and no registered wire reads them, so what this surface can honestly hold is what it
-// dispatched and what came back — every field of it daemon-supplied. The surface that
-// renders it says so rather than passing a partial record off as the whole one.
+// THE RECORD IS THIS WINDOW'S OWN. The durable intervention history, including the
+// attempts that failed, carries the `origin` discriminator and the admitting principal
+// on the user arm. Those live on the `interventions` table and no registered wire reads
+// them, so what the run controls can honestly hold is what they dispatched and what came
+// back — every field of it daemon-supplied. Whatever renders these records says so
+// rather than passing a partial record off as the whole one.
 
 import { useCallback, useMemo, useRef } from "react";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -68,7 +68,7 @@ import {
 } from "../services/run-control-dispatch.js";
 import { inFlightKeyFor, mintRunControlDispatchToken } from "../run-control-keys.js";
 
-/** One recorded dispatch, for the pane's own intervention history. */
+/** One recorded dispatch and what it settled to, read back by the steer box. */
 export interface RunControlRecord {
   /** The token its dispatch was admitted under. One admitted dispatch, one record. */
   readonly recordId: string;
@@ -119,18 +119,18 @@ export interface RunControlDispatchState {
 }
 
 /**
- * The subject this surface's state belongs to.
+ * The key the run controls' held state is kept under.
  *
- * The whole surface belongs to the BRIDGE, so its key within one is fixed: a run id
- * would be the wrong key here, since one surface holds every run's controls at once
- * and the axis that actually moves under it is the transport.
+ * The whole state belongs to the BRIDGE, so its key within one is fixed: a run id
+ * would be the wrong key here, since one dispatch state holds every run's controls at
+ * once and the axis that actually moves under it is the transport.
  */
-const RUN_CONTROL_SURFACE_SUBJECT = "run-controls";
+const RUN_CONTROL_STATE_KEY = "run-controls";
 
 /**
  * Hold the dispatcher and record what it settles.
  *
- * The record is this window's own — the pane dispatched it and read the answer. It
+ * The record is this window's own — this window dispatched it and read the answer. It
  * is deliberately NOT presented as the durable audit record: the `interventions`
  * table carries `origin` and the admitting principal and has no registered read, so
  * a history claiming to be complete would be claiming something the wire cannot
@@ -147,10 +147,10 @@ export function useRunControlDispatch(
 ): RunControlDispatchState {
   const { value: records, publish: publishRecords } = useSubjectScopedState<
     readonly RunControlRecord[]
-  >(bridge, RUN_CONTROL_SURFACE_SUBJECT, () => EMPTY_RECORDS);
+  >(bridge, RUN_CONTROL_STATE_KEY, () => EMPTY_RECORDS);
   const { value: inFlightKeys, publish: publishInFlightKeys } = useSubjectScopedState<
     ReadonlySet<string>
-  >(bridge, RUN_CONTROL_SURFACE_SUBJECT, () => EMPTY_KEYS);
+  >(bridge, RUN_CONTROL_STATE_KEY, () => EMPTY_KEYS);
   const nextDispatchOrdinal = useRef(0);
   const controlLatch = useGenerationLatch();
 
@@ -175,7 +175,7 @@ export function useRunControlDispatch(
       perform: (held: RunControlDispatcher) => Promise<RunControlOutcome>,
     ): RunControlAdmission => {
       const key = inFlightKeyFor(runId, control);
-      const claim = controlLatch.takeShell(bridge, key);
+      const claim = controlLatch.claim(bridge, key);
       if (claim === undefined) {
         return { admitted: false, reason: "in-flight" };
       }
@@ -205,7 +205,7 @@ export function useRunControlDispatch(
         const record: RunControlRecord = { recordId: dispatchToken, runId, control, outcome };
         // Published inside the claim, so an answer to a call made on a transport that
         // has since been replaced — or by a mount React has already discarded — is
-        // dropped rather than appended to a surface that never made it.
+        // dropped rather than appended to records that never made it.
         claim.settle(() => {
           clearInFlight();
           publishRecords((held) => {

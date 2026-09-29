@@ -21,7 +21,7 @@ import {
   renderedIssueTexts,
   reportedIssueTexts,
   rootIssuesElement,
-} from "./SchemaFormHost.test-support.js";
+} from "./SchemaFormWithReadout.test-support.js";
 
 afterEach(cleanup);
 
@@ -72,7 +72,7 @@ describe("what a member's description is attached to", () => {
     // with it; every other case here has a finding and no description. Neither pins the
     // SEQUENCE, and the sequence is what a reader hears: `aria-describedby` is announced in
     // the order the attribute lists, so instructions-then-verdict and verdict-then-
-    // instructions are two different surfaces built from the same two elements, and the
+    // instructions are two different readings built from the same two elements, and the
     // one `SchemaFieldList.tsx` composes is description first.
     //
     // A required collection is answered from the mount, so `minItems` is unsatisfied the
@@ -100,7 +100,7 @@ describe("what a member's description is attached to", () => {
     expect(description?.textContent).toBe("Who signs off.");
     expect(describedBy).toEqual([description?.id, findings?.id]);
     // The negative control on the same two elements: the set is right either way round, so
-    // a case that only asserted membership would pass over the surface that reads the
+    // a case that only asserted membership would pass over a form that reads the
     // verdict out before the instructions it is a verdict on.
     expect(describedBy).not.toEqual([findings?.id, description?.id]);
   });

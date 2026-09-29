@@ -55,17 +55,17 @@ describe("the human-phase schema root reading", () => {
 });
 
 describe("a root that closes the answer set without naming a type", () => {
-  // The whole class this suite was extended for: none of these roots spells a `type`, so
-  // a reading that asked only that question admitted every one of them and the surface
-  // offered an editor whose every schema-valid answer the submit surface then refuses.
+  // The class a type-only reading misses: none of these roots spells a `type`, so a
+  // reading that asked only that question would admit every one of them and the form
+  // would offer an editor whose every schema-valid answer the submit path then refuses.
   it("refuses an alternation no arm of which an object could satisfy", () => {
     const stringOrNumber = { oneOf: [{ type: "string" }, { type: "number" }] };
 
     expect(schemaRootAsksOutsideNamedValues(stringOrNumber)).toBe(true);
     expect(schemaRootRefusal(stringOrNumber)?.code).toBe(SCHEMA_ROOT_NOT_NAMED_VALUES);
-    // What the surface would have rendered instead, read from the real mapper rather than
-    // described: the plan for this root is the raw arm, so before the refusal existed the
-    // editor was drawn and the act beside it was offered.
+    // What the form would render instead, read from the real mapper rather than
+    // described: the plan for this root is the raw arm, so without the refusal the editor
+    // would be drawn and the act beside it offered.
     expect(planSchemaForm(stringOrNumber).shape).toBe("raw");
   });
 

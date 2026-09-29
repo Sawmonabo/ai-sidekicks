@@ -2,7 +2,7 @@
 //
 // A bound TABLE beside its readers, for `perf-meters/perf-meter-bounds.ts`' reason:
 // the cap gate reads DECLARATIONS, so a record whose keys are the bounds sits with
-// the code that spends them. All four are spent in the capture next door and read
+// the code that spends them. All four are spent in `diagnostic-capture.ts` beside it and read
 // nowhere else in the console.
 //
 // THESE ARE THE CAPS THE BLUEPRINT ASKS TO BE NAMED. Error capture is always on, in

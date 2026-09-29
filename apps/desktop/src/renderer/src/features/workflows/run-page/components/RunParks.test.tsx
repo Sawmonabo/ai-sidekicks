@@ -1,19 +1,11 @@
 // One parked phase, drawn by the pane's card and by the run list's row, from one
 // projection.
-//
-// THE CLAIM IS AN AGREEMENT BETWEEN TWO SURFACES, so the suite renders both. The park
-// discriminator, the schedule classification, and the phase's name were derived three
-// times — once in `run-list-projection.ts`, once here, and once in the phase graph —
-// and two of the three disagreed about the name: the projection read the row's own
-// member and this pane substituted a module constant that was permanently `undefined`.
-// One run, one park, and a phase the list named while the cards beside it drew it
-// nameless. A suite that rendered only one of the two could not see that.
 
-// The run pane's park cards, and the surfaces that draw the same parks.
+// The run pane's park cards, and the other views that draw the same parks.
 //
 // A parked phase is drawn by the pane's card, by the run list's row and by the phase
 // graph's node from one projection, so the cases that claim agreement render both
-// surfaces: a suite that rendered only one could not see them disagree. The route each
+// views: a suite that rendered only one could not see them disagree. The route each
 // card offers to its own form is the card's line, decided from members the park
 // projection does not carry, so those cases drive `RunParks` with a stub selection.
 
@@ -56,7 +48,7 @@ const NO_FORM_OPEN: HumanFormSelection = {
  * Bound to a variable rather than written inline at the snapshot: `WorkflowPhaseState`
  * declares no `phaseName`, so a fresh literal in the `phaseStates` position would be
  * refused for the excess property. Through a binding the shape is merely wider than the
- * wire's, which is the shape the two surfaces have to agree on when a phase carries a
+ * wire's, which is the shape the two views have to agree on when a phase carries a
  * name.
  */
 const NAMED_PARKED_PHASE = {
@@ -111,16 +103,16 @@ describe("the phase a park is about", () => {
     expect(listParkPhaseName(run)).toBe(paneParkPhaseName(run));
   });
 
-  it("negative control: neither surface invents a name where the read carries none", () => {
-    // Without this the case above would be satisfied by two surfaces that both printed
-    // the identifier in the name's place, which is the invention this family renders
+  it("negative control: neither view invents a name where the read carries none", () => {
+    // Without this the case above would be satisfied by two views that both printed
+    // the identifier in the name's place, which is the invention the workflows feature renders
     // the absence of rather than papering over.
     const run = runWith(UNNAMED_PARKED_PHASE);
     expect(paneParkPhaseName(run)).toBeUndefined();
     expect(listParkPhaseName(run)).toBeUndefined();
   });
 
-  it("negative control: both surfaces still identify the phase by its wire id", () => {
+  it("negative control: both views still identify the phase by its wire id", () => {
     // And without THIS, the case above would be satisfied by a card that had stopped
     // saying which phase it is about at all — which is what makes a fan-out's cards
     // indistinguishable.
@@ -342,7 +334,7 @@ describe("the phase graph and the park cards of one run", () => {
   });
 
   it("spends the amber exactly where the park cards spend it", async () => {
-    // A node in amber beside a neutral card is one surface telling an operator to look at
+    // A node in amber beside a neutral card is one view telling an operator to look at
     // something the other says needs nobody.
     const container = await renderGraphAndParks(PARKED_RUN);
     const cards = [...container.querySelectorAll(".meridian-park")];

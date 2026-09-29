@@ -2,12 +2,12 @@
 //
 // One file per axis of the predicate. Every case here drives
 // `findScenarioContractDefects` and not the leg module directly: the aggregate is the
-// only surface a scenario is ever measured through, and a test that reached past it would be checking a function
+// only function a scenario is ever measured through, and a test that reached past it would be checking a function
 // no scenario meets.
 //
 // EVERY CASE IS BUILT FROM A SHIPPED BEAT. The concurrent-streaming scenario's own `run.starting` beat is
 // the base for all of them, so what a case varies is the one member it is about and
-// every other member is one the seat board already carries and the predicate already
+// every other member is one the shipped scenario already carries and the predicate already
 // accepts.
 
 import { describe, expect, it } from "vitest";
@@ -21,7 +21,7 @@ const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
 /**
  * The concurrent-streaming scenario with exactly ONE beat replaced — the first beat of the kind named.
  *
- * Every case in this file is about a single beat, and the seat board plays several
+ * Every case in this file is about a single beat, and the shipped scenario plays several
  * runs, so replacing every beat of a kind would vary five and report five defects for
  * the one defect the case is about. The helper is the only thing that knows there is
  * more than one run; each case still reads as "the concurrent-streaming scenario's own beat, with X
@@ -55,7 +55,7 @@ describe("scenario wire truth — a run beat that reports two states at once", (
    *
    * Built from the shipped beat rather than from a synthetic one so the case is
    * about the state pair and nothing else: every other member is the beat the
-   * seat board already ships and the predicate already accepts.
+   * shipped scenario already carries and the predicate already accepts.
    */
   function scenarioWithStartingBeatState(scenarioId: string, newState: string): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
@@ -81,7 +81,7 @@ describe("scenario wire truth — a run beat that reports two states at once", (
 
   it("negative control: the same beat naming the state its kind announces is clean", () => {
     // Without this the case above would hold over a leg that reported every run
-    // beat, and the seat-board case at the top of this file would be the only
+    // beat, and the shipped-scenario case at the top of this file would be the only
     // thing standing between that and a predicate nothing can satisfy.
     expect(
       findScenarioContractDefects([scenarioWithStartingBeatState("names-one-state", "starting")]),
@@ -90,7 +90,7 @@ describe("scenario wire truth — a run beat that reports two states at once", (
 
   it("reports a beat whose payload names no state at all", () => {
     // The quieter half, and the one that stayed green: absence was treated as
-    // clean, so a family scenario could ship a `run.running` beat with no
+    // clean, so a feature's scenario could ship a `run.running` beat with no
     // `newState`, pass the architecture suite, and then be refused at delivery as
     // unprojectable while the run-lifecycle projector dropped its mutation. Green
     // gate, nothing on screen.
@@ -146,7 +146,7 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
    * The concurrent-streaming scenario's own `run.starting` payload — a complete registered transition.
    *
    * Read off the shipped beat rather than written out again, so a case that varies one
-   * member varies it against the payload the seat board actually carries.
+   * member varies it against the payload the shipped scenario actually carries.
    */
   function shippedStartingPayload(): Readonly<Record<string, unknown>> {
     const payload = CONCURRENT_STREAMING_SCENARIO.beats.find(
@@ -212,9 +212,9 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
     expect(defects[0]?.reason).toContain("disagree");
   });
 
-  it("negative control: the complete transition the seat board ships is clean", () => {
+  it("negative control: the complete transition the shipped scenario carries is clean", () => {
     // Without it every case above would hold over a leg that refused every run beat,
-    // and no family could script a transition at all. The payload is the shipped one,
+    // and no feature could script a transition at all. The payload is the shipped one,
     // handed back through the same replacement the cases above use.
     expect(
       findScenarioContractDefects([
@@ -229,7 +229,7 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
    * The concurrent-streaming scenario's own `run.starting` beat, re-kinded as the rollback row.
    *
    * Built from a shipped beat for the reason the state-pair cases above are: every
-   * envelope member is one the seat board already carries and the predicate already
+   * envelope member is one the shipped scenario already carries and the predicate already
    * accepts, so what the case is about is the payload's session and nothing else. The
    * transition members go with the state kind — the rollback row registers none.
    */
@@ -278,7 +278,7 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
 
   it("negative control: the same beat naming its own session is clean", () => {
     // Without it both cases above would hold over a leg that reported every rollback
-    // beat — and the seat-board case at the top of this file would be all that stood
+    // beat — and the shipped-scenario case at the top of this file would be all that stood
     // between that and a predicate no scenario carrying a rollback could satisfy.
     expect(
       findScenarioContractDefects([
@@ -377,7 +377,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
 
   it("negative control: a complete payload passes on every one of the four kinds", () => {
     // Without this the cases above would hold over a leg that reported every beat of
-    // these kinds, which would make the shipped creation row — and every family
+    // these kinds, which would make the shipped creation row — and every feature's
     // scenario that scripts one — unshippable. The optional members are carried too,
     // because the registered shapes name them and a leg that refused them would be
     // stricter than the wire.
@@ -436,7 +436,7 @@ describe("scenario wire truth — a run beat claiming it moved to the state it w
     // census leg nor the strict layer can see this one, and the strict layer registers
     // no variant for the run-lifecycle kinds at all. The transition table is what rules
     // it out: it has no row whose `From` and `To` are one state, so no daemon emits
-    // this, and a surface built against it learns to render a transition production
+    // this, and a view built against it learns to render a transition production
     // never produces.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatPreviousState("reports-a-self-transition", "starting"),
@@ -449,8 +449,8 @@ describe("scenario wire truth — a run beat claiming it moved to the state it w
 
   it("negative control: the same beat naming a real transition is clean", () => {
     // Without it, a rule that reported every run beat would pass the case above — and
-    // every scenario's run script would be unbuildable. `queued` is the state the seat
-    // board's own beat comes from, so the revision is a no-op and what is measured is
+    // every scenario's run script would be unbuildable. `queued` is the state the shipped
+    // scenario's own beat comes from, so the revision is a no-op and what is measured is
     // the state pair and nothing else about the beat.
     expect(
       findScenarioContractDefects([

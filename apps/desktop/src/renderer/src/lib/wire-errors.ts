@@ -42,7 +42,7 @@ export interface WireRejectionToErrorOptions {
    * {@link lossyStringify} instead of bare `String(...)`.
    *
    * The boundary difference the callers encode, made a parameter. A rejection
-   * that arrived through a bridge CATCH binding came off the IPC surface, where
+   * that arrived through a bridge CATCH binding came off the IPC boundary, where
    * a ToPrimitive-failing shape is not realistically reachable, and the bare
    * wrap states that. A rejection that arrived as a PROP admits arbitrary
    * `unknown`, so the component that exists to SURFACE a refusal must not crash
@@ -147,7 +147,7 @@ export function readWireErrorEnvelope(value: unknown): WireErrorEnvelope | undef
  * says yes, and every member the caller then renders is a fresh access on the
  * unvalidated candidate — a second reading, one layer later, in a render, outside
  * every `catch`. A getter that answers something else the second time renders an arm
- * the wire never sent; one that throws unmounts the surface that exists to say a call
+ * the wire never sent; one that throws unmounts the component that exists to say a call
  * failed. The reader hands back the strings it already read, so there is no second
  * access for a caller to be tempted into.
  *
@@ -183,11 +183,11 @@ export function lossyStringify(value: unknown): string {
 }
 
 /**
- * Renders a rejection as an `Error`, for a surface whose view state holds one.
+ * Renders a rejection as an `Error`, for a component whose view state holds one.
  *
  * NAMED FOR WHAT IT ANSWERS. `normalizeWireRejection` in `wire-rejection.ts` answers a
  * `Refusal` and keeps the daemon's own code; this one flattens the code onto
- * `Error.name` for a surface whose view state holds an `Error`.
+ * `Error.name` for a component whose view state holds an `Error`.
  *
  *   • A typed wire envelope (or an `Error` carrying a wire `code`) is rebuilt as
  *     a fresh `Error` with the wire `code` as `Error.name`, so the rendered

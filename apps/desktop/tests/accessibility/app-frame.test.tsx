@@ -1,6 +1,6 @@
 // The accessibility tier.
 //
-// axe-core runs over every surface in both schemes. It runs INSIDE the browser-mode page rather than through
+// axe-core runs over the frame in both schemes. It runs INSIDE the browser-mode page rather than through
 // `@axe-core/playwright`, which wants a `@playwright/test` `Page` handle Vitest
 // browser mode hands only to server-side custom commands, never to test code,
 // and which is the orchestrator page rather than the tester iframe — same

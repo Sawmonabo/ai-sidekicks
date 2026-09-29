@@ -3,9 +3,9 @@
 // Every member is the fixture's answer to one the preload declares. The daemon half is
 // `services/daemon/daemon.fixture.ts`; this module assembles it with the host's other answers.
 //
-//   • **Native surfaces refuse rather than pretend.** `showOpenDialog` under the fixture cannot
+//   • **Native calls refuse rather than pretend.** `showOpenDialog` under the fixture cannot
 //     open a dialog, so it rejects with a fixture-scoped error. A fixture that returned a
-//     plausible path would let a surface ship with a code path nobody has run against the
+//     plausible path would let a view ship with a code path nobody has run against the
 //     real dialog.
 //   • **`app` meta is fixed.** Version, platform, arch and locale are constants, so a
 //     screenshot does not shift when the developer's machine does.

@@ -1,4 +1,4 @@
-// The footer seat's own cases: who may fill it.
+// The footer renderer registry's own cases: who may register in it.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -12,7 +12,7 @@ afterEach(() => {
   unregisterTranscriptRowFooterRenderer();
 });
 
-describe("the transcript row footer seat", () => {
+describe("the transcript row footer renderer registry", () => {
   it("is empty until an owner fills it", () => {
     expect(findTranscriptRowFooterRenderer()).toBeUndefined();
     registerTranscriptRowFooterRenderer("an owner", () => null);

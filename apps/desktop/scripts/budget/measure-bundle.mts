@@ -71,7 +71,7 @@ const GZIP_LEVEL = 9;
  *
  * Closed on purpose, and read from the emitted file's extension because that is
  * what the bundler decided: a `.woff2` is a font whichever module imported it,
- * and a `.css` is code the document parses whichever family declared it.
+ * and a `.css` is code the document parses whichever feature imported it.
  */
 export type RendererBundleAssetClass = "code" | "font";
 

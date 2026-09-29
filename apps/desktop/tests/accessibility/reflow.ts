@@ -2,9 +2,9 @@
 // sideways scroll.
 //
 // Not a test file — no `include` glob reaches it. It is `axe-run.ts`'s sibling for
-// the one criterion axe cannot answer: WCAG 2.2 SC 1.4.10 (Reflow). `axe-tags.
+// the one criterion axe cannot answer: WCAG 2.2 SC 1.4.10 (Reflow). `axe-run.
 // test.ts` records what the 2.2 tags select at this pin — nothing at Level A, and
-// `target-size` alone at AA — so a surface that needed two-dimensional scrolling at
+// `target-size` alone at AA — so a view that needed two-dimensional scrolling at
 // 320 CSS px would pass every axe case in this directory. Reflow is a property of a
 // LAYOUT AT A WIDTH rather than of a node's attributes, so it is measured by
 // narrowing the page to the floor and reading what still overflows.
@@ -15,7 +15,7 @@
 // inside the tester at the configured 1440. That handle drives the ORCHESTRATOR
 // page's target, and the tests run in a same-origin iframe which that page sizes
 // with CSS of its own — so the override moves a viewport the console is not laid
-// out in. A test built on it would have measured every surface at the tier's default
+// out in. A test built on it would have measured every view at the tier's default
 // width and reported reflow clean at all of them. Resizing the frame element changes
 // the CSS pixel width the tests' own document lays out in, which is the unit the
 // criterion is written in, and `matchMedia` inside the frame answers against it.
@@ -107,7 +107,7 @@ export function restoreTesterViewport(): void {
  * no scrollbar and no scroll gesture, so nothing in it is reachable that way. The
  * console's own `.meridian-visually-hidden` is exactly this shape — a 1 px box
  * around text that exists for assistive technology — and it appears on every
- * surface, so a walk that reported it would report every page and mean nothing.
+ * view, so a walk that reported it would report every page and mean nothing.
  * What this skip gives up is the criterion's OTHER half: content clipped away is a
  * loss of information, and this walk cannot tell deliberate screen-reader text from
  * a truncated label. That half is the axe runs' and a reader's, not this one's.

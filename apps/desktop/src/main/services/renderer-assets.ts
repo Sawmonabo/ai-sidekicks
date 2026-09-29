@@ -27,7 +27,7 @@
 // Both refusals carry NO member beyond the verdict, so a probe learns nothing
 // about the tree. There is deliberately no `index.html` fallback: the console
 // routes by hash, so every navigable URL is `index.html` plus a fragment and a
-// fallback would only turn typos into a served shell.
+// fallback would only turn typos into a served `index.html`.
 
 import type { Stats } from "node:fs";
 import { realpath, stat } from "node:fs/promises";

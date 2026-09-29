@@ -2,7 +2,7 @@
 //
 // It draws no session list and no attention panel. The node's session directory and the
 // attention reading have no daemon call behind them, so no composition mounts the
-// binding that would read them, and a surface that reached for that binding would throw
+// binding that would read them, and a component that reached for that binding would throw
 // on the default route.
 
 import "./sessions.css";

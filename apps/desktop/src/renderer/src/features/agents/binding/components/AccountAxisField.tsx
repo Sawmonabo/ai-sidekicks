@@ -12,7 +12,7 @@
 // no accounts are four different answers, and a picker that simply vanished would
 // report all four as the same absence.
 //
-// THE READING IS THE CALLER'S. The node has one account-plane reading and the surface that
+// THE READING IS THE CALLER'S. The node has one account-plane reading and the form that
 // mounts this field holds it, so the field takes the registry as a prop and a way to ask
 // for it again, and holds no subscription of its own.
 //
@@ -40,7 +40,7 @@
 // NOTHING HERE GATES AND NOTHING HERE IS A COMMAND. Readiness is advisory against the
 // unchanged spawn probe, and the remedy is named as an ACT — never as the provider's
 // own sign-in invocation or the credential home it writes into, which reach the
-// operator surface that owns them and no form.
+// settings page that owns them and no form.
 
 import { useId } from "react";
 

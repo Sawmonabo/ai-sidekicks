@@ -1,8 +1,8 @@
-// The screenshot tier: the composer family's surfaces, per scheme.
+// The screenshot tier: the composer feature's views, per scheme.
 //
 // `settled-capture.ts` owns the mechanism this file rides: every capture is written
 // into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether each surface can be captured at all.
+// gates on whether each view can be captured at all.
 //
 // WHAT IS PINNED, AND WHY. The composer is one component whose whole design claim is
 // about ADDRESSING. The session composer's own design
@@ -18,9 +18,9 @@
 //   • a run waiting on a person, which is the one address that sketch labels
 //     _steer_ and the state the composer scenario deliberately ends on.
 //
-// HOW MANY CAPTURES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — one per surface
+// HOW MANY CAPTURES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — one per view
 // per scheme, off the table below. A number in this header is a claim no gate reads,
-// and it went stale the moment a surface joined the table.
+// and it went stale the moment a view joined the table.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -37,13 +37,13 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The surfaces this tier captures, each with the name its image is written under.
+ * The views this tier captures, each with the name its image is written under.
  *
- * A table rather than one suite per surface: the cases differ only in which surface
- * is mounted, and a copy of the same six lines per surface is one more place for the
+ * A table rather than one suite per view: the cases differ only in which view
+ * is mounted, and a copy of the same six lines per view is one more place for the
  * scheme emulation to be forgotten.
  */
-const PINNED_SURFACES: readonly {
+const PINNED_VIEWS: readonly {
   readonly captureName: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
@@ -64,7 +64,7 @@ afterEach(async () => {
 });
 
 /**
- * Every capture this file writes, one per surface per scheme.
+ * Every capture this file writes, one per view per scheme.
  *
  * The cross product is taken ONCE and named, so the count below is the same value
  * the loop runs and cannot be a second, hand-kept figure that drifts from it.
@@ -73,21 +73,21 @@ const PINNED_CAPTURES: readonly {
   readonly captureName: string;
   readonly scheme: (typeof COLOR_SCHEMES)[number];
   readonly mount: () => Promise<MountedView>;
-}[] = PINNED_SURFACES.flatMap((surface) =>
+}[] = PINNED_VIEWS.flatMap((view) =>
   COLOR_SCHEMES.map((scheme) => ({
-    captureName: `${surface.captureName}-${scheme}`,
+    captureName: `${view.captureName}-${scheme}`,
     scheme,
-    mount: surface.mount,
+    mount: view.mount,
   })),
 );
 
-describe("screenshot — the composer surfaces", () => {
+describe("screenshot — the composer views", () => {
   // This one runs everywhere, including off the pinned platform: it reads the table
   // rather than the renderer. A duplicate capture name is silent on the machine
   // that mints — the second capture overwrites the first and both cases go green
   // against one image — so the uniqueness claim is asserted where it can be seen.
-  it("writes one distinctly-named capture per surface per scheme", () => {
-    expect(PINNED_CAPTURES).toHaveLength(PINNED_SURFACES.length * COLOR_SCHEMES.length);
+  it("writes one distinctly-named capture per view per scheme", () => {
+    expect(PINNED_CAPTURES).toHaveLength(PINNED_VIEWS.length * COLOR_SCHEMES.length);
     expect(new Set(PINNED_CAPTURES.map((capture) => capture.captureName)).size).toBe(
       PINNED_CAPTURES.length,
     );

@@ -1,7 +1,7 @@
 // What an execution root IS, read off the wire and turned into something a card
 // can draw — and nothing else. No React, no fetching, no eligibility.
 //
-// THIS SURFACE'S JOB, stated here because a surface's composition lives in the
+// THIS VIEW'S JOB, stated here because a view's composition lives in the
 // console's code: show what
 // execution roots exist on disk for this session, which run holds one, and what is
 // safe to reclaim. One of those is a decision, made here so a
@@ -18,7 +18,7 @@
 // `Record` keyed BY that union, so a seventh state added to the wire fails to compile here
 // rather than rendering as an unstyled string.
 //
-// HOW A ROW IS TABULATED IS NEXT DOOR. The column key sets, the labels, the summary
+// HOW A ROW IS TABULATED IS BESIDE IT. The column key sets, the labels, the summary
 // and detail selections, and the absent-cell copy are `execution-root-columns.ts`: that is
 // how a root is DRAWN, and this file is what a root IS.
 //

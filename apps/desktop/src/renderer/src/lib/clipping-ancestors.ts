@@ -1,18 +1,12 @@
 // The console's one clipping-ancestor walk.
 //
-// Two view families ask the same question — which ancestors of this element clip what
-// is inside them — for different reasons: the session pane layout intersects the answers into
-// the rectangle a native view may occupy, and `browser/geometry/` collects their boxes
-// so the sampler can subtract them. They sit beside each other in the console's DAG, so
-// neither can read the other's copy, and each writing its own was the shape the
-// shared-code rule in `apps/desktop/AGENTS.md` warns about: two copies of one
-// normalization drift, and the gate stays green. These had, three ways — the data
-// structure (a module-level `Set` against a frozen tuple), the predicate (one read the
-// `overflow` shorthand, the other did not), and the evidence (one was covered, the
-// other was not). `primitives/` is the lowest family both consumers sit above and it
-// already owns the DOM-touching seams; `core/` cannot take it, because that family is
-// compiled by a Node-context program with no DOM lib and `Element` does not resolve
-// there.
+// Two features ask the same question — which ancestors of this element clip what is
+// inside them — for different reasons: the session pane layout intersects the answers
+// into the rectangle a native view may occupy, and the preview feature's geometry
+// collects their boxes so the sampler can subtract them. One feature never imports
+// another, so the walk lives in shared code: two copies of one normalization drift —
+// in the data structure, in whether the predicate reads the `overflow` shorthand, in
+// which copy is tested — while every check stays green.
 //
 // THE LONGHANDS ARE THE AUTHORITY AND THE SHORTHAND IS A FALLBACK, which is the
 // reconciliation neither copy made. `overflow` is a shorthand for `overflow-x` and

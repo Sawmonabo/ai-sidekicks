@@ -2,9 +2,9 @@
  * The one filled-accent treatment: a control whose whole face is the accent, with
  * `accent-ink` as its label.
  *
- * Split out of the family sheet it grew inside: that file had reached 720 lines and
- * a dozen unrelated primitives, and a stylesheet nobody can hold in their head is
- * where a second treatment for one thing gets added without anybody noticing.
+ * A sheet of its own rather than a rule in a shared primitives sheet: a stylesheet
+ * nobody can hold in their head is where a second treatment for one thing gets added
+ * without anybody noticing.
  * Imported by `accent-fill.ts`, which names the class, so a control that reads the
  * name cannot render without these rules.
  *
@@ -12,10 +12,10 @@
  * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * Design-language rules that govern this sheet: rule 3 (one accent hue and no other
- * color) and rule 5 (motion settles). Two surfaces reach for this — an approval's
- * approve action and a goal's save — and both were painting `accent-text` on `accent`,
- * which is 1.53:1 in light and 1.48:1 in dark against rule 3's 4.5:1 floor. One class,
+ * Two design rules govern this sheet: one accent hue and no other color, and motion
+ * that settles without bouncing. Two controls reach for this — an approval's approve
+ * action and a goal's save — and both were painting `accent-text` on `accent`, which
+ * is 1.53:1 in light and 1.48:1 in dark against the 4.5:1 floor for text. One class,
  * so the pairing is made once and `tokens/contrast.test.ts` measures the pair it makes.
  *
  * A BLOCK RATHER THAN A `--modifier`, deliberately. These primitives carry no
@@ -57,7 +57,7 @@
  * Scaling both rendered colors does not preserve their ratio — relative luminance
  * carries a 0.05 offset a multiplication does not distribute over — so the
  * `brightness(0.94)` this rule used to spend took the light scheme's measured
- * ink-on-fill pair from 4.73:1 to 4.27:1, through rule 3's floor in the one state
+ * ink-on-fill pair from 4.73:1 to 4.27:1, through the 4.5:1 text floor in the one state
  * the treatment existed to keep legible. `accent-pressed` is measured on that pair
  * like every other fill.
  *

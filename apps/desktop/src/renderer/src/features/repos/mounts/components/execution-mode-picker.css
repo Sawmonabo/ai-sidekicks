@@ -6,7 +6,7 @@
  * `ExecutionModeRow.tsx`, both of which live in this directory.
  * `bind/BindModePicker.tsx` is a different picker wearing `meridian-bind__mode*`, which
  * `bind/bind.css` carries — putting these rules there would make that sheet's own "what
- * only the bind surface wears" sentence false and leave two parent-directory components
+ * only the bind dialog wears" sentence false and leave two parent-directory components
  * styled out of a child directory.
  *
  * Imported by `ExecutionModePicker.tsx`. No selector here appears in any other sheet in

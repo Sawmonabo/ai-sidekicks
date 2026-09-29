@@ -15,7 +15,7 @@
 // THE ADDRESS IS A VISIT AND NOT ONLY A KEY. A composer routed away from a target and
 // back is at the same key on two different visits, which is exactly where "same
 // address" and "same act" come apart. Held on the key alone, the single-flight latch
-// would still hold a slot for a call the returning visit cannot see (Send would do
+// would still hold an entry for a call the returning visit cannot see (Send would do
 // nothing), a settlement would clear a draft typed on the second visit because the
 // first visit's send cleared the first visit's text, and a refusal written on the first
 // visit would read as current again. The visit is the composer's mirror of the holder's
@@ -32,10 +32,10 @@
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
- * The acts whose settlements share the send bar's refusal surface.
+ * The acts whose settlements share the send bar's refusal.
  *
- * Closed and declared once, with the slot record derived from it, so a second act
- * cannot be given a settlement path while the slot record still holds one.
+ * Closed and declared once, with the refusal record derived from it, so a second act
+ * cannot be given a settlement path while the refusal record still holds one.
  */
 const COMPOSER_SEND_OPERATIONS = ["send"] as const;
 
@@ -66,7 +66,7 @@ export interface HeldComposerRefusal {
 }
 
 /**
- * One slot per operation, rather than one slot for the bar.
+ * One held refusal per operation, rather than one for the bar.
  *
  * A record keyed by the operation and not a list, because the question every reader
  * asks is "what did THIS act settle as".
@@ -76,7 +76,7 @@ export type ComposerRefusalsByOperation = Readonly<
 >;
 
 /**
- * The key one act's in-flight slot is held under, while it is still traveling.
+ * The key one act's in-flight latch is held under, while it is still traveling.
  *
  * The same three axes the identity carries, minus the attempt: the latch answers
  * whether THIS VISIT to this address already has a send going, and the attempt id is
@@ -85,9 +85,9 @@ export type ComposerRefusalsByOperation = Readonly<
  * so that what the latch calls "the same act at the same address" and what a
  * settlement calls it cannot drift apart.
  *
- * The visit is what frees a returning visit's slot. Without it a call still
+ * The visit is what frees a returning visit's latch. Without it a call still
  * traveling for the first stay at a target held the key the second stay computes,
- * so the second stay's Send found the slot taken by a call it could not see, and the
+ * so the second stay's Send found the latch taken by a call it could not see, and the
  * press did nothing at all — the one outcome a control may not have.
  *
  * The segments are joined by a separator that appears in none of them, and no reader
@@ -106,7 +106,7 @@ export function addressedOperationKey(
  *
  * WHY THE REGISTER NEEDS NARROWING AT ALL. Nothing ever removed a key, so it grew one
  * entry per dispatched act for the life of the mounted composer — an unbounded
- * register in a family that bounds every wire-controlled list it renders. The entries
+ * register in a console that bounds every wire-controlled list it renders. The entries
  * were not merely surplus: {@link isSettlementCurrent} reads a key only when the
  * identity's own `draftKey` and `visit` are the composer's current pair, so every key
  * from a retired visit or another target is dead the instant the composer
@@ -118,7 +118,7 @@ export function addressedOperationKey(
  * `addressedOperationKey` about what a key looks like. A prefix or `split` test would
  * have to reason about a separator inside a caller-supplied `draftKey` — which the key
  * function itself deliberately never does — and would be a second, weaker statement of
- * a shape stated once next door.
+ * a shape stated once in `addressedOperationKey`.
  *
  * The result is a fresh record rather than a mutation, so a caller holding the old one
  * across the swap reads a consistent register either way.
@@ -139,7 +139,7 @@ export function attemptIdsAtAddress(
   return retained;
 }
 
-/** Nothing has been refused. Frozen, so no caller writes a slot in place. */
+/** Nothing has been refused. Frozen, so no caller writes an operation's refusal in place. */
 export const NO_COMPOSER_REFUSALS: ComposerRefusalsByOperation = Object.freeze({
   send: undefined,
 });
@@ -154,8 +154,8 @@ export const NO_COMPOSER_REFUSALS: ComposerRefusalsByOperation = Object.freeze({
  * the same operation AT THE SAME VISIT has a result the person has already moved
  * past. Either one makes the settlement stale, and a stale settlement is discarded.
  *
- * The register is keyed by `addressedOperationKey` and not by operation alone: two
- * slots for the whole window let a send at one address retire an attempt at another,
+ * The register is keyed by `addressedOperationKey` and not by operation alone: one
+ * key per operation for the whole window let a send at one address retire an attempt at another,
  * so a refusal the person was looking at was dropped because an unrelated address
  * had dispatched since.
  */
@@ -174,18 +174,18 @@ export function isSettlementCurrent(
 }
 
 /**
- * Record what one act settled as, leaving every other operation's slot untouched.
+ * Record what one act settled as, leaving every other operation's refusal untouched.
  *
  * `refusal` absent is the settlement that SUCCEEDED, and it clears this operation's
- * own slot and nothing else.
+ * own refusal and nothing else.
  */
 export function withSettledRefusal(
-  slots: ComposerRefusalsByOperation,
+  refusalsByOperation: ComposerRefusalsByOperation,
   identity: ComposerSettlementIdentity,
   refusal: Refusal | undefined,
 ): ComposerRefusalsByOperation {
   return {
-    ...slots,
+    ...refusalsByOperation,
     [identity.operation]: refusal === undefined ? undefined : { identity, refusal },
   };
 }
@@ -194,10 +194,12 @@ export function withSettledRefusal(
  * The refusal the bar renders, or `undefined`.
  *
  * THERE IS NO ADDRESS GUARD HERE, and that is the design rather than an omission. The
- * slots are held in `useSubjectScopedState` under the same `(bridge, draftKey)` the
+ * refusals are held in `useSubjectScopedState` under the same `(bridge, draftKey)` the
  * status is, which re-seeds on the render that first sees a new subject: the holder is
  * the guard, and a guard beside it would be a second answer to the same question.
  */
-export function renderableRefusal(slots: ComposerRefusalsByOperation): Refusal | undefined {
-  return slots.send?.refusal;
+export function renderableRefusal(
+  refusalsByOperation: ComposerRefusalsByOperation,
+): Refusal | undefined {
+  return refusalsByOperation.send?.refusal;
 }

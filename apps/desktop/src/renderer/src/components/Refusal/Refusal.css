@@ -7,8 +7,8 @@
  * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
  * and reads every value back out as a custom property.
  *
- * Design-language rules that govern this sheet: rule 9 (the code in mono, the message
- * verbatim) and rule 3's red.
+ * Design-language rules that govern this sheet: the refusal grammar (the code in mono,
+ * the message verbatim) and red, which means something failed.
  */
 
 .meridian-refusal__message {
@@ -19,9 +19,9 @@
 }
 
 /* The code is the one red thing in a refusal: it is what the operator quotes, and the
-   mark beside it carries the same hue. Both are asked for through the primitives' own
-   doors: this sheet does not declare `.meridian-figure--wire` or `.meridian-glyph`,
-   which belong to `figures/figure.css` and `figures/glyph.css`. */
+   mark beside it carries the same hue. Both are asked for through the color properties
+   those components expose: this sheet does not declare `.meridian-figure--wire` or
+   `.meridian-glyph`, which belong to `styles/figure.css` and `components/Glyph/Glyph.css`. */
 .meridian-refusal {
   --meridian-figure-wire-color: var(--meridian-red-text);
   --meridian-glyph-color: var(--meridian-red-mark);
@@ -34,7 +34,7 @@
   align-items: center;
   gap: var(--meridian-space-2);
   /* A refusal that follows prose needs the leading; one that follows a control on the
-     same line does not. The container zeroes it through this door rather than
+     same line does not. The container zeroes it through this property rather than
      redeclaring `--inline` in its own sheet. */
   margin-block-start: var(--meridian-refusal-inline-margin-block-start, var(--meridian-space-2));
   font-size: var(--meridian-text-sm);
@@ -95,12 +95,12 @@
 }
 
 /*
- * The console's own next move, inside the action slot.
+ * The console's own next move, inside the region the `action` prop fills.
  *
  * Set as prose rather than in mono: the code beside it is the wire string and wears
  * the provenance signature, and a sentence in mono is a sentence nobody reads. It
  * takes the same muted color the daemon's own sentence does, because it is a second
- * sentence and not a control — what separates the two is the slot, not the weight.
+ * sentence and not a control — what separates the two is where it sits, not the weight.
  */
 .meridian-refusal__next-move {
   color: var(--meridian-text-muted);
@@ -121,7 +121,7 @@
   background: transparent;
   color: var(--meridian-text-muted);
   /* The dismiss glyph is chrome, not the refusal's own red mark, so this control
-     takes the surrounding red back off the glyph door for its own subtree. */
+     takes the surrounding red back off the glyph's color property for its own subtree. */
   --meridian-glyph-color: currentcolor;
   cursor: pointer;
   transition:
@@ -137,15 +137,14 @@
 /*
  * ------------------------------------------------------ the remedy region
  *
- * What the `action` slot receives, from whichever family's table answered. Muted and a
+ * What the `action` prop receives, from whichever feature's table answered. Muted and a
  * size down, because it is the console's own sentence beside the daemon's rather than a
  * second refusal: one region, one step of leading, no box of its own. A boxed remedy
  * beside a boxed refusal would present one fact as two, which is exactly what putting
- * it in the shape's own slot was meant to avoid.
+ * it in the shape's own region is meant to avoid.
  *
- * ONE DECLARATION AND NOT ONE PER FAMILY. Two families each declared this block under
- * their own prefix, property for property identical, so a change to the region's leading
- * landed on one surface and not the other — and neither sheet said the other existed.
+ * ONE DECLARATION AND NOT ONE PER FEATURE. A copy of this block under each feature's own
+ * prefix would let a change to the region's leading land on one view and not the other.
  */
 .meridian-refusal-remedy {
   display: flex;

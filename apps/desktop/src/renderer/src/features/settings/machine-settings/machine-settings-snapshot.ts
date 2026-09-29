@@ -65,7 +65,7 @@ export interface MachineSettingsSnapshot {
 /**
  * What a window reads before its store has been acquired or asked anything.
  *
- * Exported because the React binding next door renders it while its acquiring effect
+ * Exported because the React binding beside this module renders it while its acquiring effect
  * settles: the opening arm a page draws has to be the SAME snapshot the store itself
  * opens on, and a second literal there would be a second answer to "nothing has
  * happened yet" that nothing keeps equal to this one.

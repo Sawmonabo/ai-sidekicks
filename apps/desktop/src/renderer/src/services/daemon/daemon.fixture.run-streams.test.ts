@@ -2,15 +2,15 @@
 //
 // The sibling file `bridge.test.ts` owns ROUTING — which beats reach which
 // subscription. This one owns SHAPE, and the two fail differently: routing is wrong
-// when a surface receives a frame the daemon would not have sent it, and shape is
+// when a subscriber receives a frame the daemon would not have sent it, and shape is
 // wrong when it receives the right frame in a form the daemon never sends.
 //
-// The defect: the fixture handed every subscriber the renderer-local envelope, so a
-// runs surface subscribed to `run.subscribeState` received `{id, sessionId, sequence,
+// The defect this guards: a fixture that handed every subscriber the renderer-local
+// envelope would give a subscriber to `run.subscribeState` `{id, sessionId, sequence,
 // kind, occurredAt, payload}` where the wire sends `RunStateChangeEvent` — no `kind`,
 // no `sequence`, no nested `payload`, and `currentState` where the envelope has
-// `payload.newState`. Nothing rendered differently, because nothing reads those
-// members yet. It will.
+// `payload.newState`. Nothing reads those members yet, so no screen would show the
+// difference until something does.
 //
 // The projector's OWN behavior — which subscriptions it answers for at all, and
 // which optional members it carries — is a different subject with a different
@@ -133,7 +133,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
   it("negative control: the delivered payload is not the envelope it used to be", () => {
     // The case above would pass over a bridge that delivered BOTH — so this pins the
     // members the envelope has and the projection must not: a `kind`, a `sequence`,
-    // and a nested `payload` are what a surface would have keyed on by mistake.
+    // and a nested `payload` are what a subscriber would key on by mistake.
     const fixture = createFixture();
     const received = subscribeThroughBridge<Readonly<Record<string, unknown>>>(
       fixture,

@@ -1,6 +1,6 @@
 // Who holds the store, and when the binding acquires one.
 //
-// The store next door is proved against its own methods; what is proved here is WHOSE
+// The store beside this module is proved against its own methods; what is proved here is WHOSE
 // store a page is on and WHEN the holder mints or disposes one. Acquiring disposes, so
 // a render React replays or abandons must never dispose the store the committed tree
 // is subscribed to.
@@ -136,7 +136,7 @@ describe("machine settings binding — acquisition happens after the commit", ()
     expect(firstStore).toBeDefined();
 
     const abandonedBridge = freshBridge().bridge;
-    // The failure is left UNCAUGHT rather than wrapped in a surface boundary: the
+    // The failure is left UNCAUGHT rather than wrapped in an error boundary: the
     // boundary's record of a render failure is a tripwire, and this tier throws on
     // one, so catching the throw here would replace the case's subject with the
     // boundary's. React reports the pass it discarded through `console.error`.

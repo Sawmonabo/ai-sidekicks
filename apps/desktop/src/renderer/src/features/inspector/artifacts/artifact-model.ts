@@ -10,7 +10,7 @@
 // tables in the same compile.
 //
 // This module models no payload preview and never nulls a derivative's `subject`. Payloads
-// are explicit-fetch downloads with no in-product execution surface.
+// are explicit-fetch downloads, and nothing in the product executes one.
 
 import type {
   ArtifactManifest,

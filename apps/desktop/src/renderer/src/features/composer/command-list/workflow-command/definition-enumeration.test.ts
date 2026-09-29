@@ -3,7 +3,7 @@
 // The defect these cases were written against is silent by construction: a resolution
 // that matched only the first page answered "no workflow this session can start is
 // named X" for every definition past it — a refusal about a name the daemon does
-// carry, and one a person can only disprove by opening another surface. So the
+// carry, and one a person can only disprove by opening another view. So the
 // negative control is not "an assertion failed" but "the fixture's second page went
 // unread", which is why the fixture pages by CURSOR rather than by call count.
 

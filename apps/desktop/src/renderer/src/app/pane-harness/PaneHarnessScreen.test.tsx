@@ -1,14 +1,13 @@
 // The fixture pane harness: what it mounts, out of which board, and what it says
 // when it can mount nothing.
 //
-// The harness is the only door in this revision through which a REGISTERED pane
-// body can be opened in a running window, and the `terminal-instance-memory`
-// budget's reading is a difference between two heaps taken across that door. So
-// three of its properties are load-bearing for a number, not merely for a surface,
-// and each has a case below:
+// The harness is the only way a REGISTERED pane body can be opened on its own in a
+// running window, and the `terminal-instance-memory` budget's reading is a difference
+// between two heaps taken across it. So three of its properties are load-bearing for
+// a number, not merely for what the screen shows, and each has a case below:
 //
 //   • it resolves the body out of the pane board it was HANDED, so the endurance
-//     tier measures the descriptor a family registered rather than a component
+//     tier measures the descriptor a feature registered rather than a component
 //     that happens to sit beside it;
 //   • opening a second instance leaves the first one MOUNTED, so the per-instance
 //     slope the budget's control compares is a slope and not a series of
@@ -33,9 +32,6 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 import { AppRouter } from "../router.js";
 import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
-// The module-scope registration door by its own specifier: the seats door does not
-// publish it, no production module calling it having landed yet.
-import { registerScreen } from "@renderer/registries/screens/screen-registry.js";
 
 afterEach(cleanup);
 
@@ -49,7 +45,7 @@ function harnessRoute(paneKind: string, sessionId: string = HARNESS_SESSION_ID):
   return { kind: "pane-harness", paneKind, sessionId };
 }
 
-/** What the harness names one instance, spelled the way the surface spells it. */
+/** What the harness names one instance, spelled the way the screen spells it. */
 function paneInstanceId(instanceIndex: number, sessionId: string = HARNESS_SESSION_ID): string {
   return `pane-harness-terminal-${sessionId}-${String(instanceIndex)}`;
 }
@@ -110,11 +106,11 @@ function boardWithBothStubBodies(): PaneRegistry {
 }
 
 /**
- * The surface context a window would hand this surface.
+ * The screen context a window would hand this screen.
  *
  * The frame store is the real class because the harness reads the route through it
  * in a running window; the two persistence stores are cast away because
- * constructing them opens a database to hand a surface that only passes them
+ * constructing them opens a database to hand a screen that only passes them
  * through — `app/router.test.tsx` casts for the same reason.
  */
 function screenContextFor(route: AppRoute): ScreenContext {
@@ -163,7 +159,7 @@ describe("the fixture pane harness", () => {
       />,
     );
 
-    // The measurement's baseline: the surface is open, the route is resolved, and
+    // The measurement's baseline: the screen is open, the route is resolved, and
     // no instance is held. A harness that mounted one on arrival would fold that
     // instance into the baseline and report every later one as free.
     expect(mountedPaneIds()).toStrictEqual([]);
@@ -208,7 +204,7 @@ describe("the fixture pane harness", () => {
 
     // The pane bodies this harness exists to measure read their state off the
     // window's stores, and a pane handed none renders its not-bound absence — a
-    // surface that would sit well inside any budget while holding none of what the
+    // pane that would sit well inside any budget while holding none of what the
     // budget is about.
     expect(
       document
@@ -226,13 +222,13 @@ describe("the fixture pane harness", () => {
     );
 
     // The console's one admission point for an untyped address decides this, and
-    // its code reaches the screen verbatim rather than a sentence this surface
+    // its code reaches the screen verbatim rather than a sentence this harness
     // wrote.
     expect(screen.getByText(/pane-kind-unknown/u)).toBeTruthy();
     expect(mountedPaneIds()).toStrictEqual([]);
   });
 
-  it("says a pane kind is reserved rather than stubbed when no family registered it", async () => {
+  it("says a pane kind is reserved rather than stubbed when no feature registered it", async () => {
     render(
       <PaneHarnessScreen
         context={screenContextFor(harnessRoute("terminal"))}
@@ -242,7 +238,7 @@ describe("the fixture pane harness", () => {
       />,
     );
 
-    expect(screen.getByText("No family has registered a body for this pane kind.")).toBeTruthy();
+    expect(screen.getByText("No feature has registered a body for this pane kind.")).toBeTruthy();
     // The open control is inert, so a driver cannot mount an absence and count it.
     expect(screen.getByRole("button", { name: "Open a pane" }).hasAttribute("disabled")).toBe(true);
     await pressControl("Open a pane");
@@ -252,7 +248,7 @@ describe("the fixture pane harness", () => {
   it("negative control: it resolves out of the board it was handed, not a singleton", async () => {
     // Every case above reads bodies out of a board built here. Without this one
     // they would all pass over a harness that reached for `paneRegistry` —
-    // which the composition root fills with the production families, so `terminal`
+    // which the composition root fills with the production features, so `terminal`
     // would resolve and the assertions would still be green while the parameter
     // was doing nothing.
     render(
@@ -263,7 +259,7 @@ describe("the fixture pane harness", () => {
     );
     await pressControl("Open a pane");
     expect(mountedPaneIds()).toStrictEqual([]);
-    expect(screen.getByText("No family has registered a body for this pane kind.")).toBeTruthy();
+    expect(screen.getByText("No feature has registered a body for this pane kind.")).toBeTruthy();
   });
 
   it("says so when it is mounted on an address it does not serve", () => {
@@ -274,14 +270,14 @@ describe("the fixture pane harness", () => {
       />,
     );
     expect(
-      screen.getByText("This surface was mounted on an address it does not serve."),
+      screen.getByText("This screen was opened at an address it does not serve."),
     ).toBeTruthy();
   });
 });
 
 // The harness is keyed to the route it was addressed at.
 //
-// Two `#/pane-harness/…` addresses resolve to ONE screen slot, so without a key
+// Two `#/pane-harness/…` addresses resolve to ONE screen, so without a key
 // React reconciled the same component in the same position across a hash change: the
 // open-pane count survived, the replacement route mounted the previous route's number
 // of panes with no Open action, and on a same-kind session change the pane keys were
@@ -302,10 +298,10 @@ describe("the harness across a route change", () => {
     screenRegistry.unregister("pane-harness");
   });
 
-  /** Claim the slot the way the fixture registration does, out of a board here. */
-  function registerHarnessSlot(paneRegistry: PaneRegistry): void {
-    registerScreen({
-      slot: "pane-harness",
+  /** Claim the screen the way the fixture registration does, out of a board here. */
+  function registerHarnessScreen(paneRegistry: PaneRegistry): void {
+    screenRegistry.register({
+      name: "pane-harness",
       owner: HARNESS_OWNER,
       render: (context) => <PaneHarnessScreen context={context} paneRegistry={paneRegistry} />,
     });
@@ -316,7 +312,7 @@ describe("the harness across a route change", () => {
   }
 
   it("mounts no pane when the addressed pane kind changes", async () => {
-    registerHarnessSlot(boardWithBothStubBodies());
+    registerHarnessScreen(boardWithBothStubBodies());
     const view = render(screenAt(harnessRoute("terminal")));
     await pressControl("Open a pane", 2);
     expect(mountedPaneIds()).toHaveLength(2);
@@ -329,7 +325,7 @@ describe("the harness across a route change", () => {
   });
 
   it("mounts no pane, and reuses no instance, when the session changes", async () => {
-    registerHarnessSlot(boardWithBothStubBodies());
+    registerHarnessScreen(boardWithBothStubBodies());
     const view = render(screenAt(harnessRoute("terminal", "session-one")));
     await pressControl("Open a pane");
     expect(mountedPaneIds()).toStrictEqual([paneInstanceId(0, "session-one")]);
@@ -352,7 +348,7 @@ describe("the harness across a route change", () => {
     // on every render: a rerender at the same address is the same subject, so the
     // count and the instance stand. Without this the two cases above would pass
     // against a harness that rebuilt itself on every pass and could hold nothing.
-    registerHarnessSlot(boardWithBothStubBodies());
+    registerHarnessScreen(boardWithBothStubBodies());
     const view = render(screenAt(harnessRoute("terminal")));
     await pressControl("Open a pane");
 

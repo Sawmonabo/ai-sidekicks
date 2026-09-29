@@ -9,7 +9,7 @@
 // exactly that, because a props shape that merely HAPPENS to have the same two
 // field names would pass a per-component test and fail the moment core renamed one.
 //
-// The rest is rule 9's asymmetry, which is easy to lose in a redesign: the code is
+// The rest is the refusal grammar's asymmetry, which is easy to lose in a redesign: the code is
 // mono because it is a wire string, and the message is NOT, because a paragraph set
 // in mono is a paragraph nobody reads. Both are rendered exactly as sent.
 
@@ -73,12 +73,12 @@ describe("one refusal value reaches all three renderings untranslated", () => {
     const message = renderShape(<Shape {...REFUSAL} />).querySelector(".meridian-refusal__message");
     expect(message?.textContent).toBe(REFUSAL.detail);
     // Trimming, truncating, and appending a console-authored sentence are the three
-    // paraphrases rule 9 forbids; each produces a different string.
+    // paraphrases the refusal grammar forbids; each produces a different string.
     expect(message?.textContent).not.toBe(REFUSAL.detail.trim());
     expect(message?.textContent).not.toContain("Try again");
   });
 
-  it.each(SHAPES)("%s offers the next move as a slot rather than deriving one", (_name, Shape) => {
+  it.each(SHAPES)("%s offers the next move as a prop rather than deriving one", (_name, Shape) => {
     const withAction = renderShape(
       <Shape {...REFUSAL} action={<button type="button">Free space</button>} />,
     );

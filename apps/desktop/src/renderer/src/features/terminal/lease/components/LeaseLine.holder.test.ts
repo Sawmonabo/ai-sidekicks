@@ -53,7 +53,7 @@ describe("the holding line — every state the fold settles into", () => {
     );
     expect(container.textContent).toContain("You hold it");
     expect(container.textContent).toContain("You may type into the shared shell.");
-    // The idempotent self-take is not reachable from this surface, so there is no
+    // The idempotent self-take is not reachable from the lease line, so there is no
     // transition for it to animate; and there is no release control to hand back with.
     expect(container.querySelector(".meridian-lease-line__take")).toBeNull();
   });

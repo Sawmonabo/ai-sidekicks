@@ -25,7 +25,7 @@ import { readRunState } from "@renderer/services/daemon/wire-identifiers.js";
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 
-/** The rank a first candidate takes: newer than nothing, so it seats. */
+/** The rank a first candidate takes: newer than nothing, so it takes the place. */
 const NEWER_THAN_NOTHING = -1;
 
 /**
@@ -52,7 +52,7 @@ export const RUN_STATE_ADMITS_STEER: Readonly<Record<RunState, boolean>> = {
 /**
  * Whether one wire-verbatim state string admits a steer.
  *
- * Read through the bridge family's reader rather than compared against a copy of
+ * Read through the bridge's own reader rather than compared against a copy of
  * the vocabulary: the store holds whatever the daemon said, so a value outside the
  * union is a state this console cannot read — and an unreadable state is not one
  * a steer gets addressed to. Absent is the same answer for the same reason.

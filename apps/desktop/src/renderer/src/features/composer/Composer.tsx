@@ -1,22 +1,22 @@
-// The composer: the shell chrome every session view contains, and the seat's body.
+// The composer: the chrome every session view contains.
 //
-// The session screen mounts whatever fills the composer seat; this file is what fills it.
+// The session screen mounts whatever the composer registry holds; this file is what it holds.
 //
 // WHAT THIS FILE IS, AND WHAT IT IS NOT
 //
 // It is the HOST: the region, its accessible framing, and the zones it mounts in their
-// order. It is not the send router, not the chips, not the command surface, and not the
+// order. It is not the send router, not the chips, not the command list, and not the
 // accessories — each of those is a zone of its own, so separate lanes edit separate
 // directories instead of one file several ways.
 //
-// It reads no wire itself. The zones are handed the seat's own props: the accessory
+// It reads no wire itself. The zones are handed the composer's own props: the accessory
 // rail reads the session's context meter off the session store and carries attachments
 // through the bridge, and every zone renders the absence of a read rather than a
 // guess at its answer.
 //
 // THE MESSAGE LINE IS MOUNTED AND SEND IS NOT. The line reads and writes the addressed
 // draft and needs no call, so the host draws it. `SendButton` takes the two daemon
-// calls a send makes as an argument and the seat's props carry none, so this host
+// calls a send makes as an argument and the composer's props carry none, so this host
 // draws no Send control: Enter keeps the draft as typed and sends nothing.
 //
 // THE HOST OWNS WHAT ZONES HAVE TO SHARE, and nothing else. The command zone's

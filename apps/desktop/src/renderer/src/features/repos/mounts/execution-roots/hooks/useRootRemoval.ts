@@ -7,9 +7,8 @@ import {
   RootRemovalController,
   type RootRemovalOperations,
   type RootRemovalReading,
-  type RootRemovalHost,
+  type RootRemovalRecorder,
 } from "../root-removal-controller.js";
-import type { RootRemovalSubject } from "../root-removal-subject.js";
 
 /** Nothing sent. */
 export const ROOT_REMOVAL_IDLE: RootRemovalReading = { status: "idle" };
@@ -24,21 +23,21 @@ export interface RootRemovalBinding {
 /** Bind one root's removal controller to a confirmation, keyed on the root's id. */
 export function useRootRemoval(
   bridge: PlatformBridge,
-  subject: RootRemovalSubject,
+  rootId: string,
   operations: RootRemovalOperations,
 ): RootRemovalBinding {
   const [reading, setReading] = useState<RootRemovalReading>(ROOT_REMOVAL_IDLE);
-  // THE HOST IS ONE OBJECT FOR THE LIFE OF THE SURFACE, over React's own stable state
-  // setter: the resource seam holds the factory's product against a key, and a host
-  // minted per render would hand the controller a reporter the next pass replaces.
-  const host = useMemo<RootRemovalHost>(() => ({ recordRemoval: setReading }), []);
+  // THE RECORDER IS ONE OBJECT FOR THE LIFE OF THE CONFIRMATION, over React's own stable
+  // state setter: the resource seam holds the factory's product against a key, and a
+  // recorder minted per render would hand the controller a reporter the next pass replaces.
+  const recorder = useMemo<RootRemovalRecorder>(() => ({ recordRemoval: setReading }), []);
   const { value: controller } = useSubjectScopedResource(
     bridge,
-    subject.rootId,
-    () => new RootRemovalController({ operations, subject, host }),
+    rootId,
+    () => new RootRemovalController({ operations, rootId, recorder }),
     CONTROLLER_DISPOSAL,
   );
-  // A NEW CONTROLLER MEANS A NEW SUBJECT, and the settlement on screen belongs to the
+  // A NEW CONTROLLER MEANS A NEW ROOT, and the settlement on screen belongs to the
   // old one. Cleared here rather than left standing, so a second row's confirmation
   // never opens already reporting the first row's answer.
   useEffect(() => {

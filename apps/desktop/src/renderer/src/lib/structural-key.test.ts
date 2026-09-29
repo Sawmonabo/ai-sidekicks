@@ -42,11 +42,11 @@ describe("structuralKey", () => {
   // The negative control for the five above: an encoder that answered a fresh string
   // per call would satisfy every inequality here and be useless as a key. Asserted
   // over a `Map`, which is what the callers actually build.
-  it("puts one tuple in one map slot however many times it is encoded", () => {
-    const slots = new Map<string, number>();
+  it("puts one tuple in one map entry however many times it is encoded", () => {
+    const keyedAttempts = new Map<string, number>();
     for (let attempt = 0; attempt < 3; attempt += 1) {
-      slots.set(structuralKey(["acct-claude-team", "weekly_all"]), attempt);
+      keyedAttempts.set(structuralKey(["acct-claude-team", "weekly_all"]), attempt);
     }
-    expect(slots.size).toBe(1);
+    expect(keyedAttempts.size).toBe(1);
   });
 });

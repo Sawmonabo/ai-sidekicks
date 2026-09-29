@@ -2,7 +2,7 @@
 //
 // Both subject hooks hand a caller a `publish` captured at render, and both memoize
 // it. The question this file is about is what that memo may be keyed on, and the
-// answer the pair alone gives is wrong in one direction: a surface routed away and
+// answer the pair alone gives is wrong in one direction: a view routed away and
 // back is at the same pair on two different visits, so a pass that re-addressed and
 // was then thrown away leaves the committed visit's publisher naming a visit that is
 // over. It publishes NOWHERE, silently — and where the value is a resource, it takes
@@ -209,7 +209,7 @@ describe("useSubjectScopedState — the publisher names the visit on screen", ()
     // is a proposal that retires the one before it, which is the arrangement the hook
     // replaced. The pair is equal across the two committed visits, so the memo is not
     // recomputed and the publisher is the FIRST visit's — which the holder correctly
-    // drops, leaving the surface on the seed the third addressing produced.
+    // drops, leaving the component on the seed the third addressing produced.
     const detour = await driveValueDetour(PairKeyedValueProbe, 3);
     act(() => {
       detour.publish("the answer this visit read");
@@ -234,7 +234,7 @@ describe("useSubjectScopedResource — a dropped publish is an open resource nob
   });
 
   it("negative control: the pair-keyed shape opens that resource and closes nothing", async () => {
-    // The publish lands nowhere, so the surface goes on reading through the resource
+    // The publish lands nowhere, so the component goes on reading through the resource
     // it was replacing and the opened one is closed by no path at all — not on the
     // publish, not on a later render, not at unmount.
     const detour = await driveResourceDetour(PairKeyedResourceProbe);

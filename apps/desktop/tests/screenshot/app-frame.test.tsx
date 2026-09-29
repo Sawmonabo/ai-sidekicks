@@ -5,7 +5,7 @@
 // `tests/screenshot/__screenshots__/`, compared against nothing, in no CI job
 // and in no `pnpm test` chain. What it still refuses is a capture that would be a
 // picture of a half-built console — `settled-capture.ts` holds both refusals, the
-// pending pane body and the surface the window cannot hold.
+// pending pane body and the element the window cannot hold.
 //
 // WHY NO IMAGE IS VERSIONED. A reference image is a gate only while the next run
 // renders under the same conditions, and font rasterization moves with the operating
@@ -72,8 +72,8 @@ describe("screenshot — the frame under the first-run scenario", () => {
   }
 
   it("renders the palette over the frame", async () => {
-    // The palette is the one surface that exists on a first run, so it is the one
-    // composition worth capturing before the families ship theirs: the scoped
+    // The palette is the one view that exists on a first run, so it is the one
+    // composition worth capturing before the features ship theirs: the scoped
     // context row, the grouped command list, and the chord hints in the footer.
     await emulateSystemScheme("light");
     const { container } = await renderSettled(

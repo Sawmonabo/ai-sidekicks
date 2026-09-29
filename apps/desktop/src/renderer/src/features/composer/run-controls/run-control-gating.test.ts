@@ -12,8 +12,8 @@ import {
   readingForRun,
   withRunDriverBindings,
 } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
-// The declaring modules rather than the door: both names are read only from this
-// suite, and a door line no production module imports is a dead export.
+// The declaring modules rather than the public entry: both names are read only from
+// this suite, and an entry export no production module imports is a dead export.
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type {
   StoredEntity,

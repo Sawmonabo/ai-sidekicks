@@ -2,13 +2,13 @@
 //
 // Both claims are measured against the pinned `anser`: it consumes CSI sequences and
 // leaves OSC and the two-byte escapes inside the chunk it hands back. Every case below
-// is a sequence family a real shell emits, and the negative controls are the two ways
+// is a kind of sequence a real shell emits, and the negative controls are the two ways
 // the strip could be wrong — taking text with it, or firing on a body that has none.
 //
-// AND ONE FAMILY IS ITS OWN DESCRIBE, because it is the one the scan got wrong rather
-// than merely the one it had not met: DCS, SOS, PM and APC carry a payload of arbitrary
-// length and were read as two-byte escapes, so a terminal that sent one put the whole
-// payload on the page as text up to the terminator nothing looked for.
+// AND ONE KIND IS ITS OWN DESCRIBE, because it is the easiest to get wrong: DCS, SOS, PM
+// and APC carry a payload of arbitrary length, and a scan that read them as two-byte
+// escapes would put a terminal's whole payload on the page as text, up to a terminator
+// nothing looked for.
 
 import { describe, expect, it } from "vitest";
 

@@ -7,7 +7,7 @@
 //      portal, so the popup is not a descendant of the container the card rendered
 //      into. Under happy-dom a case can query the popup off either root and pass, so a
 //      dialog that had quietly stopped portalling — rendered inline, clipped by the
-//      card's own overflow, painted under the surface beside it — would still be found.
+//      card's own overflow, painted under the content beside it — would still be found.
 //      Here the two roots are asserted apart.
 //   2. A DISABLED CONTROL CANNOT BE FOCUSED. `BindModePicker` renders an excluded mode
 //      as a disabled radio carrying the mount's own reason, because the gap must be

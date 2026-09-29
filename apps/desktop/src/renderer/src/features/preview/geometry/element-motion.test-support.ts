@@ -1,15 +1,12 @@
-// The Web Animations and mutation readings this family arms, under test control.
-//
-// The size observer is deliberately NOT here: it moved to
-// `tests/helpers/element-resize.ts` with the seam it drives, so the
-// terminal family can reach it without importing across the DAG. What is left is
-// browser-family work — the animation readings `element-motion.ts` takes and the
-// mutation-record settling its ancestry watch needs.
+// The Web Animations and mutation readings the motion sources arm, under test control:
+// the animation readings `element-motion.ts` takes and the mutation-record settling its
+// ancestry watch needs. The size observer's fake is `tests/helpers/element-resize.ts`,
+// beside the seam it drives, where the terminal tests reach it too.
 
 /**
  * One animation in a fixed play state, as the Web Animations reading a seam takes.
  *
- * Only `playState` is read by anything in this family — the seams ask whether motion
+ * Only `playState` is read by the motion sources — the seams ask whether motion
  * is RUNNING and nothing else about it — so the fake carries that and says so, rather
  * than pretending to be an `Animation` a caller could drive.
  */

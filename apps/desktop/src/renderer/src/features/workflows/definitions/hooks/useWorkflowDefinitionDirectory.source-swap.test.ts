@@ -66,7 +66,7 @@ describe("useWorkflowDefinitionDirectory — the list call is part of the read's
 
   it("reads the replacement call rather than sitting on the reset", async () => {
     // The reset is only half the claim: a hook that reset and never re-read would pass
-    // the case above and leave the surface reading forever.
+    // the case above and leave the definitions list reading forever.
     const probe = observeDirectory(callServing("first-call"));
     await settle();
 

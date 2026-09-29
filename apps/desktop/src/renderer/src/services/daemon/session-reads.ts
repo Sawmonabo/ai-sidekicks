@@ -2,10 +2,10 @@
 // session is called from `session.read`, and the session's timeline stream re-opened
 // after a kept position with `timeline.subscribe`.
 //
-// The re-subscribe is a call a surface takes as an argument rather than one this module
-// makes, so a surface keeps only its own logic and the composition that has a daemon to
-// ask supplies the call. The snapshot half of `session.read` is the registry's own
-// binding, which `callDaemon` answers through.
+// The re-subscribe is a call the transcript's gap fill takes as an argument rather than
+// one this module makes, so the gap fill keeps only its own logic and the composition
+// that has a daemon to ask supplies the call. The snapshot half of `session.read` is
+// the registry's own binding, which `callDaemon` answers through.
 
 /** What a session is called and the state it is in. */
 export interface SessionSummary {

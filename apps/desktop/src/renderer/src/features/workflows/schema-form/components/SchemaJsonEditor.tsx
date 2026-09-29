@@ -8,10 +8,10 @@
 // TWO CHECKS, AND THEY ARE NOT THE SAME CHECK. The first is whether the text is JSON at
 // all, which is always available. The second is whether the JSON satisfies the phase's
 // schema, which is available only where that schema compiled — and where it did not, this
-// surface says so rather than showing a green tick that means less than it looks like.
+// editor says so rather than showing a green tick that means less than it looks like.
 //
 // AND "IT DID NOT" IS NOT THE SAME AS "NOT YET", NOR THE SAME AS "IT NEVER GOT HERE". The
-// compiler arrives on its own chunk, so the validator has two further states this surface
+// compiler arrives on its own chunk, so the validator has two further states this editor
 // must not mistake for a refusal. While it reads `compiling` there is no verdict and no
 // reason to give one, so the uncheckable sentence is withheld rather than shown and then
 // retracted. Where the chunk failed to fetch there IS a sentence and it is the arm's own,
@@ -22,8 +22,8 @@
 // it — it needs nothing that has to be fetched.
 //
 // MONO, BECAUSE IT IS THE WIRE'S OWN SHAPE. What is typed here is the submitted value
-// itself rather than prose about it, so it wears rule 4's provenance signature like every
-// other wire figure on a console surface.
+// itself rather than prose about it, so it is set in mono, the face every wire figure on
+// screen takes to show it is a value and not prose.
 //
 // NO EDITOR LIBRARY. Every runtime-compiling schema editor is disqualified before size is
 // weighed, because this renderer's content policy carries no `unsafe-eval`. A textarea
@@ -31,10 +31,11 @@
 //
 // AND THE EDITOR CARRIES ITS VERDICT THE WAY A DRAWN CONTROL CARRIES ITS OWN. Every drawn
 // field attaches its findings through `aria-describedby` and renders them through
-// `SchemaFieldIssues`; this surface listed them in markup of its own that nothing pointed
-// at. Focus does not leave the textarea while somebody edits, so a reader whose document
-// had just become invalid was told neither that it was invalid nor what the schema said —
-// on the one arm of this form where the whole answer is typed into a single control. Same
+// `SchemaFieldIssues`, and this editor does the same rather than listing them in markup of
+// its own that nothing points at. Focus does not leave the textarea while somebody edits,
+// so without that link a screen reader user whose document had just become invalid would
+// hear neither that it was invalid nor what the schema said — on the one arm of this form
+// where the whole answer is typed into a single control. Same
 // primitive, same attribute, and `aria-invalid` while either reading refuses: no second
 // mechanism, and no `role` this list does not have where the drawn fields draw it.
 
@@ -136,7 +137,7 @@ function rawIssueTexts(report: SchemaValidationReport | undefined): readonly str
  *
  * A switch total over the arms rather than a comparison per arm, so a state added to
  * `SchemaValidatorState` decides here whether it has a sentence instead of silently
- * inheriting "no" — which is how the failed-fetch arm stayed unsaid on this surface.
+ * inheriting "no" and leaving that arm's sentence unsaid in this editor.
  */
 function uncheckableDetailOf(validator: SchemaValidatorState): string | undefined {
   switch (validator.status) {

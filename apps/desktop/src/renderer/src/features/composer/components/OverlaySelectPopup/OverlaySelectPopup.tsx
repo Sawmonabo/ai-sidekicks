@@ -4,9 +4,9 @@
 // control, and they render where they stand. The list is anchored and floating, which
 // is the part a native view would paint over and the part that belongs here.
 //
-// THE KIND IS `popover`, on `OverlayComboboxPopup`'s reasoning — 12.3 enumerates what
-// a thing IS on screen, and an anchored floating list is a popover whichever widget
-// family opened it.
+// THE KIND IS `popover`, on `OverlayComboboxPopup`'s reasoning — `AIRSPACE_OVERLAY_KINDS`
+// enumerates what a thing IS on screen, and an anchored floating list is a popover
+// whichever widget opened it.
 
 import { Select } from "@base-ui/react/select";
 

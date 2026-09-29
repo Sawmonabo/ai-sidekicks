@@ -1,10 +1,10 @@
 // One provider axis, as a combobox over a provider-published vocabulary.
 //
-// COMPOSITION. `@base-ui/react` 1.7.0 is the console's one adopted widget family,
+// COMPOSITION. `@base-ui/react` 1.7.0 is the console's one adopted widget library,
 // combobox and autocomplete included, so the roles, the listbox keyboard model,
 // `aria-activedescendant`, the focus management, and the portal are the library's.
 // Nothing about any of that is re-implemented here — that is the whole reason the
-// family was adopted, and the palette composes the same primitives for the same
+// library was adopted, and the palette composes the same primitives for the same
 // reason.
 //
 // WHY BOTH THE ATTACH FORM AND THE SWITCH CONTROL REACH THIS FILE. They render the

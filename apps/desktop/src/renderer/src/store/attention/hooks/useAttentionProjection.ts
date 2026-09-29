@@ -1,6 +1,6 @@
 // When the attention projection is read, and what makes it be read again.
 //
-// `attention-plane.ts` owns the fold and the reading vocabulary. This module owns the
+// `attention-summary.ts` owns the fold and the reading vocabulary. This module owns the
 // one thing that cannot: a lifetime. It performs the read, holds its result, and
 // re-reads it when the session projections underneath it move — which is what makes
 // the notification center and the all-sessions list report what needs a person NOW
@@ -21,7 +21,7 @@
 // AND EVERY RE-READ GOES THROUGH THE CHOKEPOINT. `PushDrivenRead` is the console's
 // one push-driven read discipline — subscribe first, treat the push as opaque,
 // coalesce through `lib/reads/refresh-scheduler.ts`'s `RefreshScheduler`, serialize so no stale
-// reply wins, and never return a loaded surface to its loading shape. A second read
+// reply wins, and never return a loaded view to its loading shape. A second read
 // engine written here would be a second answer to all five of those questions; a
 // stream of settling events therefore costs one read rather than one read per event.
 //
@@ -29,7 +29,7 @@
 // `not-loaded | loaded | failed`, and the projection's "nothing was read" lives
 // inside the loaded arm as an absent value — because the reader answers `undefined`
 // for a question it could not put. That mapping is written here, in one function, so
-// no surface narrows on both vocabularies at once.
+// no view narrows on both vocabularies at once.
 
 import { useEffect, useMemo } from "react";
 
@@ -69,13 +69,13 @@ export interface AttentionProjectionRead {
 export type AttentionProjectionReadCall = () => Promise<AttentionProjectionRead>;
 
 /** The subsystem name a failed attention read names itself with. */
-const ATTENTION_READ_ORIGIN = "attention-plane";
+const ATTENTION_READ_ORIGIN = "attention-projection";
 
 /**
  * Perform the projection read and keep it current.
  *
  * ONE read for the whole destination. The notification center renders it and the
- * all-sessions list takes each row's severity off the same plane, so the two cannot
+ * all-sessions list takes each row's severity off the same read, so the two cannot
  * disagree about what needs a person — which two reads, however carefully written,
  * eventually would.
  *
@@ -114,7 +114,7 @@ export function useAttentionProjection(
   return useMemo(() => attentionReadingFrom(state), [state]);
 }
 
-/** The read's states as the plane's phases. Written once, here. */
+/** The read's states as the attention reading's phases. Written once, here. */
 function attentionReadingFrom(
   state: PushDrivenReadState<AttentionProjectionRead>,
 ): AttentionReading {
@@ -126,7 +126,7 @@ function attentionReadingFrom(
   }
   return {
     phase: "read",
-    plane: new AttentionSummary(state.value.items),
+    summary: new AttentionSummary(state.value.items),
     droppedCount: state.value.droppedCount,
     // Both halves of coverage carried through untouched: which sessions were asked
     // and which of them went unanswered are the reader's facts, and re-deriving

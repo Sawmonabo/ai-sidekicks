@@ -69,8 +69,8 @@ describe("the vocabulary this register keys on — wire truth", () => {
     // `ATTENTION_RUN_STATES` while the log compares an event kind against
     // `ATTENTION_RUN_STATE_KINDS`, and the two readings are the same fact only while
     // every kind is exactly its state under the prefix. That the states themselves are
-    // the contract's is a COMPILE-time claim in the module — a console surface parses
-    // no wire value, so a runtime check here would have to be a second reading of the
+    // the contract's is a COMPILE-time claim in the module — a view parses no wire
+    // value, so a runtime check here would have to be a second reading of the
     // registered vocabulary rather than the registration itself.
     expect(RUN_STATE_KINDS).toHaveLength(9);
     expect(RUN_STATE_KINDS.every((kind) => kind.startsWith(RUN_STATE_EVENT_PREFIX))).toBe(true);
@@ -188,7 +188,7 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
 describe("SessionStore — the ledger outlives the window", () => {
   it("still counts an approval whose opening row the cap has dropped", () => {
     // THE DEFECT, EXERCISED THROUGH THE REAL STORE. The cap keeps the newest rows, so
-    // the row that opened this approval is gone from the timeline a fold used to walk
+    // the row that opened this approval is gone from the timeline a fold would walk
     // — and the approval is still open.
     const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
     store.initialize({ cursor: 0, entities: [] });

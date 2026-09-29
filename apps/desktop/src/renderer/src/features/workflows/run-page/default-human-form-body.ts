@@ -28,10 +28,10 @@ import type { HumanFormMount } from "./human-form-mount.js";
  * Props are the mount itself, because that is what a mount point body IS — the channel renders it
  * with the mount spread over it, so a body that took a wrapper object would not be one.
  *
- * MOUNTED THROUGH THE SEAT'S LOADER AND NOT AS AN ELEMENT, because the schema form kit
- * is its own chunk: the seat holds the single in-flight load and the reserved region a
- * form leaves while its module is arriving, so this composition gains no loading state
- * of its own and the chunk is fetched once however many forms ask.
+ * MOUNTED THROUGH `schemaFormAnswerBody`'S LOADER AND NOT AS AN ELEMENT, because the schema
+ * form kit is its own chunk: that loader-backed body holds the single in-flight load and
+ * the reserved region a form leaves while its module is arriving, so this composition
+ * gains no loading state of its own and the chunk is fetched once however many forms ask.
  */
 export function DefaultHumanFormBody(mount: HumanFormMount): React.ReactNode {
   return schemaFormAnswerBody.render({

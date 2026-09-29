@@ -16,15 +16,14 @@ export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {
   /**
    * What happened, as text the daemon sent or as the console's own sentence.
    *
-   * ONE SLOT, WIDENED — never a second one beside `detail`. `React.ReactNode` already
-   * includes `string`, so every call site that hands over a daemon message is
-   * unchanged and still goes through {@link formatWireString} below: the "message
-   * verbatim" half of rule 9 is exactly as strong as it was.
+   * ONE PROP, WIDENED — never a second one beside `detail`. `React.ReactNode` already
+   * includes `string`, so a call site hands a daemon message over as a string, and
+   * it goes through {@link formatWireString} below and is shown verbatim.
    *
    * WIDENED ON THE BANNER AND ON NEITHER SIBLING, because the banner is the shape whose
    * message is routinely the CONSOLE's own composition rather than a daemon string, and
-   * rule 4 requires every wire figure inside such a sentence to wear the mono
-   * provenance signature. A `string` would make that unreachable: the only way to name
+   * every wire figure inside such a sentence has to wear the mono provenance
+   * signature. A `string` would make that unreachable: the only way to name
    * a protocol version or an attempt counter inside a sentence would be to paste it
    * into proportional prose. The inline and card shapes render a refusal somebody else
    * wrote and keep `RefusalProps` exactly as it is.

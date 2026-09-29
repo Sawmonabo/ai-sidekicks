@@ -11,21 +11,22 @@
 // module's own shape for delivering it. The kinds-of-nothing rule holds _not checked_
 // and _empty_ to be different absences, and a renderer that collapses two of them into
 // one is wrong — a probe the console cannot read is _not checked_, which is a value
-// and not a gap in a stream. That rule is about what a SURFACE renders; carrying the
+// and not a gap in a stream. That rule is about what a VIEW renders; carrying the
 // distinction off the machine at all is what this module adds, and the batching and
 // the forward are this module's own.
 //
 // ALWAYS ON, IN EVERY BUILD. This is the one observability module the fixture define
-// does not fold: the perf meters next door measure a console an author is watching,
+// does not fold: the perf meters in `performance-meters/` measure a console an author is watching,
 // and this one captures what happened on a machine nobody was watching. A release
 // build that dropped it would ship the console whose failures are unreportable.
 //
 // IT OWNS NO WIRE, AND THAT IS DELIBERATE. The capture batches and hands the batch
-// to a forwarder the shell installs; the forwarder is what knows about the bridge.
-// Two reasons. The band is the daemon's, so the module that reaches it belongs with
-// the bridge and not at the DAG floor — `core/` imports nothing above it. And an
-// auxiliary window is its own renderer process with its own capture and its own
-// forwarder, so the seam has to be installable rather than resolved at import.
+// to a forwarder the window's composition installs; the forwarder is what knows about
+// the bridge. Two reasons. The band is the daemon's, so the module that reaches it
+// belongs with the daemon services and not at the bottom of the import layering —
+// `lib/` imports nothing above it. And an auxiliary window is its own renderer process
+// with its own capture and its own forwarder, so the seam has to be installable rather
+// than resolved at import.
 //
 // NOTHING HERE SCHEDULES. A batch leaves when a batch is full or when a caller
 // flushes, never on a timer: a capture that woke an idle process to check whether it
@@ -53,7 +54,8 @@ export interface DiagnosticRecord {
 }
 
 /**
- * What the shell installs to carry a batch to the daemon's diagnostic band.
+ * What the window's composition installs to carry a batch to the daemon's diagnostic
+ * band.
  *
  * Takes the JSONL text rather than the records, because JSONL IS the encoding the
  * band ingests and building it here means one encoder rather than one per forwarder.
@@ -68,7 +70,7 @@ export type DiagnosticForwarderDetach = () => void;
 /**
  * A probe the console cannot read, and why.
  *
- * The "I am blind" marker, as a value rather than as an absence. A surface renders
+ * The "I am blind" marker, as a value rather than as an absence. A diagnostics view renders
  * these so an operator reading a quiet diagnostics panel can tell a console with
  * nothing to report from a console that cannot tell.
  */
@@ -106,9 +108,9 @@ export class DiagnosticCapture {
    * Attach the forwarder that carries batches to the band.
    *
    * Installing flushes what has accumulated, because records captured before the
-   * shell finished wiring are exactly the boot failures nobody else will see. A
-   * second install replaces the first and returns a detach that is inert once
-   * replaced — a registry that could be silently re-pointed would let one
+   * window's composition finished wiring are exactly the boot failures nobody else
+   * will see. A second install replaces the first and returns a detach that is inert
+   * once replaced — a registry that could be silently re-pointed would let one
    * subsystem's install drop another's.
    */
   public installForwarder(forwarder: DiagnosticBatchForwarder): DiagnosticForwarderDetach {
@@ -147,13 +149,13 @@ export class DiagnosticCapture {
    * one fact. The first marking is captured as a record too, so the band learns of
    * the blindness through the same stream as everything else.
    *
-   * AT THE BOUND THE REFUSAL IS ITSELF A MARKER, which is what the bounds table next
-   * door promises of this edge and what the perf-meter registry does with its own
-   * refused series. A capture that dropped the thirty-third blind probe in silence
-   * would be a module whose whole purpose is telling an operator it cannot see, going
-   * quiet at exactly the cascade that filled it. The count is incremented BEFORE the
-   * record is captured, so a re-entrant `markBlind` reaching this arm sees a second
-   * refusal and does not emit again.
+   * AT THE BOUND THE REFUSAL IS ITSELF A MARKER, which is what the bounds table in
+   * `diagnostic-capture-bounds.ts` promises of this edge and what the perf-meter
+   * registry does with its own refused series. A capture that dropped the thirty-third
+   * blind probe in silence would be a module whose whole purpose is telling an operator
+   * it cannot see, going quiet at exactly the cascade that filled it. The count is
+   * incremented BEFORE the record is captured, so a re-entrant `markBlind` reaching
+   * this arm sees a second refusal and does not emit again.
    *
    * THE CAPTURE'S OWN FORWARD SEAM IS EXCLUDED FROM THE COUNT. `flush` marks it blind
    * whenever no forwarder is installed, and `record` flushes at every batch boundary,
@@ -321,8 +323,8 @@ function boundedDetail(detail: string): string {
  * It has one producer and no forwarder. `tripwire-diagnostic-route.ts` routes this
  * process's tripwire registry into it and the composition site arms that route, so
  * every invariant breach a window detects is captured; the forwarder that would carry
- * a batch to the daemon's band is the shell's, and the READING surface is a
- * diagnostics page neither of them has built yet. Until one of those installs a
+ * a batch to the daemon's band is the window composition's, and the view that READS it
+ * is a diagnostics page neither of them has built yet. Until one of those installs a
  * forwarder the capture marks its own forward seam blind and holds what it has under
  * the pending bound, which is the state its marker exists to make legible.
  */

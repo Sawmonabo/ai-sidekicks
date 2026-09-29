@@ -3,17 +3,17 @@
 //
 // THE RULE, STATED ONCE: can any object answer satisfy this root? A submitted answer
 // travels as the request's `fields`, which is a set of named values and nothing else, and
-// the submit surface reads that shape off what the form composed — a plain object or no
-// submission at all. So the question this module answers is not which type a root spelled
-// but whether the set of values the root admits contains one the wire can carry. Where it
-// cannot, every schema-valid answer is refused after composition, and offering a control
-// for it would be offering a control that cannot work.
+// the run page's submit path reads that shape off what the form composed — a plain object
+// or no submission at all. So the question this module answers is not which type a root
+// spelled but whether the set of values the root admits contains one the wire can carry.
+// Where it cannot, every schema-valid answer is refused after composition, and offering a
+// control for it would be offering a control that cannot work.
 //
 // WHICH IS WHY IT IS A REFUSAL RATHER THAN THE RAW EDITOR. The editor is the mapper's
 // answer to a schema it cannot DRAW, and it works because a person can still compose the
 // object the wire wants. Here that object is the one thing the schema forbids, so an
-// editor would invite an answer whose only settlement is the submit surface's own
-// `answer-not-composed`. The fault is in the definition, and the surface says so where a
+// editor would invite an answer whose only settlement is the submit path's own
+// `answer-not-composed`. The fault is in the definition, and the form says so where a
 // person meets it.
 //
 // FIVE READINGS OVER SIX KEYWORDS CAN CLOSE THE SET, AND A ROOT DECLARING NONE OF THEM
@@ -123,7 +123,7 @@ export function schemaRootAsksOutsideNamedValues(inputSchema: unknown): boolean 
 /**
  * The refusal such a phase carries, or nothing where its root can be answered at all.
  *
- * Composed here rather than at each surface so the two that render it — the run's form
+ * Composed here rather than in each component so the two that render it — the run's form
  * and the definition preview beside it — say one thing, and so the code they render is
  * the constant above rather than a string spelled twice.
  */

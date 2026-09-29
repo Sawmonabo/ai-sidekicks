@@ -126,7 +126,7 @@ export async function renderSettledBlock(reading: {
   // Under the bridge provider, because the list below this page takes the window's
   // clock from `useClock` — the console's one answer to which clock a window
   // runs on, and the resolution the provider's own error message says every console
-  // surface renders inside. The supplied bridge is the context's and the clock is the
+  // screen renders inside. The supplied bridge is the context's and the clock is the
   // case's, so nothing about what this case answers moves.
   const { container } = render(
     <PlatformBridgeProvider bridge={context.bridge} clock={clock}>

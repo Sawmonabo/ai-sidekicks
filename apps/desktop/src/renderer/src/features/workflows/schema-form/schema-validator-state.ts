@@ -1,6 +1,6 @@
 // Where one form stands with the thing that checks it, and which input mode that puts it in.
 //
-// WHY IT IS ITS OWN MODULE. `use-schema-form.ts` beside it owns the form's STATE — a draft
+// WHY IT IS ITS OWN MODULE. `hooks/useSchemaForm.ts` owns the form's STATE — a draft
 // tree, a raw document, one composed answer, one derived report. What is here is a
 // different subject that happens to be read on every one of its renders: the four positions
 // a form can be in with respect to the schema compiler, and the single function that turns
@@ -16,16 +16,15 @@
 // read controls nobody could see.
 //
 // THE COMPILER ARRIVES, WHICH IS WHY THE VALIDATOR IS STATE AND WHY THERE IS AN ARM FOR
-// BEFORE IT DOES. `compileSchemaValidator` reaches the console through a loader — the
-// bridge door is on the initial import graph and the schema library behind that compiler
-// is not something every launch may be charged for — so between a form's first render and
-// the chunk landing there is a window in which the form exists and nothing can check what
-// is typed into it. That window is a THIRD arm on this state and never a widening of the
-// door's two-armed `SchemaValidator`: a surface reading `compiling` is being told the
-// verdict has not been reached, which is a different fact from a schema that could not be
-// compiled and from one that came back clean. While it holds, a form has NO report — not a
-// clean one — and `SchemaFormAnswer` offers no act, because a verdict describes the bytes
-// a submission carries and there is no verdict yet.
+// BEFORE IT DOES. `compileSchemaValidator` reaches the form through a loader, so the
+// schema library behind it arrives on a chunk of its own — and between a form's first
+// render and that chunk landing there is a window in which the form exists and nothing
+// can check what is typed into it. That window is a THIRD arm on this state and never a
+// widening of the compiler's two-armed `SchemaValidator`: a component reading `compiling`
+// is being told the verdict has not been reached, which is a different fact from a
+// schema that could not be compiled and from one that came back clean. While it holds, a
+// form has NO report — not a clean one — and `SchemaFormAnswer` offers no act, because a
+// verdict describes the bytes a submission carries and there is no verdict yet.
 //
 // AND THE ARRIVAL CAN FAIL, WHICH IS THE FOURTH ARM AND NOT A REUSE OF THE THIRD OR THE
 // SECOND. A chunk fetch rejects on a damaged or half-updated install, and the window that
@@ -45,13 +44,13 @@
 // the VALIDATOR's own detail is what will not be checked, and it is read beneath the
 // document. Held together in one module because a reader deciding whether they overlap has
 // to see both, and held once each because a literal composed per render would hand the
-// surface a new plan on every keystroke.
+// form a new plan on every keystroke.
 
 import type { SchemaFallback, SchemaFormPlan } from "./plan/schema-fields.js";
 import type { SchemaValidator } from "./json-schema-validator.js";
 
 /**
- * What a form settled on for one schema: the door's own verdict, or the fact that the
+ * What a form settled on for one schema: the compiler's own verdict, or the fact that the
  * thing that would have produced one never reached this window.
  *
  * Held apart from {@link SchemaValidatorState} because it is what a compile ROUND ends
@@ -69,12 +68,13 @@ export type SettledSchemaValidator =
 /**
  * Where a form is with the compiler it needs: still fetching it, or how that ended.
  *
- * The door's two arms plus the two they cannot express. `SchemaValidator` answers what
- * compiling a schema CAME BACK WITH, and both of its arms are answers — so a third arm
- * added there would have made every reader of a compiled validator re-check whether an
- * answer had arrived at all, and a fourth would have made the door speak about a fetch it
- * does not perform. Here they are one union in one module, above the two consumers that
- * branch on it ({@link choosePlanForValidator} and the raw editor), and the door's shape is untouched.
+ * The compiler's two arms plus the two they cannot express. `SchemaValidator` answers
+ * what compiling a schema CAME BACK WITH, and both of its arms are answers — so a third
+ * arm added there would make every reader of a compiled validator re-check whether an
+ * answer had arrived at all, and a fourth would make the compiler's verdict speak about a
+ * fetch the compiler does not perform. Here they are one union in one module, above the
+ * two consumers that branch on it ({@link choosePlanForValidator} and the raw editor),
+ * and `SchemaValidator` stays two arms.
  */
 export type SchemaValidatorState = { readonly status: "compiling" } | SettledSchemaValidator;
 
@@ -88,7 +88,7 @@ export const VALIDATOR_COMPILE_KEY = "schema-validator-compile";
 
 /**
  * What the validator reads as before an answer exists. Held once, so a render that has
- * not compiled yet hands the surface the same value as the one before it.
+ * not compiled yet hands the form the same value as the one before it.
  */
 export const COMPILING_VALIDATOR: SchemaValidatorState = { status: "compiling" };
 

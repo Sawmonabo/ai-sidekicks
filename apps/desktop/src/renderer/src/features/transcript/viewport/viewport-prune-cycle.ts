@@ -77,7 +77,7 @@ export class ViewportPruneCycle {
    * The conditions the last pass folded in, kept so a deferred prune can be
    * re-asked with them.
    *
-   * The surrounding surface reports these on a render, and the three of them are
+   * The surrounding feed reports these on a render, and the three of them are
    * exactly what a re-ask must NOT invent: re-running the prune against a row set
    * this frame made up would apply the cap to a window nobody is showing.
    */
@@ -187,7 +187,7 @@ export class ViewportPruneCycle {
    * The conditions a re-ask is owed with, or `undefined` when nothing is owed.
    *
    * WHY A SECOND ENTRY POINT AND NOT A WIDER RECONCILE. A pass is driven by the
-   * three conditions the surrounding surface reports — the row set, the turn
+   * three conditions the surrounding feed reports — the row set, the turn
    * activity, the reveal drain — and four of the seven refusals below are conditions
    * NONE of those three carry: a reader above the tail, a pin, a programmatic write
    * in flight, and a held row are facts about this frame. A window left over its cap
@@ -241,7 +241,7 @@ export class ViewportPruneCycle {
    * THE THREE ARMS THAT ANSWER `false` ARE NOT UNOBSERVABLE, THEY ARE ALREADY
    * OBSERVED. `under-cap` is not a refusal to retry at all — the window is within
    * its cap and there is nothing owed. `active-turn` and `reveal-drain` are read
-   * straight off `ViewportConditions`, so the surface that reports them
+   * straight off `ViewportConditions`, so the feed that reports them
    * re-runs the pass the moment either changes; retrying them here would be a
    * second reader of one fact, racing the first.
    *

@@ -1,14 +1,14 @@
-// Every live queue reading in this window, and the door a surface reads one through.
+// Every live queue reading in this window, and the hook a view reads one through.
 //
 // `queue-reading.ts` owns what ONE session's reading says; this module owns how many
-// there are and how long each lives. Every surface on one bridge and session is
+// there are and how long each lives. Every view on one bridge and session is
 // served by one snapshot read and one tail: the entry opens them when the first
 // watcher arrives and forgets them when the last leaves, so a window with no queue
-// surface mounted holds no subscription and a surface that mounts later reads afresh.
+// view mounted holds no subscription and a view that mounts later reads afresh.
 //
-// The calls are supplied by the surface that mints a reading, through a forwarder that
-// reads that surface's latest calls, so a surface may hand over a new `QueueCalls`
-// object each render. A later surface on the same bridge and session shares that
+// The calls are supplied by the view that mints a reading, through a forwarder that
+// reads that view's latest calls, so a view may hand over a new `QueueCalls`
+// object each render. A later view on the same bridge and session shares that
 // reading and the forwarder it was minted with.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
@@ -37,8 +37,8 @@ class SessionQueueReadings {
    * The live reading for this pair, minting one where the entry is free.
    *
    * Called from a render AND from a subscription's setup, and both matter: React runs
-   * cleanups before setups, so the pane swap that unmounts one surface and mounts
-   * another in the same commit retires the reading between the mounting surface's
+   * cleanups before setups, so the pane swap that unmounts one view and mounts
+   * another in the same commit retires the reading between the mounting view's
    * render and its subscribe. Resolving again at subscribe time is what makes that
    * commit end with ONE live registered reading.
    */
@@ -87,9 +87,9 @@ const sessionQueueReadings = new SessionQueueReadings();
 /**
  * Read one session's queue through the calls it is handed.
  *
- * Every surface on one bridge and session is served by one snapshot read and one
+ * Every view on one bridge and session is served by one snapshot read and one
  * tail. The watcher count is what opens and closes them, so a window with no queue
- * surface mounted holds no subscription. The window half of the trigger set is wired
+ * view mounted holds no subscription. The window half of the trigger set is wired
  * here and the session half is `useQueueRepairRead`: this hook is reached by a caller
  * that holds only the session id, and a repair is a fact about a session store.
  */
@@ -138,7 +138,7 @@ export function useQueueFeed(
 /**
  * Re-read one session's queue when its stream is repaired.
  *
- * A surface holding the session store calls this beside `useQueueFeed`; one holding
+ * A view holding the session store calls this beside `useQueueFeed`; one holding
  * only the id still re-reads on mount and on focus. The store's sticky degraded flag
  * clearing is the console's nearest reading of a stream that stopped and came back.
  */
@@ -168,7 +168,7 @@ export function useQueueRepairRead(
 /**
  * The calls a reading makes, forwarded to the latest committed `calls`.
  *
- * Stable for the life of the surface, so a new `calls` object each render neither
+ * Stable for the life of the view, so a new `calls` object each render neither
  * re-subscribes the reading nor is ignored by one already minted.
  */
 function useForwardedCalls(calls: QueueCalls): QueueCalls {

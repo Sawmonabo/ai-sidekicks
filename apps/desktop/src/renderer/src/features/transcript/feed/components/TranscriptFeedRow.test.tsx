@@ -1,7 +1,7 @@
-// Which arm of the dispatch a key is, and what the memo behind the seat's arm holds.
+// Which arm of the dispatch a key is, and what the memo behind the row renderer's arm holds.
 //
 // THE DISPATCH IS DRIVEN DIRECTLY rather than through a mounted feed, because the
-// question here is which BRANCH a key takes and the eight suites next door already
+// question here is which BRANCH a key takes and the eight suites beside it already
 // mount the whole transcript. Driven through a feed, a dispatch case would pass or fail
 // on the viewport's cap, its reconcile, and whatever the fixture clock had reached.
 //
@@ -55,7 +55,7 @@ function rendererOptions(
     hueForActor: () => undefined,
     toggleRunGroup: () => undefined,
     rowLease: (): RetainedRowState | undefined => undefined,
-    renderTimelineRow: () => <output data-seat-row="yes" />,
+    renderTranscriptRow: () => <output data-rendered-row="yes" />,
     ...overrides,
   };
 }
@@ -79,35 +79,35 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     ).window;
   }
 
-  it("draws a run group header for the run's own key, never through the seat", () => {
+  it("draws a run group header for the run's own key, never through the row renderer", () => {
     const transcriptWindow = foldedRunGroupWindow();
-    const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
+    const rowRendererCalls = vi.fn(() => <output data-rendered-row="yes" />);
     const container = renderDispatch(
-      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTranscriptRow: rowRendererCalls }),
       TERMINAL_RUN_ID,
     );
 
     expect(container.querySelector(".meridian-run-group-header")).not.toBeNull();
-    // The seat owns row BODIES and a run group header is not one — asking it would
+    // The row renderer owns row BODIES and a run group header is not one — asking it would
     // render a finished run as an ordinary receipt.
-    expect(seatCalls).not.toHaveBeenCalled();
+    expect(rowRendererCalls).not.toHaveBeenCalled();
   });
 
-  it("draws a seam for a row the seam index names, never through the seat", () => {
+  it("draws a seam for a row the seam index names, never through the row renderer", () => {
     const sessionStore = openSessionStoreWithSystemMessage();
     const transcriptWindow = deriveTranscriptWindow(sessionStore.snapshot().timeline, false);
     const seamRowId = [...transcriptWindow.seamByRowId.keys()][0];
     if (seamRowId === undefined) {
       throw new Error("the seam fixture projected no seam row");
     }
-    const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
+    const rowRendererCalls = vi.fn(() => <output data-rendered-row="yes" />);
     const container = renderDispatch(
-      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTranscriptRow: rowRendererCalls }),
       seamRowId,
     );
 
     expect(container.querySelector(".meridian-system-message__label")).not.toBeNull();
-    expect(seatCalls).not.toHaveBeenCalled();
+    expect(rowRendererCalls).not.toHaveBeenCalled();
   });
 
   it("names a row the window no longer holds rather than drawing a blank band", () => {
@@ -115,23 +115,23 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     // blank would read as a row with nothing in it; this is a fact about the cap.
     const transcriptWindow = foldedRunGroupWindow();
     const vanished = viewportRowFor(transcriptWindow, TERMINAL_RUN_ID);
-    const seatCalls = vi.fn(() => <output data-seat-row="yes" />);
+    const rowRendererCalls = vi.fn(() => <output data-rendered-row="yes" />);
     const { result } = renderHook(() =>
       useTranscriptRowRenderer(
         rendererOptions(
           // A window with neither the header nor any projected row under that key.
           deriveTranscriptWindow([], false),
-          { renderTimelineRow: seatCalls },
+          { renderTranscriptRow: rowRendererCalls },
         ),
       ),
     );
     const { container } = render(<>{result.current(vanished)}</>);
 
     expect(container.textContent).toContain("This entry is no longer loaded.");
-    expect(seatCalls).not.toHaveBeenCalled();
+    expect(rowRendererCalls).not.toHaveBeenCalled();
   });
 
-  it("hands an ordinary row to the seat with the four values the seat is given", () => {
+  it("hands an ordinary row to the row renderer with the four values it is given", () => {
     const transcriptWindow = foldedRunGroupWindow();
     const sessionRow = transcriptWindow.viewportRows.find(
       (row) => row.key !== TERMINAL_RUN_ID && transcriptWindow.rowsByKey.has(row.key),
@@ -139,27 +139,27 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     if (sessionRow === undefined) {
       throw new Error("the run group fixture projected no ordinary row");
     }
-    const seatCalls = vi.fn(
-      (slot: TranscriptRowProps): ReactNode => <output data-seat-row={slot.row.id} />,
+    const rowRendererCalls = vi.fn(
+      (rowProps: TranscriptRowProps): ReactNode => <output data-rendered-row={rowProps.row.id} />,
     );
     const container = renderDispatch(
-      rendererOptions(transcriptWindow, { renderTimelineRow: seatCalls }),
+      rendererOptions(transcriptWindow, { renderTranscriptRow: rowRendererCalls }),
       sessionRow.key,
     );
 
-    expect(seatCalls).toHaveBeenCalledTimes(1);
-    expect(container.querySelector(`[data-seat-row="${sessionRow.key}"]`)).not.toBeNull();
+    expect(rowRendererCalls).toHaveBeenCalledTimes(1);
+    expect(container.querySelector(`[data-rendered-row="${sessionRow.key}"]`)).not.toBeNull();
   });
 });
 
-describe("the memo behind the seat's arm — what a frame redraws", () => {
+describe("the memo behind the row renderer's arm — what a frame redraws", () => {
   /**
    * One log, projected twice through ONE retention table.
    *
    * The retention is the whole instrument: it is what holds a row object across a
    * projection, and the memo's four values are identity-stable only because it does.
    * Two projections built without it hand the memo four fresh values and it can never
-   * hold — which is the state this boundary was drawn to end.
+   * hold.
    */
   function twoProjectionsOverOneLog(): {
     readonly before: TranscriptWindowModel;
@@ -186,25 +186,25 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
    * component and the count would be two under any arrangement at all. The mock is
    * the helper's, so a claim and its control cannot accidentally count two of them.
    */
-  function seatCallsAcrossTwoProjections(
+  function rowRendererCallsAcrossTwoProjections(
     secondOptions: (
       nextWindow: TranscriptWindowModel,
-      renderTimelineRow: (slot: TranscriptRowProps) => ReactNode,
+      renderTranscriptRow: (rowProps: TranscriptRowProps) => ReactNode,
     ) => TranscriptRowRendererOptions,
   ): number {
     const { before, after, rowKey } = twoProjectionsOverOneLog();
     expect(after).not.toBe(before);
-    const seatCalls = vi.fn((): ReactNode => <output data-seat-row="yes" />);
+    const rowRendererCalls = vi.fn((): ReactNode => <output data-rendered-row="yes" />);
     const Dispatch = (props: { readonly options: TranscriptRowRendererOptions }): ReactNode => {
       const renderRow = useTranscriptRowRenderer(props.options);
       return renderRow(viewportRowFor(props.options.transcriptWindow, rowKey));
     };
     const view = render(
-      <Dispatch options={rendererOptions(before, { renderTimelineRow: seatCalls })} />,
+      <Dispatch options={rendererOptions(before, { renderTranscriptRow: rowRendererCalls })} />,
     );
-    expect(seatCalls).toHaveBeenCalledTimes(1);
-    view.rerender(<Dispatch options={secondOptions(after, seatCalls)} />);
-    const calls = seatCalls.mock.calls.length;
+    expect(rowRendererCalls).toHaveBeenCalledTimes(1);
+    view.rerender(<Dispatch options={secondOptions(after, rowRendererCalls)} />);
+    const calls = rowRendererCalls.mock.calls.length;
     view.unmount();
     return calls;
   }
@@ -212,10 +212,10 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
   it("does not redraw the card when the window moved and the row did not", () => {
     // THE CLAIM THE MODULE EXISTS FOR. `renderRow` is a new callback — it closes over
     // a new window object — so the lookups really run again; the card behind them does
-    // not, because the four values the seat is handed are the same four objects.
+    // not, because the four values the row renderer is handed are the same four objects.
     expect(
-      seatCallsAcrossTwoProjections((nextWindow, renderTimelineRow) =>
-        rendererOptions(nextWindow, { renderTimelineRow }),
+      rowRendererCallsAcrossTwoProjections((nextWindow, renderTranscriptRow) =>
+        rendererOptions(nextWindow, { renderTranscriptRow }),
       ),
     ).toBe(1);
   });
@@ -225,8 +225,8 @@ describe("the memo behind the seat's arm — what a frame redraws", () => {
     // all — a card frozen at whatever it drew first, which is worse than redrawing it.
     const openedLease = (): RetainedRowState => ({ density: "expanded", innerScrollTopPx: 0 });
     expect(
-      seatCallsAcrossTwoProjections((nextWindow, renderTimelineRow) =>
-        rendererOptions(nextWindow, { renderTimelineRow, rowLease: openedLease }),
+      rowRendererCallsAcrossTwoProjections((nextWindow, renderTranscriptRow) =>
+        rendererOptions(nextWindow, { renderTranscriptRow, rowLease: openedLease }),
       ),
     ).toBe(2);
   });

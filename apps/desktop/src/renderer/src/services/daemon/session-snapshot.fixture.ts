@@ -4,7 +4,7 @@
 // the moment a store opens on it.
 //
 // AND THAT MOMENT IS WHAT SCOPES IT. What a session contains LATER is a fold of the
-// delivered log over this base state, and each plane that needs one owns its own fold.
+// delivered log over this base state, and each reader that needs one owns its own fold.
 // This file is every such fold's opening term and answers nothing about what has
 // happened since.
 //
@@ -20,7 +20,7 @@
 // one cannot until the wire does.
 //
 // IT CARRIES NO ENTITIES, AND THAT IS A READING RATHER THAN A GAP. Every partition a
-// surface reads is projected from the delivered log by a registered projector, so a
+// view reads is projected from the delivered log by a registered projector, so a
 // base state that filed rows of its own would be a second source of truth for them.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";

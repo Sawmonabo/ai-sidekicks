@@ -18,7 +18,7 @@ describe("the link scheme guard", () => {
     expect(allowedTerminalLinkHref("http://example.test")).toBe("http://example.test/");
   });
 
-  it("refuses the schemes a program can print to attack the shell that renders it", () => {
+  it("refuses the schemes a program can print to attack the terminal that renders it", () => {
     // A terminal renders whatever a process writes, so the printed text is
     // attacker-controlled whenever the process is.
     expect(allowedTerminalLinkHref("javascript:alert(1)")).toBeUndefined();

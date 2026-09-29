@@ -1,7 +1,7 @@
 // One deadline for a whole tree kill, and what each command inside it is charged.
 //
 // `process-tree-readers.test.ts` beside this owns the bound on ONE command — the
-// shared door taking the smaller of `HOST_QUERY_TIMEOUT_MS` and what it is
+// shared `runBoundedHostCommand` taking the smaller of `HOST_QUERY_TIMEOUT_MS` and what it is
 // handed, and spawning nothing at all once that reaches zero. That claim is
 // about a single query and says nothing about a SEQUENCE of them, which is what
 // a tree kill actually is: the root's start-stamp read, the whole-host
@@ -139,7 +139,7 @@ describe("tree termination — every host command is charged to one shared deadl
   });
 
   it("hands a command that follows an exhausted one nothing at all", () => {
-    // The floor, and the half the door depends on: at or below zero it spawns
+    // The floor, and the half `runBoundedHostCommand` depends on: at or below zero it spawns
     // nothing, so a second command after one that overran must arrive there
     // with 0 rather than with the figure the first one was given. One command
     // per case-scripted spend of the WHOLE deadline makes that unambiguous.
@@ -159,7 +159,7 @@ describe("tree termination — every host command is charged to one shared deadl
     expect(hostCommands.charged[0]).toBe(TEST_DEADLINE_MS);
     expect(
       hostCommands.charged.slice(1),
-      "a command that followed one which had already overrun was charged something other than zero — the door would spawn on an expired deadline",
+      "a command that followed one which had already overrun was charged something other than zero — the host command would spawn on an expired deadline",
     ).toStrictEqual(hostCommands.charged.slice(1).map(() => 0));
   });
 
@@ -214,7 +214,7 @@ describe("the shared deadline itself, read directly", () => {
     clock.advance(TEST_DEADLINE_MS / 4);
     expect(budget.remainingMilliseconds()).toBe(TEST_DEADLINE_MS * 0.75);
     // Past the deadline the honest answer is zero and never a negative number:
-    // the door refuses at or below zero, and a growing negative would say the
+    // `runBoundedHostCommand` refuses at or below zero, and a growing negative would say the
     // same thing in a form no reader can compare against a bound.
     clock.advance(TEST_DEADLINE_MS * 4);
     expect(budget.remainingMilliseconds()).toBe(0);

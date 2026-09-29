@@ -2,8 +2,8 @@
 // raises it stands for.
 //
 // Its own module rather than a second component inside `SessionScreen.tsx`, which is the
-// console's standing rule — one component per module — and which the session screen's own
-// surface would otherwise be the exception to.
+// console's standing rule — one component per module — and which the session screen
+// would otherwise be the exception to.
 //
 // THE COUNT SITS BESIDE THE BANNER rather than inside it. `RefusalBanner` renders the
 // code verbatim and the daemon's sentence unedited; a repeat count is neither. It is

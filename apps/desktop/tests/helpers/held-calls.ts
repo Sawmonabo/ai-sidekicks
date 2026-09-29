@@ -3,9 +3,9 @@
  *
  * A suite that wants to catch a call mid-flight — to unmount under it, to press a
  * control while it is outstanding, to watch what a second call does — needs the port
- * to stop until the case says otherwise. Three shapes cover every such case in this
- * family: a gate let through once, a port whose every invocation waits for its own
- * answer, and a queue of calls released together. They live at the family root rather
+ * to stop until the case says otherwise. Three shapes cover every such case in the
+ * renderer's suites: a gate let through once, a port whose every invocation waits for its own
+ * answer, and a queue of calls released together. They live in `tests/helpers/` rather
  * than beside each suite because a gate re-derived per suite is a gate whose release
  * semantics drift per suite, which is what makes a held-call race hard to read.
  */

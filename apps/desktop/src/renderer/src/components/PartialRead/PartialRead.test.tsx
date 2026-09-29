@@ -27,7 +27,7 @@ function renderNotice(...states: readonly ReadingState[]): HTMLElement {
   return container;
 }
 
-describe("PartialRead — a surface says less than complete, never more", () => {
+describe("PartialRead — a view says less than complete, never more", () => {
   it("renders nothing when every reading served", () => {
     expect(renderNotice({ kind: "served" }, { kind: "served" }).innerHTML).toBe("");
   });
@@ -42,7 +42,7 @@ describe("PartialRead — a surface says less than complete, never more", () => 
     }
   });
 
-  it("mounts one notice per reading a surface holds", () => {
+  it("mounts one notice per reading a view holds", () => {
     // The mechanism, not the discipline: a served snapshot beside an unreadable tail
     // is one notice, and two incomplete readings are two.
     const container = renderNotice(
@@ -70,7 +70,7 @@ describe("PartialRead — what each arm puts on screen", () => {
   });
 
   it("carries the count as a derived figure and never as a wire one", () => {
-    // Rule 4: the console counted these, so the count must not wear the wire
+    // The console counted these, so the count must not wear the wire
     // signature. The refusal beneath it still does, which is why the assertion is
     // scoped to the copy line.
     const copy = renderNotice(STATE_BY_KIND.partial).querySelector(".meridian-partial-read__copy");
@@ -99,8 +99,8 @@ describe("PartialRead — the console keeps one announcer", () => {
   /**
    * How many regions each arm's tree is entitled to, and whose they are.
    *
-   * Every one belongs to a primitive this component MOUNTS — rule 9's refusal region
-   * on the three arms that carry a refusal, rule 8's `not-loaded` region on the
+   * Every one belongs to a component this one MOUNTS — the refusal's region
+   * on the three arms that carry a refusal, the `not-loaded` absence's region on the
    * in-flight arm. The `cut` arm carries neither, and it is the arm that makes the
    * claim checkable: a wrapper of this component's own would show up there as a
    * region with no owner.

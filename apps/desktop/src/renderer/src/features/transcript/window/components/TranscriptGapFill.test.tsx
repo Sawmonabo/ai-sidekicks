@@ -3,7 +3,7 @@
 // Driven through a REAL registry and a real store rather than through scripted facts:
 // the hole is produced by applying a batch that skips a position, which is the same
 // path a delivery gap takes in a shipped window, and the kept position is produced by
-// a read that acknowledges one. A suite that handed the surface two literals would be
+// a read that acknowledges one. A suite that handed the component two literals would be
 // asserting against its own reading of the store rather than against the store.
 
 import { render, screen, waitFor } from "@testing-library/react";
@@ -16,7 +16,7 @@ import { eventOfKind } from "@test/helpers/session-events.js";
 import { emptySnapshot } from "@test/helpers/session-store-fixtures.js";
 import { TranscriptGapFill } from "./TranscriptGapFill.js";
 
-const SESSION_ID = "session-gap-surface";
+const SESSION_ID = "session-gap-fill";
 const ACKNOWLEDGED_CURSOR = "cursor-acknowledged-by-the-read";
 
 /**
@@ -40,12 +40,12 @@ function registryAcknowledging(acknowledged: string | undefined): SessionStoreRe
 }
 
 /**
- * An open session whose first read has landed, so both facts this surface reads exist.
+ * An open session whose first read has landed, so both facts this component reads exist.
  *
  * The read is what settles the resume decision, which is why it goes through the
  * registry rather than through `SessionStore.initialize`: a store initialized by hand
  * holds a base state and no record of what the daemon acknowledged, which is exactly
- * the half this surface asks about.
+ * the half this component asks about.
  */
 async function openAndRead(registry: SessionStoreRegistry): Promise<SessionStore> {
   const sessionStore = registry.open(SESSION_ID);
@@ -64,7 +64,7 @@ function openHole(sessionStore: SessionStore): void {
   ]);
 }
 
-/** The surface, with a call that accepts every ask. */
+/** The component, with a call that accepts every ask. */
 function renderFill(registry: SessionStoreRegistry, sessionStore: SessionStore): HTMLElement {
   const fillGap: TimelineSubscribeCall = () =>
     Promise.resolve({ subscriptionId: "subscription-replay" });

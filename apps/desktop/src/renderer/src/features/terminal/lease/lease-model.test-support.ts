@@ -24,9 +24,9 @@ import { TERMINAL_LEASE_EVENT_KIND } from "./lease-transition.js";
  * Two users, taken from the scenario rather than written down.
  *
  * The fold treats a user id as an opaque string, so a readable placeholder
- * would pass every case — and would be the one user id in this family that no
+ * would pass every case — and would be the one user id in the terminal tests that no
  * daemon could ever emit, sitting beside beats the scenario deliberately moved onto
- * wire-declared UUIDs. Reading them off the join log keeps the family's fixtures saying
+ * wire-declared UUIDs. Reading them off the join log keeps the terminal tests' fixtures saying
  * one thing about what a user id is.
  */
 export const THIS_DEVICE_ID: string = TERMINAL_SCENARIO_ROLES.owner;

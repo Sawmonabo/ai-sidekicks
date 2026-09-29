@@ -1,19 +1,19 @@
 // Every face the console can draw, read back off the DOM it renders.
 //
-// `tokens/glyphs.ts` rule 1 says the family is one geometry and rule 2 says it is
-// one vocabulary of parts. Since the faces are compiled — half of them borrowed
-// from an icon set drawn at a different box and a different weight — neither
-// rule is a property of anything in this tree any more. Both are properties of
+// `styles/glyphs.ts` holds the set to one geometry and one vocabulary of parts.
+// Since the faces are compiled — half of them borrowed from an icon set drawn at
+// a different box and a different weight — neither rule is a property of
+// anything in this tree. Both are properties of
 // what `vitest/icon-compilation.ts` emitted, and the only honest place to check
 // them is on a rendered element.
 //
 // THE WEIGHT IS CHECKED AS A RATIO, not as a number. A face drawn in a 24-unit
 // box needs a wider stroke than one drawn in a 16-unit box to render at the same
-// pixel weight, so what "one family, one weight" means is that every face's
+// pixel weight, so what "one set, one weight" means is that every face's
 // `stroke-width` is the same SHARE of its own `viewBox`. Reading the viewBox back
 // off the face is also what makes the check independent of the collection table
-// the plugin holds: a set that moved its box fails here rather than shipping a
-// family drawn at two weights.
+// the plugin holds: a collection that moved its box fails here rather than
+// shipping a set drawn at two weights.
 //
 // AND THE BODY IS CHECKED FOR SILENCE. All five attributes inherit, so a face
 // whose `<path>` kept the stroke it arrived with would draw at that stroke no
@@ -38,12 +38,12 @@ import { Glyph, type GlyphProps } from "./Glyph.js";
 const STROKE_SHARE_OF_BOX = GLYPH_STROKE_WIDTH / GLYPH_VIEWBOX_SIZE;
 
 /**
- * The presentation attributes the family owns.
+ * The presentation attributes the glyph set owns.
  *
  * The root must carry all five, and no element below it may carry any: an
  * inherited attribute is overridden by the nearest one that sets it.
  */
-const FAMILY_PRESENTATION: Readonly<Record<string, string>> = {
+const GLYPH_SET_PRESENTATION: Readonly<Record<string, string>> = {
   fill: "none",
   stroke: "currentColor",
   "stroke-linecap": "round",
@@ -70,10 +70,10 @@ function strokeShareOf(face: SVGSVGElement): number | undefined {
   return Number(declaredWidth) / boxWidth;
 }
 
-/** Every way one face departs from the family's geometry, named for a failure. */
+/** Every way one face departs from the set's geometry, named for a failure. */
 function geometryDeparturesOf(label: string, face: SVGSVGElement): readonly string[] {
   const departures: string[] = [];
-  for (const [attribute, expected] of Object.entries(FAMILY_PRESENTATION)) {
+  for (const [attribute, expected] of Object.entries(GLYPH_SET_PRESENTATION)) {
     const actual = face.getAttribute(attribute);
     if (actual !== expected) {
       departures.push(`${label} declares ${attribute}="${actual ?? ""}", not "${expected}"`);
@@ -84,11 +84,11 @@ function geometryDeparturesOf(label: string, face: SVGSVGElement): readonly stri
     departures.push(`${label} declares no stroke-width against a readable viewBox`);
   } else if (Math.abs(share - STROKE_SHARE_OF_BOX) > 1e-9) {
     departures.push(
-      `${label} strokes at ${String(share)} of its box, not the family's ${String(STROKE_SHARE_OF_BOX)}`,
+      `${label} strokes at ${String(share)} of its box, not the set's ${String(STROKE_SHARE_OF_BOX)}`,
     );
   }
   for (const drawn of Array.from(face.querySelectorAll("*"))) {
-    for (const attribute of [...Object.keys(FAMILY_PRESENTATION), "stroke-width"]) {
+    for (const attribute of [...Object.keys(GLYPH_SET_PRESENTATION), "stroke-width"]) {
       if (drawn.hasAttribute(attribute)) {
         departures.push(`${label} sets ${attribute} on a <${drawn.tagName}>, overriding the root`);
       }
@@ -143,7 +143,7 @@ describe("the glyph faces — the map is total over the name set", () => {
 
 describe("the glyph faces — one geometry, whichever collection a face came from", () => {
   for (const name of GLYPH_NAMES) {
-    it(`${name} renders at the family's stroke share with a silent body`, () => {
+    it(`${name} renders at the set's stroke share with a silent body`, () => {
       expect(geometryDeparturesOf(name, renderFace(name, GLYPH_VIEWBOX_SIZE))).toStrictEqual([]);
     });
   }
@@ -190,7 +190,7 @@ describe("Glyph — the size and the accessible name the caller decides", () => 
     expect(face.getAttribute("aria-hidden")).toBeNull();
   });
 
-  it("carries the family's class, so one stylesheet reaches every glyph", () => {
+  it("carries the set's class, so one stylesheet reaches every glyph", () => {
     expect(renderFace("plus", 16).getAttribute("class")).toBe("meridian-glyph");
   });
 });

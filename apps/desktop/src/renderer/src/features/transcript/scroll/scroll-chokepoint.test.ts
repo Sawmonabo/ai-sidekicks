@@ -1,20 +1,20 @@
 // The scroll chokepoint's four promises, driven rather than asserted.
 //
-// The surface is a recording stand-in rather than a DOM element on purpose. Two of
-// the claims — "the sample reads exactly three properties" and "a fractional write
-// lands on a whole pixel on a quantizing display" — are about what the controller
+// The scroll container is a recording stand-in rather than a DOM element on purpose.
+// Two of the claims — "the sample reads exactly three properties" and "a fractional
+// write lands on a whole pixel on a quantizing display" — are about what the controller
 // TOUCHES, and `happy-dom` answers zero for every geometry read, so a test against
 // it would pass whether or not the controller did anything at all.
 //
 // The stand-in is a real implementation of `ScrollContainer`, not a stub of the
 // controller: the module under test is imported and driven.
 //
-// WHAT A SAMPLE MEANS IS NOT ASKED HERE ANY MORE. The tail arithmetic, the replay and
-// the rule about which sample wakes a subscriber moved to `scroll-geometry-publisher.ts`
-// with the code that decides them, and `scroll-geometry-publisher.test.ts` drives them
-// off three numbers instead of off an attached surface. What this file asks is what
-// this module still owns: which surface is held, when a sample is taken off it, how
-// many properties that costs, and what a write does.
+// WHAT A SAMPLE MEANS IS ASKED ELSEWHERE. The tail arithmetic, the replay and the rule
+// about which sample wakes a subscriber live in `scroll-geometry-publisher.ts` with the
+// code that decides them, and `scroll-geometry-publisher.test.ts` drives them off three
+// numbers instead of off an attached scroll container. What this file asks is what this
+// module owns: which scroll container is held, when a sample is taken off it, how many
+// properties that costs, and what a write does.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -26,10 +26,10 @@ import { ScrollController } from "./scroll-chokepoint.js";
 import type { ScrollGeometry } from "./geometry-sample.js";
 import type { ScrollContainer } from "./scroll-chokepoint.js";
 
-/** A surface that counts every property the controller reads. */
-class RecordingScrollSurface implements ScrollContainer {
+/** A scroll container that counts every property the controller reads. */
+class RecordingScrollContainer implements ScrollContainer {
   public readonly readCountByProperty = new Map<string, number>();
-  /** When true, the surface rounds a written offset, as a quantizing display does. */
+  /** When true, the scroll container rounds a written offset, as a quantizing display does. */
   public quantizesWrites = false;
 
   readonly #listeners = new Set<() => void>();
@@ -96,17 +96,17 @@ class RecordingScrollSurface implements ScrollContainer {
 
 let clock: ManualClock;
 let controller: ScrollController;
-let surface: RecordingScrollSurface;
+let scrollContainer: RecordingScrollContainer;
 
 beforeEach(() => {
   clock = new ManualClock();
   controller = new ScrollController({ clock });
-  surface = new RecordingScrollSurface(500, 5000);
+  scrollContainer = new RecordingScrollContainer(500, 5000);
 });
 
 describe("the scroll chokepoint — geometry", () => {
   it("replays the last sample to a subscriber that arrives after it", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     const received: ScrollGeometry[] = [];
     controller.subscribeToGeometry((geometry) => received.push(geometry));
     expect(received).toHaveLength(1);
@@ -116,37 +116,37 @@ describe("the scroll chokepoint — geometry", () => {
 
   it("negative control: a controller that never attached replays nothing", () => {
     // Without this, the case above would pass over a subscription that replayed a
-    // fabricated zero sample rather than the one the surface produced.
+    // fabricated zero sample rather than the one the scroll container produced.
     const received: ScrollGeometry[] = [];
     controller.subscribeToGeometry((geometry) => received.push(geometry));
     expect(received).toStrictEqual([]);
   });
 
   it("reads exactly the three geometry properties per scroll event, and no fourth", () => {
-    controller.attach(surface);
-    surface.readCountByProperty.clear();
-    surface.scrollBy(120);
-    surface.scrollBy(240);
-    expect([...surface.readCountByProperty.keys()].sort()).toStrictEqual([
+    controller.attach(scrollContainer);
+    scrollContainer.readCountByProperty.clear();
+    scrollContainer.scrollBy(120);
+    scrollContainer.scrollBy(240);
+    expect([...scrollContainer.readCountByProperty.keys()].sort()).toStrictEqual([
       "clientHeight",
       "scrollHeight",
       "scrollTop",
     ]);
-    expect(surface.totalReadCount).toBe(6);
+    expect(scrollContainer.totalReadCount).toBe(6);
   });
 
   it("negative control: the read counter does count", () => {
     // The clean result above is only meaningful if an extra read would show up.
-    controller.attach(surface);
-    surface.readCountByProperty.clear();
-    void surface.scrollTop;
-    expect(surface.totalReadCount).toBe(1);
+    controller.attach(scrollContainer);
+    scrollContainer.readCountByProperty.clear();
+    void scrollContainer.scrollTop;
+    expect(scrollContainer.totalReadCount).toBe(1);
   });
 });
 
 describe("the scroll chokepoint — writes", () => {
   it("names the caller on every write and counts them per caller", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.glideTo("find-match", 1000);
     controller.glideTo("find-match", 2000);
     controller.glideTo("deep-link", 300);
@@ -170,7 +170,7 @@ describe("the scroll chokepoint — writes", () => {
   });
 
   it("clamps to the content rather than handing the platform an impossible offset", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     const write = controller.glideTo("jump-to-tail", 999_999);
     expect(write?.appliedScrollTop).toBe(4500);
     expect(controller.glideTo("deep-link", -40)?.appliedScrollTop).toBe(0);
@@ -178,18 +178,18 @@ describe("the scroll chokepoint — writes", () => {
   });
 
   it("glides to the tail instead of asking an element to scroll itself into view", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     expect(controller.glideToTail("follow-tail")?.appliedScrollTop).toBe(4500);
   });
 
-  it("writes nothing when it has no surface", () => {
+  it("writes nothing when it has no scroll container", () => {
     expect(controller.glideTo("follow-tail", 10)).toBeUndefined();
     expect(controller.glideToTail("follow-tail")).toBeUndefined();
   });
 });
 
 describe("the scroll chokepoint — a box that changed size", () => {
-  /** A surface whose box a case can change, and the pass that notices it. */
+  /** A scroll container whose box a case can change, and the pass that notices it. */
   function resizableController(): {
     resizable: ReturnType<typeof createCountingScrollContainer>;
     samples: ScrollGeometry[];
@@ -250,8 +250,8 @@ describe("the scroll chokepoint — a box that changed size", () => {
 
 describe("the scroll chokepoint — the quantization learner", () => {
   it("skips no-op writes only after two witnesses agree", () => {
-    surface.quantizesWrites = true;
-    controller.attach(surface);
+    scrollContainer.quantizesWrites = true;
+    controller.attach(scrollContainer);
     expect(controller.quantizesToWholePixels).toBeUndefined();
 
     controller.glideTo("find-match", 100.4);
@@ -265,9 +265,9 @@ describe("the scroll chokepoint — the quantization learner", () => {
   });
 
   it("negative control: a display that does not quantize never skips", () => {
-    // Same two fractional writes against a surface that keeps them, so the only
+    // Same two fractional writes against a scroll container that keeps them, so the only
     // difference between this case and the one above is the display.
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.glideTo("find-match", 100.4);
     controller.glideTo("find-match", 220.4);
     expect(controller.quantizesToWholePixels).toBe(false);
@@ -275,8 +275,8 @@ describe("the scroll chokepoint — the quantization learner", () => {
   });
 
   it("ignores whole-pixel requests as evidence, which land on a whole pixel anywhere", () => {
-    surface.quantizesWrites = true;
-    controller.attach(surface);
+    scrollContainer.quantizesWrites = true;
+    controller.attach(scrollContainer);
     controller.glideTo("find-match", 100);
     controller.glideTo("find-match", 200);
     controller.glideTo("find-match", 300);
@@ -286,7 +286,7 @@ describe("the scroll chokepoint — the quantization learner", () => {
 
 describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
   it("vetoes prune only while a write is in flight", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     const vetoAtEachPublication: boolean[] = [];
     controller.subscribeToGeometry(() => {
       vetoAtEachPublication.push(controller.vetoesPrune());
@@ -300,7 +300,7 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
   });
 
   it("batches every overflow request in a frame into one pass", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     let passCount = 0;
     controller.observeOverflow(() => {
       passCount += 1;
@@ -315,31 +315,31 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
   });
 
   it("detaches null-safely, twice, and after a dispose", () => {
-    controller.attach(surface);
-    expect(surface.listenerCount).toBe(1);
+    controller.attach(scrollContainer);
+    expect(scrollContainer.listenerCount).toBe(1);
     controller.detach();
     controller.detach();
-    expect(surface.listenerCount).toBe(0);
+    expect(scrollContainer.listenerCount).toBe(0);
     controller.dispose();
     controller.detach();
-    controller.attach(surface);
-    expect(surface.listenerCount).toBe(0);
+    controller.attach(scrollContainer);
+    expect(scrollContainer.listenerCount).toBe(0);
   });
 
   it("cancels an armed overflow frame on detach, so nothing fires into a dead pane", () => {
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.requestOverflowMeasurement();
     expect(clock.pendingCount).toBe(1);
     controller.detach();
     expect(clock.pendingCount).toBe(0);
   });
 
-  it("re-arms the pass for the surface a re-attach brought, not the one it canceled", () => {
+  it("re-arms the pass for the scroll container a re-attach brought, not the one it canceled", () => {
     // THE STARVATION THIS RULES OUT. `attach` detaches first, and detach cancels the
     // armed frame — correctly, since a pass on a detached controller samples nothing.
     // But the obligation the canceled frame carried belongs to the TRANSCRIPT and not to
-    // the surface that has gone: under a frozen fixture clock a remount arrives before
-    // the frame it armed ever runs, so every cycle armed one and canceled it, and the
+    // the scroll container that has gone: under a frozen fixture clock a remount arrives
+    // before the frame it armed ever runs, so every cycle armed one and canceled it, and the
     // box was never re-measured for any of them. A re-attach owes its own pass.
     const outgoing = createCountingScrollContainer({ clientHeight: 300, scrollHeight: 4000 });
     const incoming = createCountingScrollContainer({ clientHeight: 640, scrollHeight: 9000 });
@@ -359,7 +359,7 @@ describe("the scroll chokepoint — prune veto, batching, and teardown", () => {
   it("negative control: a detach with no re-attach still arms nothing", () => {
     // Which is what keeps the rule above a re-ATTACH rule rather than a refusal to
     // cancel: a pane that closed for good must leave no frame behind it.
-    controller.attach(surface);
+    controller.attach(scrollContainer);
     controller.requestOverflowMeasurement();
     controller.detach();
 

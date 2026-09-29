@@ -9,7 +9,7 @@ import type { ScreenRegistry } from "@renderer/console/seats/index.js";
  */
 export function registerSettingsScreen(registry: ScreenRegistry): void {
   registry.register({
-    slot: "settings",
+    name: "settings",
     owner: "settings",
     body: () => import("../settings-screen-body.js"),
   });

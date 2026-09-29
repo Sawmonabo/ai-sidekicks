@@ -27,7 +27,7 @@ import type { ProviderCommandEnumeration } from "../provider-command-enumeration
  * The first two travel TOGETHER because they are one decision split in half: the
  * router will not intercept a name nothing claims, so a recognizer with no executor
  * intercepts into a refusal and an executor with no recognizer is never called. Both
- * read the SAME surface thunk, so the predicate that claimed a name and the executor
+ * read the SAME composer-commands thunk, so the predicate that claimed a name and the executor
  * that runs it can never be looking at two different registries.
  *
  * The third answers the OTHER question a typed name raises — whether the bound

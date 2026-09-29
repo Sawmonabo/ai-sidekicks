@@ -1,5 +1,5 @@
-// The window: the stores it keeps, the bindings that keep them live, and the shell it
-// renders the routed screen in.
+// The window: the stores it keeps, the bindings that keep them live, and the `AppShell`
+// it renders the routed screen in.
 //
 // Everything here runs with a resolved bridge, because `AppBootstrap` above it is the
 // gate.
@@ -49,7 +49,7 @@ export interface AppWindowProps {
   readonly readSession: SessionSnapshotReader;
 }
 
-/** The window: its stores and bindings, and the shell around the screen the route names. */
+/** The window: its stores and bindings, and the `AppShell` around the screen the route names. */
 export function AppWindow(props: AppWindowProps): React.JSX.Element {
   // Read first, because the window store is born on it; it also keeps the
   // hash-to-route direction live for every later navigation.

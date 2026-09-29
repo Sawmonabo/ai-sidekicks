@@ -91,7 +91,7 @@ describe("the layered layout", () => {
 
   it("draws the definition's edges when one was, and marks the picture complete", () => {
     // The other arm, and the negative control for the case above: handed a topology,
-    // the same phases connect. `topologyAbsence` absent is what tells a surface the
+    // the same phases connect. `topologyAbsence` absent is what tells the caller the
     // edges it is looking at are the definition's own.
     const layout = drawn(THREE_PHASES, THREE_PHASE_TOPOLOGY);
 
@@ -110,7 +110,7 @@ describe("the layered layout", () => {
   it("names a topology it cannot draw rather than drawing part of it", () => {
     // A definition that supplies `dependsOn` on some phases and not others is one
     // the daemon refuses at author time. The picture carries no edges AND says which
-    // of the two reasons applies, so the surface does not report "nothing to read"
+    // of the two reasons applies, so the graph does not report "nothing to read"
     // for a definition it did read.
     const layout = drawn(THREE_PHASES, [
       { phaseId: "plan", dependsOn: [] },

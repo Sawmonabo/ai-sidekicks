@@ -4,7 +4,7 @@
 // signal re-reads when the session stream admits a kind it watches and never when
 // it admits one it does not, and a read whose subscription is a stated no-op
 // re-reads never. Both are counted on the read itself rather than inferred from a
-// rendered row, because a surface can show a stale figure for either reason.
+// rendered row, because a view can show a stale figure for either reason.
 //
 // The lifetime half — who holds these reads and what disposes them — is
 // `pane/agents-pane-models.test.ts`.

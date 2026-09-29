@@ -1,9 +1,9 @@
-// The rail's workflows screen: the runs a mounting surface supplies, and whichever pane a
-// person opened from them.
+// The rail's workflows screen: the runs its mount supplies, and whichever pane a person
+// opened from them.
 //
 // `#/workflows` is a bare route, so the screen context carries no session and the run
-// enumeration arrives as a read state the mounting surface supplies. Without one, the screen
-// draws its frame and no runs section.
+// enumeration arrives as a read state the mount supplies. Without one, the screen draws its
+// frame and no runs section.
 //
 // An opened pane replaces the runs, one at a time. That is not the session's pane layout:
 // `#/workflows` names no session, so there is no layout on it. The pane body is resolved
@@ -26,13 +26,13 @@ import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirec
 import type { WorkflowRunListRow } from "./runs/run-list-projection.js";
 import { WorkflowRuns } from "./runs/WorkflowRuns.js";
 
-/** What the screen seat hands the workflows screen. */
+/** What the workflows screen is handed when it mounts. */
 export interface WorkflowsScreenProps {
   /**
    * The whole screen context, because a pane context is composed from it.
    *
    * A pane body is handed a bridge, both stores, the window store and its own address, and
-   * composing that from a few inputs would mean the seat passing six.
+   * composing that from a few inputs would mean the mount passing six.
    */
   readonly context: ScreenContext;
   /**
@@ -89,10 +89,10 @@ export function WorkflowsScreen(props: WorkflowsScreenProps): React.JSX.Element 
     );
   }
   return (
-    <div className="meridian-workflows-pane-host">
+    <div className="meridian-workflows-open-pane">
       <button
         type="button"
-        className="meridian-workflow__action meridian-workflows-pane-host__back"
+        className="meridian-workflow__action meridian-workflows-open-pane__back"
         onClick={closePane}
       >
         Back to workflows

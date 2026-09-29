@@ -1,11 +1,11 @@
 // One refusal shape for the whole console.
 //
-// A refusal has three RENDERINGS — inline on the control, a card in the surface, a banner
-// across the session screen — and `RefusalBanner` / `InlineRefusal` / `RefusalCard` all
-// consume the same two fields. What the console lacked was one refusal VALUE for them to
-// consume: the daemon client, the fixture bridge, the when-clause parser, the key-binding
-// table, and the palette each minted their own vocabulary, so a surface that wanted to
-// render two of them had to translate between five shapes to reach three renderers.
+// A refusal has three RENDERINGS — inline on the control, a card in the transcript, a
+// banner across the session screen — and `RefusalBanner` / `InlineRefusal` /
+// `RefusalCard` all consume the same two fields. This module is the one refusal VALUE
+// they consume: the daemon client, the fixture bridge, the when-clause parser, the
+// key-binding table, and the palette all produce it, so a component rendering refusals
+// from two of them translates nothing.
 //
 // Three fields, and each earns its place:
 //
@@ -20,8 +20,9 @@
 //
 // `code` is deliberately a `string` on the SHAPE rather than a union of every
 // producer's codes. A closed union here would make this module import each producer,
-// inverting the DAG: `core/` is the bottom family and knows none of them. Each
-// producer keeps its own closed code union and widens into this shape at its boundary.
+// inverting the import direction: `lib/` sits below every producer and knows none of
+// them. Each producer keeps its own closed code union and widens into this shape at its
+// boundary.
 //
 // The BUILDER still carries the producer's union through, because it infers it rather
 // than enumerating it: `refuse` is generic in `Code`, so a producer calling it with a
@@ -127,10 +128,10 @@ export function refusedMemberPaths(
  *
  * TOTAL, and that is the point rather than a nicety. Every caller is on a failure
  * path: the value being asked about is a caught rejection or an `unknown` result
- * that crossed a family boundary, so it is whatever a producer threw. A plain
+ * that crossed a layer boundary, so it is whatever a producer threw. A plain
  * `candidate.code` runs a getter, and a getter that throws — a hostile accessor, a
  * Proxy `get` trap, or merely a broken one — propagates out of the guard, out of the
- * `catch` that has already been left, and takes down the surface whose whole job was
+ * `catch` that has already been left, and takes down the component whose whole job was
  * to say that something failed. The reads therefore go through
  * `readGuardedProperty`, which collapses "absent" and "unreadable" to the same
  * `undefined`; here those mean the same thing, because a refusal whose `code` cannot

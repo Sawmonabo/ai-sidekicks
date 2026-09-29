@@ -192,7 +192,7 @@ describe("the ledger counts contexts created, not terminals drawing", () => {
   });
 
   it("negative control: the live reading alone would say there was room", () => {
-    // This is the bug stated as a test. Counting holders — which is what a slot
+    // This is the failure stated as a test. Counting holders — which is what a plain
     // allocator counts — reports an empty pool after the same churn, so a cap
     // checked against THAT reading hands out an unbounded run of contexts.
     const pool = new TerminalRendererPool(CHURN_CYCLES);

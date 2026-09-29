@@ -151,7 +151,7 @@ describe("the runs the session holds", () => {
 
   it("negative control: entries without the definition facts fall back to ids and no mark", async () => {
     // The three claims above rest on the join being real. Without the two members the
-    // surface must draw opaque ids, and a frozen state reported as unknown, not guessed.
+    // list must draw opaque ids, and a frozen state reported as unknown, not guessed.
     const { container } = renderRuns(served(RUNS_WITHOUT_DEFINITION_FACTS));
     await settle();
 
@@ -184,7 +184,7 @@ describe("what the runs section says out loud", () => {
     await settle();
 
     // Negative control: the same settlement re-rendered says nothing further. A
-    // repeat would talk over the surface it just described.
+    // repeat would talk over the section it just described.
     expect(politeAnnouncement(container)).toBe("Runs in this session: 4.");
   });
 });

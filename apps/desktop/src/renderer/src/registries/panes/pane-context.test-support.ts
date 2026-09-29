@@ -1,4 +1,4 @@
-// One pane context, for every suite in any family that mounts a pane.
+// One pane context, for every suite in any feature that mounts a pane.
 //
 // A pane body is handed its address and eight bindings, and reads two or three of
 // them. The rest is scaffolding every mounting suite has to produce anyway, and the
@@ -67,7 +67,7 @@ export interface PaneBindings {
    * This pane's identity in the pane layout, where a case is about WHICH pane it is.
    *
    * Defaulted from the kind, which is what every suite that has nothing to say here
-   * wants — and named by the one class of case that does: a pane layout moves a slot to
+   * wants — and named by the one class of case that does: a pane layout moves a position to
    * another pane without remounting, so a suite proving the pane's state says whose
    * it is has to hold two ids at once. That is a claim the caller makes, and the
    * only reason this member exists rather than the derivation alone.
@@ -77,11 +77,11 @@ export interface PaneBindings {
    * A UI-state store that ANSWERS, for a case that is about a UI-state read.
    *
    * The default is the never-settling adapter this module's header argues for, and
-   * this member is how a suite opts out of it OUT LOUD. Two families had opted out
+   * this member is how a suite opts out of it OUT LOUD. Two features had opted out
    * silently, by writing their own builder around `UiStateStore.opening()`, and the
    * cost of that was not the extra function: a pane in either of them could grow a
    * UI-state read, pass against a store that answered empty, and hang in the four
-   * families that had kept the adapter — one behavior with two answers, which is
+   * features that had kept the adapter — one behavior with two answers, which is
    * the divergence a second builder always buys.
    */
   readonly uiStateStore?: UiStateStore | undefined;

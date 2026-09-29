@@ -2,20 +2,19 @@
 //
 // `session-event-streams.ts` answers WHICH beats reach a subscription. This module
 // answers WHAT reaches it, and the two are different questions with different
-// failure modes: routing is wrong when a surface receives a frame the daemon would
-// not have sent it, and this is wrong when a surface receives the right frame in a
+// failure modes: routing is wrong when a subscriber receives a frame the daemon would
+// not have sent it, and this is wrong when a subscriber receives the right frame in a
 // shape the daemon does not send at all.
 //
-// THE DEFECT THIS REPLACES. The fixture handed every subscriber the renderer-local
-// `ProjectedSessionEvent` envelope — `{id, sessionId, sequence, kind, occurredAt,
-// payload}`. The two `run.*` streams are registered PROJECTIONS and carry nothing
-// of the sort: `run.subscribeState` streams `RunStateChangeEvent | RunRolledBackEvent`
-// and `run.subscribeQueue` streams `QueueItemSummary`, none of which has a `kind`,
-// a `sequence`, or a nested `payload`, and all of which name members the envelope
-// does not. So a runs surface built against the fixture would read `event.payload
-// .newState` where the wire sends `currentState`, and every screenshot, geometry
-// reading, and end-to-end result taken against it would have been about a frame no
-// daemon produces.
+// WHY NOT THE SESSION ENVELOPE. The renderer-local `ProjectedSessionEvent` envelope is
+// `{id, sessionId, sequence, kind, occurredAt, payload}`. The two `run.*` streams are
+// registered PROJECTIONS and carry nothing of the sort: `run.subscribeState` streams
+// `RunStateChangeEvent | RunRolledBackEvent` and `run.subscribeQueue` streams
+// `QueueItemSummary`, none of which has a `kind`, a `sequence`, or a nested `payload`,
+// and all of which name members the envelope does not. So a runs view built against a
+// fixture that handed over the envelope would read `event.payload.newState` where the
+// wire sends `currentState`, and every screenshot, geometry reading, and end-to-end
+// result taken against it would be about a frame no daemon produces.
 //
 // WHERE THE MEMBERS COME FROM. Each one is sourced and nothing is composed:
 // `newState` becomes `currentState`, the envelope's `occurredAt` becomes the
@@ -23,13 +22,13 @@
 // supplies the queue state through the same table that routed it here. A beat that
 // cannot supply a required member is REFUSED — loudly, by name, through the
 // fixture's own refusal vocabulary — rather than delivered half-built, because a
-// projection missing a required member is exactly the shape a surface renders as
+// projection missing a required member is exactly the shape a view renders as
 // blank and a reviewer reads as working.
 //
 // THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
 // projection of the `queue_items` ROW, so it requires `priority` and `createdAt`,
-// which the registered queue payload does not carry — the queue event family fixes
-// it at `{sessionId, queueItemId, state}`. So a beat is never asked for those two:
+// which the registered queue payload does not carry — every queue event's payload is
+// `{sessionId, queueItemId, state}`. So a beat is never asked for those two:
 // the row comes from the caller's lookup by the beat's own queue item id, as the row
 // the daemon projects the summary from.
 //
@@ -47,9 +46,9 @@
 // schema returns the branded type, so the values are checked rather than asserted.
 //
 // WHY A VALUE IMPORT OF THE SCHEMAS IS AFFORDABLE HERE. The renderer's initial-bundle
-// budget is enforced, and this module's sibling `session-event-streams.ts` keeps its
+// budget is enforced, and `services/daemon/session-event-streams.ts` keeps its
 // contracts import type-only for exactly that reason — it is on the release path,
-// reached from the binder one family up. This module is not: its only importer is
+// reached from the session-event subscriber. This module is not: its only importer is
 // `services/daemon/scenario-subscriptions.fixture.ts`, which the fixture bridge reaches,
 // and the fixture composition that builds that bridge is called only inside `App.tsx`'s
 // `__FIXTURE_BUILD__` branch, a build-time literal, so a release bundle folds
@@ -61,8 +60,8 @@
 // return and the three things all of them do identically — the session cross-check,
 // the registered-shape parse, and the refusal constructors. This file is the arms and
 // the table they read; that one is what an arm is made of. The fourth, reading a wire
-// member as a string, is `core/wire-strings.ts`, which is one rule wider than this
-// family and had four spellings across the tree before it had a home.
+// member as a string, is `lib/wire-strings.ts`, because every reader of a wire string
+// shares that rule, not only the run streams.
 
 import {
   QueueItemSummarySchema,
@@ -270,8 +269,8 @@ function projectRunQueueStreamBeat(
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
-  // Required, exactly as `newState` is on the state arm above. The queue event family
-  // fixes the payload at `{sessionId, queueItemId, state}`, so a beat without one is not
+  // Required, exactly as `newState` is on the state arm above. Every queue event's
+  // payload is `{sessionId, queueItemId, state}`, so a beat without one is not
   // a queue event that omitted a check — it is a queue event no daemon emits. Skipping
   // the comparison when the member is absent would let the summary take its state from
   // the KIND alone and deliver a valid-looking `QueueItemSummary` built from a payload

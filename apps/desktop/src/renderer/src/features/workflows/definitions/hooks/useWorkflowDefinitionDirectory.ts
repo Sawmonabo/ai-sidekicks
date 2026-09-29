@@ -1,4 +1,4 @@
-// The definitions a context can see, as a surface can honestly know them.
+// The definitions a session can see, as the definitions list can honestly know them.
 //
 // The paging hook for the definitions list, so a reader can tell a console that asked
 // and found none from one that never asked. The call that enumerates is the caller's,
@@ -12,10 +12,10 @@
 // would be the console asserting that this context sees no definitions, which is a
 // claim about the daemon nothing established.
 //
-// ONE READ PER MOUNT, AND NO POLLING, for `seats/session-directory.ts`'s reason:
+// ONE READ PER MOUNT, AND NO POLLING, for the same reason as the session directory:
 // a directory that refreshed itself on a timer is a second source of truth running
 // beside the event stream, and the cheapest way to hold two answers to one question
-// is to keep asking it. A navigation back to the surface remounts and re-reads,
+// is to keep asking it. A navigation back to the list remounts and re-reads,
 // which is the moment a person expects a fresh list.
 //
 // THE THREE STATES ARE THREE FACTS AND NO OTHERS — nobody could ask, a read is in
@@ -59,7 +59,7 @@ export type WorkflowDefinitionListCall = (request: {
  *
  * Three facts and no others: the daemon said this was the last page, it said there is
  * more and here is the handle, or that handle is in flight. A boolean would conflate
- * the last two, and each of them is a different thing for a surface to draw — nothing,
+ * the last two, and each of them is a different thing for the list to draw — nothing,
  * a control, a wait.
  */
 export type WorkflowDefinitionContinuation =

@@ -43,7 +43,7 @@ import type { SessionDegradedCause } from "@renderer/store/session-degradation.j
 import type { EntityFacet } from "../entity-facets.js";
 
 export interface EntityRecordProps {
-  /** The kind's glyph, from the token family's set. */
+  /** The kind's glyph, from the console's glyph set. */
   readonly glyph: GlyphName;
   /** What this kind is called, in the console's own words — "Run", "Workflow run". */
   readonly heading: string;
@@ -74,15 +74,13 @@ export interface EntityRecordProps {
 export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
   const subject = props.heading.toLowerCase();
   if (!props.isInitialized) {
-    return (
-      <Nothing kind="not-loaded" placement="surface" title={`Reading the ${subject} record.`} />
-    );
+    return <Nothing kind="not-loaded" placement="block" title={`Reading the ${subject} record.`} />;
   }
   if (props.degradedCause !== undefined) {
     return (
       <Nothing
         kind="error"
-        placement="surface"
+        placement="block"
         title={`The ${subject} record is incomplete.`}
         // The cause is the store's own word, rendered as received. The console
         // does not paraphrase it, and it offers no Retry: nothing reachable from
@@ -95,7 +93,7 @@ export function EntityRecord(props: EntityRecordProps): React.JSX.Element {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title={props.absentTitle}
         detail={props.absentDetail}
       />

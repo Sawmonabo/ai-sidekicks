@@ -22,7 +22,7 @@
 // entry is built through `attachmentIngestEntryFrom`, whose settled arm has no payload
 // member to put one in. What that is worth: a `Blob` is a handle, but it is a KEEP, so
 // a staged list that held ten finished uploads held ten files' worth of the browser's
-// memory until the surface unmounted. A write that would move a settled entry back into
+// memory until the composer unmounted. A write that would move a settled entry back into
 // a sending state is refused outright — those bytes are gone, and an entry claiming a
 // payload it does not have would fail at the next slice instead of here.
 

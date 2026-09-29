@@ -1,12 +1,12 @@
 // The new-session draft — a session that does not exist yet.
 //
-// THIS CONSOLE'S OWN RULE, because each surface's composition is left to the console's
+// THIS CONSOLE'S OWN RULE, because each view's composition is left to the console's
 // own code and fixture scenarios: "+ New" creates a draft session placeholder with no
 // daemon row, and the person picks a repo mount and mode and a posture. The first send
 // coalesces `session.create` and `run.queueCreate`; a draft that is closed empty reverts
 // to nothing and leaves no row.
 //
-// WHAT IS HERE AND WHAT IS NEXT DOOR. This file owns what a person has CHOSEN and the
+// WHAT IS HERE AND WHAT IS BESIDE IT. This file owns what a person has CHOSEN and the
 // coalescing that keeps one draft to one session. What those choices become on the
 // wire, and what the result of sending them says, is `new-session-send.ts` — it holds
 // no state, so its rules can be checked without constructing a draft.
@@ -21,7 +21,7 @@
 //     has no durable home in the renderer: a draft lives in its window's in-memory
 //     store for that window's lifetime and is gone when the window closes.
 //     `console/persistence/value-classes.ts` is the enforcement; this module never
-//     reaches the persistence door.
+//     reaches the persistence store.
 //   • **A partial send is reported, never rolled back.** The rule above asks for the
 //     calls that succeeded to be named and for the draft to stay editable. A renderer
 //     cannot undo a `session.create` the daemon accepted, and pretending otherwise
@@ -88,7 +88,7 @@ export interface DraftRepoMount {
   readonly executionMode: ExecutionMode;
 }
 
-/** What the draft surface renders. A fresh object per mutation, so `Object.is` decides. */
+/** What the draft control renders. A fresh object per mutation, so `Object.is` decides. */
 export interface NewSessionDraftState {
   readonly repoMount: DraftRepoMount | undefined;
   readonly posture: DraftPostureMode | undefined;
@@ -111,8 +111,8 @@ export class NewSessionDraft {
    * rather than one create and a second caller left waiting on nothing.
    *
    * Private, and no reader is offered one: the guard is structural, so a caller
-   * that is not a button — a keyboard path, a test, a later surface — is safe
-   * without consulting anything. A surface that wants to disable an affordance
+   * that is not a button — a keyboard path, a test, a later control — is safe
+   * without consulting anything. A control that wants to disable an affordance
    * meanwhile knows it pressed, which is `NewSessionControl`'s own flag.
    */
   #sendInFlight: Promise<NewSessionSendResult> | undefined;

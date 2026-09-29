@@ -7,7 +7,7 @@
 //
 // THE REGION IS THE WHOLE COMPOSER AND NOT A DROP STRIP. A target a person has to aim
 // at is a target they miss, and the composer is already the region the host owns and
-// hands to the surfaces that need it — the discovery popover takes the same ref for
+// hands to the views that need it — the command list popover takes the same ref for
 // the same reason. What is bound to it is deliberately narrow: this reads a drag's
 // declared types and a paste's file list and nothing else about either event.
 //

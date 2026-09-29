@@ -3,8 +3,8 @@
 // BOTH ARE THIS MODULE'S, because no committed document states them: two closed commit
 // modes, `direct` and `authoritative`, and a literal-safety predicate — the character
 // class, the predecessor rule, and the carve-outs (digit-period, in-word apostrophe).
-// `markdown-rules.ts` rule 1 is the reason both exist: an incomplete construct never
-// mounts.
+// The committed-and-volatile split in `markdown-rules.ts` is the reason both exist: an
+// incomplete construct never mounts.
 //
 // THE PROBLEM THIS SOLVES. A stream arrives one token at a time, so at any moment
 // the revealed tail may end mid-construct: `**bol` is not bold yet, and `[link`

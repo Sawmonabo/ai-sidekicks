@@ -8,7 +8,7 @@ import { describe, expect, it } from "vitest";
 import { readArtifactList } from "./artifact-reads.js";
 import { SERVED_SUMMARY, SESSION_ID } from "@test/helpers/artifact-list-readers.js";
 
-describe("artifact pane reads — a served list", () => {
+describe("artifact list reads — a served list", () => {
   it("reads a served manifest summary as a row, member for member", async () => {
     const state = await readArtifactList(async () => [SERVED_SUMMARY], SESSION_ID);
     expect(state.kind).toBe("listed");

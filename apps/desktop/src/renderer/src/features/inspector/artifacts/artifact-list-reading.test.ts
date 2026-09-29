@@ -1,6 +1,6 @@
 // The reductions one reading makes on the next, driven with no bridge and no clock.
 //
-// Each case is about a claim the pane would otherwise make falsely: that a read answered
+// Each case is about a claim the section would otherwise make falsely: that a read answered
 // for a row it did not name, or that a row the list never carried belongs to the session.
 
 import { describe, expect, it } from "vitest";
@@ -22,7 +22,7 @@ function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestR
   };
 }
 
-describe("artifact pane reading — replacing a row from its own read", () => {
+describe("artifact list reading — replacing a row from its own read", () => {
   it("replaces the row the read named and leaves its neighbors alone", () => {
     const listed: ArtifactsSectionState = {
       kind: "listed",

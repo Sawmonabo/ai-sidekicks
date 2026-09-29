@@ -27,7 +27,7 @@ describe("resolveWindowRevealMode", () => {
 
   it.each(["linux", "win32"] as const)("reveals inactive on %s", (platform) => {
     // A hidden window stops painting on Windows (electron/electron#31016), so
-    // the faithful measurement surface there is an inactive one.
+    // the window a test can measure faithfully there is an inactive one.
     expect(resolveWindowRevealMode(true, REQUESTED, platform)).toBe("inactive");
   });
 

@@ -16,7 +16,7 @@
 //     prose, not code.
 //   • The queue payload's own required member. The five `queue_item.*` kinds are
 //     census-only in the strict layer too, so a beat that omits `state` — which
-//     the queue event family makes required — passes all three schema legs. This
+//     the queue events make required — passes all three schema legs. This
 //     is the leg that refuses it, on the same terms as the transition table: a rule
 //     the shipped schemas do not carry, checked against the one module that owns
 //     the mapping rather than against a second reading of it here.
@@ -202,7 +202,7 @@ function describeUnprojectedRunPayloadDefect(beat: ScenarioBeat): string | undef
   }
   return (
     `the registered "${beat.event.kind}" payload rejects this beat, and no narrowed stream ` +
-    "projects this kind — so nothing downstream would refuse it either, and a surface would " +
+    "projects this kind — so nothing downstream would refuse it either, and a view would " +
     `read a run built out of half a payload: ${parsed.error.issues.map(describeSchemaIssue).join("; ")}.`
   );
 }
@@ -216,11 +216,11 @@ function describeUnprojectedRunPayloadDefect(beat: ScenarioBeat): string | undef
  * and `To` are the same state, so a self-transition is an event no
  * daemon produces. It reads as a real one, though: both values are registered
  * members of the vocabulary, the payload variant that would have caught it is not
- * registered for the run-lifecycle kinds, and a surface built against such a beat
+ * registered for the run-lifecycle kinds, and a view built against such a beat
  * learns to render or count a transition that never happens in production.
  *
  * Deliberately keyed on the two payload members rather than on the event kind, so it
- * holds for every family's scenario and for any run row a later taxonomy registers.
+ * holds for every feature's scenario and for any run row a later taxonomy registers.
  */
 function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
   const payload = beat.event.payload;
@@ -243,7 +243,7 @@ function describeSelfTransitionDefect(beat: ScenarioBeat): string | undefined {
 /**
  * A queue beat that names no state, or names one its kind contradicts.
  *
- * The queue event family fixes the queue payload at
+ * The queue events fix the queue payload at
  * `{sessionId, queueItemId, state}`, and `SessionEventSchema`
  * registers no variant for any of the five `queue_item.*` kinds — so `state` is
  * required by the wire and enforced by nothing the contracts package ships. A

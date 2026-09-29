@@ -1,14 +1,13 @@
 // The values a wire-error reader has to survive, built once for both readers.
 //
-// ONE HOME FOR THE ROLES BOTH SUITES PLAY, on the precedent
-// `console/bridge/fixture/call-plane/bridge.test-support.ts` set for the fixture bridge. These
-// four were written four times under three names across `src/shared/wire-errors.test.ts`
-// and `console/core/wire-rejection.test.ts`: `readableOnce` twice with different
-// member sets, `revokedProxy` once as a named helper and once inline, and a third
-// read-once variant beside the second copy of the first. A fixture written twice
-// drifts, and these already had — one copy threw on the second reading and the other
-// answered something different, which are two shapes of the same defect and are now
-// one parameter.
+// ONE HOME FOR THE ROLES BOTH SUITES PLAY. These four were written four times under
+// three names across `src/shared/wire-errors.test.ts` and
+// `console/core/wire-rejection.test.ts`: `readableOnce` twice with different member
+// sets, `revokedProxy` once as a named helper and once inline, and a third read-once
+// variant beside the second copy of the first. A fixture written twice drifts, and
+// these already had — one copy threw on the second reading and the other answered
+// something different, which are two shapes of the same defect and are now one
+// parameter.
 //
 // It holds nothing a single suite uses; a fixture with one reader stays beside its
 // reader.

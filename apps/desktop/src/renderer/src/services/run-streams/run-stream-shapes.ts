@@ -4,15 +4,16 @@
 // that arm composes. This answers what all three arms do identically: the outcome
 // they return, the envelope-against-payload session cross-check none of them may
 // skip, the single parse every composed candidate leaves through, and the two
-// refusal constructors that name the beat a reader has to go and find. The two were
-// one file until the seam they split on was drawn: one changes when an ARM changes
-// and this one changes when the shape of a refusal does.
+// refusal constructors that name the beat a reader has to go and find. The two are
+// separate files because they change for different reasons: that one when an ARM
+// changes, and this one when the shape of a refusal does.
 //
 // The two types live HERE rather than beside the arms because the dependency runs
 // one way: every helper below returns a `RunStreamProjection`, so declaring them in
 // the arms module would close an import cycle `structure:layering` rejects. Nothing
 // re-exports them, and nothing needs to — `projectRunStreamDelivery` is the only
-// symbol read from outside this family, and it is read from the module declaring it.
+// symbol read from outside these run-stream modules, and it is read from the module
+// declaring it.
 
 import type {
   QueueItemSummary,

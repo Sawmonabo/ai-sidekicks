@@ -6,7 +6,7 @@
 // places them, decides whether the sequence can be drawn at all, fetches the
 // renderer's code, and stands an absence in the box until it lands. The drawing
 // itself belongs to `RunGraphCanvas.tsx`, on the far side of the `import()` that
-// names this directory's `index.ts`, so a surface that mounts this component never
+// names this directory's `index.ts`, so a component that mounts this one never
 // names the graph library and never pulls a byte of it into the initial bundle.
 //
 // A GRAPH WITH NO EDGES SAYS SO IN WORDS. A run read carries no topology, so a
@@ -41,7 +41,7 @@
 // exists to prevent, and the first two are decided before the chunk is asked for.
 //
 // THE WRAPPER IS UNSTYLED UNTIL THE CHUNK LANDS, and that is the arrangement rather
-// than an oversight: this family's sheet rides the lazy chunk, so before it arrives
+// than an oversight: `run-graph.css` rides the lazy chunk, so before it arrives
 // `.meridian-run-graph` matches no rule. Nothing that renders in that window needs
 // one — the absence primitive and the refusal banner both come from `primitives/`,
 // whose sheet is in the initial bundle, and the wrapper's only job until then is to
@@ -64,14 +64,14 @@ export interface RunGraphProps {
   /** The run's phases in sequence order. Empty renders nothing rather than an empty canvas. */
   readonly phases: readonly RunGraphNode[];
   /**
-   * The pinned definition's phases, where the surface holds one.
+   * The pinned definition's phases, where the caller holds one.
    *
    * Absent draws no edges at all, which is the honest picture rather than a degraded
    * one: a run's dependencies are the definition's, and there is no inferring them
    * from the order a run read happens to carry.
    */
   readonly topology?: PhaseTopology;
-  /** The region's accessible name, supplied by the surface that mounts it. */
+  /** The region's accessible name, supplied by the component that mounts it. */
   readonly label: string;
 }
 
@@ -106,7 +106,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
       <div className="meridian-run-graph">
         <Nothing
           kind="empty"
-          placement="surface"
+          placement="block"
           title="This run has no phases."
           detail="A run's phase sequence is drawn here once the run reports one."
         />
@@ -119,7 +119,7 @@ export function RunGraph(props: RunGraphProps): React.JSX.Element {
       <div className="meridian-run-graph">
         <Nothing
           kind="error"
-          placement="surface"
+          placement="block"
           title="The phase sequence could not be drawn."
           detail={repeatedPhaseDetail(layout.repeatedPhaseIds)}
         />
@@ -166,9 +166,8 @@ function repeatedPhaseDetail(repeatedPhaseIds: readonly string[]): string {
  * claim the run has no phases this arm has already disproved, nor `not-checked`,
  * which would claim nobody asked. A chunk the browser refused is a REFUSAL: something
  * was asked for and the answer was no, so it renders in the refusal grammar the rest
- * of this family renders a failed read in, carrying its code in mono. It was a
- * `Nothing kind="error"` with a bare message and no code — the one failure on this
- * surface a person could not quote.
+ * of the workflows feature renders a failed read in, carrying its code in mono so a
+ * person can quote it.
  *
  * THE NEXT MOVE RIDES THE REFUSAL AND NOT THE ABSENCE, which is the grammar's own
  * split: `action` is the caller's answer to "what now", and a chunk still in flight
@@ -182,7 +181,7 @@ function renderUnloadedCanvas(
   retryChunk: () => void,
 ): React.JSX.Element {
   return graphModule.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="surface" title="Loading the phase graph" />
+    <Nothing kind="not-loaded" placement="block" title="Loading the phase graph" />
   ) : (
     <RefusalBanner
       {...graphModule.refusal}

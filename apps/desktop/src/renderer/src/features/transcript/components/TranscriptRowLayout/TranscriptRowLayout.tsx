@@ -1,6 +1,6 @@
 // The transcript row — the console's signature shape.
 //
-// Design-language rule 1: transcript rows are flush-left lines — a 2 px
+// Transcript rows are flush-left lines — a 2 px
 // attribution edge in the author's hue, author and timestamp in a fixed gutter, content
 // in a single measure. No bubbles, no left-and-right alternation, no avatars in the
 // flow. The screen reads as a work log because it is one.
@@ -8,14 +8,13 @@
 // Two decisions this component makes, each of which the design forces:
 //
 //   • **The edge is 2 px and it is an edge, not a tint.** A background tint on the
-//     row would put the user hue behind body text, which rule 3 forbids in
-//     terms ("the twelve user hues … are never used as text") and which would
-//     also cost every row a contrast argument. A 2 px edge carries identity at a
+//     row would put the user hue behind body text, where an actor hue never goes,
+//     and would also cost every row a contrast argument. A 2 px edge carries identity at a
 //     glance without ever sitting behind a glyph. The width is the palette's
-//     `--meridian-leading-edge`, so rule 1's number lives in one place.
-//   • **The footer is revealed, never added.** Rule 7: "secondary controls live one
-//     click away — a row's hover footer or its context menu — never as a second
-//     visible button." Revealing on `:hover` alone would hide the row's affordances
+//     `--meridian-leading-edge`, so the edge's width lives in one place.
+//   • **The footer is revealed, never added.** A row's secondary controls live one
+//     click away — its hover footer or its context menu — never as a second
+//     visible button. Revealing on `:hover` alone would hide the row's affordances
 //     from anyone driving by keyboard, so the same reveal fires on `:focus-within`
 //     and the footer is only pointer-inert while hidden — Tab still reaches it.
 //
@@ -51,7 +50,7 @@ export function TranscriptRowLayout(props: TranscriptRowLayoutProps): React.JSX.
   // FORMATTED ONCE PER INSTANT, not once per paint.
   //
   // `formatClockTime` builds a fresh `Intl.DateTimeFormat` on every call, and this is
-  // the row every transcript surface in the console is made of — a streaming window
+  // the row every transcript view in the console is made of — a streaming window
   // re-renders its mounted rows on a lease write, a hover and a reveal tick, and none
   // of those move the instant a row is stamped with.
   //

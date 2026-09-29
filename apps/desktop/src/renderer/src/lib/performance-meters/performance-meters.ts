@@ -342,8 +342,8 @@ export function recordRevealDrain(seriesKey: string, revealedUnitCount: number):
  *
  * The retiring entry points exist for the two kinds whose key names an INSTANCE. The
  * other two key by store scope, which is a fixed vocabulary a session does not mint
- * more of, so neither has a producer with anything to retire and neither is given a
- * door it would never call.
+ * more of, so neither has a producer with anything to retire and neither is given an
+ * exported call it would never make.
  */
 export function retireFrameTimeSeries(seriesKey: string): void {
   if (import.meta.env.DEV) {

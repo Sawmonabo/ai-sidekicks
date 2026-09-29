@@ -15,7 +15,7 @@
 
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 
-/** What the mounting surface hands the conversational-start body. */
+/** What the mounting pane hands the conversational-start body. */
 export interface ChatStartMount {
   /**
    * The session a started run binds to, or `undefined` on a route with none.

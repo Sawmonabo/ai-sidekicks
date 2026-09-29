@@ -1,9 +1,9 @@
 // The read side of the console's scheduling: one scheduler, no interval.
 //
 // No interval polling: reads happen on subscribe, on window focus, on reconnect, and on
-// the terminal events the owning surface names — through one refresh scheduler firing
+// the terminal events the owning view names — through one refresh scheduler firing
 // at `min(lastEvent + delay, firstEvent + maxWait)`, serialized, so a trailing debounce
-// cannot starve under a stream."
+// cannot starve under a stream.
 //
 // `RefreshScheduler` is that scheduler. It coalesces a burst of reasons-to-re-read
 // into one read, with an absolute deadline so a continuous stream still gets a
@@ -42,7 +42,7 @@ import { ReadScope, type ReadRound } from "./read-scope.js";
  * `user-request` is the one a person caused: somebody pressed the control that
  * reads again. It is its own member rather than borrowed from a neighbor, and the rule
  * is that a press is a reason of its own — never disguised as a subscription, which
- * says a surface has just opened, and never as a terminal event, which says the wire
+ * says a view has just opened, and never as a terminal event, which says the wire
  * delivered something. Both of those are claims about the SYSTEM, and a diagnostics
  * trail that recorded a person's press as either would report a read nobody asked for
  * beside the reads nobody did, with no way afterwards to tell which was which. The
@@ -83,12 +83,11 @@ export class RefreshScheduler {
   /**
    * The read line every read this scheduler fires is on.
    *
-   * CONSTRUCTED HERE AND NOT ACCEPTED FROM A CALLER, which is the whole of the
-   * pairing: a supersession rule a caller supplies is one a caller can omit, and
-   * thirteen readers across five families each decided that for themselves — some
-   * with a latch, most with a `#disposed` flag read after the `await`, one with
-   * nothing. It is not published either, since a caller holding the scope could
-   * abandon a line it does not own; a performer is handed its round and nothing more.
+   * CONSTRUCTED HERE AND NOT ACCEPTED FROM A CALLER, which is the whole of the pairing:
+   * a supersession rule a caller supplies is one a caller can omit, or write its own
+   * way — a latch, a `#disposed` flag read after the `await`, or nothing. It is not
+   * published either, since a caller holding the scope could abandon a line it does not
+   * own; a performer is handed its round and nothing more.
    */
   readonly #readScope = new ReadScope();
   readonly #perform: RefreshPerformer;

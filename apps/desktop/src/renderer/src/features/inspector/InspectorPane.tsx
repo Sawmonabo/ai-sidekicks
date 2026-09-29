@@ -16,7 +16,7 @@
 // such record — are the record's own, and `EntityRecord` ranks them.
 //
 // WHAT THIS PANE NEVER DOES. It offers no control that acts on the entity it shows.
-// Pausing a run, deciding an approval, and deleting an artifact are the surfaces
+// Pausing a run, deciding an approval, and deleting an artifact belong to the controls
 // that own those verbs, gated on what the daemon declares; a control offered here
 // would be a second place eligibility is decided, which is exactly the kind of
 // renderer-held truth this console must never keep.
@@ -28,7 +28,6 @@ export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.El
   return (
     <PaneFrame
       kind="inspector"
-      // The pane's own binding rather than the route, on the runs pane's reason.
       sessionId={context.sessionStore?.sessionId}
       entity={context.entity}
       focusHue={context.focusHue}

@@ -1,6 +1,6 @@
 // The latest COMMITTED value, readable from a callback that outlives the render.
 //
-// The problem it solves is one every surface with a long-lived callback meets. A
+// The problem it solves is one every component with a long-lived callback meets. A
 // palette command, a registered chord, a dispatch handed to a store: each is built
 // once and invoked much later, so it cannot close over the render's props — it would
 // dispatch against a run version, a session, or a bridge that has since moved. The

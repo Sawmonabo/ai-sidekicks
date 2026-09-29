@@ -19,13 +19,13 @@ export class QueueOrder {
   #itemsById = new Map<string, QueueItemSummary>();
 
   /**
-   * Seat the snapshot. Its order becomes the list's order — and no row it carries
+   * Install the snapshot. Its order becomes the list's order — and no row it carries
    * displaces a NEWER reading of that row.
    *
    * The two halves are one rule, and both are needed because the tail is opened
    * alongside the snapshot rather than after it. `run.queueList` answers a moment;
    * a tail emission that arrived while that answer was in flight describes a LATER
-   * moment of the same row. Seating the snapshot by writing every row would then do
+   * moment of the same row. Installing the snapshot by writing every row would then do
    * two wrong things at once: it would regress an `admitted` row back to the
    * `queued` the snapshot was taken at — permanently, since the daemon has no
    * reason to say it again — and it would leave the row at the position the tail
@@ -64,7 +64,7 @@ export class QueueOrder {
    * snapshot did not carry is appended. `Map.set` on an existing key preserves
    * insertion order, which is what makes the first half true without a second index.
    *
-   * Last-writer-wins here and comparison only at `seat`, deliberately: the stream
+   * Last-writer-wins here and comparison only in `replaceWithSnapshot`, deliberately: the stream
    * is one ordered sequence of the daemon's own updates, so its newest delivery is
    * its newest reading. The snapshot is what arrives out of order, and it is the
    * only reading this fold has to rank.

@@ -8,7 +8,7 @@
 // projected entity's body rather than the record the pane's own read answered with.
 //
 // A PURE FUNCTION OVER A BODY, and it lives here rather than in the pane for the
-// reason every parse in this family does: a surface that decided for itself what
+// reason every parse in this feature does: a view that decided for itself what
 // counts as an ask would be a second reading of one registered member, and the two
 // would drift the first time one of them grew a fallback.
 
@@ -28,7 +28,7 @@ export interface ProviderAsk {
  * entity in the partition, an entity with no body, a body with no `askId`, and a
  * body whose `askId` is not a non-empty string all mean the same thing to a caller —
  * this build has not been told the request came from a provider ask, so it renders
- * the ordinary card. Distinguishing them would invite a surface to render a fifth
+ * the ordinary card. Distinguishing them would invite a view to render a fifth
  * thing for a distinction nobody can act on.
  */
 export function providerAskFor(entity: StoredEntity | undefined): ProviderAsk | undefined {

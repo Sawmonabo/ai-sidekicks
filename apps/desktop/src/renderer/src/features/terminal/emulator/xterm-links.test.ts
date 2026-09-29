@@ -18,7 +18,7 @@ import { TerminalRendererPool } from "./renderer-pool.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
 
 import {
-  attachedHost,
+  attachedMountElement,
   disposeLiveEmulators,
   trackAdapter,
   writeText,
@@ -29,11 +29,11 @@ afterEach(disposeLiveEmulators);
 /**
  * Every link provider the adapter registers on its own terminal, in order.
  *
- * The library's public `registerLinkProvider` is the only door an addon has, and
+ * The library's public `registerLinkProvider` is the only way an addon adds one, and
  * xterm.js registers its own OSC 8 provider through an internal service rather
  * than through it — so what this records is exactly what the ADAPTER registered,
  * and against the old adapter it records nothing. The original is still called, so
- * the emulator behaves as it does in the shell; this only watches the door.
+ * the emulator behaves as it does in the shell; this only watches that call.
  */
 function recordLinkProvidersRegisteredBy(build: () => XtermTerminalAdapter): ILinkProvider[] {
   const registered: ILinkProvider[] = [];
@@ -75,7 +75,7 @@ describe("printed URLs, not just the hyperlinks a program marked", () => {
     line: string,
     onActivateLink: (url: string) => void,
   ): Promise<ILink[]> {
-    const host = attachedHost();
+    const mountElement = attachedMountElement();
     // Held by the closure rather than read back off the live registry: the adapter
     // this line is written into has to be the one the recorder just watched, and the
     // newest tracked instance is only the same object by coincidence of ordering.
@@ -88,7 +88,7 @@ describe("printed URLs, not just the hyperlinks a program marked", () => {
           onActivateLink,
         }),
       );
-      adapter.attach(host);
+      adapter.attach(mountElement);
       builtAdapter = adapter;
       return adapter;
     });
@@ -133,10 +133,10 @@ describe("printed URLs, not just the hyperlinks a program marked", () => {
     expect(opened).not.toHaveBeenCalled();
   });
 
-  it("registers no provider for a surface with nowhere to send a link", async () => {
+  it("registers no provider for a terminal with nowhere to send a link", async () => {
     // An underlined URL whose click does nothing is an affordance that lies, so the
     // provider is gated on the sink the way `onData` is gated on the writer.
-    const host = attachedHost();
+    const mountElement = attachedMountElement();
     const registered = recordLinkProvidersRegisteredBy(() => {
       const adapter = trackAdapter(
         new XtermTerminalAdapter({
@@ -144,7 +144,7 @@ describe("printed URLs, not just the hyperlinks a program marked", () => {
           pool: new TerminalRendererPool(),
         }),
       );
-      adapter.attach(host);
+      adapter.attach(mountElement);
       return adapter;
     });
     expect(registered).toStrictEqual([]);

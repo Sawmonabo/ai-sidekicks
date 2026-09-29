@@ -12,7 +12,7 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { PaneRegistry } from "@renderer/console/seats/index.js";
-// The declaring module rather than the door: the predicate is read only from suites.
+// The declaring module rather than the public entry: the predicate is read only from suites.
 import { type PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { registerInspectorPane } from "./contributions/panes.js";
@@ -148,7 +148,7 @@ describe("the inspector with an entity and a session", () => {
 
 describe("a linked inspector says which pane opened it", () => {
   it("names the source pane the pane layout opened it from", () => {
-    // The pane layout puts the source pane's id on the seat, and the record has rendered
+    // The pane layout puts the source pane's id on the pane context, and the record has rendered
     // that provenance line all along — the pane was discarding the member before
     // the record could read it, so every linked inspector looked unlinked.
     const container = renderPane(

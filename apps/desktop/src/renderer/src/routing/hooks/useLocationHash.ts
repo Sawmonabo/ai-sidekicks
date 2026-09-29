@@ -1,10 +1,10 @@
 // The window's location hash, as a subscription rather than a poll.
 //
 // ITS OWN MODULE AND NOT A FRAME-STORE HOOK, because it subscribes to no store at
-// all: it reads the browser's own `hashchange` event. It sits in `shell/` because
-// the frame is what binds it — `frame/bindings/hash-route-binding.ts` is the reader that
-// turns a hash into the route the shell renders — and a subscription with no store
-// filed among the frame store's selectors would read as one of them.
+// all: it reads the browser's own `hashchange` event. It sits under `routing/` because
+// what it feeds is the route — `app/hooks/useHashRouteBinding.ts` turns a hash into the
+// route the window renders — and a subscription with no store filed among the frame
+// store's selectors would read as one of them.
 
 import { useSyncExternalStore } from "react";
 

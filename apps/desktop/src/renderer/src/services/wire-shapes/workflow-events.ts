@@ -1,6 +1,6 @@
-// The workflow plane's event taxonomy, as the console declares it for itself.
+// The workflow engine's event taxonomy, as the console declares it for itself.
 //
-// OWNER. The workflow plane's event-type enumeration names twenty-one `workflow.*`
+// OWNER. The workflow engine's event-type enumeration names twenty-one `workflow.*`
 // types across four event categories, and the owning event registry carries no
 // `workflow` category at all. Until that registration lands, `packages/contracts`
 // registers none of these strings: `SessionEventType` does not admit one, and the
@@ -9,7 +9,7 @@
 //
 // SO WHY DECLARE THEM. Because the run pane has to say WHEN its read goes stale, and
 // the console's refresh policy answers that with the terminal events the owning
-// wire names, because no console surface polls on an interval.
+// wire names, because nothing in the renderer polls on an interval.
 // A pane that could not name those events has two options and both are wrong: poll on
 // a timer, which that rule forbids outright, or re-read only when the operator at THIS
 // keyboard acts, so a run moved by another window, by another user, or by the engine
@@ -22,8 +22,8 @@
 // whatever the wire sent. A kind no daemon emits therefore never matches and the
 // reading simply refreshes on its other triggers; the day the registration lands it
 // starts matching with no edit here. That is the opposite posture from a payload
-// SHAPE, which a surface would read members off and be wrong about — which is why
-// `workflow-projection.ts` next door carries the shapes and this file carries none.
+// SHAPE, which a view would read members off and be wrong about — which is why
+// `workflow-projection.ts` beside it carries the shapes and this file carries none.
 //
 // DELETION OBLIGATION. When `packages/contracts` registers the taxonomy, this module
 // is DELETED and its consumers derive the set from the registered `SessionEventType`
@@ -53,7 +53,7 @@ const WORKFLOW_LIFECYCLE_EVENT_TYPES = [
  *
  * `workflow.phase_suspended` is the park's own event and the one whose payload
  * carries the four members the run read projects live; `workflow.phase_waiting_on_pool`
- * is the diagnostic a phase blocked on `pty_slots` or `agent_memory_mb` emits.
+ * is the diagnostic a phase emits while it waits for memory.
  */
 const WORKFLOW_PHASE_LIFECYCLE_EVENT_TYPES = [
   "workflow.phase_admitted",
@@ -84,7 +84,7 @@ const WORKFLOW_GATE_RESOLUTION_EVENT_TYPES = ["workflow.gate_resolved"] as const
  * belongs to which — the split the owning spec made deliberately, against one
  * monolithic `workflow_lifecycle`, so a query can be scoped. The four tuples are
  * module-private: nothing outside this file has asked a question about one category,
- * and a door line per category would be four exports with no reader.
+ * and exporting each category would be four exports with no reader.
  */
 export const WORKFLOW_EVENT_TYPES: readonly string[] = [
   ...WORKFLOW_LIFECYCLE_EVENT_TYPES,
@@ -94,7 +94,7 @@ export const WORKFLOW_EVENT_TYPES: readonly string[] = [
 ];
 
 /**
- * The member every workflow-plane shape names a run by, on this wire and every other.
+ * The member every workflow shape names a run by, on this wire and every other.
  *
  * A STRING AND NOT A SHAPE, which is what keeps this module's own rule intact. Reading
  * one identifier out of a payload is not declaring what the payload IS: a frame that
@@ -111,9 +111,9 @@ const WORKFLOW_RUN_ID_MEMBER = "workflowRunId";
  * "did the run I am showing move", and the kind alone cannot: every one of the
  * twenty-one types is emitted for whichever run the engine advanced, so a pane
  * matching on kind re-reads for every OTHER run in the session too. The one member it
- * needs is the run identifier, which the whole workflow plane spells the same way —
- * every request and every response in the plane's own contract names a run
- * `workflowRunId`, so this is the plane's vocabulary rather than a guess about it.
+ * needs is the run identifier, which every workflow operation spells the same way —
+ * every request and every response in the workflow contract names a run
+ * `workflowRunId`, so this is the contract's vocabulary rather than a guess about it.
  *
  * `undefined` FOR ANYTHING THAT IS NOT A STRING, including a frame with no payload at
  * all, and the caller's rule is that an unnamed frame is one it cannot rule out rather

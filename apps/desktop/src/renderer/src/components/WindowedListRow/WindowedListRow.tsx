@@ -5,8 +5,7 @@
 // is as long as the window: "item 3 of 12" for row 3 of a 4,000-row enumeration,
 // which is not a smaller reading of the truth but a different and false one. Both
 // members are therefore written here, together, for every windowed row in the
-// console — the repos family's restore list carried them and its own diff file list
-// did not, which is exactly what happens when the pair is a call site's to remember.
+// console: a pair each call site has to remember is a pair some list forgets.
 //
 // PLACEMENT IS THE CALLER'S AND IS NOT SHARED. The two lists that window today place
 // their rows differently — one stacks them contiguously behind a single translated
@@ -62,7 +61,7 @@
 // other reading of the APG rule — the row is the stop, its controls are all
 // `tabindex="-1"`, and Enter on the row reaches them — is right for a grid whose cells
 // hold widgets. Every windowed list in this console is a list of CONTROLS: the repos
-// family's diff file list is a `<li>` around a button, which is the corpus the
+// feature's diff file list is a `<li>` around a button, which is the corpus the
 // windowed-row gate's own negative control is drawn from. Taking the stop off those
 // buttons would take activation off them too, and the row would have to invent a
 // second activation path beside the one the button already has, on an element with no

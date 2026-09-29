@@ -14,7 +14,7 @@
 // high-water mark replaced the higher one on its timestamp alone, so this page could
 // show 20% for a window the canonical feed was holding at 90% and the composer's chip
 // was still reporting. A second rule for one decision does not stay in step, and the
-// gate goes green while the two surfaces disagree.
+// gate goes green while the two views disagree.
 //
 // So the rows are SELECTED and never folded, and the parameter is the READOUT rather
 // than an array of wire rows: `ProviderQuotaReadout.usageWindows` is the fold's own
@@ -56,7 +56,7 @@ export interface AccountQuotaRow {
  *
  * A SELECTION AND NEVER A FOLD. Which reading is current for a `(accountId, limitId)`
  * pair is settled before a row reaches this function, by the one implementation of that
- * rule; every seated row for this account is carried through, and none is dropped,
+ * rule; every current row for this account is carried through, and none is dropped,
  * replaced, or re-ranked here. A second answer to that question is the defect this
  * signature exists to make unwritable.
  *

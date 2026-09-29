@@ -14,11 +14,11 @@
 // fixture one built by its own factory — and compared.
 //
 // NOTHING HERE HAND-LISTS A NAMESPACE OR A METHOD. A test that carried its own copy
-// of the bridge's surface would be a third declaration of it, maintained by whoever
-// remembered, and would go on passing over a fixture that dropped a method the
-// hand-list also forgot. The comparison enumerates both objects at runtime, and the
-// only listing anywhere is `bridge-shape.ts`'s namespace table, which is keyed by
-// `keyof PreloadApi` and therefore cannot go stale.
+// of the bridge's namespaces and methods would be a third declaration of them,
+// maintained by whoever remembered, and would go on passing over a fixture that
+// dropped a method the hand-list also forgot. The comparison enumerates both objects at
+// runtime, and the only listing anywhere is `bridge-shape.ts`'s namespace table, which
+// is keyed by `keyof PreloadApi` and therefore cannot go stale.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createStubBridge, type PreloadApi } from "@shared/preload-api.js";

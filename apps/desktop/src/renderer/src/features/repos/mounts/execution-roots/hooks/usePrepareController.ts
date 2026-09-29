@@ -25,17 +25,17 @@ import {
   type PrepareSubject,
 } from "../prepare-controller.js";
 
-/** What the hook hands a surface: the reading, and the three things it can ask for. */
+/** What the hook hands a form: the reading, and the three things it can ask for. */
 export interface PrepareBinding {
   readonly reading: PrepareReading;
   /**
    * The identity of the controller behind this binding, for state that must die with it.
    *
-   * TYPED `object` SO A SURFACE SCOPES TO IT AND NEVER REACHES THROUGH IT. The controller
+   * TYPED `object` SO A FORM SCOPES TO IT AND NEVER REACHES THROUGH IT. The controller
    * is re-minted whenever the workspace or its execution mode moves, and a form held in a
    * plain register survives that — the row is keyed by workspace id, so React never
    * remounts it — leaving a branch typed under the previous mode sitting above a
-   * controller that has asked nothing. Handing back the identity lets the surface address
+   * controller that has asked nothing. Handing back the identity lets the form address
    * `useSubjectScopedState` at it and be re-seeded during the render that re-mints,
    * rather than one committed frame later.
    */
@@ -46,7 +46,7 @@ export interface PrepareBinding {
 }
 
 /**
- * Bind one workspace's prepare controller to a surface.
+ * Bind one workspace's prepare controller to a form.
  *
  * KEYED ON THE WORKSPACE AND THE MODE TOGETHER, so a mode switch mints a fresh controller.
  * The form is addressed at the controller's identity, so a fresh controller is what

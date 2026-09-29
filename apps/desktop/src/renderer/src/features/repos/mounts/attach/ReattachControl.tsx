@@ -27,7 +27,7 @@
 // closing this dialog is what reaches `onOpenChange`, so a discard keyed on the close
 // takes back the `sending` that press had just published;
 // `hooks/useConfirmationLifecycle.ts` holds the two moments a discard belongs to,
-// and both of this family's alert dialogs wire it rather than each stating the rule.
+// and both of the repo mounts' alert dialogs wire it rather than each stating the rule.
 
 import "./attach.css";
 
@@ -94,10 +94,10 @@ export function ReattachControl(props: ReattachControlProps): React.JSX.Element 
         >
           Re-attach this path
         </AlertDialog.Trigger>
-        {/* The popup shell is the primitive's, which is what puts this confirmation in
-            the window's airspace: a native browser-pane view yields to what is
-            registered there, and a confirmation it painted over is the one thing
-            forbidden outright. */}
+        {/* The portal, backdrop and popup are the primitive's, which is what puts this
+            confirmation in the window's airspace: a native browser-pane view yields to
+            what is registered there, and a confirmation it painted over is the one
+            thing forbidden outright. */}
         <OverlayAlertDialogPopup
           backdropClassName="meridian-reattach__backdrop"
           className="meridian-reattach__dialog"

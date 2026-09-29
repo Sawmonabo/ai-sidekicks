@@ -2,7 +2,7 @@
 //
 // The page's own file asserts what a person sees; this one asserts the state machine
 // underneath, because the property that matters here is about two calls in flight and
-// a rendered surface can only show the second half of it. The registry stub, the
+// the rendered page can only show the second half of it. The registry stub, the
 // records, and the flush are the page's own — one home per role, and a view test
 // that hand-rolled a second registry would be asserting against calls no window makes.
 

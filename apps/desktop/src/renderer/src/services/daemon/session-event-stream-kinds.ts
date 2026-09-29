@@ -35,9 +35,9 @@
 // Totality and excess are therefore both compile-time facts: a newly registered
 // run state or queue row fails this file, and a kind this table invents fails it
 // too. The import stays TYPE-ONLY — the renderer's initial-bundle budget is
-// enforced and this module is on the RELEASE path, reached from the routing table
-// and the binder one family up, so a value import of the census would pull the whole
-// taxonomy module and its schemas into the shipped console — and the runtime
+// enforced and this module is on the RELEASE path, reached through the routing
+// table every subscription goes through, so a value import of the census would pull
+// the whole taxonomy module and its schemas into the shipped console — and the runtime
 // cross-check against `SESSION_EVENT_CATEGORY_BY_TYPE` therefore lives in the
 // co-located test, which is not bundled and can read the census itself.
 //
@@ -87,13 +87,13 @@ import {
  * forward rows below are: neither wire arm can represent it. It is the run's
  * CREATION rather than a transition — a beat carrying it reaches a subscriber
  * through `session.subscribe`, where the run-lifecycle projector folds it into the
- * run's existence — and the scenario that used to script `previousState: "queued"`
- * on it to satisfy this stream was describing a self-transition the machine defines
- * for no state, which a surface could then learn to render or count.
+ * run's existence — and a scenario scripting `previousState: "queued"` on it to
+ * satisfy this stream would describe a self-transition the machine defines for no
+ * state, which a view could then learn to render or count.
  *
  * The three forward, non-state run rows the taxonomy also registers —
  * provider-initialization, turn-start, worker-shutdown — are deliberately absent
- * too, and a table that carried any of these four would train a surface on a frame
+ * too, and a table that carried any of these four would train a view on a frame
  * the daemon does not send here.
  *
  * EXPORTED for one reader, and for what its COMPLEMENT is: the four run-lifecycle

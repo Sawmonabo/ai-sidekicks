@@ -3,7 +3,7 @@
 // Its own module for the one-component rule, and the honest limit it states is worth
 // its own file: `user.message` is a registered event type with no payload variant, so
 // a user's words are sealed in the per-user encrypted column and the
-// summary is the whole of what a timeline row carries. This renders what exists and
+// summary is the whole of what a `TimelineRow` carries. This renders what exists and
 // never captions the summary as if it were the message.
 
 import { Nothing } from "@renderer/console/primitives/index.js";
@@ -31,7 +31,7 @@ export function UserBody(props: UserBodyProps): React.JSX.Element {
         kind="empty"
         placement="inline"
         title="This message has no summary."
-        detail="The user's own words are not carried on a timeline row."
+        detail="Only a message's summary reaches the transcript, and this one is empty."
       />
     );
   }

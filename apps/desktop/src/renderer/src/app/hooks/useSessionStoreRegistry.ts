@@ -91,8 +91,8 @@ import { SessionEventSubscriber } from "@renderer/services/session-events/sessio
  *     own `isClosed` arm, read where its lifetime effect runs, and not an effect
  *     written here.
  *
- * The binder is not returned. Nothing above this hook reads it — its whole surface
- * is the subscription it owns — and handing it out would invite a second caller to
+ * The binder is not returned. Nothing above this hook reads it — all it does
+ * is own the subscription — and handing it out would invite a second caller to
  * attach or dispose it out from under this window.
  */
 export function useSessionStoreRegistry(
@@ -100,7 +100,7 @@ export function useSessionStoreRegistry(
   readSession: SessionSnapshotReader,
 ): SessionStoreRegistry {
   // Resolved from context rather than taken as an argument, so every caller of this
-  // hook gets the same bridge the rest of the frame renders against and no surface
+  // hook gets the same bridge the rest of the frame renders against and no component
   // has to thread one through. The bridge is provided, never reached for, which is the
   // same rule one layer down.
   const bridge = usePlatformBridge();
@@ -167,17 +167,17 @@ function createWindowSessionPlumbing(
     // THE PROJECTORS ARE PART OF THE PLUMBING, not an optional extra. The registry
     // has taken them since it was written and this root registered none, so every
     // store it opened admitted its events into the timeline and projected them
-    // into no partition at all — a runs surface that renders a live session as
+    // into no partition at all — a runs view that renders a live session as
     // having no runs, indistinguishable from one that has none. They are supplied
     // HERE and only here, so every store this window opens folds the same events
-    // the same way; a surface that registered its own would be a second projection
+    // the same way; a view that registered its own would be a second projection
     // of one stream.
     //
     // A SNAPSHOT OF THE REGISTRY, not the frame's own constant. The constant was a
-    // table closed at build time by one family, so every other partition
-    // `store/entities/entities.ts` declares had no possible producer — and the families that
-    // own those surfaces would have had to read the wire a second time to fill them.
-    // Taking the snapshot HERE also fixes the composition order: families register
+    // table closed at build time by one feature, so every other partition
+    // `store/entities/entities.ts` declares had no possible producer — and the features that
+    // own those views would have had to read the wire a second time to fill them.
+    // Taking the snapshot HERE also fixes the composition order: features register
     // at module scope, before any window renders, and a store opens with whatever
     // that composition claimed. A snapshot rather than the registry itself, because
     // a store folds for as long as its session is open and a table that changed

@@ -1,6 +1,6 @@
 // The reveal engine's published text, reachable from a row body.
 //
-// A context rather than a prop on the row seat: the seat carries what the list decides
+// A context rather than a prop on the row renderer: its props carry what the list decides
 // about a row (hue, supersession, density), and live text is not a property of a row's
 // position in a list. The channel published here is stable; each row reads its own lane
 // through `useSyncExternalStore`, so a drained frame that moved other lanes re-renders

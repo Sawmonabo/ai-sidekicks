@@ -1,28 +1,21 @@
-// The one call this console makes into a schema library, and the wrapper that makes it
+// The one call the renderer makes into a schema library, and the wrapper that makes it
 // safe to make.
 //
-// IT LIVES IN THIS FAMILY BECAUSE THIS IS THE FAMILY THAT MAY HOLD A VALIDATOR. The
-// console bans the schema library everywhere above `bridge/`, and the ban's own reason is
-// the layer rather than the file: a validator sits below every surface, so no surface can
-// hold a second reading of one. `workflow-definition-file-form.ts` is the same shape one
-// directory over — pasted text narrowed into a typed request — and this is its sibling: a
-// schema the wire delivered, compiled once into something a locally composed answer can be
-// checked against. What is checked here is a DRAFT and never a daemon reply; a reply is
-// parsed at `daemon/daemon-reply.ts` and nowhere else, and nothing in this module can
-// reach one.
+// THE LINT CONFIG LETS THIS MODULE IMPORT `zod`, WHICH THE RENDERER'S FEATURES OTHERWISE
+// MAY NOT. A person's answer checked against a workflow's input schema is not a wire
+// read, so it is validated here, where the data is owned, and nowhere else: every other
+// module of the form that needs a verdict asks this one, so the renderer holds one
+// reading of a schema. What is checked here is a
+// DRAFT and never a daemon reply; a reply is parsed at `daemon/daemon-reply.ts` and
+// nowhere else, and nothing in this module can reach one.
 //
-// AND IT IS REACHED THROUGH A LOADER, WHICH IS WHY IT IS STILL ONLY THE COMPILER. The
-// bridge door is on the console's initial import graph, so a value it publishes is charged
-// to every launch — and the only production readers of this module are inside the schema
-// form seat, which is itself a loader-backed chunk. A door line for the compiler therefore
-// assigned this module, the schema library's JSON-Schema entry point, and everything under
-// it to the STATIC chunk, exactly as this package's module rules say a door
-// line for a body only a lazy chunk reads does. So the door publishes
-// `json-schema-check-loader.ts`, which reaches this module through `import()` and through
-// nothing else, and the ADDRESSING this module used to declare beside the compiler moved
-// to `schema-member-path.ts` — a zod-free sibling the door still publishes eagerly,
-// because the form's descriptors, controls and plan all read it before any schema is
-// compiled. What is left here is the one thing that needs the library.
+// AND IT IS REACHED THROUGH A LOADER, WHICH IS WHY IT HOLDS ONLY THE COMPILER.
+// `json-schema-validator-loader.ts` reaches this module through `import()` and through
+// nothing else, so this module and the schema library's JSON-Schema entry point arrive on
+// a chunk of their own. How a member is ADDRESSED lives apart in `schema-member-path.ts`,
+// which needs no library, because the form's descriptors, controls and plan all read it
+// before any schema is compiled. What is left here is the one thing that needs the
+// library.
 //
 // WHY IT IS WRAPPED RATHER THAN CALLED. The console's library set admits Zod's
 // JSON-Schema reader for exactly this job and nothing else, and the library's own
@@ -40,8 +33,8 @@
 //
 // THE ISSUE PATH TRAVELS AS SEGMENTS, AND `schema-member-path.ts` STATES WHY. The library
 // reports a path of property keys and array indices; what leaves this module is those
-// segments whole, in the one representation every surface addresses a control by. A
-// second reading of that path is what the split next door exists to prevent, and nothing
+// segments whole, in the one representation every control is addressed by. A second
+// reading of that path is what `schema-member-path.ts` exists to prevent, and nothing
 // here re-derives one.
 //
 // THE VERDICT DESCRIBES THE BYTES SENT, WHICH IS WHY IT CARRIES THEM. `safeParse` does
@@ -53,7 +46,7 @@
 // way to show it: the form's raw editor submits THAT, because its display is the person's
 // own document and nothing rewrites it. A caller whose controls can show every member
 // seeds them instead and submits what they hold — same rule, closed at the display rather
-// than at the wire (`seats/schema-form/containers/use-schema-form.ts`).
+// than at the wire (`hooks/useSchemaForm.ts`).
 //
 // AND THE LIBRARY CANNOT BE ASKED FOR LESS. `FromJSONSchemaParams` declares exactly two
 // members, `defaultTarget` and `registry` (`zod/v4/classic/from-json-schema.d.ts` at the

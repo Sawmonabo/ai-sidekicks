@@ -1,4 +1,4 @@
-// The agents family's bounds: what a resolved allowlist and a resolved prose echo show
+// The agents feature's bounds: what a resolved allowlist and a resolved prose echo show
 // before each folds to a count.
 
 /**

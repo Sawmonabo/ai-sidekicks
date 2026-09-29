@@ -1,4 +1,4 @@
-// Which kind of posture reading a surface is rendering.
+// Which kind of posture reading a card is rendering.
 
 /**
  * Which kind of posture reading this is.

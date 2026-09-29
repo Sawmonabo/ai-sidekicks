@@ -15,7 +15,11 @@
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { composedAnswer, renderForm, reportedIssueTexts } from "./SchemaFormHost.test-support.js";
+import {
+  composedAnswer,
+  renderForm,
+  reportedIssueTexts,
+} from "./SchemaFormWithReadout.test-support.js";
 
 afterEach(cleanup);
 
@@ -90,11 +94,10 @@ describe("the fieldset a group draws", () => {
   });
 
   it("opens a required group whose members are all optional at the empty object it accepts", async () => {
-    // The finding the group-addressed case next door used to be written over. `{ release:
-    // {} }` is what this schema accepts, and the form now opens holding it: before, the
-    // answer held `{}`, the fieldset carried "must have required property", and the only
-    // way to reach the valid state was to type into `tag` and clear it again — which wrote
-    // `{ tag: "" }` and left the form invalid for a different reason.
+    // `{ release: {} }` is what this schema accepts, and the form opens holding it. Opening
+    // at `{}` would put "must have required property" on the fieldset, and the only way to
+    // reach the valid state would be to type into `tag` and clear it again — which writes
+    // `{ tag: "" }` and leaves the form invalid for a different reason.
     const container = await renderForm({
       type: "object",
       properties: {

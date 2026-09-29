@@ -5,7 +5,7 @@
 // fails closed in are two different facts about the wire: a row that declares
 // NOTHING is every row this daemon sends, and a row that declares something this
 // build does not know is a newer daemon. Collapsing the second into the first would
-// be the console guessing, which is exactly what the sub-family slot exists to stop.
+// be the console guessing, which is exactly what the declared tool kind exists to stop.
 //
 // EVERY CASE DRIVES THE REAL READER over a real payload record. Nothing here
 // reimplements the membership test — a suite that spelled the six names again would
@@ -21,8 +21,8 @@ import {
   readDeclaredToolKind,
 } from "./tool-kinds.js";
 
-describe("a tool row's declared sub-family", () => {
-  it("reads no sub-family off a payload that declares none", () => {
+describe("a tool row's declared tool kind", () => {
+  it("reads no tool kind off a payload that declares none", () => {
     // Every row this build can receive: the registered tool payload carries a name,
     // a call id and a duration, and no member saying what kind of tool ran.
     expect(
@@ -31,10 +31,10 @@ describe("a tool row's declared sub-family", () => {
   });
 
   it("reads every member of the declared vocabulary", () => {
-    for (const subFamily of TOOL_KINDS) {
-      expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: subFamily })).toStrictEqual({
+    for (const toolKind of TOOL_KINDS) {
+      expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: toolKind })).toStrictEqual({
         kind: "declared",
-        subFamily,
+        toolKind,
         serverLabel: undefined,
         argumentSummary: [],
       });
@@ -56,7 +56,7 @@ describe("a tool row's declared sub-family", () => {
       }),
     ).toStrictEqual({
       kind: "declared",
-      subFamily: "mcp",
+      toolKind: "mcp",
       serverLabel: "sentry",
       argumentSummary: [],
     });
@@ -69,7 +69,7 @@ describe("a tool row's declared sub-family", () => {
     });
     expect(reading).toStrictEqual({
       kind: "declared",
-      subFamily: "mcp",
+      toolKind: "mcp",
       serverLabel: undefined,
       argumentSummary: ["issueId: PROJ-4", "limit: 20"],
     });
@@ -95,7 +95,7 @@ describe("a tool row's declared sub-family", () => {
     expect(reading?.kind === "declared" ? reading.argumentSummary : undefined).toStrictEqual([]);
   });
 
-  it("reads no sub-family off a declaration that is not a wire string", () => {
+  it("reads no tool kind off a declaration that is not a wire string", () => {
     // The negative control for the unrecognized arm: a number is not a member this
     // build does not know, it is not a declaration at all.
     expect(readDeclaredToolKind({ [TOOL_KIND_PAYLOAD_KEY]: 4 })).toBeUndefined();

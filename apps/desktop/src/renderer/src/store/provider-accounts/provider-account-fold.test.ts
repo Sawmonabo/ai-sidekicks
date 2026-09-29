@@ -78,7 +78,7 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
     expect(decideUsageWindowMerge(lowerButNewer, held, true)).toBe("dropped-below-high-water");
   });
 
-  it("seats a lower reading once the window itself has moved on", () => {
+  it("stores a lower reading once the window itself has moved on", () => {
     // A reset horizon that moved is exactly what a window reset looks like, so this
     // is the ordinary case and not a regression — which is why the guard keys on
     // `resetsAt` rather than on the percentage alone.
@@ -89,7 +89,7 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
       resetsAt: NEXT_WINDOW_RESET,
     });
 
-    expect(decideUsageWindowMerge(nextWindow, held, true)).toBe("seated");
+    expect(decideUsageWindowMerge(nextWindow, held, true)).toBe("stored");
   });
 
   it("treats two readings that publish no reset horizon as one continuing window", () => {
@@ -101,13 +101,13 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
     expect(decideUsageWindowMerge(lowerButNewer, held, true)).toBe("dropped-below-high-water");
   });
 
-  it("negative control: an equal-or-higher same-window reading is seated on its timestamp", () => {
+  it("negative control: an equal-or-higher same-window reading is stored on its timestamp", () => {
     // Without this the guard could be an unconditional "hold whatever is stored" and
     // every case above would still be green.
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const higher = usageWindow({ usedPercent: 91, observedAt: LATER });
 
-    expect(decideUsageWindowMerge(higher, held, true)).toBe("seated");
+    expect(decideUsageWindowMerge(higher, held, true)).toBe("stored");
   });
 
   it("negative control: an older same-window reading is held by observation time", () => {
@@ -123,12 +123,12 @@ describe("decideUsageWindowMerge — consumption does not fall inside one window
     const held = usageWindow({ usedPercent: 90, observedAt: EARLIER });
     const tied = usageWindow({ usedPercent: 92, observedAt: EARLIER });
 
-    expect(decideUsageWindowMerge(tied, held, true)).toBe("seated");
+    expect(decideUsageWindowMerge(tied, held, true)).toBe("stored");
     expect(decideUsageWindowMerge(tied, held, false)).toBe("held");
   });
 });
 
-describe("ProviderAccountFold — the readings a surface renders", () => {
+describe("ProviderAccountFold — the readings a view renders", () => {
   it("keeps the high-water figure when the wire sends a lower one for the same window", () => {
     const fold = new ProviderAccountFold();
     fold.putAccount(account());
@@ -149,7 +149,7 @@ describe("ProviderAccountFold — the readings a surface renders", () => {
       fold.mergeUsageWindow(
         usageWindow({ usedPercent: 20, observedAt: LATER, resetsAt: NEXT_WINDOW_RESET }),
       ),
-    ).toBe("seated");
+    ).toBe("stored");
     expect(usedPercentFor(fold, "weekly-all")).toBe(20);
   });
 
@@ -186,11 +186,11 @@ describe("ProviderAccountFold — the readings a surface renders", () => {
   });
 });
 
-describe("ProviderAccountFold — the account labels a surface joins a handle to", () => {
+describe("ProviderAccountFold — the account labels a view joins a handle to", () => {
   it("labels an account that has no observed window at all", () => {
     // The membership difference that makes this a second answer rather than a scan
     // over the readings: an account the registry carries has a label whether or not
-    // a quota row has ever been observed for it, and a surface naming its handle
+    // a quota row has ever been observed for it, and a view naming its handle
     // needs that label. Scanning `readings()` for one would find nothing here.
     const fold = new ProviderAccountFold();
     fold.putAccount(account());
@@ -199,8 +199,8 @@ describe("ProviderAccountFold — the account labels a surface joins a handle to
     expect([...fold.accountLabels()]).toStrictEqual([[ACCOUNT_ID, "Team"]]);
   });
 
-  it("takes the label the newest seating carries, not the first", () => {
-    // The registry sends state and not deltas, so a renamed account is re-seated
+  it("takes the label the newest `putAccount` carries, not the first", () => {
+    // The registry sends state and not deltas, so a renamed account is put again
     // whole; a label that stuck at the first reading would name the account by a
     // word its operator has already changed.
     const fold = new ProviderAccountFold();
@@ -220,7 +220,7 @@ describe("ProviderAccountFold — the account labels a surface joins a handle to
     expect(fold.accountLabels().has(ACCOUNT_ID)).toBe(false);
   });
 
-  it("negative control: the rows are empty before anything is seated", () => {
+  it("negative control: the rows are empty before anything is put", () => {
     // Without this, every assertion above would also pass over a `accountLabels`
     // that answered with one fixed row whatever the fold held.
     expect([...new ProviderAccountFold().accountLabels()]).toStrictEqual([]);

@@ -28,7 +28,7 @@
 // beat is the frame a screenshot pins — and the last beat is the owner taking the
 // shell, which is the frame that carries the most: a named holder and a script behind
 // it that reached every ending. A script that ended on a plain free lease would pin
-// the emptiest frame the surface has.
+// the emptiest frame the terminal pane has.
 import type { Scenario, ScenarioBeat } from "../scenario.js";
 
 // Who and what the scenario is about: the session, the people, and the agent's run.
@@ -55,12 +55,12 @@ const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
 const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
 /**
- * The scenario's cast, by role, for the surfaces that render one of them.
+ * The scenario's cast, by role, for the views that render one of them.
  *
  * `userIdsInJoinOrder` carries the same three ids, and a caller indexing it
  * gets `string | undefined` — so every consumer would either widen its own types or
  * write a presence check for a fact this module already knows. Naming them here
- * gives the family's tests the wire-declared id AND the role it plays, which an
+ * gives the terminal feature's tests the wire-declared id AND the role it plays, which an
  * index does not, and keeps the ids declared exactly once.
  */
 interface TerminalScenarioRoles {
@@ -227,8 +227,8 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     "The session's one shared shell moving between two of the user's devices and an agent " +
     "run — the run queued, started, taken on the agent path, and completed, so the run-idle " +
     "release follows the acquisition it releases — reaching each automatic ending of a hold " +
-    "and ending held. The output stream is absent until the terminal pane's renderer surface is " +
-    "registered.",
+    "and ending held. The output stream is absent until the terminal pane's " +
+    "renderer is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
   userIdsInJoinOrder: [OWNER, OTHER_DEVICE, AGENT],
   // The owner is the device at this window. The lease line's `held-by-me` arm is
@@ -342,7 +342,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     // and the transcript's actor column reads "The daemon". The holder is the
     // NODE-OWNER user, which is who an agent-path take holds as: agents are
     // `AgentId`-keyed domain actors and not `users` rows, so no
-    // agent-user exists to hold and the holder surfaces stay user
+    // agent-user exists to hold and the holder fields stay user
     // ids, exactly as the terminal-control method registry declares.
     terminalLeaseTransitionBeat({
       atMs: 3300,

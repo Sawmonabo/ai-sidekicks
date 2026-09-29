@@ -152,7 +152,7 @@ export class AttachmentIngestClient {
    * ledger goes nothing in this console can name one. A staged list closed with several
    * uploads open would leave those spools and their aggregate reservations standing until
    * the daemon's abandoned-spool reaper claimed them, and a later upload in the same
-   * session could fail capacity admission long after the surface was gone.
+   * session could fail capacity admission long after the composer was gone.
    *
    * `abandoned` entries are skipped rather than reclaimed twice: `abandon` already asked
    * for that spool back at the moment sending stopped, and a second request for one
@@ -160,7 +160,7 @@ export class AttachmentIngestClient {
    * stream, which there is nothing to reclaim from.
    *
    * FIRED AND NOT AWAITED. Disposal is synchronous — a staged list that waited on a
-   * best-effort abort would hold a closed surface open for an answer no surface is
+   * best-effort abort would hold a closed composer open for an answer nothing is
    * left to render.
    *
    * IDEMPOTENT, on `repo-mounts-reader.ts`'s reason for its own guard: the ledger's

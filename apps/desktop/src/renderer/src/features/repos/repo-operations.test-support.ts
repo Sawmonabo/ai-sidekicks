@@ -1,7 +1,7 @@
-// What every test that hands a surface its repository calls builds them from.
+// What every test that hands a component its repository calls builds them from.
 //
 // Every call rejects until a case scripts it, with an error that names the call, so a
-// surface that reaches for a call the case did not expect fails on a sentence instead of on
+// component that reaches for a call the case did not expect fails on a sentence instead of on
 // an `undefined`. A case scripts only the calls it is about and reads what they were asked
 // from the arguments its own stubs receive.
 import type { RepoOperations } from "./repo-operations.js";

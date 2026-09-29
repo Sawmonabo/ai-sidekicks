@@ -1,4 +1,4 @@
-// The collection surface: what a repeated control is called, where its findings land, and
+// The collection field list: what a repeated control is called, where its findings land, and
 // what the two controls that change how many are called.
 //
 // SPLIT FROM `SchemaForm.test.tsx` because the two are different subjects and the file had
@@ -20,7 +20,7 @@ import {
   listFieldset,
   renderForm,
   reportedIssueTexts,
-} from "./SchemaFormHost.test-support.js";
+} from "./SchemaFormWithReadout.test-support.js";
 
 afterEach(cleanup);
 
@@ -61,8 +61,8 @@ describe("the collection a schema-derived form draws", () => {
     // `flags` out entirely — but a POSITION inside it cannot be left out: the entry is on
     // the screen from the moment somebody presses add. Read off the collection's own
     // requiredness, the entry would have drawn the three-state choice a standalone
-    // optional boolean draws, and offered an unanswered option that writes nothing into a
-    // slot that has to hold something.
+    // optional boolean draws, and offered an unanswered option that writes nothing into an
+    // entry that has to hold something.
     answerEveryCollection(
       await renderForm({
         type: "object",

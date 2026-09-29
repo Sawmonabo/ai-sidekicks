@@ -183,7 +183,7 @@ describe("carveSplitFrom", () => {
     expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
-  it("seats the arriving pane immediately right of its source", () => {
+  it("places the arriving pane immediately right of its source", () => {
     const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
     expect((split ?? []).map((pane) => pane.paneId)).toStrictEqual([
       "pane-1",

@@ -1,11 +1,10 @@
 // Session › run › entity › this pane, as far as a pane's address reaches.
 //
 // Its own module for the one-component rule, and the ONE crumb derivation in the
-// console. Two of them is the drift this file was made out of: a scope helper that
-// answered `["Session", "run run-10"]` in prose and a breadcrumb that rendered the
-// wire ids straight, so the same pane described itself two ways depending on which
-// one a family reached for. There is one now, {@link paneScopeCrumbs}, and the
-// component renders what it returns.
+// console: a second one would let the same pane describe itself two ways — its ids
+// in prose from one, the wire ids straight from the other — depending on which a
+// feature reached for. {@link paneScopeCrumbs} is the derivation, and the component
+// renders what it returns.
 //
 // EVERY ADDRESS CRUMB IS A WIRE STRING and wears the provenance signature that says
 // so, through the one module allowed to format one. The LAST crumb is not: it is the

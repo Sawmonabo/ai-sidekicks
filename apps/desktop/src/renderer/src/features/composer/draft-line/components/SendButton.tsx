@@ -26,12 +26,12 @@ import type { ProviderCommandEnumeration } from "../../command-list/provider-com
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { useSendController } from "../hooks/useSendController.js";
 
-/** What Send is handed beyond the seat's own props. */
+/** What Send is handed beyond the composer's own props. */
 export type SendButtonProps = ComposerProps & {
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
   /**
-   * The composer's one enumeration reading, opened by the discovery surface.
+   * The composer's one enumeration reading, opened by the command list.
    *
    * Read and never opened here: a typed name that the bound provider published is
    * refused by name rather than sent, and the reading that answers is the same one

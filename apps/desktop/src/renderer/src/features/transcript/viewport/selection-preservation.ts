@@ -51,7 +51,7 @@ export interface SelectionRangeLike {
 }
 
 /**
- * The selection surface this module reads and writes.
+ * The part of the platform selection this module reads and writes.
  *
  * READ AS A RANGE, WRITTEN AS ANCHOR AND FOCUS, and that asymmetry is deliberate
  * rather than sloppy: the anchor/focus pair carries the DIRECTION a person dragged in,

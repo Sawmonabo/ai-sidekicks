@@ -4,14 +4,14 @@ import { Chip, WireFigure, formatDateTime } from "@renderer/console/primitives/i
 /**
  * One item.
  *
- * Rendered as a button when the surface supplied a way to open it and as plain
+ * Rendered as a button when the caller supplied a way to open it and as plain
  * text otherwise, so the console never offers a press that goes nowhere. The
  * scope reads off `runId` exactly as the projection discriminates it: an item
  * carrying one is that run's, an item without one is the session's aggregate,
  * and the console labels which without recomputing either.
  *
  * THE INSTANT CARRIES ITS DAY. Rows are grouped by SESSION and by nothing else —
- * there is no day divider anywhere on this surface — so a clock-only reading made
+ * there is no day divider anywhere in this list — so a clock-only reading would make
  * an item raised this afternoon and one raised last Tuesday at the same minute the
  * same eight characters, separated only by a hover title a keyboard never reaches.
  * `formatDateTime` is the console's formatter for exactly that case and says so in
@@ -64,7 +64,7 @@ export function NotificationEntry(props: {
 
 /**
  * How one trigger reads. Total over the closed six by construction, so a seventh
- * fails to compile here before it can reach a surface that renders it namelessly.
+ * fails to compile here before it can reach a view that renders it namelessly.
  *
  * The label is the console's own reading of a wire value; the item's `summary` is
  * the projection's own text and is rendered beside it verbatim. Exactly one of the

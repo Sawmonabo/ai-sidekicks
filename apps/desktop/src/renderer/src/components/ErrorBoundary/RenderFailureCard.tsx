@@ -1,6 +1,6 @@
 /** What {@link RenderFailureCard} needs: the failed region's name, the error, and a retry. */
 export interface RenderFailureCardProps {
-  /** What failed, in the person's words: "the transcript", "the approvals pane". */
+  /** What failed, in the person's words: "the transcript", "the inspector". */
   readonly regionName: string;
   readonly error: Error;
   readonly onRetry: () => void;

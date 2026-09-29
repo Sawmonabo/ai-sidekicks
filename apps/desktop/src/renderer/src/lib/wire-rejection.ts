@@ -4,13 +4,11 @@
 // that crossed the preload boundary as a plain object, an SDK `Error` subclass
 // carrying the code on a property, a `Refusal` a fixture threw, a string, a
 // symbol, `undefined`, or a null-prototype object that throws inside `String()`.
-// Before this module every family answered that with its own function, and the six
-// answers disagreed on five separate axes — how many arms, whether a carried refusal
-// is recognized structurally or by `instanceof`, which fallback code, whether the
-// terminal detail is total, and whether the daemon's own code survives at all. One
-// of them had no envelope arm, so every daemon code — a permission denial, a missing
-// session, a lease conflict — rendered as one generic `read-failed`, and another
-// reached for a bare `String(...)` that throws on the very value it exists to show.
+// Every caller answers that through this one function, so the five questions a
+// private copy would answer its own way — how many arms, whether a carried refusal is
+// recognized structurally or by `instanceof`, which fallback code, whether the
+// terminal detail is total, and whether the daemon's own code survives at all — have
+// one answer across the console.
 //
 // THE READERS ARE `wire-errors.ts`'. The total property reader, the guarded
 // `instanceof` and the total stringifier live there, and this module consumes them
@@ -36,15 +34,14 @@
 // on the terminal arm, where `String({ … })` is at best `[object Object]` and at worst
 // whatever a producer's own `toString` decided to disclose.
 //
-// WHAT IT ADDS OVER EVERY COPY IT REPLACES: the JSON-RPC arm. `JsonRpcRemoteError`
-// (`packages/client-sdk/src/transport/jsonRpcClient.ts`) carries `code` as the
-// JSON-RPC *numeric* — `-32603` and its four siblings — while the project's dotted
-// code rides at `data.type`, which `packages/contracts` states callers MUST
-// discriminate on. A `{ code: string }` guard does not match a number, so every
-// family copy dropped `session.not_found`, `repo.not_found`, and every other
-// registered code on the floor and rendered its own invented one instead. That arm
-// is checked FIRST for the same reason the contract gives: `data.type` is the
-// canonical code and a top-level string `code` is the already-flattened form.
+// THE JSON-RPC ARM. `JsonRpcRemoteError` (`packages/client-sdk/src/transport/jsonRpcClient.ts`)
+// carries `code` as the JSON-RPC *numeric* — `-32603` and its four siblings — while the
+// project's dotted code rides at `data.type`, which `packages/contracts` states callers
+// MUST discriminate on. A `{ code: string }` guard does not match a number, so without
+// this arm `session.not_found`, `repo.not_found`, and every other registered code would
+// be dropped on the floor and replaced by an invented one. That arm is checked FIRST for
+// the same reason the contract gives: `data.type` is the canonical code and a top-level
+// string `code` is the already-flattened form.
 
 import {
   isErrorInstance,
@@ -88,7 +85,7 @@ export interface RejectionFallback {
  *
  * A `Refusal` widened by the REGISTERED extension members and by nothing else
  * (`refusal-extensions.ts`), so every renderer that already takes a refusal takes
- * this unchanged and only a surface that reads one of those members has to know it
+ * this unchanged and only a component that reads one of those members has to know it
  * exists. `isRefusal` is structural, so this satisfies it.
  *
  * Named here rather than declared here, because what it is IS the extended refusal:
@@ -110,7 +107,7 @@ export type WireRefusal = ExtendedRefusal;
  * and the distinction is the reason: without it, totality here would be a property of
  * two other functions staying total, and the edit that broke one of them would show
  * up as a throw on the failure path — in a `catch` that has already been left, in the
- * one function a surface calls to say that something failed. It costs nothing on a
+ * one function a component calls to say that something failed. It costs nothing on a
  * path that only runs when a call already failed, and it is the one arm nobody has to
  * re-prove.
  *
@@ -248,10 +245,10 @@ function rebuiltRefusal(members: RefusalMembers): WireRefusal | undefined {
  *   3. The JSON-RPC `data` envelope: the dotted project code at `data.type`, with the
  *      retry bound from `data.fields`. See this module's header for why it is first
  *      among the wire arms.
- *   4. A flat wire envelope — `{ code, message }` — keeps its code VERBATIM. Rule 9:
- *      the console renders the daemon's code and the daemon's sentence, never a
- *      paraphrase, because `permission_denied` and a lease conflict are different
- *      next moves and both are unactionable once folded into one code.
+ *   4. A flat wire envelope — `{ code, message }` — keeps its code VERBATIM. A
+ *      refusal shows the daemon's code and the daemon's own sentence, never a
+ *      paraphrase, because `permission_denied` and a lease conflict are different next
+ *      moves and both are unactionable once folded into one code.
  *
  * BOTH WIRE ARMS ARE ADMITTED BY THEIR CODE ALONE, and the sentence beside it is
  * whatever {@link envelopeDetail} allows. An envelope carrying a code and an

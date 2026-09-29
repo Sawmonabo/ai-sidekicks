@@ -27,7 +27,7 @@ import {
   artifactProducerLabel,
 } from "./artifact-copy.js";
 
-/** The vocabularies the wire owns, which this family must not declare a second time. */
+/** The vocabularies the wire owns, which this feature must not declare a second time. */
 const WIRE_OWNED_VOCABULARY_NAMES = ["ARTIFACT_STATES", "ARTIFACT_TYPES"] as const;
 
 describe("artifact-model and artifact-copy — the closed sets", () => {
@@ -46,7 +46,7 @@ describe("artifact-model and artifact-copy — the closed sets", () => {
     expect(ARTIFACT_FILTER_TYPES).toContain("diff");
   });
 
-  it("negative control: no vocabulary is declared a second time in this family", () => {
+  it("negative control: no vocabulary is declared a second time in this feature", () => {
     // The module namespace is what a second declaration would show up in.
     for (const vocabulary of WIRE_OWNED_VOCABULARY_NAMES) {
       expect(Object.keys(artifactModel)).not.toContain(vocabulary);
@@ -211,8 +211,8 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   it("negative control: an annotation that IS a string is still verbatim", () => {
     // Without this the reader could stringify every value, and an ordinary annotation
     // would render quoted — the wire's own text replaced by its JSON form.
-    expect(rowWithAnnotations({ title: "Rebind the repos family" }).annotations).toStrictEqual({
-      title: "Rebind the repos family",
+    expect(rowWithAnnotations({ title: "Rebind the repos list" }).annotations).toStrictEqual({
+      title: "Rebind the repos list",
     });
   });
 });

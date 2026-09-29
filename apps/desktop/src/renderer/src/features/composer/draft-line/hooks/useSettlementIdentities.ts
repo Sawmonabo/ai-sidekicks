@@ -17,7 +17,7 @@
 // when a subject becomes new and this file is not it.
 //
 // A pass React DISCARDS can burn a serial, and that is harmless in the one direction
-// it can be wrong: an unused serial frees a latch slot that `finally` releases
+// it can be wrong: an unused serial frees a latch claim that `finally` releases
 // anyway, and it can never hold one a visit cannot see.
 //
 // THE MIRRORS ARE REFS AND NOT STATE, for the reason the single-flight latch is: both
@@ -87,7 +87,7 @@ export function useSettlementIdentities(
     newestAttemptIdRef.current = attemptIdsAtAddress(newestAttemptIdRef.current, draftKey, visit);
   }, [draftKey, visit]);
   const nextAttemptIdRef = useRef(0);
-  // Keyed by `addressedOperationKey` and not by operation: two slots for the whole
+  // Keyed by `addressedOperationKey` and not by operation: two entries for the whole
   // window let a send from one address retire an attempt made at another, so a
   // refusal the person was looking at was discarded because an unrelated address had
   // dispatched since — the one path where the address check passes and the guard

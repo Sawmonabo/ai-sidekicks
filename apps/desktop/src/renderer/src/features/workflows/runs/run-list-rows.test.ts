@@ -91,13 +91,12 @@ describe("the rows are a narrowing of the wire shape, not a second one", () => {
  * by moving it to March — so all three reached the armed arm, and the badge drew
  * "Scheduled to resume at" over a time nobody had sent.
  *
- * THAT THE HOST PARSER ACCEPTS THEM IS ASSERTED ONCE, in `core/instant.test.ts`,
+ * THAT THE HOST PARSER ACCEPTS THEM IS ASSERTED ONCE, in `lib/instant.test.ts`,
  * which is one of the two files the syntax bans excuse for exactly that purpose. The
- * cases below make this family's own claim instead: `parkSchedule`, where the
- * consequence lands, and `workflowInstant`, the single reading both this
- * classification and the reading both this family's surfaces take, refuse each of
- * those shapes — and admit the spellings the plane does declare, which is the control
- * the refusals need.
+ * cases below make the workflows feature's own claim instead: `parkSchedule`, where
+ * the consequence lands, and `workflowInstant`, the single reading both the park
+ * classification and the run sort take, refuse each of those shapes — and admit the
+ * spellings `workflowInstant` does declare, which is the control the refusals need.
  */
 describe("an armed boundary is an instant or it is unreadable", () => {
   function scheduleFor(autoResumeAt: string): ReturnType<typeof parkSchedule> {
@@ -112,10 +111,10 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(scheduleFor("2026-01-01T10:00:00").kind).toBe("unreadable");
   });
 
-  it("and the reading both this family's surfaces take refuses it too", () => {
+  it("and the reading the park classification and the run sort share refuses it too", () => {
     // The schedule case above would pass over a classification that refused the value
     // for some other reason. This is the reading it refuses it BY, and it is the same
-    // one the run sort takes, so the two surfaces cannot disagree about the shape.
+    // one the run sort takes, so the park and the list order cannot disagree about the shape.
     expect(workflowInstant("2026-01-01T10:00:00").kind).toBe("malformed");
   });
 
@@ -127,7 +126,7 @@ describe("an armed boundary is an instant or it is unreadable", () => {
     expect(workflowInstant("2026-01-01").kind).toBe("malformed");
   });
 
-  it("refuses a numeric offset, because this plane declares one encoding", () => {
+  it("refuses a numeric offset, because the workflow projection declares one encoding", () => {
     // Unambiguous to a parser and still not the encoding the wire declares. A console
     // that read a second one is where a producer's encoding change would enter
     // unremarked instead of arriving as the unreadable value it is.
@@ -137,9 +136,8 @@ describe("an armed boundary is an instant or it is unreadable", () => {
   it("admits a well-formed UTC instant and carries the wire's own spelling on the arm", () => {
     // The control for every case above: a projection that refused everything would
     // satisfy all of them and leave no park schedulable at all. The arm carries the
-    // wire's string and no reading of it — every surface that draws a resume draws
-    // this value, and the parsed number the arm used to carry had no reader left once
-    // the row-level earliest-resume pick was deleted.
+    // wire's string and no reading of it: every component that draws a resume draws
+    // this value, and none reads a parsed number.
     expect(scheduleFor("2026-01-01T10:00:00.000Z")).toStrictEqual({
       kind: "armed",
       autoResumeAt: "2026-01-01T10:00:00.000Z",
@@ -177,8 +175,8 @@ describe("an armed boundary is an instant or it is unreadable", () => {
  * date the wire never sent, which is the one thing an armed schedule must never do.
  *
  * What makes each case bite — that the host parser accepts the value AND answers a
- * different instant than the string names — is asserted in `core/instant.test.ts`,
- * against the reader this family calls. Restating it here would be one claim with two
+ * different instant than the string names — is asserted in `lib/instant.test.ts`,
+ * against the reader this feature calls. Restating it here would be one claim with two
  * homes and would need the syntax ban lifted at a second site to make it.
  */
 describe("a calendar and a clock, not four groups of digits", () => {

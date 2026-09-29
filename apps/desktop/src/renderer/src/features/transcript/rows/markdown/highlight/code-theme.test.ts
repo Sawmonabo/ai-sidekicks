@@ -10,13 +10,13 @@ import {
   buildCodeTheme,
 } from "./code-theme.js";
 
-describe("the code token families", () => {
-  it("names a custom property per family, in one place", () => {
+describe("the code token kinds", () => {
+  it("names a custom property per token kind, in one place", () => {
     expect(codeTokenVariableName("keyword")).toBe("--meridian-code-keyword");
     expect(codeTokenColorReference("keyword")).toBe("var(--meridian-code-keyword)");
   });
 
-  it("declares nine families and no duplicates", () => {
+  it("declares nine token kinds and no duplicates", () => {
     expect(new Set(CODE_TOKEN_KINDS).size).toBe(CODE_TOKEN_KINDS.length);
   });
 });

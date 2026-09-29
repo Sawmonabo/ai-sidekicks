@@ -1,8 +1,8 @@
-// What an act publishes, and the vocabulary a surface reads it in.
+// What an act publishes, and the vocabulary a dialog reads it in.
 //
 // Split from `act-controller.ts` beside it: this is what a CONSUMER names — the two arms
 // every act shares, the three states its prerequisite question stands in, and the pair
-// published together — while the classes beside it own when each is written. A surface
+// published together — while the classes beside it own when each is written. A dialog
 // renders these types and never constructs the machine, so the two travel separately.
 
 /**
@@ -25,7 +25,7 @@ export type ActArmStatus = "idle" | "sending";
  * THE SETTLED ARM IS THE CALLER'S BECAUSE THE SETTLEMENT IS THE CALLER'S. What a
  * person reads off a finished act is "attached", "bound", "prepared" — the verb of the
  * thing they did, carrying the members that act's reply carries. A shared `settled`
- * arm would have made every surface say the same word about a different act and read
+ * arm would have made every dialog say the same word about a different act and read
  * its own reply back out of an opaque payload.
  */
 export type ActSettlementReading<TSettlement extends ActSettlementArm> =
@@ -54,14 +54,14 @@ export interface ActSettlementArm {
  * TypeScript can evaluate: `Extract` of the arm's status against the two owned ones is
  * empty exactly when there is no collision, and an arm that reuses `idle` or `sending`
  * resolves to `never` instead. Annotating the settle callback with this makes such an
- * arm a compile error at the one place it could be published — a surface would
+ * arm a compile error at the one place it could be published — a controller would
  * otherwise silently overwrite one of the two states the reading is read in, and a
  * settled act would render as still sending.
  */
 export type ActOwnArm<TSettlement extends ActSettlementArm> =
   Extract<TSettlement["status"], ActArmStatus> extends never ? TSettlement : never;
 
-/** Both halves, published together so a surface renders one consistent frame. */
+/** Both halves, published together so a dialog renders one consistent frame. */
 export interface ActReading<TValue, TSettlement extends ActSettlementArm> {
   readonly prerequisite: ActPrerequisiteReading<TValue>;
   readonly act: ActSettlementReading<TSettlement>;

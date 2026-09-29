@@ -1,4 +1,4 @@
-// The arithmetic of 12.3: what rectangle a pane gets, and when it has to disappear.
+// The clip-and-hide arithmetic: what rectangle a pane gets, and when it has to disappear.
 //
 // These cases are about the failures the naive version has, not about the happy path —
 // a clipping ancestor that is ignored paints a web page over the chrome, and a

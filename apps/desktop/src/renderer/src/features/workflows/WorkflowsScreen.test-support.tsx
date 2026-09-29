@@ -7,7 +7,7 @@
 // Everything here is real except the persistence stores, which are cast away for
 // `app/router.test.tsx`'s reason: constructing them opens a database to hand a branch that
 // never touches it. The session store is `undefined` because `#/workflows` names no session.
-// The bodies reach the board through `registerWorkflowPanes`, the family's own registration
+// The bodies reach the board through `registerWorkflowPanes`, the feature's own registration
 // call, rather than a hand-built table: the screen's claim is that it mounts what the pane layout
 // would mount.
 //
@@ -49,7 +49,7 @@ export interface ComposedWindow {
   readonly paneRegistry: PaneRegistry;
 }
 
-/** The surface context the screen is handed, and this composition's own pane board. */
+/** The `ScreenContext` the screen is handed, and this composition's own pane board. */
 export function composeWindow(): ComposedWindow {
   const frameStore = new WindowStore();
   const committedRoute: AppRoute = { kind: "workflows" };
@@ -147,12 +147,12 @@ function screenOver(composed: ComposedWindow): React.JSX.Element {
 }
 
 /**
- * One surface inside the announcer every console surface really renders in.
+ * The screen inside the announcer every screen really renders in.
  *
  * A function and not a component: it composes an element for a caller that is already
  * rendering, so a component here would put a second tree in between and remount the
- * whole surface every time a case re-rendered.
+ * whole screen every time a case re-rendered.
  */
-function inWindowChrome(surface: React.ReactNode): React.JSX.Element {
-  return <LiveAnnouncerProvider>{surface}</LiveAnnouncerProvider>;
+function inWindowChrome(screen: React.ReactNode): React.JSX.Element {
+  return <LiveAnnouncerProvider>{screen}</LiveAnnouncerProvider>;
 }

@@ -3,9 +3,9 @@
 //
 // ONE MODULE FOR BOTH SIDES. The member names and the write order are stated once, so a
 // body this console wrote is a body this console reads; split in two they would agree
-// until one of them grew a member. `workflow-definition-file-form.ts` next door owns
-// the DOCUMENT — the schema marker, the two top-level parts, and the target a caller
-// supplies — and this module owns what goes inside the first of them.
+// until one of them grew a member. `workflow-definition-file-form.ts` beside this one
+// owns the DOCUMENT — the schema marker, the two top-level parts, and the target a
+// caller supplies — and this module owns what goes inside the first of them.
 //
 // THE SEAM IS THE FILE FORM'S OWN. The definition file form says the document has
 // exactly two top-level parts, the hashed

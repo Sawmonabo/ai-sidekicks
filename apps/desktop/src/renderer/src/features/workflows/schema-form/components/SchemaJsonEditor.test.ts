@@ -14,7 +14,7 @@
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { renderForm } from "./SchemaFormHost.test-support.js";
+import { renderForm } from "./SchemaFormWithReadout.test-support.js";
 
 afterEach(cleanup);
 
@@ -27,7 +27,7 @@ describe("the raw JSON arm of a schema-derived form", () => {
 
     expect(container.querySelector(".meridian-schema-raw__editor")?.tagName).toBe("TEXTAREA");
     expect(container.querySelector(".meridian-schema-raw__reason")?.textContent).toContain("rows");
-    // Nothing on this surface reports a refusal: the console's refusal shapes all carry
+    // Nothing in this editor reports a refusal: the console's refusal shapes all carry
     // this class, and the whole point of the fallback is that none of them is reached.
     expect(container.querySelector(".meridian-refusal")).toBeNull();
   });

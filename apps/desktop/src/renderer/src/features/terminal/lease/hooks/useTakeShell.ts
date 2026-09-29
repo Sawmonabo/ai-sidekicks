@@ -6,7 +6,7 @@
 // The fact is stamped with the `(bridge, sessionId)` subject and compared during render,
 // so a pane rebound to another session never inherits the previous session's disabled
 // control. The single-flight register is keyed on the visit (the publisher the holder
-// re-mints on each re-seed), so a session visited twice starts with a free slot.
+// re-mints on each re-seed), so a session visited twice starts with a free register.
 
 import { useCallback } from "react";
 
@@ -48,14 +48,14 @@ export function useTakeShell(
     sessionId,
     () => IDLE_TERMINAL_LEASE_TAKE,
   );
-  // The latch refuses a second take while one is live, which is the rule the control's
+  // The latch refuses a second claim while one is live, which is the rule the control's
   // disabled state renders. Its claim is also the serial a settlement compares against,
   // so an earlier press's `finally` cannot clear the flag a later press set.
   const dispatches = useGenerationLatch();
 
   const takeShell = useCallback(async (): Promise<void> => {
     // `publish` is the visit key: the holder re-mints it on each re-seed.
-    const dispatch = dispatches.takeShell(publish, sessionId);
+    const dispatch = dispatches.claim(publish, sessionId);
     if (dispatch === undefined) {
       return;
     }

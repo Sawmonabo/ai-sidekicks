@@ -9,14 +9,14 @@
 //     attributing it to nobody. The row falls back to the neutral control boundary
 //     and says so in its class.
 //   • The edge carries the hue as a custom property rather than as a background,
-//     because rule 3 forbids a user hue behind body text.
+//     because a user hue never sits behind body text.
 //   • The gutter timestamp is a FORMATTED reading whose exact wire value rides the
-//     element's `title` — the one shipped call site of the eight rules' "no
-//     formatted figure hides the number the daemon sent".
+//     element's `title`, because no formatted figure may hide the number the daemon
+//     sent.
 //
 // And one cost claim, checked the only way a cost claim can be: by counting calls.
 // `formatClockTime` builds a fresh `Intl.DateTimeFormat` per call, and this row is
-// what every transcript surface in the console is made of, so the gutter reading is
+// what every transcript view in the console is made of, so the gutter reading is
 // memoized on the instant. The suite spies the real formatter rather than a stand-in
 // — `{ spy: true }` keeps the implementation, so every other case here still reads
 // the true string.
@@ -200,7 +200,7 @@ describe("TranscriptRowLayout — superseded rows and the revealed footer", () =
   it("renders the footer into the tree so Tab can reach it, and omits it when empty", () => {
     // Revealed by CSS on `:hover` / `:focus-within` — which only works if the
     // element is IN the tree while hidden. A footer conditionally mounted on hover
-    // is unreachable by keyboard, which is the failure rule 7's reveal must avoid.
+    // is unreachable by keyboard, which is the failure the hover reveal must avoid.
     const withFooter = basicRow({ footer: <button type="button">Edit</button> });
     expect(
       withFooter.querySelector(".meridian-transcript-row-layout__footer button")?.textContent,

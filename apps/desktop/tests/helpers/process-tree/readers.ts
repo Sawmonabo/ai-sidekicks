@@ -32,7 +32,7 @@
 // child it started exits — and `ps` under a hung filesystem, or PowerShell on a
 // runner whose CIM service is not answering, does not exit. Those calls are
 // performed at the spawn of every managed Electron, again inside every disposal,
-// and once more by the liveness state read next door, so an unbounded one hangs
+// and once more by the liveness state read in `liveness.ts`, so an unbounded one hangs
 // the worker at exactly the moment a detached browser needs killing: vitest's own
 // timeout is a timer on this same blocked thread, and a worker killed while
 // blocked runs no teardown at all.
@@ -154,7 +154,8 @@ const runHostCommand: HostQueryRunner = (command, args, options) =>
  * Run one host command under the smaller of its own bound and what is left of
  * the caller's, or nothing at all when nothing is left.
  *
- * THE ONE DOOR, and the bound lives on it rather than at the call sites. Every
+ * THE ONE CALL EVERY HOST COMMAND TAKES, and the bound lives here rather than at the
+ * call sites. Every
  * reading in this directory that runs a command runs it through here — both
  * process-table listings, both per-pid stamp reads, the macOS process state code
  * in `liveness.ts`, and the Windows tree kill in `arms.ts` — because a bound
@@ -198,7 +199,7 @@ export function runBoundedHostCommand(
 /**
  * Ask this host one question through `runBoundedHostCommand`, as text.
  *
- * The reading half of the door: a command that did not run, would not start,
+ * The reading half of `runBoundedHostCommand`: a command that did not run, would not start,
  * exited non-zero, or printed nothing is `undefined`, and everything else is its
  * output with the surrounding whitespace taken off. The stamp and state readers
  * all want exactly this, and the tree kill wants the status instead, which is

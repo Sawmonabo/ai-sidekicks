@@ -5,7 +5,7 @@
  * only with a composition that mounts the body.
  *
  * Nothing outside `meridian-accounts__` appears here: a rule this sheet added to a shared
- * class would outlive the shell.
+ * class would outlive the fixture body.
  *
  * Every color is a Meridian custom property and every space a step on the scale.
  * The two dimensions named outright are the quota bar's width, sized so a column of

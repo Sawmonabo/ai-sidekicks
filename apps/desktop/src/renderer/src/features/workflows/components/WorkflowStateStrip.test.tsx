@@ -11,13 +11,11 @@
 // refusal carries the daemon's code — so the refusal case asserts the code is on
 // screen, and the absence cases assert it is not the shape they took.
 //
-// THE THIRD IS WHAT THIS FILE IS FOR NOW. The strip used to draw the family's own pane
-// chrome: a `<section>`, a kind glyph and an `<h2>`. Every pane in the console wears
-// `seats/PaneFrame`, whose crumb trail IS the pane's accessible name — so a
-// heading inside the body would name the pane a second time and a region inside the
-// body would give a person navigating by region two stops for one surface. So this file
-// asserts the absence of a heading, because one that crept back would look like an
-// improvement in a diff.
+// THE THIRD: THE STRIP DRAWS NO HEADING AND NO REGION. Every pane in the console wears
+// `PaneFrame`, whose crumb trail IS the pane's accessible name — so a heading inside
+// the body would name the pane a second time and a region inside the body would give a
+// person navigating by region two stops for one view. So this file asserts the absence
+// of a heading, because one that crept back would look like an improvement in a diff.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -55,9 +53,9 @@ function renderStrip(state: WorkflowStripState): HTMLElement {
 }
 
 describe("workflow state strip — what it leads with", () => {
-  it("says what the surface is for, on every arm", () => {
+  it("says what the view is for, on every arm", () => {
     // Every arm and not one: the summary is the sentence a person reads while the
-    // surface is telling them it has nothing, which is exactly when it matters.
+    // view is telling them it has nothing, which is exactly when it matters.
     for (const kind of WORKFLOW_STRIP_STATES) {
       const summary = renderStrip(STATE_BY_KIND[kind]).querySelector(".meridian-workflow__summary");
       expect([kind, summary?.textContent]).toStrictEqual([kind, "A summary."]);
@@ -65,9 +63,9 @@ describe("workflow state strip — what it leads with", () => {
   });
 
   it("draws no heading and no region of its own, because its host already is one", () => {
-    // The defect this replaces: the strip drew a `<section aria-labelledby>` and an
-    // `<h2>` per surface, so a pane wearing the console's pane chrome was named twice
-    // — once by the chrome's crumb trail and once by a heading nested inside it.
+    // A `<section aria-labelledby>` and an `<h2>` here would name a pane wearing the
+    // console's pane frame twice — once by the frame's crumb trail and once by a
+    // heading nested inside it.
     for (const kind of WORKFLOW_STRIP_STATES) {
       const strip = renderStrip(STATE_BY_KIND[kind]);
       expect([
@@ -112,7 +110,7 @@ describe("workflow state strip — one rendering per state", () => {
     expect(renderStrip(STATE_BY_KIND.refused).querySelector(".meridian-nothing")).toBeNull();
   });
 
-  it("negative control: the act slot is gone from the type, not merely unsupplied", () => {
+  it("negative control: the pane-level action prop is gone from the type, not merely unsupplied", () => {
     // Compile-time on purpose: removing a dead prop leaves nothing to render, so no rendered
     // assertion can tell the deletion from a caller that never passed it. The
     // suppression below has nothing to suppress on the strip as it now stands and
@@ -122,7 +120,7 @@ describe("workflow state strip — one rendering per state", () => {
       <WorkflowStateStrip
         summary="A summary."
         state={STATE_BY_KIND.ready}
-        // @ts-expect-error a pane-level act belongs in the pane chrome's `actions` slot
+        // @ts-expect-error a pane-level action belongs in the pane frame's `actions` prop
         primaryAction={<button type="button">New definition</button>}
       />,
     );

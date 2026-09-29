@@ -1,4 +1,4 @@
-// The renderer selection, as something a surface can follow.
+// The renderer selection, as something a component can follow.
 //
 // The addon suite owns which renderer an instance settles on, and publishes it as a
 // current-value-then-changes subscription rather than a field. Read-then-subscribe
@@ -23,7 +23,7 @@ import {
 
 afterEach(disposeLiveEmulators);
 
-describe("the renderer mode, as something a surface can follow", () => {
+describe("the renderer mode, as something a component can follow", () => {
   it("delivers the current mode on subscribe, before an emulator exists", () => {
     // Read-then-subscribe is the bug this shape removes: a consumer that copied
     // the mode and subscribed afterwards would hold a value from before its own

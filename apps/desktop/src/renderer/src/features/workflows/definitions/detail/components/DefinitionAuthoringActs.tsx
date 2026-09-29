@@ -6,7 +6,7 @@
 // asked. A console that disabled the controls would be asserting an eligibility nobody
 // asked about.
 //
-// THE PASTE BOX IS PART OF THE IMPORT ACT AND NOT A SEPARATE SURFACE. An import needs
+// THE PASTE BOX IS PART OF THE IMPORT ACT AND NOT A SEPARATE VIEW. An import needs
 // bytes, this build has no file-open wire, and a modal for one textarea would be a
 // window between a person and a control they had already pressed. So the box is
 // revealed by the act and collapses when it settles.

@@ -4,8 +4,8 @@
 // would blank every open pane the moment any one of them started loading; a boundary
 // around this body replaces this body and leaves the rest of the window painted. That is
 // also why the fallback comes from the board rather than from here: the reserved region
-// a pane leaves is its own chrome, and the one a route leaves is the surface's absence
-// frame, and neither is a shape this module should decide.
+// a pane leaves is its own chrome, and the one a route leaves is the screen's empty
+// `ScreenNotice`, and neither is a shape this module should decide.
 //
 // THE CONTEXT IS SPREAD AS PROPS, which is the shape both boards' contracts already
 // have. A descriptor's `render` is `(context) => ReactNode`, and that is a function
@@ -73,13 +73,13 @@ export function LazyBody<TContext extends object>(
   // `useState` initializer alone cannot do. A registration holds one `lazy()` at a time,
   // so that component's identity is the identity of the load it stands for, and exactly
   // two things replace it: a board re-registering the same kind under the same owner — a
-  // hot reload, a suite recomposing a family, a window swapping a fixture — which
+  // hot reload, a suite recomposing a feature, a window swapping a fixture — which
   // replaces the whole `LoaderBackedBody`, and a load that REJECTED, which rebuilds the
   // `lazy()` over a fresh memo because React never re-runs a rejected one's initializer
   // (`lazy-body.ts` states that at the field). The element type and its position do not
   // change through either, so React keeps this instance and the initializer never runs
   // again; the pin then held a lazy component over a loader nothing would ever call, and
-  // the surface went on rendering the module the OLD registration named. Re-derived on
+  // the pane or screen went on rendering the module the OLD registration named. Re-derived on
   // the render that sees the new one instead — React's own adjust-state-during-render,
   // which re-renders before committing anything, so no frame shows the stale arm.
   const [held, setPinned] = useState(() => pinBody(Body, resolvedBody));

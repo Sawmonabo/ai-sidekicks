@@ -25,13 +25,13 @@
 // out of the mono column while its code stays in it.
 //
 // NOTHING HERE ADJUDICATES. Resuming, canceling, and re-pinning are the daemon's
-// decisions; this says what is true, and the surface that offers one of those actions
+// decisions; this says what is true, and the view that offers one of those actions
 // renders the daemon's typed refusal when the daemon declines it.
 //
 // THE ONE CONTROL THIS CARD CARRIES IS A ROUTE AND NOT A DECISION. A phase waiting on
 // a person ends when that person submits ITS form, and this card is where the sentence
-// saying so is drawn — so when the surface mounting the card can open that form, the
-// route to it belongs here rather than somewhere else on the surface. It is optional
+// saying so is drawn — so when the view mounting the card can open that form, the
+// route to it belongs here rather than somewhere else in that view. It is optional
 // and absent by default: the run list renders the same card for a phase in another
 // pane's run and has nowhere to send anybody.
 
@@ -54,7 +54,7 @@ export interface ParkBadgeProps {
    */
   readonly parked: WorkflowParkedPhase;
   /**
-   * The route to this phase's form, where the surface mounting the card holds one.
+   * The route to this phase's form, where the view mounting the card holds one.
    *
    * Absent, not disabled, and absent is the ordinary case: the run list draws this
    * card for phases of runs it does not host, and a control there would point nowhere.
@@ -80,7 +80,7 @@ export function ParkBadge(props: ParkBadgeProps): React.JSX.Element {
         />
         {/*
           The reason's own wire value, beside the sentence rather than instead of
-          it. Rule 4's provenance signature belongs on the string the daemon sent;
+          it. The daemon's own string renders in mono, the sign it came off the wire;
           the label above is the console's reading of it, and showing only one of
           the two would either hide what a person pastes into a search or turn the
           badge into a row of enum values.
@@ -89,15 +89,15 @@ export function ParkBadge(props: ParkBadgeProps): React.JSX.Element {
         {/*
           The phase this card is about, on exactly the same terms one line up: the
           console's prose where a name was authored, and the wire's own identifier
-          always, in the mono signature rule 4 gives a wire-true figure.
+          always, in mono because it came off the wire.
 
           The identifier is unconditional because the name is not. The run READ that
           feeds the pane's stack of cards carries no phase name at all — the authored
           name lives on the definition body, which no read reachable from this build
-          serves — so a card that showed only a name showed nothing, and two
-          `waiting-human` parks from one fan-out read identically. The caller used to
-          paper over that by passing the id INTO the name slot, which put an opaque
-          key on screen in the face and weight of something a person had chosen.
+          serves — so a card that showed only a name would show nothing, and two
+          `waiting-human` parks from one fan-out would read identically. Passing the id in
+          as the name instead would put an opaque key on screen in the face and weight
+          of something a person had chosen.
         */}
         <span className="meridian-park__phase">
           {props.parked.phaseName === undefined ? null : (

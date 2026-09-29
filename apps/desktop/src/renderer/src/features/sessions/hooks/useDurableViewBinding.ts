@@ -8,7 +8,7 @@ import {
 } from "../durable-view/durable-view-binding.js";
 
 /**
- * Bind one durable view state to the store a surface was handed.
+ * Bind one durable view state to the store a view was handed.
  *
  * THE BINDING IS ACQUIRED IN AN EFFECT AND ONLY READ DURING RENDER, which is the
  * shape every bridge-bound holder in this console already takes — see
@@ -20,7 +20,7 @@ import {
  * rather than something this hook mints. A holder minted here would be one per
  * mounted component, and two mounts of one destination would then be two writers of
  * one durable record — see the header. The caller declares exactly one at module
- * scope beside the mint it is built from, and every mount of every surface that reads
+ * scope beside the mint it is built from, and every mount of every view that reads
  * that record is handed the same one.
  */
 export function useDurableViewBinding<TBinding extends DurableViewBinding>(

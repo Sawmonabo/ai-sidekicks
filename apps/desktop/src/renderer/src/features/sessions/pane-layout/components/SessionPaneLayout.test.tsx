@@ -1,6 +1,6 @@
-// The pane layout: one body per kind, one pane per entity, and the door that enforces both.
+// The pane layout: one body per kind, one pane per entity, and the registry that enforces both.
 //
-// The negative control this file exists for is the SECOND MOUNT DOOR. A registry
+// The negative control this file exists for is a SECOND OWNER CLAIMING A KIND. A registry
 // that quietly replaced a claimed kind would look identical on screen — the pane
 // would render, just somebody else's body — and which one you got would depend on
 // module import order, which nothing in a test or a review can see.
@@ -68,13 +68,13 @@ function registryWith(
 }
 
 /**
- * The pane layout under the two providers the frame mounts above every surface.
+ * The pane layout under the two providers the frame mounts above every view.
  *
  * Not decoration: the pane layout reads `useAnnounce` to say what a drop settled on and
  * `useClock` to hand its rect tracker the window's own time base, and both
  * throw outside their provider by design. `AppFrame` mounts both above every
- * surface, so a bare `render(<SessionPaneLayout/>)` here would be a mount shape production never
- * has — and the throw is the primitive refusing to let a surface speak through a
+ * view, so a bare `render(<SessionPaneLayout/>)` here would be a mount shape production never
+ * has — and the throw is the primitive refusing to let a component speak through a
  * region nobody created, or read a clock no window resolved, which is a rule worth
  * honoring in a test rather than working around.
  */
@@ -111,7 +111,7 @@ function threePaneLayout(): HTMLElement {
   );
 }
 
-describe("the pane layout's mount door", () => {
+describe("the pane layout's pane registry", () => {
   it("refuses a second owner claiming a kind rather than replacing the first", () => {
     const registry = registryWith({ kind: "transcript", owner: "transcript" });
     expect(() =>
@@ -381,17 +381,17 @@ describe("SessionPaneLayout — the clock its rect flush runs on", () => {
   }
 
   it("arms its flush on the window's own clock, so a frozen fixture decides when it lands", () => {
-    // The pane layout used to mint a `RealClock` of its own, which in fixture mode is a
-    // second time base beside the frozen one every other surface in the window reads:
-    // the rect flush then ran on wall time while the transcript and the reveal engine
-    // were frozen, and whether it had fired when a screenshot was taken
-    // depended on how long the runner took.
+    // A `RealClock` of the pane layout's own would, in fixture mode, be a second time
+    // base beside the frozen one every other view in the window reads: the rect flush
+    // would run on wall time while the transcript and the reveal engine were frozen, and
+    // whether it had fired when a screenshot was taken would depend on how long the
+    // runner took.
     const fixture = createFixtureBridge({ scenario: FIRST_RUN_SCENARIO });
     const clock = frozenClockOf(fixture.scenarioEngine.clock);
 
     renderPaneLayoutOn(fixture);
 
-    // Armed and not yet run — `rect/rect-discipline.ts` rule 1 is reads in the callback and
+    // Armed and not yet run — the rect tracker reads in the observer callback and
     // writes on the next frame, and the frame is this window's.
     expect(clock.pendingFrameCount).toBe(1);
     act(() => {

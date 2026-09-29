@@ -13,9 +13,6 @@ import { useState } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RealClock, type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
-// The unit factors come from the module that declares them rather than through the
-// family door: their door specifiers are claimed for the families that will read them
-// in production, and a claim a test retires is a claim nothing came to collect.
 import { MILLISECONDS_PER_DAY, MILLISECONDS_PER_MINUTE } from "@renderer/lib/instant.js";
 import { earliestFutureDeadline } from "@renderer/lib/deadlines.js";
 import {
@@ -54,7 +51,7 @@ const SIXTY_DAYS_MILLISECONDS = 60 * MILLISECONDS_PER_DAY;
  * claims about a replacement clock are shown to discriminate. It renders what the
  * hook would arm for, which is the whole of what the held instant decides.
  */
-function MountLifetimeInstantSurface(props: {
+function MountLifetimeInstantProbe(props: {
   readonly clock: Clock;
   readonly deadlines: readonly number[];
 }): React.JSX.Element {
@@ -63,7 +60,7 @@ function MountLifetimeInstantSurface(props: {
   return <output>{String(dueAtMilliseconds ?? NOTHING_OUTSTANDING)}</output>;
 }
 
-/** What a surface with no deadline still ahead of its instant has to arm for. */
+/** What a component with no deadline still ahead of its instant has to arm for. */
 const NOTHING_OUTSTANDING = "nothing outstanding";
 
 describe("useDeadlineWake — one timer, at the earliest deadline", () => {
@@ -252,7 +249,7 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
     // A mounted consumer handed another clock — a fixture scenario switching to one
     // that starts earlier is the ordinary way. The reading taken from the clock it no
     // longer has measures nothing on this one, so holding it put every deadline
-    // behind the surface at once: nothing armed, every row expired, until unmount.
+    // behind the component at once: nothing armed, every row expired, until unmount.
     const laterClock = new CountingManualClock(LATER_START);
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const wake = renderDeadlineWake(laterClock, [DEADLINE_BETWEEN_THE_TWO_CLOCKS]);
@@ -279,14 +276,14 @@ describe("useDeadlineWake — the instant belongs to the clock it was read from"
     const laterClock = new CountingManualClock(LATER_START);
     const earlierClock = new CountingManualClock(MOUNTED_AT);
     const view = render(
-      <MountLifetimeInstantSurface
+      <MountLifetimeInstantProbe
         clock={laterClock}
         deadlines={[DEADLINE_BETWEEN_THE_TWO_CLOCKS]}
       />,
     );
 
     view.rerender(
-      <MountLifetimeInstantSurface
+      <MountLifetimeInstantProbe
         clock={earlierClock}
         deadlines={[DEADLINE_BETWEEN_THE_TWO_CLOCKS]}
       />,

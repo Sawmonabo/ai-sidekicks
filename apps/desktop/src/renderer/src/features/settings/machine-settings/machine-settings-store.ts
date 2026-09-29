@@ -68,7 +68,7 @@ export class MachineSettingsStore implements ReadTriggerTarget {
    * The keys a person is waiting on, which is a RENDERED fact and not a second
    * register of the one above: the latch says whether a settlement may install, this
    * says which rows show a spinner while it has not. The latch bounds its own keys
-   * and cannot name them, so a surface that renders per row needs the set.
+   * and cannot name them, so a page that renders per row needs the set.
    */
   readonly #pendingWriteKeys = new Set<MachineSettingKey>();
   readonly #scheduler: RefreshScheduler;

@@ -46,10 +46,10 @@ function idempotentCommandRegistry(): KeyedRegistry<string, OwnedCommand> {
   });
 }
 
-function ownerScopedSlotRegistry(): KeyedRegistry<string, OwnedCommand> {
+function ownerScopedScreenRegistry(): KeyedRegistry<string, OwnedCommand> {
   return new KeyedRegistry<string, OwnedCommand>({
     duplicatePolicy: "owner-scoped",
-    describeWhat: "screen slot",
+    describeWhat: "screen",
     ownerOf: (command) => command.owner,
   });
 }
@@ -122,14 +122,14 @@ describe("KeyedRegistry — the throw policy", () => {
   });
 
   it("carries the per-registry hint, so the refusal says what breaks HERE", () => {
-    const registry = hintingCommandRegistry("two families cannot own one command id");
+    const registry = hintingCommandRegistry("two features cannot own one command id");
     registry.register("open-palette", { owner: "palette", label: "Open" });
 
     const refusal = refusalFrom(() => {
       registry.register("open-palette", { owner: "frame", label: "Also open" });
     });
 
-    expect(refusal.detail).toContain("two families cannot own one command id");
+    expect(refusal.detail).toContain("two features cannot own one command id");
   });
 
   it("keeps the first value, so behavior does not depend on module import order", () => {
@@ -182,7 +182,7 @@ describe("KeyedRegistry — the idempotent policy", () => {
 
 describe("KeyedRegistry — the owner-scoped policy", () => {
   it("lets the same owner replace its own registration", () => {
-    const registry = ownerScopedSlotRegistry();
+    const registry = ownerScopedScreenRegistry();
     registry.register("transcript", { owner: "transcript", label: "Transcript" });
 
     expect(registry.register("transcript", { owner: "transcript", label: "Transcript v2" })).toBe(
@@ -192,7 +192,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
   });
 
   it("refuses a different owner, naming both parties", () => {
-    const registry = ownerScopedSlotRegistry();
+    const registry = ownerScopedScreenRegistry();
     registry.register("transcript", { owner: "transcript", label: "Transcript" });
 
     const refusal = refusalFrom(() => {
@@ -207,9 +207,9 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
   it("raises the SAME conflict from registerAll as from register", () => {
     // The two paths used to carry hand-copied message text, which is how one of
     // them drifts. They are one builder now, and this is what says so.
-    const single = ownerScopedSlotRegistry();
+    const single = ownerScopedScreenRegistry();
     single.register("transcript", { owner: "transcript", label: "Transcript" });
-    const batched = ownerScopedSlotRegistry();
+    const batched = ownerScopedScreenRegistry();
     batched.register("transcript", { owner: "transcript", label: "Transcript" });
 
     const fromRegister = refusalFrom(() => {
@@ -229,7 +229,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
     const constructWithoutOwnerReader = (): KeyedRegistry<string, OwnedCommand> =>
       new KeyedRegistry<string, OwnedCommand>({
         duplicatePolicy: "owner-scoped",
-        describeWhat: "screen slot",
+        describeWhat: "screen",
       });
 
     let raised: unknown;
@@ -244,7 +244,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
   });
 
   it("negative control: the same registry WITH an owner reader constructs", () => {
-    expect(() => ownerScopedSlotRegistry()).not.toThrow();
+    expect(() => ownerScopedScreenRegistry()).not.toThrow();
   });
 });
 
@@ -260,7 +260,7 @@ describe("KeyedRegistry — registerAll is atomic", () => {
       ]);
     }).toThrow(DuplicateRegistrationError);
 
-    // Half a family's contribution is a state no caller can reason about and none
+    // Half a feature's contributions is a state no caller can reason about and none
     // unwinds, so the first entry must not have landed.
     expect(registry.has("run-pause")).toBe(false);
     expect(registry.size).toBe(1);

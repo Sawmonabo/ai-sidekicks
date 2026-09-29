@@ -1,4 +1,4 @@
-// A scroll surface a test can drive, at geometry a DOM shim cannot answer.
+// A scroll container a test can drive, at geometry a DOM shim cannot answer.
 //
 // `happy-dom` reports zero for `clientHeight`, `scrollHeight`, and `scrollTop`, so a
 // case about where the reader is standing would pass over a viewport with no
@@ -6,15 +6,15 @@
 // a module under test: the chokepoint, the controller, the measurement ledger, and
 // the virtualizer bound to them are all the shipped ones.
 //
-// It lives beside the frame rather than in `test/console/` because it is this
-// family's own scaffolding — the surface shape is `scroll-chokepoint.ts`' — and two
-// modules in this directory need it.
+// It lives beside the chokepoint rather than in `tests/helpers/` because it is this
+// feature's own scaffolding — the `ScrollContainer` shape is `scroll-chokepoint.ts`' —
+// and only this feature's tests need it.
 //
 // The offset is held in a closure and reached through an accessor pair rather than a
 // plain field, for a reason worth stating: a fixture assigning the offset by name
 // would be indistinguishable from a second scroll writer to anyone sweeping the console
 // for one, and the honest answer is not to exempt the file but to write the field once,
-// where the surface's own accessor already is.
+// where the scroll container's own accessor already is.
 
 import { type ScrollContainer } from "./scroll-chokepoint.js";
 
@@ -23,7 +23,7 @@ export interface CountingScrollContainer extends ScrollContainer {
   /** Move the offset the way a reader does, and tell the listeners about it. */
   moveTo(offset: number): void;
   /**
-   * Change the box the surface reports, the way a window or pane resize does — and
+   * Change the box the scroll container reports, the way a window or pane resize does — and
    * tell nobody, because a resize fires no scroll event. What notices is the
    * controller's own overflow pass, which a caller drives on the frozen clock.
    */

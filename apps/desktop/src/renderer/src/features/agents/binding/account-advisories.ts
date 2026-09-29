@@ -20,7 +20,7 @@
 // reporting a local observation as a sign-in the provider has confirmed.
 //
 // AND IT NAMES WHEN. The reading travels with the moment it was taken precisely so a
-// surface can weigh it, and the pair is the only thing that separates "no observation
+// view can weigh it, and the pair is the only thing that separates "no observation
 // has ever been taken" from "one was taken and could not decide" — both of which
 // project the same `indeterminate` state. A sentence that dropped the instant would
 // render a reading from months ago and one from a moment ago identically and collapse
@@ -28,7 +28,7 @@
 //
 // NOTHING HERE IS A COMMAND. A remedy is named as the ACT it is; the provider's own
 // first-party invocation and the credential home it authenticates into travel on the
-// same reply and belong to the operator surface that owns them, never to a form.
+// same reply and belong to the settings page that owns them, never to a form.
 
 import type { ProviderAccount, ProviderRemedy } from "@ai-sidekicks/contracts";
 
@@ -101,7 +101,7 @@ function storedHealthAdvisoryFor(choice: AccountChoice, locale: string | undefin
  * TOTAL over the registered remedy kinds, and deliberately naming only the ACT. The
  * remedy's content — the credential home a sign-in authenticates into and the
  * provider's own first-party invocation — is the daemon's, it travels on the reply,
- * and it belongs on the operator surface that owns it. A field printing a
+ * and it belongs on the settings page that owns it. A field printing a
  * command a person is invited to run would be this console composing a remedy, which
  * the account plane's own rule forbids.
  *

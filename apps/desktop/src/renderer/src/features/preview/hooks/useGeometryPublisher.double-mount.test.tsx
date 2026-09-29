@@ -1,4 +1,4 @@
-// The geometry binding under React's double mount, and under a new view host.
+// The geometry binding under React's double mount, and under a new page host.
 //
 // `useGeometryPublisher` holds its publisher in the console's subject-scoped resource
 // holder, and one of the three arms that buys is the one a double mount reaches:
@@ -15,7 +15,7 @@
 // only worth anything if the pane is actually wired to it.
 //
 // The second case is the other subject a binding can outlive: a publisher writes to one
-// host for life, so a pane handed a different host has to publish through that one.
+// page host for life, so a pane handed a different page host has to publish through that one.
 //
 // `StrictMode` rather than a hand-driven unmount-and-remount, because the double
 // mount is React's own behavior and a hand-rolled imitation of it is a test of the
@@ -26,7 +26,7 @@ import { StrictMode } from "react";
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { RecordingViewHost } from "../geometry/geometry-publisher.test-support.js";
+import { RecordingPageHost } from "../geometry/geometry-publisher.test-support.js";
 import {
   previewPaneContext,
   chromeFor,
@@ -36,10 +36,10 @@ import {
 
 describe("Preview pane geometry — the publisher's binding", () => {
   it("publishes this pane's rectangle rather than holding the disposed one", async () => {
-    const viewHost = new RecordingViewHost();
+    const pageHost = new RecordingPageHost();
     const built = previewPaneContext();
     await act(async () => {
-      render(<StrictMode>{chromeFor(built, recordingActs(), viewHost)}</StrictMode>);
+      render(<StrictMode>{chromeFor(built, recordingActs(), pageHost)}</StrictMode>);
     });
 
     // The frame the attach queued, which is where a publish lands. A binding that had
@@ -47,20 +47,20 @@ describe("Preview pane geometry — the publisher's binding", () => {
     // and the log below stays empty.
     await releaseQueuedPaneFrames(built.fixture);
 
-    expect(viewHost.samples.length).toBeGreaterThan(0);
+    expect(pageHost.samples.length).toBeGreaterThan(0);
   });
 
-  it("publishes through the new host when the same pane is handed another one", async () => {
-    const firstHost = new RecordingViewHost();
-    const secondHost = new RecordingViewHost();
+  it("publishes through the new page host when the same pane is handed another one", async () => {
+    const firstPageHost = new RecordingPageHost();
+    const secondPageHost = new RecordingPageHost();
     const built = previewPaneContext();
-    const rendered = render(chromeFor(built, recordingActs(), firstHost));
+    const rendered = render(chromeFor(built, recordingActs(), firstPageHost));
     await releaseQueuedPaneFrames(built.fixture);
-    expect(firstHost.samples.length).toBeGreaterThan(0);
+    expect(firstPageHost.samples.length).toBeGreaterThan(0);
 
-    rendered.rerender(chromeFor(built, recordingActs(), secondHost));
+    rendered.rerender(chromeFor(built, recordingActs(), secondPageHost));
     await releaseQueuedPaneFrames(built.fixture);
 
-    expect(secondHost.samples.length).toBeGreaterThan(0);
+    expect(secondPageHost.samples.length).toBeGreaterThan(0);
   });
 });

@@ -1,6 +1,6 @@
 // How every tier that mounts a pane body gets one: preload, then resolve.
 //
-// ONE HOME BECAUSE THE WAIT IS ONE CLAIM. Four family mount modules resolved a body out
+// ONE HOME BECAUSE THE WAIT IS ONE CLAIM. Four feature mount modules resolved a body out
 // of a registry with the same four lines, and when pane bodies became loader-backed all
 // four needed the same new line in front of them — which is the shape the
 // shared-code rule in `apps/desktop/AGENTS.md` names: a helper used by two modules is hoisted
@@ -30,21 +30,19 @@ import {
   type ScreenContext,
   type PaneKind,
 } from "@renderer/console/seats/index.js";
-// The LEAF for this one name: `ScreenName` is deliberately off the seats door,
-// which that door's own header states — no production module reaches it through one, and
-// the barrel census fails a line like that.
+// `ScreenName` from the module that declares it: the barrel above does not export it.
 import { type ScreenName } from "@renderer/registries/screens/screen-registry.js";
 
 /**
  * The body the pane layout holds for a kind, with its module already loaded.
  *
- * TAKES THE FAMILY'S OWN REGISTRAR AND BUILDS THE REGISTRY HERE, for the reason each
+ * TAKES THE FEATURE'S OWN REGISTRAR AND BUILDS THE REGISTRY HERE, for the reason each
  * caller used to state separately: the registry is owner-scoped state, so two tiers
  * sharing one instance would make the second tier's mount depend on whether the first
- * had run. One registrar rather than every family's, so a mount composes exactly the
+ * had run. One registrar rather than every feature's, so a mount composes exactly the
  * body it captures.
  *
- * A throw rather than an optional return, so a family that stopped registering its kind
+ * A throw rather than an optional return, so a feature that stopped registering its kind
  * fails here — where the message names the kind — instead of rendering nothing and
  * letting a tier compare an empty box against a reference.
  *
@@ -66,28 +64,28 @@ export async function resolvedPaneBody(
 }
 
 /**
- * The body the frame holds for a screen slot, with its module already loaded.
+ * The body the frame holds for a screen name, with its module already loaded.
  *
  * The pane helper's shape on the other board, and it earns its own function rather than
  * a generic over both: the two boards key on different unions, and a signature abstract
- * enough to take either would take a slot for a kind. What is shared is the RULE — build
+ * enough to take either would take a screen name for a kind. What is shared is the RULE — build
  * a scoped registry, preload, resolve, throw by name — and the rule is what a reader
  * needs to see in both places.
  *
  * The preload matters here for a reason the pane path does not have: a route commits
- * before anything is mounted, so a deferred surface's reserved region is the WHOLE
+ * before anything is mounted, so a deferred screen's reserved region is the WHOLE
  * window rather than one pane inside a settled frame.
  */
 export async function resolvedScreenBody(
-  slot: ScreenName,
+  screenName: ScreenName,
   registerScreens: (registry: ScreenRegistry) => void,
 ): Promise<(context: ScreenContext) => ReactNode> {
   const registry = new ScreenRegistry();
   registerScreens(registry);
-  await registry.preload(slot);
-  const descriptor = registry.descriptorFor(slot);
+  await registry.preload(screenName);
+  const descriptor = registry.descriptorFor(screenName);
   if (descriptor === undefined) {
-    throw new Error(`no screen is registered for the \`${slot}\` slot`);
+    throw new Error(`no screen is registered under the \`${screenName}\` name`);
   }
   return descriptor.render;
 }

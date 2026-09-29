@@ -137,7 +137,7 @@ export class UiStateStore {
    *
    * Synchronous by design — it returns the store, not a promise of one, so the
    * composition root can create it during its first render and hand the same
-   * object to every surface. `openUiStateDatabase` is documented never to throw,
+   * object to every consumer. `openUiStateDatabase` is documented never to throw,
    * which is what lets the pending adapter be a promise that cannot reject.
    */
   public static opening(options: OpenUiStateDatabaseOptions = {}): UiStateStore {
@@ -279,7 +279,10 @@ export class UiStateStore {
     return await this.readOutcome(PERSISTENCE_GLOBAL_PARTITION, key);
   }
 
-  /** Read one value. Never throws; a failed read reads as "not loaded" (rule 3). */
+  /**
+   * Read one value. Never throws; a failed read reads as "not loaded", the lossy
+   * projection of {@link readOutcome}.
+   */
   public async read(partition: string, key: string): Promise<StoredRecord | undefined> {
     return recordFromReadOutcome(await this.readOutcome(partition, key));
   }
@@ -306,7 +309,7 @@ export class UiStateStore {
     }
   }
 
-  /** What the diagnostics surface renders. Refreshes the quota gauge. */
+  /** What the diagnostics view renders. Refreshes the quota gauge. */
   public async health(): Promise<PersistenceHealth> {
     const adapter = await this.#adapterReady;
     this.#health.recordQuota(await adapter.measureQuota());

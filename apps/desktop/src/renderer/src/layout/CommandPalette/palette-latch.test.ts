@@ -2,7 +2,7 @@
 //
 // The overlay's suite drives the arm a person actually meets — a command the registry
 // no longer holds — through the rendered rows. This file is the other arm and the
-// vocabulary itself: `hidden-in-context` is reachable in production (a family that
+// vocabulary itself: `hidden-in-context` is reachable in production (a feature that
 // unregisters and re-registers a command with a narrower `when` while the palette is
 // open leaves a captured row over a command the captured reading no longer admits), and
 // an arm that ships with no case at all is an arm whose sentence nobody has read.
@@ -61,7 +61,7 @@ describe("running a latched command", () => {
 
   it("names a command the captured reading no longer admits, and runs nothing", () => {
     // Re-registered under a clause the captured reading answers `false`, which is what a
-    // family does when what its commands close over changes while the palette is open.
+    // feature does when what its commands close over changes while the palette is open.
     const ran: string[] = [];
     const registry = new CommandRegistry();
     registry.register(commandOfferedOnSession(ran));

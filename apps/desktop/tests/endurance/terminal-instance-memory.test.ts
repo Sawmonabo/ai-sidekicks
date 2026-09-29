@@ -63,7 +63,7 @@
 // WHAT THIS FILE DOES NOT OWN. The adapter-level claims — that the scrollback
 // evicts rather than grows, that a disposal gives the bytes back, and that a
 // working day of open-and-close cycles leaves the page where it started — are
-// `terminal-endurance.test.ts`'s and are not restated here. That file makes no
+// `xterm-adapter.test.ts`'s and are not restated here. That file makes no
 // ceiling claim of its own: this row has one gate, and it is below.
 //
 // Nor does it own the pane-count sweep. Opening the instances, reading the heap

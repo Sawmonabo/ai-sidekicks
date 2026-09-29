@@ -13,14 +13,14 @@
 // which the daemon reads as unchanged and merges back in before it validates; so the
 // form enabled its action, the request went out short of the axis, and the refusal
 // named a value the user was never shown a problem with. That is the same
-// defect on two surfaces, so it gets one rule and one module rather than a second
+// defect on two forms, so it gets one rule and one module rather than a second
 // loop that agrees with the first until it does not.
 //
 // THE SUBJECT IS THEREFORE WHAT THE AGENT WILL RUN UNDER, never what was typed. Each
 // caller resolves its own chain — entry over definition, draft over binding — and
 // hands the resolved reading here. This module holds no state, reads nothing, and
 // composes no words: which values compose a chain belongs to the form that owns them,
-// and what to CALL a refused axis belongs to the surface a person reads.
+// and what to CALL a refused axis belongs to the view a person reads.
 //
 // WHAT IT REFUSES TO JUDGE, AND WHAT IT FAILS CLOSED ON. An axis nobody has settled
 // is not unvouched — there is no value to vouch for, and a form that reported one

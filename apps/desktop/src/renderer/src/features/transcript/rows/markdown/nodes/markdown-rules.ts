@@ -25,7 +25,7 @@
 //      nothing is ever parsed as markup. A sanitizer here would be the console
 //      claiming it renders model HTML safely, which it does not do at all.
 //   4. **Path links come only from wire-validated path references.** Today there are
-//      none, and a surface with no validated allowlist ships no path links — so a link
+//      none, and a console with no validated allowlist ships no path links — so a link
 //      renders as its own text and nothing is clickable.
 //   5. **Footnotes resolve through one registry keyed by source**, so a definition
 //      line never resolves as its own body.
@@ -36,7 +36,7 @@
  * A verbatim copy of the library's sentinel rather than a re-derivation, because the
  * two sides of one seam share a module and this is the console's side of `remend`'s.
  * A link carrying it is a link the stream has not finished, and the mapper renders its
- * text with no anchor — the same disposition rule 4 gives every other link, reached
+ * text with no anchor — the same disposition the path-link rule gives every other link, reached
  * for a different reason.
  */
 export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
@@ -44,7 +44,7 @@ export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
 /**
  * The mdast node types whose rendering waits for the block to settle.
  *
- * Math and diagrams, and nothing else. Both are rule 2's subject and both fail the
+ * Math and diagrams, and nothing else. Both wait for their block to settle and both fail the
  * same way on a prefix. `mdast-util-gfm` emits neither as its own node type — math
  * arrives as `code` with a `math` language or as inline text, and mermaid as a `code`
  * node with the `mermaid` language — so the set is keyed by the fence's INFO STRING,

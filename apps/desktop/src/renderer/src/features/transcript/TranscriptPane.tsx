@@ -1,18 +1,18 @@
-// The transcript pane: the address it hands its chrome, and the seat its rows fill.
+// The transcript pane: the address it hands its chrome, and the renderer its rows are drawn with.
 //
 // THE CHROME IS NOT THIS FEATURE'S AND IT IS NOT PASSED IN EITHER. The shared pane chrome
 // draws every pane's frame, so every pane kind shares one spacing and one answer to where
 // the focus ring goes. What this pane supplies is what genuinely differs — its kind, the
 // address its trail reads, and the hue it is attributed to.
 //
-// THE ROWS ARRIVE THROUGH THE ROW SEAT. Whatever fills the seat (`registerTranscriptRowRenderer`)
-// draws each row's body, so the body here is a slot that reads the seat rather than a
+// THE ROWS ARRIVE THROUGH THE ROW RENDERER. Whatever `registerTranscriptRowRenderer` registered
+// draws each row's body, so the body here reads that renderer rather than being a
 // dispatcher of its own.
 //
 // WHY THE CLOSE CONTROL IS NOT DEFAULTED. Closing a pane is the PANE LAYOUT's act. The honest
 // rendering of a control whose act nobody can perform is to leave it out, not to draw it
-// disabled, so the chrome takes it from the host's context and this pane forwards a prop
-// only where its own caller owns the pane's lifetime.
+// disabled, so the chrome takes it from the pane layout's pane controls and this pane
+// forwards a prop only where its own caller owns the pane's lifetime.
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
@@ -20,13 +20,14 @@ import {
   PaneFrame,
   findTranscriptRowRenderer,
   type PaneContextOf,
+  type TranscriptRowRenderer,
 } from "@renderer/console/seats/index.js";
-import { TranscriptRowHost } from "./feed/components/TranscriptRowHost.js";
+import { TranscriptPaneBody } from "./feed/components/TranscriptPaneBody.js";
 
 /**
  * The pane context, narrowed to the arm this body can serve.
  *
- * `PaneContextOf` is the seat's own narrowing rather than a second `Extract` written
+ * `PaneContextOf` is the pane registry's own narrowing rather than a second `Extract` written
  * here: one registry holds every kind, and a body does not.
  */
 export type TranscriptPaneContext = PaneContextOf<"transcript">;
@@ -57,11 +58,24 @@ export function TranscriptPane(props: TranscriptPaneProps): React.JSX.Element {
       focusHue={context.focusHue}
       {...(props.onClose === undefined ? {} : { onClose: props.onClose })}
     >
-      <TranscriptRowHost
-        body={findTranscriptRowRenderer()}
-        paneId={context.paneId}
+      <TranscriptPaneBody
+        renderTranscriptRow={registeredTranscriptRowRenderer()}
         sessionStore={context.sessionStore}
       />
     </PaneFrame>
   );
+}
+
+/**
+ * The registered row renderer, which the pane's lazily loaded body registers before the
+ * pane can render. Its absence is a composition defect rather than a state to draw.
+ */
+function registeredTranscriptRowRenderer(): TranscriptRowRenderer {
+  const renderer = findTranscriptRowRenderer();
+  if (renderer === undefined) {
+    throw new Error(
+      "No transcript row renderer is registered. The transcript pane's body registers it when it loads.",
+    );
+  }
+  return renderer;
 }

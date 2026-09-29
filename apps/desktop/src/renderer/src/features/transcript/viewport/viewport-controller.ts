@@ -155,14 +155,14 @@ export class ViewportController {
     return this.#publication.subscribe(sink);
   }
 
-  public attach(surface: ScrollContainer): void {
-    this.scroll.attach(surface);
-    this.seams.bindSurface(surface);
+  public attach(scrollContainer: ScrollContainer): void {
+    this.scroll.attach(scrollContainer);
+    this.seams.bindScrollContainer(scrollContainer);
   }
 
   public detach(): void {
     this.scroll.detach();
-    this.seams.bindSurface(undefined);
+    this.seams.bindScrollContainer(undefined);
   }
 
   /**

@@ -6,10 +6,9 @@
 // once. Only the SET differs between callers — the agent roster watches the three
 // agent-lifecycle kinds and one run's child links watch the two child-run kinds.
 //
-// WHY IT LIVES IN THE STORE FAMILY. View families are siblings that may not import each
-// other, and `apps/desktop/AGENTS.md` puts a helper two families use in the lowest family
-// that needs it, which is this one: the subject is a `SessionStore` transition and nothing
-// here reaches above it.
+// WHY IT LIVES IN THE STORE. No feature imports another, so a helper two features use
+// sits in the lowest folder that needs it, which is this one: the subject is a
+// `SessionStore` transition and nothing here reaches above it.
 //
 // CURSOR BOOKKEEPING IS THE HAZARD. A filter that compared against the newly-arrived
 // state rather than the last one it saw would re-signal on every transition, and a

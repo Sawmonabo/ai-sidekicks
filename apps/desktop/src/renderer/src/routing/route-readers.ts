@@ -118,9 +118,9 @@ export function routeSessionId(route: AppRoute): string | undefined {
  *
  * PUBLISHED, WHERE THE COMPARISON BELOW USED TO BE THE ONLY READER. The address
  * `#/session/<sid>/workflow/<rid>/phase/<pid>` parsed into a route nothing outside this
- * family consumed, so following the link changed the hash and the route identity and
+ * folder consumed, so following the link changed the hash and the route identity and
  * left the window on an unfocused session screen — the phase was addressable and still
- * unreachable. The surface that mounts it asks this question, and asking it through one
+ * unreachable. The screen that mounts it asks this question, and asking it through one
  * accessor is what keeps the arm's optionality answered in one place rather than at
  * each consumer.
  *

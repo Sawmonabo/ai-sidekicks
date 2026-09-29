@@ -1,22 +1,18 @@
 // The one place a daemon reply enters the console.
 //
-// THE DEFECT THIS CLOSES. A surface calls the daemon, the promise fulfills, and the
-// surface reports success — clearing a draft, marking a turn sent, advancing an
-// upload ledger — without the reply having been parsed against the shape the corpus
-// registers for that method. It is not a mistake anyone makes deliberately: the
-// bridge's `call` answers `unknown`, so the ONLY thing standing between a fulfilled
-// promise and a rendered figure is a `safeParse` somebody has to remember to write,
-// once per call site, forever. Written per site it has already gone wrong three
-// ways in this codebase — a reply cast straight to the response type, a mutation
-// declared `void` whose registered reply carried what the surface needed, and a
-// correct parser written a third time because two families could not reach the
-// first. `callDaemon` makes the parse structural: there is one door, it is typed by
-// the registry, and a surface that goes through it CANNOT hold an unparsed value.
+// WHY EVERY CALL COMES THROUGH HERE. Without it, a view calls the daemon, the
+// promise fulfills, and the view reports success — clearing a draft, marking a turn
+// sent, advancing an upload ledger — without the reply having been parsed against the
+// shape the corpus registers for that method. The bridge's `call` answers `unknown`,
+// so the ONLY thing standing between a fulfilled promise and a rendered figure would
+// be a `safeParse` somebody has to remember to write, once per call site, forever.
+// `callDaemon` makes the parse structural: there is one entry, it is typed by the
+// registry, and a caller that goes through it CANNOT hold an unparsed value.
 //
 // WHAT A CALLER GETS BACK. `DaemonReply` — `served(value)` or `refused(refusal)`,
 // closed, with no third arm and no thrown exception on any ordinary path. A call
 // that rejects, a request the contract would not admit, and a reply the contract
-// does not admit are all one thing to the surface above: a refusal it renders
+// does not admit are all one thing to the caller: a refusal it renders
 // through the console's existing refusal primitives, carrying the code verbatim.
 // Returning rather than throwing is what keeps that true — a `try` around every
 // call is a `try` somebody eventually omits, and an omitted one takes down a mount
@@ -34,15 +30,14 @@
 // this module composes
 // its own sentence from the METHOD and, at most, the member PATHS that failed —
 // structural names the wire itself publishes. It never renders the validator's
-// message, which quotes received values. Both per-family parsers this replaces
-// stringified the error straight into the sentence.
+// message, which quotes received values.
 //
 // WHAT THIS MODULE ANSWERS FOR. Methods the corpus has REGISTERED: a shape exists,
 // `daemon-reply-registry.ts` binds it, and a reply is checkable against it.
 //
 // THE REJECTION ARM IS THE CONSOLE'S ONE NORMALIZER, CONSUMED AND NOT COPIED. A
-// rejection reaching this door goes to `normalizeWireRejection`
-// (`core/wire-rejection.ts`), which holds the console's only reading of a rejected
+// rejection reaching `callDaemon` goes to `normalizeWireRejection`
+// (`lib/wire-rejection.ts`), which holds the console's only reading of a rejected
 // promise, and this module supplies only the two things that are its own: the origin
 // every refusal here carries, and the sentence for a rejection that said nothing
 // machine-readable. Four of that module's properties are the reason a private copy
@@ -51,11 +46,11 @@
 // see it because the JSON-RPC `code` is a NUMBER; the retry bound a rate-limit
 // envelope registers; a structural unwrap of a carried refusal, which survives the
 // realm crossing and the structured clone that leave `instanceof` silent; and the
-// backstop that keeps the whole path total. A door that read a daemon refusal a
-// second way is how `session.not_found` becomes `call-rejected`.
-// `src/shared/wire-errors.ts` normalizes a rejection into an `Error`, which is the
-// three legacy renderer families' currency; it answers a different question and is
-// consumed for its leaf helpers rather than for this.
+// backstop that keeps the whole path total. A second reading of a daemon refusal is
+// how `session.not_found` becomes `call-rejected`. `lib/wire-errors.ts`'s
+// `wireRejectionToError` normalizes a rejection into an `Error` for a caller that
+// throws one; it answers a different question, and this folder uses only its leaf
+// helpers.
 
 import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
@@ -75,10 +70,10 @@ export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
 /**
  * Why the console refused a call on its own side of the wire.
  *
- * Three members, closed, and none of them overlaps a DAEMON code: a typed wire
+ * Four members, closed, and none of them overlaps a DAEMON code: a typed wire
  * refusal keeps its own code verbatim (`repo.not_found`, `run.version_conflict`, …)
- * and is never re-labeled with one of these. These name the three failures that
- * are the console's own to describe.
+ * and is never re-labeled with one of these. These name the settlements that are
+ * the console's own to describe.
  *
  *   • `request-unsendable` — the caller composed a request the registered schema
  *     does not admit. Nothing was sent.
@@ -86,11 +81,11 @@ export const DAEMON_REPLY_REFUSAL_ORIGIN = "daemon-call";
  *     corpus registers. Nothing is read from it.
  *   • `call-rejected` — the call rejected with something carrying no machine-
  *     readable code at all.
- *   • `read-abandoned` — the surface that asked for this READ is gone, or a newer
+ *   • `read-abandoned` — the view that asked for this READ is gone, or a newer
  *     read replaced it. Nothing is read from the reply, and where the abandonment
  *     landed before the send, nothing was sent. It reaches a caller that is by
  *     definition no longer rendering, and it is a refusal rather than a silent
- *     resolution because a door whose answer is total cannot grow a fourth
+ *     resolution because a call whose answer is total cannot grow a fourth
  *     settlement without every caller learning about it.
  */
 export const DAEMON_REPLY_REFUSAL_CODES = [
@@ -120,13 +115,13 @@ export type DaemonReply<TValue> =
  * has no owner who may leave — a durable act that reached the daemon happened, and
  * the console's half of it is not the console's to abandon — so a mutation passes
  * nothing here and is awaited exactly as it always was. The parameter is therefore
- * the whole read-versus-mutation distinction at this door, visible at each call site
+ * the whole read-versus-mutation distinction at this call, visible at each call site
  * rather than inferred from the method name.
  */
 export interface DaemonCallOptions {
   /**
    * The read round's signal, from the round the console's read seam handed the
-   * caller. Aborted when a newer read superseded this one, or when the surface that
+   * caller. Aborted when a newer read superseded this one, or when the view that
    * asked for it is gone.
    */
   readonly signal?: AbortSignal;
@@ -139,11 +134,11 @@ export interface DaemonCallOptions {
  * reader would meet is one sentence. It names the method and no value: there is
  * nothing to quote and, on the pre-send arm, nothing was even composed.
  *
- * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries this door cannot see.
- * A read that calls the door, folds the answer, and calls it again has to stop
+ * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries `callDaemon` cannot
+ * see. A read that calls `callDaemon`, folds the answer, and calls it again has to stop
  * between its own calls, and it already stops this way on the first one:
  * `services/daemon/unwrap-daemon-reply.ts`'s `unwrapDaemonReply` raises exactly this refusal the
- * moment the door answers with it. A caller settling its later boundaries under a
+ * moment `callDaemon` answers with it. A caller settling its later boundaries under a
  * code of its own would give one settlement two names, so it raises this one instead.
  */
 export function abandonedReadRefusal(method: string): Refusal {
@@ -164,7 +159,7 @@ export function abandonedReadRefusal(method: string): Refusal {
  *
  * `async` and total. An `async` function's synchronous throw is already a
  * rejection, which matters against the bridge that actually ships: the stub
- * preload stub throws from every method in the caller's own frame, so a non-`async`
+ * preload throws from every method in the caller's own frame, so a non-`async`
  * wrapper would put that throw outside the promise and past every `.catch` the
  * console has.
  *
@@ -210,10 +205,10 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
 
   let reply: unknown;
   try {
-    // The one widening of the bridge's generic door in the whole console. The
+    // The one widening of the bridge's generic `call` in the whole console. The
     // brand `DaemonMethod` stands in for the daemon's method union and resolves to
     // `never`-shaped `string`, so every caller has to widen it once; widened here,
-    // it is widened once for the console rather than once per surface.
+    // it is widened once for the console rather than once per call site.
     const call = bridge.daemon.call as (methodName: string, params: unknown) => Promise<unknown>;
     const settlement = await settleUnlessAbandoned(call(method, sendable.data), signal);
     if (settlement.status === "abandoned") {
@@ -250,7 +245,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
     // `settled` while nobody is waiting — one microtask apart, which is exactly the
     // gap a fulfillment and a pane teardown scheduled in the same tick fall into.
     // Reading the signal again is what makes "an abandoned reply is never parsed" a
-    // property of the door instead of a property of the microtask order, and it is
+    // property of `callDaemon` instead of a property of the microtask order, and it is
     // read HERE, adjacent to the parse it guards, so no `await` can ever be
     // introduced between the guarantee and the line it is about.
     return abandonedRead(method);
@@ -267,13 +262,13 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       ),
     };
   }
-  // The parsed value and not the raw reply: what a surface renders is what the
+  // The parsed value and not the raw reply: what a view renders is what the
   // registered schema admits, so a member the contract does not carry cannot reach
   // a component even when the wire sent one.
   return { status: "served", value: readable.data };
 }
 
-/** That refusal as the door's own answer, so every arm here returns one shape. */
+/** That refusal as `callDaemon`'s own answer, so every arm here returns one shape. */
 function abandonedRead(method: string): DaemonReply<never> {
   return { status: "refused", refusal: abandonedReadRefusal(method) };
 }

@@ -42,8 +42,8 @@ describe("which pane layout a command acts on", () => {
     expect(outcome).toStrictEqual({ status: "refused", refusal: PANE_LAYOUT_NOT_MOUNTED_REFUSAL });
   });
 
-  it("negative control: a seat holding one pane layout performs rather than refusing", () => {
-    // Without this the case above would pass over a seat that refused every press.
+  it("negative control: a registry holding one pane layout performs rather than refusing", () => {
+    // Without this the case above would pass over a registry that refused every press.
     const mountedLayouts = new MountedPaneLayouts();
     mountedLayouts.adopt(createSpyingPaneLayoutActs());
     expect(mountedLayouts.perform("focusNextPane").status).toBe("performed");

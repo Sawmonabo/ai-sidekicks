@@ -7,11 +7,11 @@
 // writes: the removed account came back and the newer credential generation regressed,
 // and both stayed that way INDEFINITELY, because the tail emits no second notification
 // for a mutation it already reported. Holding those frames and replaying them once the
-// snapshot is seated is what puts them back in order.
+// snapshot has been applied is what puts them back in order.
 //
 // EVERY KIND IS HELD, not only the ones that move state. The rule a reader carries is
 // then one sentence rather than a second list of which kinds may be reordered, and a
-// kind that moves nothing costs one slot and no correctness.
+// kind that moves nothing costs one place in the buffer and no correctness.
 //
 // AND THE CAP DEGRADES TO A RE-READ RATHER THAN A DROP. `overflowed` is not a refusal
 // and not a loss: it tells the caller to apply what is held, apply the frame that
@@ -42,7 +42,7 @@ import type { ProviderAccountNotification } from "@ai-sidekicks/contracts";
  * The tail opens before the read, and the read's reply restates the whole
  * registry at an instant the tail has already moved past — so a removal or a
  * credential-generation bump that arrives in that window has to be replayed
- * AFTER the snapshot seats or the snapshot silently undoes it. The buffer's
+ * AFTER the snapshot is applied or the snapshot silently undoes it. The buffer's
  * lifetime is therefore one round trip, and its size is whatever the tail bursts
  * inside one: a node's accounts and their limit windows are a handful, so this is
  * a memory bound rather than a policy. Past it the reading stops buffering,

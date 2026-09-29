@@ -202,7 +202,7 @@ export class AgentLibraryView implements ReadTriggerTarget {
    *
    * ONE AT A TIME, and the second press is answered rather than dropped. The page
    * disables every delete control while one is running, so a press that reaches here
-   * is one that surface could not intercept — and doing nothing at all would be
+   * is one the page could not intercept — and doing nothing at all would be
    * indistinguishable from a broken control, so the row it was aimed at gets this
    * view's own refusal saying what is in the way.
    */

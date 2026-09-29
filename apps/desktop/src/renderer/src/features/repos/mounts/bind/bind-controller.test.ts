@@ -131,7 +131,7 @@ describe("BindWorkspaceController — the pre-bind read", () => {
     ).toContain("its own root");
   });
 
-  it("declares this family's own event census", () => {
+  it("declares the repos feature's own event census", () => {
     // What a mount admits changes when the mount does, and two readers of one answer
     // must not disagree about when it goes stale.
     const { controller } = open(OPEN_MOUNT_ID);

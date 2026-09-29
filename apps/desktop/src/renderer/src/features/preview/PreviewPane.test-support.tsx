@@ -16,8 +16,8 @@ import {
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";
-import { RecordingViewHost } from "./geometry/geometry-publisher.test-support.js";
-import type { AttachedPaneViewHost } from "./geometry/view-host.js";
+import { RecordingPageHost } from "./geometry/geometry-publisher.test-support.js";
+import type { PageHost } from "./geometry/page-host.js";
 import type { PaneContextOf } from "@renderer/console/seats/index.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { PreviewPaneContent, type BrowserChromeActs } from "./components/PreviewPaneContent.js";
@@ -74,7 +74,7 @@ export function fixtureBrowserBridge(): FixtureBridge {
  * did not pass is a fixture it cannot otherwise name.
  *
  * The address arm carries no `entity` member: `browser` is session-scoped, so the
- * union's arm has none and the seat refuses one at this call site.
+ * union's arm has none and `paneContext` refuses one at this call site.
  */
 export function previewPaneContext(
   fixture: FixtureBridge = fixtureBrowserBridge(),
@@ -107,13 +107,13 @@ export function recordingActs(navigations: string[] = []): BrowserChromeActs {
 }
 
 /**
- * The chrome over no reported location, no pages, the given acts and the given host, in
+ * The chrome over no reported location, no pages, the given acts and the given page host, in
  * the subject's window.
  */
 export function chromeFor(
   subject: PreviewPaneSubject,
   acts: BrowserChromeActs,
-  viewHost: AttachedPaneViewHost,
+  pageHost: PageHost,
 ): React.JSX.Element {
   return (
     <FixtureBridgeProvider fixture={subject.fixture}>
@@ -122,7 +122,7 @@ export function chromeFor(
         navigation={{ kind: "reading" }}
         pages={{ kind: "reading" }}
         acts={acts}
-        viewHost={viewHost}
+        pageHost={pageHost}
       />
     </FixtureBridgeProvider>
   );
@@ -133,7 +133,7 @@ export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
 /**
  * The swap a mounted pane can be put through without being remounted: a pane layout moves a
- * slot to another pane. The pane's state has to say whose it is against it, and a suite
+ * pane slot to another pane. The pane's state has to say whose it is against it, and a suite
  * that could only mount a fresh tree could not reach the stale-subject case.
  */
 export interface PreviewPaneSubjectMount {
@@ -143,7 +143,7 @@ export interface PreviewPaneSubjectMount {
 /**
  * Mount the pane and hand back the re-render that swaps which pane it is FOR.
  *
- * The swap is what a pane layout performs when a slot changes subject: React keeps the
+ * The swap is what a pane layout performs when a pane slot changes subject: React keeps the
  * component instance and hands it a different `paneId`, so every piece of state the
  * pane carries between renders has to say whose it is. A suite that could only mount
  * a fresh tree could not reach that case at all.
@@ -155,8 +155,8 @@ export async function mountPreviewPaneForSubject(
   acts: BrowserChromeActs = recordingActs(),
 ): Promise<PreviewPaneSubjectMount> {
   const built = previewPaneContext(fixture, paneId);
-  // One host for the whole mount: a new one per render would re-mint the publisher.
-  const viewHost = new RecordingViewHost();
+  // One page host for the whole mount: a new one per render would re-mint the publisher.
+  const pageHost = new RecordingPageHost();
   let mounted: RenderResult | undefined;
   // A component type rather than a ready-made node, and that is load-bearing: React
   // skips re-rendering a child whose element is referentially identical, so a probe
@@ -164,7 +164,7 @@ export async function mountPreviewPaneForSubject(
   // to observe. Instantiated here, each render hands it a fresh element.
   const tree = (subject: PreviewPaneSubject): React.JSX.Element => (
     <>
-      {chromeFor(subject, acts, viewHost)}
+      {chromeFor(subject, acts, pageHost)}
       {ProbeComponent === undefined ? null : <ProbeComponent />}
     </>
   );
@@ -185,10 +185,10 @@ export async function mountPreviewPaneForSubject(
 }
 
 /**
- * What the pane's region is CALLED once `seats/PaneFrame` names it.
+ * What the pane's region is CALLED once `components/PaneFrame` names it.
  *
  * The chrome names a pane by its whole address trail rather than by its kind — "the
- * session, then Preview" — and every mount in this family's suites is unbound, so the
+ * session, then Preview" — and every mount in the preview's suites is unbound, so the
  * trail opens on the chrome's own no-address crumb. Spelled once here because it is a
  * property of the frame rather than of any one suite: a suite that hard-coded it would
  * be asserting the chrome's naming rule by accident, in as many places as it queried.
@@ -218,7 +218,7 @@ export async function renderPreviewPane(
 }> {
   const built = previewPaneContext(fixture);
   await act(async () => {
-    render(chromeFor(built, acts, new RecordingViewHost()));
+    render(chromeFor(built, acts, new RecordingPageHost()));
   });
   return { region: previewPaneRegion(), fixture: built.fixture };
 }

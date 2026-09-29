@@ -1,5 +1,5 @@
 // The transcript viewport — the virtualized feed, the reading anchor's pill, and the
-// slot every row body is mounted through.
+// row box every row body is mounted in.
 //
 // This component RENDERS. Every decision it draws was made in a class:
 // `viewport-controller.ts` wires the scroll chokepoint, the reading anchor, the row
@@ -11,7 +11,7 @@
 //
 // THREE THINGS THE MARKUP HAS TO GET RIGHT:
 //
-//   • **One scroll container.** The surface below is the only scrollable box in the
+//   • **One scroll container.** The element below is the only scrollable box in the
 //     transcript. A second one anywhere inside it would give the chokepoint a rival
 //     `scrollTop` it does not own, and the reading anchor is an offset INSIDE this
 //     box.
@@ -24,10 +24,10 @@
 //   • **`role="feed"`, and rows that ARE articles, declared here.** The log grows at
 //     one end while a person reads the other, which is exactly what a feed is. The
 //     role's required-children relationship is satisfied by the row box BELOW, not
-//     by whatever a row body happens to draw: the body arrives through a seat a
-//     different family fills, so resting a WCAG-required structural relationship on
+//     by whatever a row body happens to draw: the body arrives through a row renderer
+//     another module registers, so resting a WCAG-required structural relationship on
 //     it would be fail-OPEN — the feed would stay valid only for as long as that
-//     family kept rendering an `<article>`, and would break silently the day it
+//     renderer kept rendering an `<article>`, and would break silently the day it
 //     stopped. The element that declares `role="feed"` owns the guarantee.
 //
 //     The sizer between them is `role="presentation"`: it is pure geometry whose
@@ -46,15 +46,15 @@ import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 
-/** What a surface hands the transcript viewport. */
+/** What the feed hands the transcript viewport. */
 export interface TranscriptViewportProps {
   /**
    * The caller's binding — the one this transcript has.
    *
    * TAKEN rather than minted. `useTranscriptViewport` builds a controller, a scroll
    * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
-   * own would give the surrounding surface a SECOND set: the session header's follow seat
-   * would report a state nobody is scrolling, and `jumpToRow` would scroll a virtualizer
+   * own would give the feed a SECOND set: the find walk would read one while the rows on
+   * screen follow the other, and `jumpToRow` would scroll a virtualizer
    * with no element under it. One binding per transcript is the whole invariant, and
    * requiring it as a prop is what makes a second one unrepresentable rather than
    * merely discouraged.
@@ -70,7 +70,7 @@ export interface TranscriptViewportProps {
    * REQUIRED, so a caller decides rather than inherits: the empty window below is a
    * CLAIM about a session, and a caller that had not answered this made it while the
    * read was still in flight — "Nothing has happened in this session yet." rendered
-   * directly above the pane's twelve loading shells, two sentences about one moment
+   * directly above the pane's twelve skeleton rows, two sentences about one moment
    * with one of them false. An optional prop defaulting to settled would have
    * reintroduced exactly that on the next caller to forget it.
    */
@@ -96,15 +96,15 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
     <div className="meridian-transcript-viewport">
       <TranscriptErrors entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
       {/*
-       * The head act, floating over the top of the surface exactly as the tail
+       * The head act, floating over the top of the scroll container exactly as the tail
        * affordance floats over the bottom — both outside the scroll box, because a
        * control in the flow changes the content height and the reading position each
        * of them exists to protect is measured against that height.
        */}
       {props.earlierHistoryControl}
       <div
-        className="meridian-transcript-viewport__surface"
-        ref={binding.attachSurface}
+        className="meridian-transcript-viewport__scroll-container"
+        ref={binding.attachScrollContainer}
         // The feed role is claimed only while there is something to be a feed OF,
         // and the articles it owns are `VirtualRow`'s half of the same claim.
         // `feed` REQUIRES owned articles, so an empty one is not a quieter feed but
@@ -146,10 +146,10 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
         {/*
          * NO ROWS AND THE READ HAS LANDED — which are two facts, and the empty
          * sentence needs both. With no rows alone it also fires while the first read
-         * is in flight, where the pane is already drawing loading shells and the
+         * is in flight, where the pane is already drawing skeleton rows and the
          * honest answer is not yet known. Nothing renders here in that window: the
-         * shells ARE the answer, and a second element saying anything at all would be
-         * the surface talking over its own loading state.
+         * skeleton rows ARE the answer, and a second element saying anything at all would be
+         * the viewport talking over its own loading state.
          */}
         {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
         {/*

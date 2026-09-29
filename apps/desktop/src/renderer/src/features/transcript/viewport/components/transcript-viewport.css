@@ -1,5 +1,5 @@
 /* The viewport's styles: the virtualized feed, its reading-anchor affordances, and the
- * error slots. One sheet for the components under `viewport/components/` and the head
+ * error strip. One sheet for the components under `viewport/components/` and the head
  * control in `history/`, imported by the transcript's chunk root. The retry control the
  * failed row wears is `transcript.css`'s, because the ANSI output wears the same one.
  *
@@ -24,10 +24,10 @@
  * the window behind it, which on a pinned reading position reads as the transcript
  * having moved on its own.
  */
-.meridian-transcript-viewport__surface {
-  /* PLACED, not auto-placed. The two tracks above were written for an error slot over
-     a scroll surface, but `TranscriptErrors.tsx` returns null with no entries and both
-     affordances are out of flow — so in the ordinary case the surface is the only
+.meridian-transcript-viewport__scroll-container {
+  /* PLACED, not auto-placed. The two tracks above were written for the error strip over
+     the scroll container, but `TranscriptErrors.tsx` returns null with no entries and both
+     affordances are out of flow — so in the ordinary case the scroll container is the only
      in-flow child, auto-places into track 1, and is sized by its CONTENT while the
      `1fr` track it was meant for sits empty and absorbs the free space. Measured: zero
      pixels inside a 600 px viewport, which is the box the virtualizer then ranges
@@ -41,7 +41,7 @@
   min-height: 0;
 }
 
-.meridian-transcript-viewport__surface:focus-visible {
+.meridian-transcript-viewport__scroll-container:focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: -2px;
 }
@@ -137,7 +137,7 @@
 }
 
 /*
- * The one primary act this surface offers. Quiet chrome everywhere else, so the
+ * The one primary act this viewport offers. Quiet chrome everywhere else, so the
  * pill can be the only filled control in the transcript without competing with anything.
  */
 .meridian-transcript-viewport__pill {
@@ -164,7 +164,7 @@
   outline-offset: 2px;
 }
 
-/* Ranked slots: the highest is a card, the rest sit under it as one quiet row. */
+/* Ranked error entries: the highest is a card, the rest sit under it as one quiet row. */
 .meridian-transcript-errors {
   display: flex;
   flex-direction: column;

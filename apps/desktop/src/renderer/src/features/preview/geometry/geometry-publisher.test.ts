@@ -8,7 +8,7 @@
 // hold vacuously against a publisher that never armed or published anything at all.
 //
 // Four suites sit beside this one, each about a different question the publisher
-// answers — who is told what the host said, and the three sources that make it ask.
+// answers — who is told what the page host said, and the three sources that make it ask.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,36 +16,40 @@ import { AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
 import { PaneGeometryPublisher } from "./geometry-publisher.js";
-import { PANE_VIEW_HOST_REFUSAL_ORIGIN, type AttachedPaneViewHost } from "./view-host.js";
-import { elementWithRect, RecordingViewHost, rect } from "./geometry-publisher.test-support.js";
+import { PAGE_HOST_REFUSAL_ORIGIN, type PageHost } from "./page-host.js";
+import { elementWithRect, RecordingPageHost, rect } from "./geometry-publisher.test-support.js";
 
 describe("PaneGeometryPublisher", () => {
-  function publisherOver(host: AttachedPaneViewHost): {
+  function publisherOver(pageHost: PageHost): {
     readonly publisher: PaneGeometryPublisher;
     readonly clock: ManualClock;
     readonly occlusion: AirspaceRegistry;
   } {
     const clock = new ManualClock();
     const occlusion = new AirspaceRegistry();
-    return { publisher: new PaneGeometryPublisher({ host, clock, occlusion }), clock, occlusion };
+    return {
+      publisher: new PaneGeometryPublisher({ pageHost, clock, occlusion }),
+      clock,
+      occlusion,
+    };
   }
 
   it("reads on invalidation but does not write until the frame runs", () => {
-    const host = new RecordingViewHost();
-    const { publisher, clock } = publisherOver(host);
+    const pageHost = new RecordingPageHost();
+    const { publisher, clock } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(4, 8, 300, 200)));
     // `observe` invalidates once. The sample exists; the write does not.
-    expect(host.samples).toStrictEqual([]);
+    expect(pageHost.samples).toStrictEqual([]);
     expect(clock.pendingFrameCount).toBe(1);
     clock.runFrame();
-    expect(host.samples).toHaveLength(1);
-    expect(host.samples[0]?.rect).toStrictEqual(rect(4, 8, 300, 200));
+    expect(pageHost.samples).toHaveLength(1);
+    expect(pageHost.samples[0]?.rect).toStrictEqual(rect(4, 8, 300, 200));
     publisher.dispose();
   });
 
   it("coalesces a burst into one frame and dedupes an unchanged publish", () => {
-    const host = new RecordingViewHost();
-    const { publisher, clock } = publisherOver(host);
+    const pageHost = new RecordingPageHost();
+    const { publisher, clock } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     publisher.invalidate("window-resize");
     publisher.invalidate("document-scroll");
@@ -61,12 +65,12 @@ describe("PaneGeometryPublisher", () => {
     publisher.dispose();
   });
 
-  it("unsubscribes rather than retrying when the host says the pane is gone", () => {
-    const host = new RecordingViewHost();
-    host.rejectNextWith(
-      refuse(PANE_VIEW_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
+  it("unsubscribes rather than retrying when the page host says the pane is gone", () => {
+    const pageHost = new RecordingPageHost();
+    pageHost.rejectNextWith(
+      refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
     );
-    const { publisher, clock } = publisherOver(host);
+    const { publisher, clock } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     clock.runFrame();
     expect(publisher.armedSourceCount).toBe(0);
@@ -74,36 +78,36 @@ describe("PaneGeometryPublisher", () => {
 
     publisher.invalidate("window-resize");
     clock.runFrame();
-    expect(host.samples).toHaveLength(1);
+    expect(pageHost.samples).toHaveLength(1);
   });
 
   it("re-samples when an overlay opens, so the view yields without waiting for a scroll", () => {
-    const host = new RecordingViewHost();
-    const { publisher, clock, occlusion } = publisherOver(host);
+    const pageHost = new RecordingPageHost();
+    const { publisher, clock, occlusion } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     clock.runFrame();
     occlusion.register("dialog", () => rect(0, 0, 500, 500));
     clock.runFrame();
-    expect(host.samples.at(-1)?.visible).toBe(false);
+    expect(pageHost.samples.at(-1)?.visible).toBe(false);
     publisher.dispose();
   });
 
   it("is terminal: dispose cancels the queued frame and nothing re-arms", () => {
-    const host = new RecordingViewHost();
-    const { publisher, clock } = publisherOver(host);
+    const pageHost = new RecordingPageHost();
+    const { publisher, clock } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     publisher.dispose();
     expect(clock.pendingCount).toBe(0);
     publisher.invalidate("window-resize");
     expect(clock.pendingCount).toBe(0);
-    expect(host.samples).toStrictEqual([]);
+    expect(pageHost.samples).toStrictEqual([]);
   });
 
-  it("negative control: an attached host does arm its sources and does publish", () => {
+  it("negative control: an attached host element does arm its sources and does publish", () => {
     // Every claim above about suppression and disposal would hold vacuously against a
     // publisher that never armed or published anything.
-    const host = new RecordingViewHost();
-    const { publisher, clock } = publisherOver(host);
+    const pageHost = new RecordingPageHost();
+    const { publisher, clock } = publisherOver(pageHost);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
     expect(publisher.armedSourceCount).toBeGreaterThan(0);
     clock.runFrame();

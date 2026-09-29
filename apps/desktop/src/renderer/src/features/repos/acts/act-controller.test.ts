@@ -198,7 +198,7 @@ describe("ActController — the act", () => {
       async () => await answer.promise,
       (value) => ({ status: "done" as const, value }),
     );
-    // Two presses inside one frame both read an idle surface; the key is what refuses.
+    // Two presses inside one frame both read an idle dialog; the key is what refuses.
     await controller.act(
       async () => {
         secondSend();
@@ -280,7 +280,7 @@ describe("ActController — a settlement arm's discriminant is its own", () => {
    *
    * The runtime half says why the rule exists at all. A colliding arm is published
    * verbatim, so a SETTLED act is indistinguishable on the reading from one still on
-   * the wire — which is a surface reporting work in flight that has already finished.
+   * the wire — which is a dialog reporting work in flight that has already finished.
    */
   it("refuses a settle callback whose arm reuses one of the two owned statuses", async () => {
     const colliding = new ActController<{ readonly status: "sending" }>({

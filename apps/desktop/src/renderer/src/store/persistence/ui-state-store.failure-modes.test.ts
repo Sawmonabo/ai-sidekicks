@@ -11,8 +11,8 @@
 // Both live in `persistence/` because both are about the same chokepoint. Opening
 // decides whether `UiStateStore` has a durable adapter behind it and what it
 // DISCLOSES when it does not; the value-class guard decides what may cross it at
-// all. A surface that could reach an adapter directly would bypass both, which is
-// why the family has one door and why these cases belong behind it.
+// all. A caller that could reach an adapter directly would bypass both, which is
+// why persistence has one entry, `UiStateStore`, and why these cases belong behind it.
 //
 // Where a mode has a "the code should have refused" shape, the assertion is on the
 // REFUSAL — its code, its detail, the tripwire it fired — rather than merely on the

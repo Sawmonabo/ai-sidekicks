@@ -28,7 +28,7 @@ export interface SectionUnderTest {
    * Drive time until `assert` holds, or fail with `assert`'s own message.
    *
    * The section schedules every read through the console's one `RefreshScheduler`, which
-   * arms its debounce on the scenario's clock, so nothing this surface is waiting on
+   * arms its debounce on the scenario's clock, so nothing this section is waiting on
    * happens until a case moves that clock, and polling real time would poll a still
    * picture.
    */

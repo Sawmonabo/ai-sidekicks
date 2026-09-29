@@ -1,14 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-// The row-id namespace comes from the transcript scenario that declares it, deeply and
-// not through a door: a stem restated here would be a second namespace the day the
-// scenario's own moved.
+// The row-id namespace comes from the transcript scenario that declares it: a stem
+// restated here would be a second namespace the day the scenario's own moved.
 import { EVENT_ID_STEM } from "../../../../../../fixtures/scenarios/transcript-states.js";
 import { isContractTimelineRow } from "@renderer/services/daemon/timeline-row-contract.test-support.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-// Deeply, and not through `structure/index.ts`: this is the only consumer outside
-// that directory and it is a test, so a door line for it would be a door widened for
-// testing, which this package rejects.
 import { deriveSupersededBands } from "../superseded/superseded-bands.js";
 import { projectTranscriptRows } from "./transcript-row-projection.js";
 
@@ -53,7 +49,7 @@ function runOrdinals(
   return rows.flatMap((row) => (row.kind === "run" ? [[row.position, row.epoch] as const] : []));
 }
 
-describe("the fixture shell's row projection", () => {
+describe("the log-derived row projection", () => {
   it("produces rows the contract's own validator accepts", () => {
     const projection = projectTranscriptRows([
       event({ sequence: 1, kind: "session.created", payload: { sessionId: SESSION_ID } }),
@@ -113,7 +109,7 @@ describe("the fixture shell's row projection", () => {
 
     const boundary = projection.rows[1];
     expect(boundary?.kind).toBe("rollback_boundary");
-    // The cutoff is the wire's own, never the shell's ordinal.
+    // The cutoff is the wire's own, never the projection's ordinal.
     expect(boundary?.kind === "rollback_boundary" ? boundary.position : undefined).toBe(0);
   });
 

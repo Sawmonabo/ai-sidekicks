@@ -1,11 +1,11 @@
-// The tie between one emulator and one host: the write gate, and the size seam.
+// The tie between one emulator and one mount element: the write gate, and the size seam.
 //
 // Both halves belong to the TIE rather than to the emulator. Watch mode is the
 // default and the gate is applied twice on purpose — the `disableStdin` option and
 // the check inside `onData` — because the expensive mistake on a shared shell is
 // sending a keystroke nobody was allowed to send. And a detached emulator has no
 // box to be measured against, so it reports the shut gate and re-opens it, without
-// being told again, on the host that takes it next.
+// being told again, on the mount element that takes it next.
 //
 // Against the real library, and cleaned up through the directory's one live-emulator
 // registry — see `xterm-adapter.test-support.ts` for both reasons.
@@ -16,7 +16,7 @@ import { installFakeResizeObserver } from "@test/helpers/element-resize.js";
 import { TerminalRendererPool } from "./renderer-pool.js";
 
 import {
-  attachedHost,
+  attachedMountElement,
   disposeLiveEmulators,
   mountedAdapter,
   unattachedAdapter,
@@ -24,7 +24,7 @@ import {
 
 afterEach(disposeLiveEmulators);
 
-// The grid re-fits when its host box changes, and it does so through the console's
+// The grid re-fits when its mount element's box changes, and it does so through the console's
 // ONE size seam.
 //
 // The environment implements no `ResizeObserver`, so the fake is what makes the seam
@@ -32,34 +32,34 @@ afterEach(disposeLiveEmulators);
 // the same one three browser suites drive, because a second fake beside this one
 // would be the duplication the hoist removed reappearing in the test tier.
 //
-// `fitToHost` is watched rather than stubbed: the spy calls through, so what the
+// `fitToMountPoint` is watched rather than stubbed: the spy calls through, so what the
 // cases below assert is that a delivery reached the real re-fit. The fit ITSELF is
 // the addon's and is exercised where a box can be measured; in this environment the
-// host has no layout, so the addon's own division is undefined and the adapter
+// mount element has no layout, so the addon's own division is undefined and the adapter
 // swallows it by design.
 describe("the grid's size source", () => {
-  it("re-fits when a size change is delivered for its own host", () => {
+  it("re-fits when a size change is delivered for its own mount element", () => {
     const resizeObserver = installFakeResizeObserver();
-    const { adapter, host } = mountedAdapter({ terminalId: "sized" });
-    // One observer, on the host, armed by the attach rather than by a timer.
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "sized" });
+    // One observer, on the mount element, armed by the attach rather than by a timer.
     expect(resizeObserver.observedCount()).toBe(1);
-    const refit = vi.spyOn(adapter, "fitToHost");
+    const refit = vi.spyOn(adapter, "fitToMountPoint");
 
-    resizeObserver.deliverFor(host);
+    resizeObserver.deliverFor(mountElement);
 
     expect(refit).toHaveBeenCalledTimes(1);
   });
 
   it("stops listening once the emulator is off screen", () => {
     const resizeObserver = installFakeResizeObserver();
-    const { adapter, host } = mountedAdapter({ terminalId: "detached" });
-    const refit = vi.spyOn(adapter, "fitToHost");
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "detached" });
+    const refit = vi.spyOn(adapter, "fitToMountPoint");
 
     adapter.detach();
-    resizeObserver.deliverFor(host);
+    resizeObserver.deliverFor(mountElement);
 
-    // Disconnected rather than merely ignored: an observer left armed over a host a
-    // pane has dropped keeps that element reachable for as long as the adapter lives.
+    // Disconnected rather than merely ignored: an observer left armed over an element
+    // a pane has dropped keeps that element reachable for as long as the adapter lives.
     expect(resizeObserver.liveObserverCount()).toBe(0);
     expect(refit).not.toHaveBeenCalled();
   });
@@ -70,7 +70,7 @@ describe("the grid's size source", () => {
     // whenever any other pane resizes.
     const resizeObserver = installFakeResizeObserver();
     const { adapter } = mountedAdapter({ terminalId: "elsewhere" });
-    const refit = vi.spyOn(adapter, "fitToHost");
+    const refit = vi.spyOn(adapter, "fitToMountPoint");
 
     resizeObserver.deliverFor(document.createElement("div"));
 
@@ -95,7 +95,7 @@ describe("the write gate — watch mode is the default", () => {
   });
 
   it("takes a lease that was already open at construction, without a second call", () => {
-    // A surface builds a fresh emulator for every terminal id and every capability
+    // The mount point builds a fresh emulator for every terminal id and every capability
     // change, under a lease that did not move with it. Correcting the binding after
     // construction is a binding that was briefly wrong and a correction a caller can
     // forget, so the answer travels with the build.
@@ -109,16 +109,16 @@ describe("the write gate — watch mode is the default", () => {
     const pool = new TerminalRendererPool();
     const adapter = unattachedAdapter({ terminalId: "later", pool });
     expect(adapter.isStdinDisabled).toBeUndefined();
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     expect(adapter.isStdinDisabled).toBe(true);
   });
 
-  it("shuts the gate while the emulator is off screen and re-opens it on the next host", () => {
+  it("shuts the gate while the emulator is off screen and re-opens it on the next mount element", () => {
     // The write state belongs to the TIE. A detached emulator has no box to click
-    // and no host to be measured against, so a gate left open there is an emulator
-    // accepting input for a surface nobody can see — and the lease has not moved, so
-    // the next host gets the answer the lease gave without being told again.
-    const { adapter, host } = mountedAdapter({ terminalId: "gated-by-host" });
+    // and no mount element to be measured against, so a gate left open there is an
+    // emulator accepting input for a terminal nobody can see — and the lease has not
+    // moved, so the next mount element gets the answer the lease gave without being told again.
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "gated-by-mount" });
     adapter.setWriteEnabled(true);
     expect(adapter.isStdinDisabled).toBe(false);
 
@@ -127,20 +127,20 @@ describe("the write gate — watch mode is the default", () => {
     expect(adapter.isWriteEnabled).toBe(false);
     expect(adapter.isStdinDisabled).toBe(true);
 
-    adapter.attach(host);
+    adapter.attach(mountElement);
 
     expect(adapter.isWriteEnabled).toBe(true);
     expect(adapter.isStdinDisabled).toBe(false);
   });
 
-  it("negative control: a host does not open a gate the lease never opened", () => {
+  it("negative control: a mount element does not open a gate the lease never opened", () => {
     // Without it the case above would pass against a binding that opened stdin on
-    // every attach, which is watch mode failing open on the one surface where the
+    // every attach, which is watch mode failing open on the one terminal where the
     // expensive mistake is sending a keystroke nobody was allowed to send.
-    const { adapter, host } = mountedAdapter({ terminalId: "watcher-remount" });
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "watcher-remount" });
 
     adapter.detach();
-    adapter.attach(host);
+    adapter.attach(mountElement);
 
     expect(adapter.isWriteEnabled).toBe(false);
     expect(adapter.isStdinDisabled).toBe(true);

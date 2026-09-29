@@ -18,7 +18,7 @@ import "./accent-fill.css";
  * `accent-ink` as its label.
  *
  * It carries the fill and what a fill implies, and deliberately nothing about size:
- * a consumer keeps its own padding and type. Rule 1 puts ONE primary action on a
- * surface, so a surface that renders this twice is rendering one too many.
+ * a consumer keeps its own padding and type. A card or pane carries ONE filled
+ * primary action, so a view that renders this twice is rendering one too many.
  */
 export const ACCENT_FILL_CLASS = "meridian-accent-fill";

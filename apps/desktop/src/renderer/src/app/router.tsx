@@ -11,13 +11,13 @@
 //   • **A session still opening** — the route named a session and its store is not
 //     open yet, which is a read in flight and renders as one.
 //
-// A route whose slot has no registered screen is a composition defect, not an absence
-// a person can act on, so it throws. One slot is the exception: only a fixture launch's
+// A route whose screen name has no registered screen is a composition defect, not an
+// absence a person can act on, so it throws. One route is the exception: only a fixture launch's
 // composition registers the pane harness, so in any other window its address names
 // nothing and renders as not-found.
 //
 // AND THE SCREEN THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
-// routes can resolve to ONE slot — a second session's screen, a second pane kind
+// routes can resolve to ONE screen name — a second session's screen, a second pane kind
 // in the fixture harness — and React reconciles the same component in the same
 // position, so whatever state that screen holds survives a move to a subject it was
 // never about. The fixture pane harness is where that was first observed: a hash
@@ -67,8 +67,9 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
     );
   }
 
-  const slot = findScreenNameForRoute(route);
-  const descriptor = slot === undefined ? undefined : screenRegistry.descriptorFor(slot);
+  const screenName = findScreenNameForRoute(route);
+  const descriptor =
+    screenName === undefined ? undefined : screenRegistry.descriptorFor(screenName);
   if (descriptor === undefined) {
     if (route.kind === "pane-harness") {
       return <AddressNamesNothing attempted={formatRoute(route)} />;

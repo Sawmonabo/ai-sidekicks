@@ -1,4 +1,4 @@
-// The flattening, which is the claim the diff surfaces rest on and the one
+// The flattening, which is the claim the diff views rest on and the one
 // nothing else in the console can check.
 //
 // Every case here runs without a DOM, because the addressing is separable from

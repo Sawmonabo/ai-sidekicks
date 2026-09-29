@@ -54,7 +54,7 @@ function entryFor(destination: RailDestination): RailEntry {
 }
 
 describe("the rail's entry table — one entry per declared destination", () => {
-  it("answers every destination the routing family declares", () => {
+  it("answers every destination routing declares", () => {
     expect(destinationsWithoutEntry(RAIL_ENTRY_TEMPLATES)).toStrictEqual([]);
   });
 

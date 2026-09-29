@@ -1,4 +1,4 @@
-// The MCP shell, driven with the daemon verbs handed in as arguments.
+// The MCP fixture body, driven with the daemon verbs handed in as arguments.
 //
 // The three rows below are the three arms this page has to draw: an ordinary trusted
 // binding, one that needs authorization while a leg of it is fine, and one whose trust
@@ -111,11 +111,11 @@ function operationsServing(
 }
 
 function fixtureBridge(): FixtureBridge {
-  return createFixtureBridge({ scenario: unscriptedScenario("mcp-shell") });
+  return createFixtureBridge({ scenario: unscriptedScenario("mcp-fixture-body") });
 }
 
 /**
- * The shell as a composition mounts it: the bridge comes from the provider's resolution,
+ * The fixture body as a composition mounts it: the bridge comes from the provider's resolution,
  * which moves one commit after a prop changes.
  */
 function MountedMcpPage(props: {
@@ -185,7 +185,7 @@ function rowNamed(container: HTMLElement, serverName: string): Element | undefin
   );
 }
 
-describe("McpShell", () => {
+describe("McpFixtureBody", () => {
   it("draws a loading absence before the inventory answers", () => {
     const { container } = render(mcpPageTree(fixtureBridge(), operationsServing([FILESYSTEM])));
     expect(container.textContent).toContain("servers this node governs");
@@ -308,7 +308,7 @@ function operationsHoldingTheirMutation(): {
 // What the held mutation's answer prints, as the operator reads it.
 const HELD_MUTATION_OUTCOME_TEXT = "mcp.config_write_conflict";
 
-describe("McpShell — a bridge replaced under a mounted shell", () => {
+describe("McpFixtureBody — a bridge replaced under a mounted fixture body", () => {
   it("shows no outcome from a bridge the mount no longer holds", async () => {
     const superseded = operationsHoldingTheirMutation();
     const supersededBridge = fixtureBridge();
@@ -334,7 +334,7 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
 
   // The negative control for the case above: the same held call, the same release, and
   // no replacement — so a clean reading there is about WHOSE settlement it was rather
-  // than about this shell never rendering one.
+  // than about this fixture body never rendering one.
   it("negative control: the same settlement renders while its own bridge still holds", async () => {
     const held = operationsHoldingTheirMutation();
     const { container, clock } = await renderSettledMcpPage(held.operations);

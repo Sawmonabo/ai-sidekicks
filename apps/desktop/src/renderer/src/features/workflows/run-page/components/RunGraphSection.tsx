@@ -5,7 +5,7 @@
 //
 // PARK IS READ FROM THE PARK MEMBERS AND NEVER FROM A PHASE'S STATE. The phase state
 // union carries no suspended arm on purpose, and the park members are live-scoped —
-// present for exactly the phases parked when the response was built. This surface
+// present for exactly the phases parked when the response was built. This component
 // obeys that through the projection's own `phasePark`, and re-derives nothing.
 
 import type { WorkflowPhaseState } from "@renderer/services/wire-shapes/workflow-projection.js";

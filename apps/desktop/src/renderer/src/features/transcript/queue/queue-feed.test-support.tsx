@@ -116,7 +116,7 @@ export function QueueFeedProbe(props: {
   return null;
 }
 
-/** Mounts one surface on a fresh reading, settles the snapshot, and returns the feed it reads. */
+/** Mounts one view on a fresh reading, settles the snapshot, and returns the feed it reads. */
 export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Promise<{
   deliver: (item: QueueItemSummary) => void;
   latest: () => QueueFeed;
@@ -148,11 +148,11 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
   };
 }
 
-// One session's queue is read once, however many surfaces ask for it. The count is the
+// One session's queue is read once, however many views ask for it. The count is the
 // assertion, so the negative controls in the suite show the counter is capable of
 // reaching two: a hook that opened nothing would otherwise pass the first case.
 
-/** Two surfaces on one bridge, each asking the hook its own question. */
+/** Two views on one bridge, each asking the hook its own question. */
 export function TwoQueueReaders(props: {
   readonly bridge: PlatformBridge;
   readonly queueCalls: QueueCalls;

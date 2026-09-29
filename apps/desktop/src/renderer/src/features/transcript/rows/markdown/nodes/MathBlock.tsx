@@ -6,7 +6,7 @@
 //
 // WHY THE EXCEPTION IS HERE AND NOWHERE ELSE. KaTeX's whole interface is a string of
 // markup; there is no token stream to build spans from, and re-implementing a TeX
-// typesetter to avoid one `innerHTML` would be a far larger surface than the one it
+// typesetter to avoid one `innerHTML` would be far more code to trust than the one site it
 // removed. Everything else the console renders — markdown, code, ANSI — arrives as data,
 // which is why those paths need no exception and are forbidden one.
 //

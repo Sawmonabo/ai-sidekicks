@@ -88,7 +88,7 @@ describe("ExecutionModePicker — the rows come from the reply", () => {
   it("negative control: a mode named in neither half of the reply gets no row", () => {
     // The guard against "everything not in `restrictions`". A picker that started from
     // a hardcoded list of modes would still draw `provisioned-worktree` here — with no
-    // reason beside it, which is the silent substitution this family forbids.
+    // reason beside it, which is the silent substitution the picker forbids.
     const { container } = renderPicker({
       availableModes: ["bound-root"],
       defaultMode: "bound-root",
@@ -212,7 +212,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   it("keeps the bound row checked rather than moving the selection to the pending mode", () => {
     // The switch has not happened yet. Moving the radio would report a binding the
     // daemon has not confirmed — and if it refuses, the row would have to move back,
-    // which is the silent re-pick this surface forbids.
+    // which is the silent re-pick the picker forbids.
     const { container } = renderPicker(GIT_CAPABILITIES, {
       currentMode: "bound-root",
       pendingMode: "provisioned-worktree",

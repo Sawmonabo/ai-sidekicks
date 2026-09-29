@@ -4,9 +4,9 @@
 // grammar's and live in `pane-layout-snapshot.ts`.
 //
 //   • **One entity, one pane.** One entity opens one pane, structurally — a single
-//     mount door and a tripwire that fails on a second. A second open of the same
+//     pane registry and a tripwire that fails on a second owner. A second open of the same
 //     entity FOCUSES the pane that already shows it. The rule is structural here and
-//     structural again at the mount door (`seats/pane/pane-registry.ts`), which is
+//     structural again in the pane registry (`registries/panes/pane-registry.ts`), which is
 //     why neither side needs to trust the other.
 //   • **Ephemeral panes cascade.** This pane layout's own rule: a `browser` pane opens right
 //     of its source and closes with it — so a page nobody asked for cannot outlive
@@ -52,7 +52,7 @@ import {
 /**
  * Panes one saved pane layout may restore.
  *
- * This family's own decision, like the third of the three restore rules
+ * The pane layout's own decision, like the third of the three restore rules
  * `pane-layout-snapshot.ts` states — no committed document fixes the
  * number, and the cap is about untrusted input rather than performance: a persisted
  * record is a file on disk, and without a bound a corrupted or hand-edited one mounts
@@ -102,7 +102,7 @@ export class PaneLayoutStore {
    * Returns the pane id either way, so a caller never has to ask which happened to
    * find the pane it asked for.
    *
-   * TWO SEATINGS, AND THE LINK DECIDES WHICH. An open with no source pane is
+   * TWO PLACEMENTS, AND THE LINK DECIDES WHICH. An open with no source pane is
    * an open FROM A LIST — the palette, a rail destination — and lands at
    * the end of the pane layout at an equal share, which is where a person's eye expects a
    * pane they just opened. An open linked to one is the SPLIT act — the pane layout offers
@@ -111,7 +111,7 @@ export class PaneLayoutStore {
    * the pane layout keeps the width the person gave it. `carveSplitFrom` holds the arithmetic
    * and says why the two rules differ.
    *
-   * A split of a pane too narrow to halve falls back to the list seating rather than
+   * A split of a pane too narrow to halve falls back to the list placement rather than
    * refusing the open: the person asked for a pane and gets one, and the pane layout
    * re-divides — the only outcome that leaves every pane wide enough to grab.
    */

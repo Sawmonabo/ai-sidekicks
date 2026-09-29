@@ -2,14 +2,8 @@
  * The schema-derived form: its fields, its groups, its lists, and the raw editor a
  * schema outside the drawn set opens as.
  *
- * Owned by the seats family, whose door is the one module that imports it: this
- * directory carries no door of its own — no seat beside it takes anything from here —
- * so the nearest door above these rules is `seats/index.ts`, and that is where they
- * enter. The consequence is stated rather than left to be discovered: the seats door is
- * on the initial import graph, so unlike the surfaces that mount a form — every one of
- * which still sits behind an `import()` — these rules land with the first paint. Measured
- * at 763 bytes gzipped after minification, which is what the seat costs a session that
- * never opens a form. Meridian tokens only.
+ * Imported by the form's chunk root, `schema-form-body.ts`, so these rules load with the
+ * first form a person opens and never before. Meridian tokens only.
  */
 
 .meridian-schema-form {
@@ -60,8 +54,8 @@
 }
 
 /*
- * A figure the wire carries — a number, an artifact id — wears the provenance signature
- * that every other wire value on a console surface wears.
+ * A figure the wire carries — a number, an artifact id — is set in mono, like every
+ * other value the daemon sent.
  */
 .meridian-schema-field__input--figure {
   font-family: var(--meridian-font-mono);
@@ -173,13 +167,9 @@
  * The two controls that change how many entries a list holds, and the one that says
  * whether an optional container is being answered at all.
  *
- * The seat's own treatment rather than the workflows family's `.meridian-workflow__action`,
- * which these buttons wore while the stack lived in that family. A seat drawing against a
- * view family's sheet is styled by a file it cannot see and that arrives on that family's
- * chunk: the rules would have been absent for every other surface that mounts a form. The
- * declarations are the same ones, deliberately — this is where they are OWNED, not a
- * second look — and this console mints no shared button block, so each block that needs
- * one states it, as `.meridian-refusal__action` and `.meridian-nothing__action` do.
+ * The form's own classes rather than `.meridian-workflow__action`, which
+ * `WorkflowStateStrip.css` declares: that sheet loads with the state strip, and a view
+ * that mounts a form cannot count on it having loaded.
  */
 
 .meridian-schema-activation,
@@ -210,7 +200,7 @@
 
 /*
  * Why this schema is answered as text. It is a statement about the schema and not a
- * failure of the form, so it reads as prose on the surface's own ground.
+ * failure of the form, so it reads as muted prose on the form's own background.
  */
 .meridian-schema-raw__reason {
   margin: 0;
@@ -285,9 +275,9 @@
 }
 
 /*
- * The act and whatever came back of it, on one row: rule 9 keeps the control beside
- * its refusal rather than replacing it, so the settlement wraps under the button on a
- * narrow pane instead of pushing it off the surface.
+ * The act and whatever came back of it, on one row: a refused press leaves the button in
+ * place with the reason beside it, so the settlement wraps under the button on a narrow
+ * pane instead of pushing it out of the pane.
  */
 .meridian-schema-answer__act {
   display: flex;
@@ -320,10 +310,10 @@
 }
 
 /*
- * What the daemon answered the last press. Declared here beside the act it settles,
- * rendered by the run pane's submit channel BENEATH the form rather than inside it:
- * the settlement is the seat's reading of the daemon's reply and not part of the answer,
- * so a body supplied by another plan gets it drawn without owning a line of it.
+ * What the daemon answered the last press. Declared here beside the act it settles, and
+ * drawn by the run page's submit binding BENEATH the form rather than inside it: the
+ * settlement reads the daemon's reply and is not part of the answer, so whichever view
+ * mounts the form gets it drawn without owning a line of it.
  */
 .meridian-schema-answer__settlement {
   display: flex;

@@ -1,5 +1,5 @@
 // The object the preload exposes. Every round-trip method throws `NotImplementedError` until
-// its IPC handler is wired against this same surface.
+// main wires its IPC handler.
 
 import { createStubBridge, type PreloadApi } from "@shared/preload-api.js";
 

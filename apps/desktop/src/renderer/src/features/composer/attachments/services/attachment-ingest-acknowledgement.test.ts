@@ -10,7 +10,7 @@
 // The two unusable arms are each a fact about the reply rather than about its status: a
 // total for another stream, and a total that did not advance. The last is also what
 // makes the chunk loop terminate — the ledger IS the offset — so it is asserted here and
-// again against the real loop next door.
+// again against the real loop in `attachment-ingest-client.chunks.test.ts`.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 

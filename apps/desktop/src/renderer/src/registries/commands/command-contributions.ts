@@ -105,7 +105,7 @@ export class CommandContributionRegistry {
   /**
    * Register the newest contribution under `owner`, or empty the owner.
    *
-   * An emptied owner keeps its slot, so a surface that goes and comes back does not
+   * An emptied owner keeps its position, so a component that goes and comes back does not
    * reorder the window's chords under a sibling that never moved.
    */
   #installNewest(owner: string): void {

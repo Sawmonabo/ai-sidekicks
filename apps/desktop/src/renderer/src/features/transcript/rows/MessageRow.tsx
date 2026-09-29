@@ -1,6 +1,6 @@
 // The message card — a user's words, an agent's reply, and an agent's reasoning.
 //
-// Three of `row-kind.ts`'s five families live here and share one layout: the body is
+// Three of `row-kind.ts`'s five kinds live here and share one layout: the body is
 // open, the attribution edge carries the author's hue, and the row's affordances are
 // revealed on hover rather than parked in the log, because secondary controls live one
 // click away.
@@ -22,14 +22,14 @@
 //     reaching for what does not — and never captions the summary as if it were the
 //     message.
 //
-// AND A REASONING BODY IS NOT A MACHINE BODY. The reasoning family renders the
-// four-arm availability surface rather than the hydrated content projection: those
-// are two different reads answering two different questions, and rendering reasoning
-// through `MessageContent` made a turn whose reasoning was WITHHELD by policy
+// AND A REASONING BODY IS NOT A MACHINE BODY. A reasoning row renders the four-arm
+// availability view rather than the hydrated content projection: those are two
+// different reads answering two different questions, and rendering reasoning through
+// `MessageContent` would make a turn whose reasoning was WITHHELD by policy
 // indistinguishable from one whose stored body could not be opened. The element is
 // composed by the mount and handed down, for the reason the edit affordance is —
 // this card decides layout, and what a row is allowed to show is decided by the
-// surface that performed the read.
+// component that performed the read.
 //
 // THE EDIT AFFORDANCE IS NOT A CONTROL THIS FILE WRITES. The pencil that opens an inline
 // editor belongs to the run controls, and this card never re-authors a body they own. It
@@ -75,7 +75,7 @@ export interface MessageRowProps extends HydratedRowProps {
    * The reasoning row's body, composed by the mount.
    *
    * Required and carrying `undefined` rather than optional, on the same terms as the edit
-   * affordance above: a mount that composed no reasoning surface for a reasoning row is a
+   * affordance above: a mount that composed no reasoning body for a reasoning row is a
    * compile error at the construction site rather than a row that silently falls back
    * to the machine body and reports a policy redaction as an unreadable one.
    */
@@ -84,8 +84,8 @@ export interface MessageRowProps extends HydratedRowProps {
 
 /** A user or agent message row: the sender's frame around its body, receipt and cards. */
 export function MessageRow(props: MessageRowProps): React.JSX.Element {
-  const family = props.rowKind;
-  const isUser = family.kind === "user-message";
+  const rowKind = props.rowKind;
+  const isUser = rowKind.kind === "user-message";
   const payload = projectedPayload(props.row);
   // Read once for both readers below: the body's renderer and the receipt's own line.
   const assistantMediaType = readWireString(payload["contentType"]);
@@ -93,7 +93,7 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
     ? props.row.summary === ""
       ? undefined
       : props.row.summary
-    : family.kind === "thinking"
+    : rowKind.kind === "thinking"
       ? undefined
       : (props.liveText ??
         (props.content?.status === "available" ? props.content.body : undefined));
@@ -113,19 +113,21 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
       <TranscriptRowLayout
         agentHueStep={props.actorHue?.step ?? -1}
         occurredAtIso={props.row.timestamp}
-        authorLabel={props.row.actor ?? family.label}
+        authorLabel={props.row.actor ?? rowKind.label}
         kindLabel={props.row.type}
         isSuperseded={props.isSuperseded}
         footer={footer}
       >
-        <div className={`meridian-message-card meridian-message-card--${family.kind}`}>
-          <span className="meridian-message-card__family">
-            {family.glyph === undefined ? null : <Glyph name={family.glyph} title={family.label} />}
-            {family.label}
+        <div className={`meridian-message-card meridian-message-card--${rowKind.kind}`}>
+          <span className="meridian-message-card__kind-label">
+            {rowKind.glyph === undefined ? null : (
+              <Glyph name={rowKind.glyph} title={rowKind.label} />
+            )}
+            {rowKind.label}
           </span>
           {isUser ? (
             <UserBody row={props.row} footnotes={props.footnotes} />
-          ) : family.kind === "thinking" ? (
+          ) : rowKind.kind === "thinking" ? (
             props.thinkingRow
           ) : (
             <MessageContent
@@ -138,11 +140,11 @@ export function MessageRow(props: MessageRowProps): React.JSX.Element {
               {...(assistantMediaType === undefined ? {} : { contentType: assistantMediaType })}
               sourceId={props.row.id}
               footnotes={props.footnotes}
-              label={family.label}
+              label={rowKind.label}
             />
           )}
           <InlineCards cards={props.inlineCards ?? []} />
-          {isUser || family.kind === "thinking" || props.liveText !== undefined ? null : (
+          {isUser || rowKind.kind === "thinking" || props.liveText !== undefined ? null : (
             <RecordedBodyLine
               contentType={assistantMediaType}
               contentLength={readWireCount(payload, "contentLength")}

@@ -1,7 +1,7 @@
 /* ANSI command output (`AnsiOutput`). */
 
 /*
- * The sixteen ANSI names are tokens in `styles/palette.ts`, with the nine code families,
+ * The sixteen ANSI names are tokens in `styles/palette.ts`, beside the code-token colors,
  * and the generator emits all three scheme layers for them.
  */
 

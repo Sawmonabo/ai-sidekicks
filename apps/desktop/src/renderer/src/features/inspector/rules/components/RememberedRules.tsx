@@ -14,7 +14,7 @@
 //     rather than a promise about it: the mutation call sits on one handler. The
 //     palette reaches the same act by ENTERING that confirmation — `useRevokeRuleCommands.ts`
 //     contributes a row per revocable rule, arming the control rather than replacing
-//     it, so there is no second path to a mutation this surface made deliberately
+//     it, so there is no second path to a mutation this list made deliberately
 //     hard. Which rules offer it is that module's `offersRevoke`, read here too, so
 //     the row and the button are offered on one reading rather than two that agree.
 //   • **No per-row "remembered today" chip.** The auto-approval resolves inside the
@@ -70,14 +70,14 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
     return props.unreadableCount > 0 ? (
       <Nothing
         kind="error"
-        placement="surface"
+        placement="block"
         title="Standing permissions could not be read."
         detail={`The background service answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
       />
     ) : (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="No standing permission is in force."
         detail="Every request is answered one at a time, which is the safest state this list can be in. A permission appears here only after someone approves a request and asks for it to be remembered."
       />

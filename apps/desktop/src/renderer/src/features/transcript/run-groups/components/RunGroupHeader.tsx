@@ -59,7 +59,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
           : {
               // The same 2 px attribution edge every transcript row wears, so a run group
               // and the rows inside it are attributed the same way and by the same
-              // wheel. Rule 3 keeps the hue off text, so it is an edge and not a tint.
+              // wheel. An actor hue never sits behind text, so it is an edge and not a tint.
               borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),
             }
       }

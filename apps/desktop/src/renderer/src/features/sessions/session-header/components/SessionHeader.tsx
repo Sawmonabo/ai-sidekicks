@@ -6,7 +6,7 @@
 // `model/session-header-readings.ts`'s.
 //
 // AND ONE THING THE FRAME OWNS RATHER THAN THIS HEADER. A version-compatibility banner
-// has no surface anywhere in this console yet, and the two banner stacks that DO exist —
+// has no view anywhere in this console yet, and the two banner stacks that DO exist —
 // the frame's own and the session screen's — both render in this same column, immediately
 // above this header and always visible beside it. A compact mark here would therefore be
 // the same sentence twice on one screen.

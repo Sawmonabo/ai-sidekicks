@@ -1,4 +1,4 @@
-// One way to open a durable store, for every suite in this family.
+// One way to open a durable store, for every suite in the sessions feature.
 //
 // Five suites in four directories opened a `UiStateStore` over a memory adapter, in
 // three different shapes: one taking an adapter a case had already built and wanted

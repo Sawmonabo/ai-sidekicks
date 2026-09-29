@@ -104,8 +104,8 @@ export function newestRenderer(): FakeWebglRenderer {
  *
  * Run AFTER `disposeLiveEmulators`, which is what disposes the adapters that hold these
  * renderers. The page ledger is module state a component reaches through the adapter's
- * default pool: a mount here really does take a slot — the fake activates where the real
- * addon throws — and no context exists behind it, so the allowance goes back rather than
+ * default pool: a mount here really does take a context from the pool — the fake
+ * activates where the real addon throws — and no context exists behind it, so the allowance goes back rather than
  * staying spent.
  */
 export function resetWebglFallback(componentTerminalIds: readonly string[] = []): void {

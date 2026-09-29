@@ -59,7 +59,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
                 // index it hands out is group-relative, while
                 // `Combobox.Item.index` is an index into the flat
                 // composite list. Passing the former would have every
-                // group's first row claim slot 0 — colliding option ids
+                // group's first row claim position 0 — colliding option ids
                 // (`aria-activedescendant` breaks) and a composite list
                 // whose later groups overwrite the earlier ones' element
                 // refs. Omitted, the item derives its flat index from DOM

@@ -16,7 +16,7 @@ function openReadScope(): ReadScope {
  *
  * TERMINAL AND NOT RELEASING, and the reading beside it is what makes React's
  * double-mount survivable: the committed cleanup abandons the scope, the effect then
- * re-runs against that same abandoned scope, and without `isClosed` the surface would
+ * re-runs against that same abandoned scope, and without `isClosed` the component would
  * spend the rest of its life reading through a line that can never open a live round
  * again — invisible until something is read.
  */
@@ -35,7 +35,7 @@ const READ_SCOPE_DISPOSAL: SubjectScopedTerminalDisposal<ReadScope> = {
  * away is closed by the holder inside that render; one the subject moved out from
  * under is closed by the effect that held it; one the double-mount disposed is
  * recognized and re-minted. Writing any of that again here would be a second
- * disposal rule for a family that has one.
+ * disposal rule beside the one `useSubjectScopedResource` already holds.
  *
  * The scope is returned bare rather than as its holder's state, because nothing
  * renders a read scope: it is handed to a read and read by nobody.

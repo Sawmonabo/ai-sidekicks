@@ -1,4 +1,4 @@
-// Three families, one layout — and the controls this card mounts in a row's footer.
+// Three row kinds, one layout — and the controls this card mounts in a row's footer.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -22,7 +22,7 @@ function renderMessageCard(
     readonly liveText?: string;
     readonly inlineCards?: readonly InlineCardProps[];
     readonly editAffordance?: React.ReactNode;
-    readonly reasoningSurface?: React.ReactNode;
+    readonly thinkingRow?: React.ReactNode;
   } = {},
 ): HTMLElement {
   const row = sampleRunRow({
@@ -43,7 +43,7 @@ function renderMessageCard(
         isSuperseded={false}
         density="expanded"
         footnotes={new FootnoteRegistry()}
-        thinkingRow={overrides.reasoningSurface}
+        thinkingRow={overrides.thinkingRow}
         {...(overrides.content === undefined ? {} : { content: overrides.content })}
         {...(overrides.liveText === undefined ? {} : { liveText: overrides.liveText })}
         {...(overrides.inlineCards === undefined ? {} : { inlineCards: overrides.inlineCards })}
@@ -57,7 +57,7 @@ function renderMessageCard(
 describe("which body a message renders", () => {
   it("renders a user's row through the row's own summary", () => {
     // The whole of what the wire carries for a user: their words are sealed in
-    // the per-user encrypted column and reach no timeline row.
+    // the per-user encrypted column and reach no `TimelineRow`.
     const container = renderMessageCard({
       type: "user.message",
       summary: "please run the tests",
@@ -80,7 +80,7 @@ describe("which body a message renders", () => {
   });
 
   it("negative control: a user row never renders the machine-body absence", () => {
-    // Without this, a card that routed every family through `MachineBody` would put
+    // Without this, a card that routed every kind through `MachineBody` would put
     // "this body has not been read" under every message a person typed.
     const container = renderMessageCard({ type: "user.message", summary: "hello" });
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
@@ -92,7 +92,7 @@ describe("which body a message renders", () => {
   });
 });
 
-describe("the three families this card serves", () => {
+describe("the three row kinds this card serves", () => {
   it("names each one on the row", () => {
     expect(renderMessageCard({ type: "user.message" }).textContent).toContain("Message");
     expect(renderMessageCard({ type: "assistant.message" }).textContent).toContain("Reply");
@@ -101,7 +101,7 @@ describe("the three families this card serves", () => {
     );
   });
 
-  it("negative control: the family modifier is not one constant string", () => {
+  it("negative control: the kind modifier is not one constant string", () => {
     const user = renderMessageCard({ type: "user.message" });
     const assistant = renderMessageCard({ type: "assistant.message" });
     expect(user.querySelector(".meridian-message-card--user-message")).not.toBeNull();
@@ -167,7 +167,7 @@ describe("a message's inline cards", () => {
     ).not.toBeNull();
   });
 
-  it("renders the registered body once a family fills the seat", () => {
+  it("renders the registered body once an owner registers a body for the card kind", () => {
     inlineCardRegistry.register("diff", {
       owner: "a test",
       render: () => <span>a diff</span>,

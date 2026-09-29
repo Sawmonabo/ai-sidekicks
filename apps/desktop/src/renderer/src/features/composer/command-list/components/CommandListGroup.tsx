@@ -7,7 +7,7 @@
 // button — a reading a person only gets after they have already tried one. The group
 // label states it before the press, which is where the claim belongs.
 //
-// `role="group"` AND NOT A SECOND LISTBOX. A listbox is a single selection surface
+// `role="group"` AND NOT A SECOND LISTBOX. A listbox is a single selection widget
 // with one active row, and the popover's arrow keys walk both halves as one sequence
 // — so two listboxes would be two cursors over one gesture. `group` is the role a
 // listbox's own children take when its options are sectioned, and the label reaches
@@ -17,7 +17,7 @@
 // THE LABEL ELEMENT IS `role="presentation"`. Only `option` and `group` may be a
 // listbox's children, so the heading is stripped of its own semantics and survives as
 // the group's accessible name — the pattern grouped listboxes are built on. It stays
-// visible: the label is the surface's whole point, and a name only a screen reader
+// visible: the label is the group's whole point, and a name only a screen reader
 // hears would leave every sighted reader with the flat list this replaces.
 //
 // THE ROW'S FLAT INDEX IS THE CALLER'S AND IS NEVER RE-DERIVED HERE. The popover
@@ -36,7 +36,7 @@ export interface CommandListGroupRow {
 
 export interface CommandListGroupProps {
   readonly rows: readonly CommandListGroupRow[];
-  /** What the group is called, in the words the surface offers it under. */
+  /** What the group is called, in the words the command list offers it under. */
   readonly labelText: string;
   /** The id the heading carries, spent by this group's `aria-labelledby`. */
   readonly labelElementId: string;

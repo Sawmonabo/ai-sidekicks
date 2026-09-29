@@ -6,7 +6,7 @@
 // feature's own. Nothing here folds a log, measures a row, or writes a `scrollTop`.
 //
 // WHY THE FEED IS A COMPONENT OF ITS OWN RATHER THAN THE PANE'S BODY. The pane owns
-// chrome — a header, a heading id, and the row seat's two absences — and can render
+// chrome — a header, a heading id, and the two absences before a feed exists — and can render
 // every one of those with no session store at all. The feed cannot exist without
 // one: it subscribes to a log. Splitting them is what lets the pane hold the
 // `undefined` arm as an ordinary render instead of as a conditional hook, which
@@ -30,17 +30,17 @@
 //     are counted beside the field rather than walked into and lost — in TWO counts,
 //     because a match the cap took and one a folded run group holds are two states with
 //     two different exits.
-//   • A row body is the SEAT's, handed down whole. This file supplies only the three
-//     decisions the seat says the list makes.
+//   • A row body is the registered row renderer's, handed down whole. This file supplies
+//     only the three decisions `TranscriptRowProps` says the list makes.
 //
 // AND WHAT THIS FILE RENDERS IS A FEW CHILDREN, NOT TWENTY ELEMENTS. What the transcript
 // says ABOVE its rows is `TranscriptFeedHeader.tsx`' — the find field and the counts a
 // person can still act on, one subject. It DERIVES NOTHING: every value it takes is a
 // reading already held here, so it cannot become a second answer to a question the
-// derivations next door already answer.
+// derivations in `useTranscriptFeedWindows` already answer.
 //
-// AND ONE SEAT THIS MOUNT CLAIMS, for a caller composed before it existed: the
-// palette's, so a transcript chord acts on the feed that is up when it fires. Its five
+// AND THIS MOUNT ADOPTS THE MOUNTED TRANSCRIPT, for a caller composed before it existed:
+// the palette, so a transcript chord acts on the feed that is up when it fires. Its five
 // acts are built in `transcript-structure-acts.ts`.
 //
 // THE STRUCTURAL CONTROL OFFERS NO LOAD-EARLIER ACT, and the reason is that it is
@@ -72,15 +72,8 @@ import { useTranscriptStructureActs } from "../hooks/useTranscriptStructureActs.
 /** What the feed is a log of and the row body it draws each row through. */
 export interface TranscriptFeedProps {
   readonly sessionStore: SessionStore;
-  /**
-   * The pane this feed is the body of.
-   *
-   * Carried rather than derived, because the follow seat is keyed by it: a pane layout can
-   * hold this feed beside a second one, and a chip press names the pane it focused.
-   */
-  readonly paneId: string;
-  /** The row body, from the seat. Resolved by the pane, so this file reads no seat. */
-  readonly renderTimelineRow: TranscriptRowRenderer;
+  /** The registered row renderer. Resolved by the pane, so this file reads no registry. */
+  readonly renderTranscriptRow: TranscriptRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /** The backward page read. A composition with none mounts no `Load earlier`. */
@@ -93,17 +86,17 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
   const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
-  // THE FIELD AND ITS WALK — one seam, wired next door.
+  // THE FIELD AND ITS WALK — one seam, wired in `useTranscriptFindAndJump`.
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
     visible,
     jumpToRow,
-    focusTranscriptViewport: viewport.focusSurface,
+    focusTranscriptViewport: viewport.focusScrollContainer,
   });
   const find = findAndJump.find;
 
   // The STORE's wheel, which is the one the session header reads, handed to the rows so one
-  // person wears one color everywhere. A surface asks the session who somebody is
+  // person wears one color everywhere. Every view asks the session who somebody is
   // rather than deciding it again from the order this window happened to meet them in.
   // `assignmentFor` never allocates, so an actor the wheel has never admitted
   // answers `undefined`: the row renders its unattributed shape rather than being
@@ -122,7 +115,7 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   // the whole object rebuilt `renderRow` on every render of this feed — a find
   // keystroke, a lease write — and `VirtualRow`'s memo compares it, so every
   // mounted row re-rendered for a change none of them could see.
-  const renderTimelineRow = props.renderTimelineRow;
+  const renderTranscriptRow = props.renderTranscriptRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useTranscriptRowRenderer({
     transcriptWindow,
@@ -130,12 +123,12 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     hueForActor,
     toggleRunGroup,
     rowLease,
-    renderTimelineRow,
+    renderTranscriptRow,
   });
 
-  // The palette's chords and the session header's chips both act on whichever transcript is
-  // mounted when they fire, and neither can import this component. Both seats are
-  // claimed here for the mount's lifetime; what each act does is its own module's.
+  // The palette's chords act on whichever transcript is mounted when they fire, and cannot
+  // import this component, so the feed adopts the mounted transcript for its lifetime;
+  // what each act does is its own module's.
   const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;
   const collapseAllTerminalRunGroups = useCallback(() => {
     collapseAllTerminal([...transcriptWindow.runGroupByHeaderKey.values()]);

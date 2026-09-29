@@ -24,14 +24,14 @@ import { PreviewPane } from "./PreviewPane.js";
 /**
  * The preview pane, as the pane layout holds it.
  *
- * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
+ * Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name a loader
  * module publishes: the registry composes one specifier shape, and a body module is
  * recognizable as one by reading its exports rather than by where it sits.
  *
  * IT ADVERTISES NO DETACH, because a descriptor cannot. Whether this kind may be
- * torn off into a window of its own is `seats/pane/pane-kinds.ts`'s
+ * torn off into a window of its own is `routing/panes/pane-kinds.ts`'s
  * `isDetachablePaneKind`, derived from the window model's own route set — one
- * answer for the whole pane layout rather than a boolean each family sets for the kind it
+ * answer for the whole pane layout rather than a boolean each feature sets for the kind it
  * owns. The answer for `browser` is no, and the reason is a property of the kind:
  * the pane's body is a main-process view hosted in the window that owns
  * the pane, and following a detach would mean moving that host view between two
@@ -47,9 +47,8 @@ import { PreviewPane } from "./PreviewPane.js";
  * one bad row loses that row rather than the pane layout.
  *
  * The body still takes the context whole beneath it — it needs the pane id the browser
- * wire is keyed by, the bridge it dispatches through, the session whose shell frames
- * the trail, and the focus hue that attributes the pane — so no argument is
- * rebuilt here.
+ * wire is keyed by, the bridge it dispatches through, the session that heads the
+ * trail, and the focus hue that attributes the pane — so no argument is rebuilt here.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "browser",

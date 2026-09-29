@@ -13,8 +13,8 @@
 // the adapter through
 // `emulator-loader.ts`'s `import()` rather than a static import, and renders the
 // box's absence — `not-loaded`, the read-in-flight kind — until the chunk lands.
-// The skeleton is the primitive every other surface uses for a read in flight; a
-// spinner here would be the console's second vocabulary for one state.
+// The skeleton is the primitive the rest of the console uses for a read in flight;
+// a spinner here would be the console's second vocabulary for one state.
 //
 // WHERE THAT FETCH IS DECIDED. `emulator-state.ts` beside this file holds the
 // reading and the rejection arm, because this component resolves the page's own
@@ -35,7 +35,7 @@
 // nothing — silently dropping the operator's scrollback, and with it whatever the
 // shell had printed. The emulator's lifetime belongs to the terminal id, so the
 // functions live in a ref the adapter reads at call time. What DOES stay in the
-// dependency list is whether each callback is present at all: a surface that
+// dependency list is whether each callback is present at all: a terminal that
 // gains the ability to write to the wire is built differently, and the adapter's
 // own gate is the absence of the option rather than a check inside it.
 //
@@ -46,7 +46,7 @@
 // box's `data-renderer` — and every consumer of `onRendererMode` — reporting
 // `webgl` over a terminal that is no longer drawing with one.
 //
-// WHY THE HOST BOX IS ONLY NAMED AND THE LIVE TEXT IS NOT HERE. xterm.js draws
+// WHY THE MOUNT ELEMENT IS ONLY NAMED AND THE LIVE TEXT IS NOT HERE. xterm.js draws
 // a grid of spans (or a WebGL canvas), and its own accessibility layer exposes rows
 // through an `aria-live="assertive"` region with a twenty-row flood guard. That
 // region is the terminal's; announcing the grid a second time from outside it would
@@ -60,37 +60,37 @@ import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator
 import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
 import type { TerminalRendererMode } from "../xterm-adapter.js";
 
-export interface XtermHostProps {
-  /** The shared terminal this surface is a view of. One per session in V1. */
+export interface XtermMountPointProps {
+  /** The shared terminal this emulator shows. One per session in V1. */
   readonly terminalId: string;
   /** Whether the lease says this user may type. Watch mode is `false`. */
   readonly isWriteEnabled: boolean;
-  /** The surface's accessible name, supplied by the pane that mounted it. */
+  /** The terminal region's accessible name, supplied by the pane that mounted it. */
   readonly label: string;
-  /** Where keystrokes go. Absent means this surface never writes to the wire. */
+  /** Where keystrokes go. Absent means this terminal never writes to the wire. */
   readonly onKeystroke?: ((data: string) => void) | undefined;
   /** Where an allowed link goes. Absent means links render and never activate. */
   readonly onActivateLink?: ((url: string) => void) | undefined;
   /**
    * Told which renderer the instance settled on, and told again whenever that
    * changes — a lost WebGL context falls the instance back to the DOM renderer
-   * for good, and a surface reporting the old one is reporting a renderer that is
-   * no longer drawing anything.
+   * for good, and a consumer still showing the old one is reporting a renderer that
+   * is no longer drawing anything.
    */
   readonly onRendererMode?: ((mode: TerminalRendererMode) => void) | undefined;
 }
 
-export function XtermHost(props: XtermHostProps): React.JSX.Element {
-  const hostElementRef = useRef<HTMLDivElement | null>(null);
+export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element {
+  const mountElementRef = useRef<HTMLDivElement | null>(null);
   const adapterRef = useRef<XtermTerminalAdapterInstance | undefined>(undefined);
   const [rendererMode, setRendererMode] = useState<TerminalRendererMode | undefined>(undefined);
   const emulator = useTerminalEmulator(terminalEmulatorLoader);
 
   const { terminalId, isWriteEnabled, onKeystroke, onActivateLink, onRendererMode } = props;
   const callbacksRef = useLatestRef({ onKeystroke, onActivateLink, onRendererMode });
-  // What the surface CAN do, rather than which functions were passed this pass.
+  // What the terminal CAN do, rather than which functions were passed this pass.
   // Gaining or losing a capability changes how the emulator is built and is worth
-  // a rebuild; a freshly created function for a capability the surface already had
+  // a rebuild; a freshly created function for a capability the terminal already had
   // is not.
   const canWriteToWire = onKeystroke !== undefined;
   const canActivateLinks = onActivateLink !== undefined;
@@ -108,10 +108,10 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
   const isWritableRef = useLatestRef(isWritable);
 
   useEffect(() => {
-    const hostElement = hostElementRef.current;
-    if (emulator.status !== "loaded" || hostElement === null) {
+    const mountElement = mountElementRef.current;
+    if (emulator.status !== "loaded" || mountElement === null) {
       // Nothing to pair a disposal with yet: the box below is the absence, not the
-      // surface, so there is no element for an emulator to open against.
+      // mount element, so there is no element for an emulator to open against.
       return undefined;
     }
     const adapter = new emulator.module.XtermTerminalAdapter({
@@ -141,7 +141,7 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
     // and the page's context allowance stayed spent. Disposing here and re-raising
     // keeps the failure visible while leaving nothing running behind it.
     try {
-      adapter.attach(hostElement);
+      adapter.attach(mountElement);
       // After the attach, because the renderer selection happens synchronously
       // inside it and the subscription delivers the current mode on subscribe — so
       // this order reports the SETTLED mode once rather than the constructed one
@@ -181,14 +181,14 @@ export function XtermHost(props: XtermHostProps): React.JSX.Element {
 
   return (
     <div
-      className="meridian-terminal-host"
+      className="meridian-terminal-mount-point"
       data-renderer={rendererMode ?? "pending"}
       data-write-enabled={isWritable ? "true" : "false"}
     >
       {emulator.status === "loaded" ? (
         <div
-          className="meridian-terminal-host__surface"
-          ref={hostElementRef}
+          className="meridian-terminal-mount-point__mount-element"
+          ref={mountElementRef}
           role="group"
           aria-label={accessibleNameFor(props.label, writeGate)}
         />
@@ -222,7 +222,7 @@ function useLatestRef<Value>(value: Value): { readonly current: Value } {
 type XtermTerminalAdapterInstance = InstanceType<TerminalEmulatorModule["XtermTerminalAdapter"]>;
 
 /**
- * What stands in the host box while the emulator's code is not there.
+ * What stands in the mount point's box while the emulator's code is not there.
  *
  * Two of `Nothing`'s five kinds, and the two the states actually are: a fetch in
  * flight is `not-loaded` — the skeleton that says nothing, because there is nothing
@@ -239,11 +239,11 @@ function renderEmulatorAbsence(
   emulator: Exclude<TerminalEmulatorState, { status: "loaded" }>,
 ): React.JSX.Element {
   return emulator.status === "loading" ? (
-    <Nothing kind="not-loaded" placement="surface" title="Loading the terminal emulator" />
+    <Nothing kind="not-loaded" placement="block" title="Loading the terminal emulator" />
   ) : (
     <Nothing
       kind="error"
-      placement="surface"
+      placement="block"
       title={emulator.refusal.code}
       detail={emulator.refusal.detail}
     />
@@ -251,11 +251,11 @@ function renderEmulatorAbsence(
 }
 
 /**
- * Whether this surface may be typed into, and when it may not, why.
+ * Whether this terminal may be typed into, and when it may not, why.
  *
  * Two conditions and not one. The lease says whether this user is ALLOWED
  * to write; `onKeystroke` says whether there is anywhere for a keystroke to GO.
- * A surface built without the writer — which is what the pane mounts today, and
+ * A terminal built without the writer — which is what the pane mounts today, and
  * what a re-render across a terminal id already exercises — opened xterm's stdin
  * on the lease alone, so the emulator accepted every character, the adapter's
  * `onData` subscription did not exist to forward it, and the region announced
@@ -277,13 +277,13 @@ function renderEmulatorAbsence(
  * "this build has nowhere to send what you type" send a person to two different
  * places, and collapsing them would have them wait for a lease they already hold.
  */
-const SURFACE_NAME_SUFFIXES = {
+const ACCESSIBLE_NAME_SUFFIXES = {
   writable: "",
   "lease-not-held": ", read-only",
   "no-input-channel": ", read-only: no input channel",
 } as const;
 
-type TerminalWriteGate = keyof typeof SURFACE_NAME_SUFFIXES;
+type TerminalWriteGate = keyof typeof ACCESSIBLE_NAME_SUFFIXES;
 
 function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): TerminalWriteGate {
   if (!isWriteEnabled) {
@@ -294,7 +294,7 @@ function terminalWriteGate(isWriteEnabled: boolean, canWriteToWire: boolean): Te
   return canWriteToWire ? "writable" : "no-input-channel";
 }
 
-/** The surface's accessible name, which carries the write gate. */
+/** The terminal region's accessible name, which carries the write gate. */
 function accessibleNameFor(label: string, writeGate: TerminalWriteGate): string {
-  return `${label}${SURFACE_NAME_SUFFIXES[writeGate]}`;
+  return `${label}${ACCESSIBLE_NAME_SUFFIXES[writeGate]}`;
 }

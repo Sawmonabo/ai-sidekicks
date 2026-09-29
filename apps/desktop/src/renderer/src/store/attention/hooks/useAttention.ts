@@ -29,7 +29,7 @@ const SESSION_ATTENTION_ORIGIN = "attention-provider";
 /**
  * What the binding above holds.
  *
- * RAISES RATHER THAN SUBSTITUTES. A surface reaching for a binding no composition
+ * RAISES RATHER THAN SUBSTITUTES. A component reaching for a binding no composition
  * mounted is a wiring defect, and the honest answers a fallback could give are both
  * wrong: an empty reading would render "nothing needs you" over a projection nobody
  * read, and a second read here would be the second answer this binding exists to
@@ -42,7 +42,7 @@ export function useAttention(): WindowAttention {
       refuse(
         SESSION_ATTENTION_ORIGIN,
         "binding-unmounted",
-        "This surface reads the window's attention binding, and no composition mounted one above it.",
+        "This component reads the window's attention binding, and no composition mounted one above it.",
       ),
     );
   }

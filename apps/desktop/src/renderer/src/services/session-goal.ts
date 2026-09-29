@@ -11,12 +11,11 @@
 // and the event commits only after all of them acknowledge, so the fold stays on
 // the prior goal until the event lands.
 //
-// IT LIVES IN `bridge/` BECAUSE MORE THAN ONE VIEW FAMILY READS THE GOAL, and view
-// families may not import one another. Every input this module has sits below that:
-// the two payload readers beside it, `core/`'s instant comparison, and the store's
-// event type. So this is the lowest family that owns them, and callers take the fold
-// through this family's door rather than each folding the timeline their own way,
-// which would be a second projection of one log.
+// IT LIVES IN `services/` BECAUSE MORE THAN ONE FEATURE READS THE GOAL, and features
+// may not import one another. Every input this module has sits below that: the two
+// payload readers beside it, `lib/`'s instant comparison, and the store's event type.
+// So callers take the fold from this module rather than each folding the timeline
+// their own way, which would be a second projection of one log.
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { readGoalOriginKeys, readGoalPayloadText } from "./wire-shapes/session-goal-payloads.js";
@@ -86,9 +85,9 @@ export type SessionGoalProjection =
  * and an update newer than a clear wins.
  *
  * A goal event whose payload carries no origin keys — one appended before they
- * existed — cannot join an origin's register, so every such event competes for a
- * single envelope-ordered slot and that slot's holder enters the cross-origin
- * comparison as one more candidate. That is the same disposition the channel
+ * existed — cannot join an origin's register, so every such event competes in one
+ * envelope-ordered ranking of its own, and that ranking's winner enters the
+ * cross-origin comparison as one more candidate. That is the same disposition the channel
  * directory gives a pre-extension publication, rather than a second ranking rule.
  *
  * Local `sequence` is read NOWHERE in the ranking. Two nodes handed the same goal

@@ -1,12 +1,12 @@
 /*
  * Preparing an execution root, and removing one.
  *
- * The trigger, dialog and field shape these two surfaces share with the attach and bind
- * surfaces is in `../mount-controls.css`, imported ahead of this sheet; what is here is
- * what only a root's own surfaces wear — the reuse verdict's two toned readings and the
+ * The trigger, dialog and field shape these two dialogs share with the attach and bind
+ * dialogs is in `../mount-controls.css`, imported ahead of this sheet; what is here is
+ * what only a root's own dialogs wear — the reuse verdict's two toned readings and the
  * settled line a removal leaves behind.
  *
- * Imported by both surfaces it dresses, `PrepareExecutionRoot.tsx` and
+ * Imported by both components it dresses, `PrepareExecutionRoot.tsx` and
  * `RootRemovalConfirmation.tsx`.
  */
 

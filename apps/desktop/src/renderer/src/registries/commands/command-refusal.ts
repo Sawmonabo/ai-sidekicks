@@ -1,4 +1,4 @@
-// Where a command with no surface of its own states its refusal.
+// Where a command with no view of its own states its refusal.
 //
 // A feature's commands are contributed at composition time and a refusal happens at
 // press time, so the act cannot close over the banner of the window that is open when
@@ -14,9 +14,9 @@ export function publishCommandRefusalSink(sink: (refusal: Refusal) => void): Uns
 }
 
 /**
- * State a refusal from a command that has no surface of its own.
+ * State a refusal from a command that has no view of its own.
  *
- * Answers whether anything rendered it, so a caller with its own surface can fall back.
+ * Answers whether anything rendered it, so a caller with its own view can fall back.
  */
 export function raiseCommandRefusal(refusal: Refusal): boolean {
   return commandRefusals.raise(refusal);

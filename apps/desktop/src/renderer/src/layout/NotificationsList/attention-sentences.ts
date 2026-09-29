@@ -49,10 +49,9 @@ export function describeAttentionSettlement(reading: AnsweredAttentionReading): 
 /**
  * What the console says aloud about a read that was not the whole of it.
  *
- * The SENTENCES the panel is already showing, read off `primitives/reading/partial-read.ts`
- * rather than composed again here — which is the whole point of that module: this
- * family wrote its own copy, and a second wording of one number is a disagreement
- * nobody can see from either half. The figure travels with its sentence because "3"
+ * The SENTENCES the panel is already showing, read off `partialReadNotices` rather
+ * than composed again here: a second wording of one number is a disagreement nobody
+ * can see from either half. The figure travels with its sentence because "3"
  * and "deliveries could not be read" spoken apart are two fragments.
  */
 function incompletenessSentences(reading: AnsweredAttentionReading): readonly string[] {
@@ -65,7 +64,7 @@ function incompletenessSentences(reading: AnsweredAttentionReading): readonly st
     if (notice.shape === "sentence") {
       sentences.push(notice.copy);
     }
-    // The `reading` shape says nothing aloud — rule 8's `not-loaded` absence speaks
+    // The `reading` shape says nothing aloud — the `not-loaded` absence speaks
     // its own title through `Nothing` — and `none` is a reading that was whole.
   }
   return sentences;
@@ -80,7 +79,7 @@ function incompletenessSentences(reading: AnsweredAttentionReading): readonly st
  * read it can actually speak for.
  */
 function needsYouClause(reading: AnsweredAttentionReading): string | undefined {
-  const liveCount = reading.plane.liveItems.length;
+  const liveCount = reading.summary.liveItems.length;
   if (liveCount === 1) {
     return "One item needs you.";
   }

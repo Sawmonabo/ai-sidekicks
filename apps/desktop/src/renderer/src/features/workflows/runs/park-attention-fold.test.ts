@@ -246,7 +246,7 @@ describe("the park attention fold — order", () => {
 
   it("negative control: a fold is settled AFTER the whole walk, not at its first park", () => {
     // Without the settle-at-the-end rule the first entry would carry the count as it
-    // stood when its slot was taken — one — while the rows below it showed three.
+    // stood when its entry was placed — one — while the rows below it showed three.
     const entries = foldOf([
       run({ workflowRunId: "run-a", phaseStates: [correlatedPark("draft", "account-1")] }),
       run({ workflowRunId: "run-b", phaseStates: [correlatedPark("draft", "account-1")] }),

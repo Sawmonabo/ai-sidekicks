@@ -11,7 +11,7 @@
 //   • **Withheld** — the daemon has no registered approval-create seam, so spawn
 //     withholds the registry, the tools are not exposed, and the host's runtime
 //     backstop answers any stray invocation `denied` with a driver diagnostic. The
-//     surface says "withheld". It never says "none registered", and it never
+//     section says "withheld". It never says "none registered", and it never
 //     presents an empty agent capability.
 //   • **Exposed** — entries, described as daemon-constructed and daemon-trusted
 //     rather than provider output, each carrying the governance fact.
@@ -54,8 +54,8 @@ export interface CallbackToolsProps {
   /**
    * What this build knows about the capability, in the console's one vocabulary.
    *
-   * `unknown` and not `undefined`: the reading is the bridge family's closed set, so
-   * this section and the two run surfaces that gate on a driver flag cannot answer
+   * `unknown` and not `undefined`: the reading is the bridge's closed set, so this
+   * section and the two run controls that gate on a driver flag cannot answer
    * the same question in three different spellings.
    */
   readonly capability: DriverCapabilityReading;
@@ -80,7 +80,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
     return (
       <Nothing
         kind="not-checked"
-        placement="surface"
+        placement="block"
         title="The bound driver's capability flags have not been read."
         detail="Whether this session's agents can reach a tool the background service hosts at all is a flag on the driver, and this build has not read one. Nothing is reported here until it has, because an empty list under a heading would report a registry that exists and holds nothing."
       />
@@ -90,7 +90,7 @@ export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | nu
     return (
       <Nothing
         kind="not-loaded"
-        placement="surface"
+        placement="block"
         title="Reading the registry of tools the background service hosts."
       />
     );

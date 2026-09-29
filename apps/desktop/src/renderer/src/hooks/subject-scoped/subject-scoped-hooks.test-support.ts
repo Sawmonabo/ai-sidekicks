@@ -2,9 +2,10 @@
 //
 // `subject-scoped-holder.ts` mints an addressing during a render and confirms it when
 // that render commits, and those are two calls because React decides between them.
-// Every suite in this family therefore has to say which of the two it is driving, and
-// there are exactly two ways to say it: directly, with no renderer, in the order React
-// would; and through React, with a pass that really runs and really never commits.
+// Every suite of the subject-scoped hooks therefore has to say which of the two it is
+// driving, and there are exactly two ways to say it: directly, with no renderer, in the
+// order React would; and through React, with a pass that really runs and really never
+// commits.
 //
 // ONE HOME FOR BOTH, because they are one role — putting a holder into a state a
 // claim is about — and because a test file may not import another test file: that

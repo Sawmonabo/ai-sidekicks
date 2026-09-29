@@ -45,11 +45,11 @@ function storeThatWrites(): UiStateStore {
 interface SchemeProbeProps {
   readonly frameStore: WindowStore;
   readonly uiStateStore: UiStateStore;
-  readonly onSurface: (surface: UseSchemePreferenceResult) => void;
+  readonly onResult: (result: UseSchemePreferenceResult) => void;
 }
 
 function SchemeProbe(props: SchemeProbeProps): null {
-  props.onSurface(useSchemePreference(props.frameStore, props.uiStateStore));
+  props.onResult(useSchemePreference(props.frameStore, props.uiStateStore));
   return null;
 }
 
@@ -58,14 +58,14 @@ async function mountScheme(
   frameStore: WindowStore,
   uiStateStore: UiStateStore,
 ): Promise<{ readonly choose: (preference: SchemePreference) => Promise<void> }> {
-  let surface: UseSchemePreferenceResult | undefined;
+  let latestResult: UseSchemePreferenceResult | undefined;
   await act(async () => {
     render(
       <SchemeProbe
         frameStore={frameStore}
         uiStateStore={uiStateStore}
-        onSurface={(latest) => {
-          surface = latest;
+        onResult={(latest) => {
+          latestResult = latest;
         }}
       />,
     );
@@ -74,7 +74,7 @@ async function mountScheme(
   return {
     choose: async (preference) => {
       await act(async () => {
-        surface?.chooseScheme(preference);
+        latestResult?.chooseScheme(preference);
         await crossMacrotaskBoundary();
       });
     },

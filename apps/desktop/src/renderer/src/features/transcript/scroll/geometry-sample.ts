@@ -1,15 +1,15 @@
 // One geometry sample — the value the chokepoint publishes, and the one rule over it.
 //
 // The seam is the same one `viewport-snapshot.ts` states for the viewport:
-// `scroll-chokepoint.ts` owns a surface, a listener, a batch and an emitter, and
+// `scroll-chokepoint.ts` owns a scroll container, a listener, a batch and an emitter, and
 // everything here is a value computable from three numbers and holding nothing. The
 // reading anchor and the virtualizer seams both speak this vocabulary without ever
 // holding the controller, which is why it is declared here rather than beside the
 // machinery that happens to produce it.
 //
-// The comparison is here for the same reason and not as a leftover: whether two
+// The comparison is here for the same reason: whether two
 // samples say the same thing is a rule about the value, and it is asserted directly
-// rather than by driving a surface through two events.
+// rather than by driving a scroll container through two events.
 
 import { TRANSCRIPT_GEOMETRY_EPSILON_PX } from "../viewport/viewport-constants.js";
 

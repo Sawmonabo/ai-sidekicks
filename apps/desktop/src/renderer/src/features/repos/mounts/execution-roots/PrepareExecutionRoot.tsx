@@ -1,6 +1,6 @@
 // Putting an execution root on disk for one workspace, ahead of any run.
 //
-// THE REUSE CHECK IS THE SURFACE, not a step hidden behind the button. A person naming
+// THE REUSE CHECK IS THE FORM, not a step hidden behind the button. A person naming
 // a branch is asking a question the daemon can already answer — is there a checkout of
 // this branch, is it clean, is it usable — and the answer decides whether the prepare
 // they are about to send is a create, a reuse, a reuse that needs their consent, or a
@@ -27,7 +27,7 @@
 // retire the root first.
 //
 // IT IS COLLAPSED: preparing a root ahead of a run is deliberate and infrequent, and an
-// open form on every workspace card would put four controls on a surface whose subject is
+// open form on every workspace card would put four controls on a section whose subject is
 // what the session already holds.
 //
 // AND IT IS HELD BY THE SAME POSTURE THE MODE PICKER IS. A prepare IS a bind, so a
@@ -189,7 +189,7 @@ export function PrepareExecutionRoot(props: PrepareExecutionRootProps): React.JS
       </button>
       {heldBecause === undefined ? null : (
         // The mount's own sentence, or the selection act's — never a third wording for
-        // a state two other surfaces are already reporting.
+        // a state two other views are already reporting.
         <p className="meridian-prepare-root__held" role="status">
           {heldBecause}
         </p>

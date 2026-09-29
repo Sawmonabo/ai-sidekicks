@@ -19,7 +19,7 @@
 import axe, { type Result } from "axe-core";
 
 /**
- * WCAG 2.2 A + AA, which is the level every console surface is held to.
+ * WCAG 2.2 A + AA, which is the level every console view is held to.
  *
  * Both levels of every version, because axe's tags select the criteria a version
  * INTRODUCED rather than everything that version's conformance requires: `wcag2a` and
@@ -46,8 +46,8 @@ export const AXE_TAGS: readonly string[] = [
 /**
  * Run the tier's rule set over one element and hand back what it found.
  *
- * Takes the element rather than the whole document so a surface-scoped case reports
- * its own surface: a document-scoped run over a page holding three mounted surfaces
+ * Takes the element rather than the whole document so a view-scoped case reports
+ * its own view: a document-scoped run over a page holding three mounted views
  * would attribute every violation to whichever one a reader looked at first.
  */
 export async function runTierAxe(element: Element): Promise<readonly Result[]> {

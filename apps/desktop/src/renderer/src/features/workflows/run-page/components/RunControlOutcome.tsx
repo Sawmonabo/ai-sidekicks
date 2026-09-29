@@ -1,19 +1,18 @@
 // What one run control answered, rendered beside the button that asked.
 //
-// A SIBLING RATHER THAN A THIRD RENDER FUNCTION IN `OperatorControls.tsx`, for the
-// reason `RunParks.tsx` and `ParkFormRoute.tsx` beside it state: one component per
-// `.tsx`, reached by a deep relative import from its host and published through no
-// door line. It is also a different concern from either renderer there — those own
+// A SIBLING RATHER THAN A THIRD RENDER FUNCTION IN `OperatorControls.tsx`, because each
+// `.tsx` holds one component; `OperatorControls.tsx` imports it from beside it, and no
+// shared entry exports it. It is also a different concern from either renderer there — those own
 // the form an operator fills in, and this owns what came back — and the two arms that
 // matter here are reached from a call rather than from a field.
 //
 // THE CONTROL STAYS. Every arm below renders BESIDE the button rather than in place
-// of it: rule 9 is that nothing changed, the act did not happen, and the control stays
+// of it: a refusal means nothing changed, the act did not happen, and the control stays
 // beside its refusal. A refusal that replaced the control would leave an operator with
-// nothing to press once the daemon's answer stopped applying, and the surface would
+// nothing to press once the daemon's answer stopped applying, and the component would
 // have to guess when to put it back.
 //
-// AND THE REFUSAL IS RENDERED VERBATIM. It is this family's own — a second press, or a
+// AND THE REFUSAL IS RENDERED VERBATIM. It is the run controls' own — a second press, or a
 // reason past the bound — and the code and the sentence are the raiser's; this file
 // composes no copy of its own on that arm.
 //

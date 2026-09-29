@@ -10,7 +10,7 @@
 // The destination's durable binding is driven here rather than only the holder,
 // because the property under test is a React LIFETIME: a case that called `acquire`
 // by hand would prove the holder's arithmetic and nothing about what a mounted
-// surface is subscribed to.
+// view is subscribed to.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

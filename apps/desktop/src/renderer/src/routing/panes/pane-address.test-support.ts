@@ -1,7 +1,7 @@
 // The entity references and the refusal reader both pane-address suites drive.
 //
-// The rows this family declares are read at two doors — the compiler's and the untyped
-// boundary's — and each door has its own file. These five references and this reader are
+// The rows this folder declares are read at two points — the compiler's and the untyped
+// boundary's — and each point has its own file. These five references and this reader are
 // what both of them build a case out of, so they are here rather than written twice: two
 // copies of `refusalFrom` is two answers to "the parse admitted something it should have
 // refused", and the one that is not looked at is the one that stops saying which.

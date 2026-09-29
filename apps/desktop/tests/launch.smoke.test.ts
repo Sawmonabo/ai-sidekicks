@@ -6,7 +6,7 @@
 //
 //   1. The main window's renderer document loads within 5 seconds.
 //   2. `window.desktopBridge` is defined (the preload bridge actually registered
-//      on the renderer surface — i.e., the `contextBridge.exposeInMainWorld`
+//      in the renderer's main world — i.e., the `contextBridge.exposeInMainWorld`
 //      call ran).
 //   3. `window.require` is `undefined` (the `nodeIntegration: false` +
 //      `sandbox: true` combination successfully prevented any Node API leak
@@ -15,7 +15,7 @@
 //   5. `window.global` is `undefined` — the third. With this third assertion
 //      the smoke covers the full set (`require` / `process` / `global`); a
 //      later Playwright E2E suite repeats the assertion across
-//      packaged-binary surfaces, but this substrate is the load-bearing
+//      packaged-binary targets, but this substrate is the load-bearing
 //      single source of truth.
 //
 // Why Vitest, not Playwright:
@@ -104,7 +104,7 @@
 //                              global all undefined) hold identically in
 //                              both modes — the smoke probe just adds
 //                              the readout machinery on top of the same
-//                              trust-boundary surface, and the document it
+//                              trust boundary, and the document it
 //                              reads is the same one a release build loads.
 //   • `out/preload/index.cjs` — CommonJS (sandboxed preload constraint).
 //                              The explicit `.cjs` extension overrides the
@@ -235,7 +235,7 @@ describe("desktop main process boot", () => {
       // Invariant 5: `window.global` is `undefined` — the third Node-API-
       // leak global. This smoke layer covers the full set of three; a later
       // Playwright `_electron` E2E suite repeats the assertion across the
-      // packaged-binary surfaces (signed installer, asar bundle, autoupdate
+      // packaged-binary targets (signed installer, asar bundle, autoupdate
       // applied snapshot), but this substrate is the load-bearing single
       // source of truth that the runtime invariant holds.
       expect(probe.probe.global).toBe("undefined");

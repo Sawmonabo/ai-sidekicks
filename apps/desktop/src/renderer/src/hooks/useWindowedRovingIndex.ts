@@ -109,15 +109,15 @@
 // asked for nothing. The list still consumes the key and still asks the window for
 // the row, because a reader pressing `End` at the end is asking to SEE the end.
 //
-// AND THE BUDGET COUNTS RUNS RATHER THAN COMPARING THE WINDOW. The claim used to hold
-// the `windowRevision` it was armed against and expire when that value changed, which
-// reads as the more precise rule and is defeated by the value a virtualizer actually
-// hands back: a fresh array every render. The first run after the arm then already
-// compares unequal, so the one retry is spent before the reveal it exists for can
-// answer and the move focuses nothing at all. The caller cannot be asked to stabilize
-// that value either — this family may not name the virtualizer's types, so the option
-// cannot say which of them to memoize on — which leaves a count of this hook's own
-// effect runs as the one bound it can hold without trusting its caller's identities.
+// AND THE BUDGET COUNTS RUNS RATHER THAN COMPARING THE WINDOW. Holding the
+// `windowRevision` the claim was armed against and expiring when it changes reads as
+// the more precise rule, and is defeated by the value a virtualizer actually hands
+// back: a fresh array every render. The first run after the arm then already compares
+// unequal, so the one retry is spent before the reveal it exists for can answer and the
+// move focuses nothing at all. The caller cannot be asked to stabilize that value
+// either — a shared hook may not name the virtualizer's types, so the option cannot say
+// which of them to memoize on — which leaves a count of this hook's own effect runs as
+// the one bound it can hold without trusting its caller's identities.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -177,8 +177,9 @@ export interface WindowedRovingIndexOptions {
    * Any value that changes when the mounted window changes.
    *
    * The rendered row array a virtualizer hands back is the usual one. It is typed
-   * `unknown` on purpose: this family sits below the one that adopts a virtualizer,
-   * and a primitive that named that library's row type would be an upward edge.
+   * `unknown` on purpose: shared hooks sit below the features that adopt a
+   * virtualizer, and a shared hook that named that library's row type would import
+   * against the layering.
    *
    * It is read as an effect DEPENDENCY and compared against nothing, so a caller
    * whose value is a fresh array every render costs extra effect runs and is

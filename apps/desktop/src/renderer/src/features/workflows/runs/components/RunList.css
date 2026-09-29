@@ -106,7 +106,7 @@
 /*
  * The failure reason is the daemon's sentence, so it renders as prose on the red
  * text color rather than inside a refusal shape: a run that failed is a fact the
- * list is reporting, not a control the operator just pressed (rule 9).
+ * list is reporting, not a refusal of a control the operator just pressed.
  */
 .meridian-run-row__failure {
   margin: 0;
@@ -119,7 +119,7 @@
  * bound breach's reason and a cancel's — so a row painted red for both would report
  * an outcome an operator asked for as a breach. This arm is prose in the ordinary
  * text color, with the label in front saying which reading arrived; the hue is spent
- * on the failure and nowhere else (rule 2.3).
+ * on the failure and nowhere else, because red means something failed.
  */
 .meridian-run-row__reason {
   margin: 0;

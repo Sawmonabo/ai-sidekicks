@@ -1,8 +1,8 @@
-// What the attention surface draws, driven through the projection that folds it.
+// What the park attention line draws, driven through the projection that folds it.
 //
 // The cases build `RunListProjection` rather than hand-built entries, on
 // `RunList.test.tsx`'s reason: a suite that constructed its own fold would prove the
-// markup and leave the seam between the fold and the surface — the part that can
+// markup and leave the seam between the fold and the component — the part that can
 // actually drift — unchecked. What is asserted here is the RENDERING; the fold's own
 // arithmetic is `park-attention-fold.test.ts`.
 
@@ -45,7 +45,7 @@ function correlatedPark(parkAttentionKey: string): WorkflowPhaseStateRow {
   });
 }
 
-describe("the run list's park attention surface", () => {
+describe("the run list's park attention line", () => {
   it("draws one entry for several runs waiting on one account, with the run count", () => {
     const root = renderList([
       run({ workflowRunId: "run-a", phaseStates: [correlatedPark("account-1")] }),
@@ -125,7 +125,7 @@ describe("the run list's park attention surface", () => {
     expect(summaryItems(root).some((item) => item.startsWith("Waiting on"))).toBe(false);
   });
 
-  it("negative control: the surface is absent for the reason claimed, not always", () => {
+  it("negative control: the line is absent for the reason claimed, not always", () => {
     // Without this, the case above would pass against a component that rendered
     // nothing under every input — including the parked one it exists to draw.
     const root = renderList([

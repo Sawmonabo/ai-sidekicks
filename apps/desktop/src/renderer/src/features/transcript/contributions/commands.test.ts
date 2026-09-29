@@ -127,7 +127,7 @@ describe("transcript commands — the rows themselves", () => {
 });
 
 describe("transcript commands — the contribution reaches the palette and the keyboard", () => {
-  /** Contributing an empty set is how a window is left with none of this family's rows. */
+  /** Contributing an empty set is how a window is left with none of the transcript's rows. */
   function withdrawTranscriptContribution(): void {
     commandContributionRegistry.contribute({
       owner: TRANSCRIPT_COMMAND_OWNER,
@@ -152,7 +152,7 @@ describe("transcript commands — the contribution reaches the palette and the k
 
   /**
    * Press one chord. `$mod` is Cmd on macOS and Ctrl elsewhere and this case does
-   * not care which host it is running on, so the other modifier is tried only when
+   * not care which operating system it is running on, so the other modifier is tried only when
    * the first press was not consumed.
    */
   function pressModifiedKey(table: KeybindingTable, key: string): boolean {
@@ -162,7 +162,7 @@ describe("transcript commands — the contribution reaches the palette and the k
     );
   }
 
-  it("puts every act in the window's palette once the family is composed", () => {
+  it("puts every act in the window's palette once the transcript is composed", () => {
     registerTranscriptCommands(commandContributionRegistry);
     const offered = commandRegistry
       .commandsFor({ sessionActive: true })
@@ -175,9 +175,9 @@ describe("transcript commands — the contribution reaches the palette and the k
   it("opens find on the transcript that is mounted when the chord is pressed", () => {
     // The whole seam in one case: contributed at composition, resolved at press.
     const fired: string[] = [];
-    const seat = new MountedTranscript();
-    registerTranscriptCommands(commandContributionRegistry, seat);
-    const release = seat.adopt(recordingActs(fired));
+    const transcript = new MountedTranscript();
+    registerTranscriptCommands(commandContributionRegistry, transcript);
+    const release = transcript.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(fired).toStrictEqual(["openFind"]);
     release();
@@ -185,16 +185,16 @@ describe("transcript commands — the contribution reaches the palette and the k
 
   it("walks forward through the matches from the keyboard", () => {
     const fired: string[] = [];
-    const seat = new MountedTranscript();
-    registerTranscriptCommands(commandContributionRegistry, seat);
-    const release = seat.adopt(recordingActs(fired));
+    const transcript = new MountedTranscript();
+    registerTranscriptCommands(commandContributionRegistry, transcript);
+    const release = transcript.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "g")).toBe(true);
     expect(fired).toStrictEqual(["stepFindNext"]);
     release();
   });
 
   it("states a refusal where a person can read it when no transcript is mounted", () => {
-    // Not a silent press: the act has no surface of its own, so it takes rule 9's
+    // Not a silent press: with no transcript on screen, the refusal goes to the frame's
     // banner — which is exactly what a transcript chord from the settings page needs.
     const raised: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => raised.push(refusal));
@@ -217,17 +217,17 @@ describe("transcript commands — the contribution reaches the palette and the k
     expect(commandRegistry.size).toBe(afterFirst);
   });
 
-  it("negative control: nothing of this family is offered or bound before it composes", () => {
+  it("negative control: nothing of the transcript is offered or bound before it composes", () => {
     // Every case above passes over a console that had these rows all along, which is
-    // precisely what this family did NOT have.
+    // precisely what a console before the transcript composes does NOT have.
     withdrawTranscriptContribution();
     expect(commandRegistry.has("transcript.find")).toBe(false);
     expect(keybindingOverrides.snapshot.bindings.map((binding) => binding.commandId)).not.toContain(
       "transcript.find",
     );
     const fired: string[] = [];
-    const seat = new MountedTranscript();
-    seat.adopt(recordingActs(fired));
+    const transcript = new MountedTranscript();
+    transcript.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(false);
     expect(fired).toStrictEqual([]);
   });

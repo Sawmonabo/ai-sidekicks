@@ -1,4 +1,4 @@
-// What the lease is, from this device's seat, in words.
+// What the lease is, from this device's point of view, in words.
 //
 // Split from `LeaseLine.tsx` so that module declares one component. The arm ORDER is
 // the content: `unrecognized-transition` is answered before the null-holder arm,
@@ -6,7 +6,7 @@
 // the same null holder and opposite sentences, and rendering the free-lease line for
 // the first is the one thing here that is certainly wrong.
 //
-// NO HOLDER IS NAMED, and that is the whole shape of this surface. The shell belongs to
+// NO HOLDER IS NAMED, and that is the whole shape of this sentence. The shell belongs to
 // the one person using this machine, so a hold this device does not have is a hold one
 // of their OTHER devices has — which is a fact about where the keyboard is and not
 // about who somebody is. Naming an identifier here would be answering a question nobody

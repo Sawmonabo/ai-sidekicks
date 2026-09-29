@@ -114,7 +114,7 @@ export function useHumanFormSubmit(
     phase.phaseRunId,
     () => ({ composedAgainstRevision: phase.formRevision, outcome: IDLE }),
   );
-  // The run pane's own re-arm, reached through the seat rather than through the mount:
+  // The run pane's own re-arm, reached through `ServedRunActContext` rather than through the mount:
   // `undefined` where this form is rendered with no run pane above it, which is a form
   // with no run read behind it to put again.
   const recordServedRunAct = useRecordServedRunAct();
@@ -140,7 +140,7 @@ export function useHumanFormSubmit(
         fields,
         // The CAPTURED revision, including the `0` a fresh attempt reads, and never
         // `phase.formRevision` — which a run read may have moved under the form since.
-        // The daemon decides whether it is still current; this surface never compares
+        // The daemon decides whether it is still current; this hook never compares
         // it, and a form composed against a revision the run has left behind is
         // supposed to be refused rather than quietly re-stamped as current.
         expectedRevision: attempt.composedAgainstRevision,
@@ -173,7 +173,7 @@ export function useHumanFormSubmit(
         publishOutcome({ kind: "refused", refusal: answerNotComposedRefusal() });
         return;
       }
-      const claim = latch.takeShell(submitForm, phase.phaseRunId);
+      const claim = latch.claim(submitForm, phase.phaseRunId);
       if (claim === undefined) {
         publishOutcome({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
         return;

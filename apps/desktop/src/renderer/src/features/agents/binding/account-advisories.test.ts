@@ -130,7 +130,7 @@ describe("the account axis's advisories — what the stored reading is allowed t
   });
 
   it("costs the sentence its reading and never the field when the stamp is unreadable", () => {
-    // `healthObservedAt` is parsed at the bridge door, so this is the belt: the
+    // `healthObservedAt` is parsed by `callDaemon`, so this is the belt: the
     // formatter answers an em dash for a stamp it cannot read, and the advisory still
     // says which state was stored.
     const readAdvisory = (): string | undefined =>

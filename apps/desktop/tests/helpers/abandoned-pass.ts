@@ -11,8 +11,7 @@
 // third pass back at the committed subject before it returns, because the holder claims
 // it serves are about what the RECOVERED tree reads. A ref written in a render body is
 // corrected by that third pass, so every case driven through it would pass on the shape
-// this one is written against. Two claims, two drivers — and that module also sits in a
-// family ABOVE this one, so its gate could not be borrowed here in any case.
+// this one is written against. Two claims, two drivers.
 //
 // THE SUSPENSION IS A TRANSITION THAT NEVER RESOLVES. A render-phase state update is
 // the wrong driver: React answers that one by re-invoking the component and reusing the

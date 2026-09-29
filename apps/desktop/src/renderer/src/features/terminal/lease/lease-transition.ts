@@ -4,7 +4,7 @@
 // The two questions were one module, and they are not one job. This half is a
 // READER: it holds the wire vocabulary the daemon sends, the shape each reason
 // obliges the payload to have, and the two ways an event is read off that payload. It
-// knows nothing about a device or which of five holdings the surface settles into —
+// knows nothing about a device or which of five holdings the lease line settles into —
 // both are `lease-model.ts`'s, because both are properties of the SEQUENCE rather than
 // of the event.
 //
@@ -28,8 +28,8 @@ export const TERMINAL_LEASE_EVENT_KIND = "pty.control_changed";
  *
  * Declared once as a tuple with the union derived from it. No contract package exports
  * this vocabulary, so this is the console's single declaration of it, and every
- * consumer (the holder-shape table, the guard, the family's own scenario test) derives from
- * this array rather than restating it.
+ * consumer (the holder-shape table, the guard, the terminal feature's own scenario
+ * test) derives from this array rather than restating it.
  */
 export const TERMINAL_LEASE_TRANSITION_REASONS = [
   "taken",
@@ -82,7 +82,7 @@ export interface TerminalLeaseTransition {
 }
 
 /**
- * A lease transition the console could not read, kept so the surface can say so.
+ * A lease transition the console could not read, kept so the lease line can say so.
  *
  * The wire moved the lease and this build does not understand the move. Skipping it
  * would leave the previous holder standing as the newest state, which is the one
@@ -140,7 +140,7 @@ export function readTerminalLeaseTransition(
  * questions: that one asks whether the console understands the move, this one records
  * the move it does not understand. The reason is carried verbatim and only when the
  * wire sent a non-empty string — anything else is a payload with nothing to name,
- * and a stringified object would be the surface inventing a vocabulary.
+ * and a stringified object would be the lease line inventing a vocabulary.
  */
 export function readTerminalLeaseUnreadTransition(
   event: ProjectedSessionEvent,
@@ -153,7 +153,7 @@ export function readTerminalLeaseUnreadTransition(
  *
  * Anything that is not a non-empty string reads as the free lease rather than as
  * an identity: an absent member and an explicit null both mean "nobody holds it",
- * and a surface that treated a missing member as a holder would attribute the
+ * and a lease line that treated a missing member as a holder would attribute the
  * shell to `undefined`.
  *
  * The predicate is the console's one wire-string reading; what this module owns is

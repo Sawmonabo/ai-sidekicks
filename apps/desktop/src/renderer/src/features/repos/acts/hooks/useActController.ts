@@ -1,4 +1,4 @@
-// How a surface holds an act controller, and nothing about the act.
+// How a dialog holds an act controller, and nothing about the act.
 //
 // The controller classes collaborate with a wire call and own what an act and its
 // prerequisite publish; these hooks collaborate with React's rendering lifecycle and own
@@ -26,7 +26,7 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useSessionStoreRebind, type SessionStoreScoped } from "./useSessionStoreRebind.js";
 
 /**
- * The lifecycle an act controller offers a surface, and the whole of what these hooks
+ * The lifecycle an act controller offers a dialog, and the whole of what these hooks
  * need from one.
  *
  * NAMED AS A CONTRACT RATHER THAN AS A CLASS, so an `ActController`, an
@@ -34,7 +34,7 @@ import { useSessionStoreRebind, type SessionStoreScoped } from "./useSessionStor
  * through the same hooks.
  */
 export interface BindableActController<TReading = unknown> extends DisposableController {
-  /** What the surface renders. Read through `useSyncExternalStore`, never reached into. */
+  /** What the dialog renders. Read through `useSyncExternalStore`, never reached into. */
   readonly snapshot: TReading;
   subscribe(sink: (reading: TReading) => void): Unsubscribe;
 }
@@ -46,7 +46,7 @@ export interface ActControllerBinding<TController extends BindableActController>
 }
 
 /**
- * Bind one subject's act controller to a surface.
+ * Bind one subject's act controller to a dialog.
  *
  * The key is the whole of what the controller is scoped to, and a key carrying less than
  * that leaves a controller in place across a rebind, holding the previous subject's

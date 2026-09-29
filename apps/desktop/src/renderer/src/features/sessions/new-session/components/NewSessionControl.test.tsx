@@ -218,7 +218,7 @@ describe("the composed new-session draft — what a completed send hands out", (
     // The destination composes its settlement fresh on every pass — it says so — so a
     // control that named the callback in the dependencies of the effect that settles
     // would open the session, stamp the origin and put the navigation again on every
-    // render of the surface above. The identity moves here on every render, and the
+    // render of the destination above. The identity moves here on every render, and the
     // count is what says the settlement did not follow it.
     const settledSessionIds: string[] = [];
     const bridge = bridgeFor({ scriptsCreate: true });

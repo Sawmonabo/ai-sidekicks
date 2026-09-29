@@ -1,7 +1,7 @@
 // The classifier decides once — so these cases are about the ONE table.
 //
 // The failure this guards against is drift: a glyph table and a layout table that agree
-// until somebody adds a family to one of them. Every case here reads the classifier's
+// until somebody adds a kind to one of them. Every case here reads the classifier's
 // own answer rather than a per-field lookup, which is what makes the drift unrepresentable
 // rather than merely unlikely.
 
@@ -30,16 +30,16 @@ const UNREADABLE_BODY: HydratedSessionEventContent = {
   reason: "decrypt_failed",
 };
 
-describe("the card family classifier", () => {
-  it("gives each body-bearing event type its own family", () => {
-    const familyFor = (type: string): string | undefined =>
+describe("the row kind classifier", () => {
+  it("gives each body-bearing event type its own row kind", () => {
+    const kindFor = (type: string): string | undefined =>
       classifyTranscriptRow(sampleRunRow({ type }))?.kind;
-    expect(familyFor("user.message")).toBe("user-message");
-    expect(familyFor("assistant.message")).toBe("agent-message");
-    expect(familyFor("assistant.thinking_update")).toBe("thinking");
-    expect(familyFor("tool.invoked")).toBe("tool-call");
-    expect(familyFor("tool.result")).toBe("tool-call");
-    expect(familyFor("tool.error")).toBe("tool-call");
+    expect(kindFor("user.message")).toBe("user-message");
+    expect(kindFor("assistant.message")).toBe("agent-message");
+    expect(kindFor("assistant.thinking_update")).toBe("thinking");
+    expect(kindFor("tool.invoked")).toBe("tool-call");
+    expect(kindFor("tool.result")).toBe("tool-call");
+    expect(kindFor("tool.error")).toBe("tool-call");
   });
 
   it("gives every other event type no row kind", () => {
@@ -55,9 +55,9 @@ describe("the card family classifier", () => {
   });
 
   it("hands the icon, the label, and the layout out together", () => {
-    for (const family of TRANSCRIPT_ROW_KINDS) {
-      const descriptor = describeRowKind(family);
-      expect(descriptor.kind).toBe(family);
+    for (const kind of TRANSCRIPT_ROW_KINDS) {
+      const descriptor = describeRowKind(kind);
+      expect(descriptor.kind).toBe(kind);
       expect(descriptor.label.length).toBeGreaterThan(0);
       expect(ROW_LAYOUTS).toContain(descriptor.layout);
     }

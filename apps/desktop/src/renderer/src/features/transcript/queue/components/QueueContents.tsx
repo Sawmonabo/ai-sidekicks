@@ -24,7 +24,7 @@ import "./QueueContents.css";
  *
  * The cap is spent by a `slice` and a withheld count, which is the whole mechanism: the
  * queue windows nothing and imports no windowing layer. Below the cap the list is a plain
- * block; above it the surface says how many rows it is not drawing rather than drawing
+ * block; above it the list says how many rows it is not drawing rather than drawing
  * them all. The queue is FIFO and the head is what matters, so the ceiling truncates the
  * tail and never the front.
  */
@@ -40,11 +40,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
   const { feed } = props;
   if (feed.phase === "reading") {
     return (
-      <Nothing
-        kind="not-loaded"
-        placement="surface"
-        title="Reading what is waiting in the queue."
-      />
+      <Nothing kind="not-loaded" placement="block" title="Reading what is waiting in the queue." />
     );
   }
 
@@ -52,7 +48,7 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="Nothing is waiting."
         detail="The queue is empty. A message sent while a run is working lands here and is delivered in the order it arrived."
       />

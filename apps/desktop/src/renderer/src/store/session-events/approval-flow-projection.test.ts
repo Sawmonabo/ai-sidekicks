@@ -1,7 +1,7 @@
 // The fold itself: the kinds it claims, the member tables it reads a payload
 // through, and what one event does to the board.
 //
-// The claim is that nothing here sniffs. A kind this family does not claim is left
+// The claim is that nothing here sniffs. A kind this fold does not claim is left
 // alone, and a payload is read through the table its kind names rather than by
 // looking for members that happen to be present.
 
@@ -16,7 +16,7 @@ import {
 import { RUN_LIFECYCLE_EVENT_KINDS } from "./run-lifecycle-projector.js";
 import { SESSION_ID, approvalEvent } from "./approval-flow-projection.test-support.js";
 
-describe("the kinds the composer family claims", () => {
+describe("the kinds the composer feature claims", () => {
   it("is the approval_flow category minus the events that are not a request's", () => {
     const categoryKinds = [...SESSION_EVENT_CATEGORY_BY_TYPE]
       .filter(([, category]) => category === "approval_flow")

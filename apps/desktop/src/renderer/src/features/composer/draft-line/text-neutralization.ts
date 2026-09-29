@@ -11,7 +11,7 @@
 // from the resume-failure producer, and this one fixed
 // `<registered code> origin=<arm>` form — and its own contract says a consumer
 // "reads the cause as the substring before the first space and MUST NOT assume the
-// whole value is prose". This module is that read, done once. A surface matching on
+// whole value is prose". This module is that read, done once. A view matching on
 // the string itself would be a second parser for a shape one comment governs, and
 // the two would drift the first time an arm was added.
 //
@@ -41,7 +41,7 @@ const ORIGIN_KEY = "origin=";
  *
  * Closed at three because the form itself is closed at three, and `unknown` is one
  * of them rather than the absence of one — a driver that could not attribute the
- * text says so, and the surface renders that as a different fact from a driver that
+ * text says so, and the composer renders that as a different fact from a driver that
  * attributed it to the user.
  */
 export const TEXT_NEUTRALIZATION_ORIGINS = ["human_text", "system_narration", "unknown"] as const;

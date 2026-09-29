@@ -1,4 +1,4 @@
-// What the ledger-window registry answers, and the one ordering that decides it.
+// What the transcript-window registry answers, and the one ordering that decides it.
 //
 // The registry is three lines of behavior and one of them is load-bearing: a route
 // change mounts the next transcript before React runs the outgoing one's cleanup, so the

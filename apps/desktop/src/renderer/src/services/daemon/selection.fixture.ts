@@ -18,8 +18,8 @@ export interface ScenarioFixtureHandle {
  *
  * A wrapper rather than exposing `ScenarioEngine` itself, because the engine can
  * also be DISPOSED and subscribed to, and a driver that could dispose the engine
- * could end a run by tearing down the thing it is measuring. Three members is the
- * whole surface: what is playing, move it, and how far it got.
+ * could end a run by tearing down the thing it is measuring. Three members are the
+ * whole interface: what is playing, move it, and how far it got.
  */
 export class ScenarioFixtureControl implements ScenarioFixtureHandle {
   readonly #engine: ScenarioEngine;

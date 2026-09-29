@@ -1,10 +1,10 @@
 // What a wake-up that arrives after several deadlines settles at.
 //
-// Its own suite because it is a different claim from the timer-and-dependency ones
-// next door: those are about what gets ARMED, this is about which instant a late
-// wake-up publishes — the difference between one render and one per deadline behind
-// the surface. The clock and the render harness are shared through
-// `store/deadline-wake.test-support.tsx`.
+// Its own suite because it is a different claim from the timer-and-dependency ones in
+// `useDeadlineWake.test.tsx`: those are about what gets ARMED, this is about which
+// instant a late wake-up publishes — the difference between one render and one per
+// deadline the component has fallen behind. The clock and the render harness are
+// shared through `useDeadlineWake.test-support.tsx`.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

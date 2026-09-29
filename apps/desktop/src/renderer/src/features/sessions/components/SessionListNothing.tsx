@@ -2,7 +2,7 @@
 // than by the row count.
 //
 // Its own module because `apps/desktop/AGENTS.md` puts one component in a `.tsx`
-// file, and because the two arms are the surface's real content when there is
+// file, and because the two arms are the screen's real content when there is
 // nothing to list: the one decision that matters — which kind of nothing this is —
 // was buried inside a ternary about array length, in a file whose other job is the
 // list, the heading, and the start control.
@@ -28,13 +28,13 @@ export function SessionListNothing(props: SessionListNothingProps): React.JSX.El
     // would not render it, which is worse than not passing it, because the code
     // would read as though the control were on screen.
     return (
-      <Nothing kind="not-loaded" placement="surface" title="Reading the sessions on this node." />
+      <Nothing kind="not-loaded" placement="block" title="Reading the sessions on this node." />
     );
   }
   return (
     <Nothing
       kind="empty"
-      placement="surface"
+      placement="block"
       title="There are no sessions on this node yet."
       detail="The node answered, and it has none. Starting one is the way to have the first."
       action={props.action}

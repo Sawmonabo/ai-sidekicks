@@ -22,7 +22,7 @@
 // THE COUNTDOWN DISPLAYS A STAMP AND SETTLES NOTHING. The remaining interval is
 // computed from the daemon's stamped deadline against a clock the MOUNT supplies —
 // this card holds no timer, starts no interval, and reaches zero without changing
-// the ask's state. At zero it says the surface is waiting for the daemon, which is a
+// the ask's state. At zero it says the card is waiting for the daemon, which is a
 // statement about the console and not about the ask: an input ask that expires parks
 // its run, and only the `driver_ask.expired` row may say that it did.
 //
@@ -77,7 +77,7 @@ export interface QuestionCardProps {
    * The mount's reading of now, in epoch milliseconds.
    *
    * Supplied rather than read here, so this card constructs no clock and starts no
-   * timer: the surface that already re-renders on the console's own refresh is what
+   * timer: the view that already re-renders on the console's own refresh is what
    * decides how often a countdown moves.
    */
   readonly nowEpochMilliseconds: number;
@@ -123,14 +123,14 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
  * `prompt` is optional on the wire, so an ask can genuinely arrive without one. The
  * card says so rather than rendering an empty region a reader would take for a paint
  * that did not finish — and rather than composing a question of its own, which would
- * put words in the provider's mouth on the one surface where that is unrecoverable.
+ * put words in the provider's mouth in the one place where that is unrecoverable.
  */
 function renderPrompt(prompt: string | undefined): React.ReactNode {
   if (prompt === undefined) {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="This ask carried no question."
         detail="The provider blocked on an answer without stating what it was asking."
       />
@@ -140,7 +140,7 @@ function renderPrompt(prompt: string | undefined): React.ReactNode {
 }
 
 /**
- * How long the daemon's stamp leaves, or what the surface is doing past it.
+ * How long the daemon's stamp leaves, or what the card is doing past it.
  *
  * An unparseable or absent stamp renders as the `not-checked` absence rather than as
  * an expired countdown: a card that showed zero for a row carrying no deadline would
@@ -199,7 +199,7 @@ function renderAnswerArms(
 ): React.ReactNode {
   // The two statuses in which no further answer may be dispatched: one is on the wire,
   // or one has already reached the driver. A refusal deliberately leaves the controls
-  // live, which is rule 9's "a refusal never hides the control that produced it".
+  // live, because a refusal never hides the control that produced it.
   const isSettling = delivery.status === "delivering" || delivery.status === "accepted";
   return (
     <div className="meridian-input-ask__arms">
@@ -238,10 +238,11 @@ function renderAnswerArms(
  * the call did not land — and the last one is the reason this exists, because a
  * discarded refusal left a blocked run looking like an unanswered question.
  *
- * `accepted` says the surface is WAITING and never that the ask is settled: only the
+ * `accepted` says the card is WAITING and never that the ask is settled: only the
  * `driver_ask.responded` row may say that, and the card reads the ask's state from
- * the row's own event type. The refusal renders inline, which is rule 9's shape for
- * "nothing changed" — the arms above it stay exactly where they were.
+ * the row's own event type. The refusal renders inline under the control that was
+ * pressed, the console's shape for "nothing changed" — the arms above it stay exactly
+ * where they were.
  */
 function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
   switch (delivery.status) {
@@ -283,7 +284,7 @@ function renderTerminal(ask: QuestionReading): React.ReactNode {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="This ask was answered."
         detail="The delivered answer is shown as the background service recorded it."
         {...(ask.deliveredAnswer === undefined
@@ -295,7 +296,7 @@ function renderTerminal(ask: QuestionReading): React.ReactNode {
   return (
     <Nothing
       kind="empty"
-      placement="surface"
+      placement="block"
       title={
         ask.state === "expired"
           ? "This ask expired before it was answered."

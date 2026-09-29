@@ -1,9 +1,9 @@
-// Which control the lease surface may draw.
+// Which control the lease line may draw.
 //
-// The defect this fold replaces is the quiet kind: the control rendered before the
-// console knew which device was asking, so a take came back as a hold the surface could
-// not recognize as its own. Every case below is one identity reading, one holding, and the single
-// control the surface may draw.
+// The failure this fold prevents is the quiet kind: a control rendered before the
+// console knows which device is asking, so a take comes back as a hold the lease line
+// cannot recognize as its own. Every case below is one identity reading, one holding, and
+// the single control the lease line may draw.
 
 import { describe, expect, it } from "vitest";
 

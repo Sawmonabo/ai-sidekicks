@@ -17,8 +17,9 @@
 // A `const` and not a module-level `let`: the memo is the class's own private field,
 // which is what the state-and-views rule in `apps/desktop/AGENTS.md` asks for.
 //
-// WHAT A PENDING BODY DRAWS is the marker `seats/pane/pending-pane-body.ts` owns and nothing
-// else: no spinner, no skeleton, and none of rule 8's five kinds of nothing. What is
+// WHAT A PENDING BODY DRAWS is the marker `components/LazyBody/pending-body-marker.ts` owns and nothing
+// else: no spinner, no skeleton, and none of the five kinds of nothing, which render
+// differently because the next move differs. What is
 // absent is a MODULE rather than anything about the act, and the marker rides a `hidden`
 // element, so what the wait costs the layout is nothing and the screenshot tier refuses
 // to photograph a tree still carrying one.

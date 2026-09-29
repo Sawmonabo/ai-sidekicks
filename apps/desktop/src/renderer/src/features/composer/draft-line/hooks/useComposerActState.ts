@@ -5,7 +5,7 @@
 // `useSubjectScopedState` under `(bridge, draftKey)`, which re-seeds during the render
 // that first sees a new address. Split from `send-controller.ts` because that hook's
 // job is to BUILD the acts — the router, the latch, the dispatch path, the history
-// walk — and this one's is to say what the surface reads while an act is in flight and
+// walk — and this one's is to say what the composer shows while an act is in flight and
 // what a settlement is allowed to write.
 //
 // THE REFUSAL IS HELD WHERE THE STATUS IS. The refusal answers the act that produced
@@ -16,12 +16,12 @@
 // draftKey)` like the status, a re-address DROPS it and a replaced bridge takes it
 // with it.
 //
-// THE SLOT RECORD NEVER LEAVES THIS MODULE. `send-settlement.ts` owns which act a
-// settlement belongs to and which refusal the bar renders; what the composer is handed
-// is the ONE refusal that rule produces. A caller holding the slots could read a slot
-// the render rule would not have shown, which is a second answer to a question that
-// has one — and it is the reason `renderableRefusal` is applied here rather than at
-// the surface that renders its result.
+// THE PER-OPERATION REFUSAL RECORD NEVER LEAVES THIS MODULE. `send-settlement.ts` owns
+// which act a settlement belongs to and which refusal the bar renders; what the composer
+// is handed is the ONE refusal that rule produces. A caller holding the record could
+// read a refusal the render rule would not have shown, which is a second answer to a
+// question that has one — and it is the reason `renderableRefusal` is applied here
+// rather than in the component that renders its result.
 //
 // AND A SETTLEMENT IS ADMITTED BY ITS IDENTITY RATHER THAN BY THE KEY. Both writers
 // take the act's own identity and consult the predicate `use-settlement-identities.ts`
@@ -54,7 +54,7 @@ export interface ComposerActState {
   /** Publish what the send path is doing. Dropped once the address has moved. */
   readonly publishStatus: SubjectScopedPublish<SendControllerStatus>;
   /**
-   * Retire every slot, because the person is composing again.
+   * Retire every held refusal, because the person is composing again.
    *
    * Leaving one up would make a stale refusal read as a verdict on text nobody has
    * sent.
@@ -88,7 +88,7 @@ export function useComposerActState(
     draftKey,
     () => "idle",
   );
-  const { value: refusalSlots, publish: publishRefusalSlots } =
+  const { value: refusalsByOperation, publish: publishRefusalsByOperation } =
     useSubjectScopedState<ComposerRefusalsByOperation>(
       bridge,
       draftKey,
@@ -96,8 +96,8 @@ export function useComposerActState(
     );
 
   const clearRefusals = useCallback((): void => {
-    publishRefusalSlots(NO_COMPOSER_REFUSALS);
-  }, [publishRefusalSlots]);
+    publishRefusalsByOperation(NO_COMPOSER_REFUSALS);
+  }, [publishRefusalsByOperation]);
 
   const clearSentDraft = useCallback(
     (identity: ComposerSettlementIdentity, sentDraftKey: string): void => {
@@ -113,14 +113,14 @@ export function useComposerActState(
       if (!isCurrent(identity)) {
         return;
       }
-      publishRefusalSlots((slots) => withSettledRefusal(slots, identity, settledRefusal));
+      publishRefusalsByOperation((held) => withSettledRefusal(held, identity, settledRefusal));
     },
-    [isCurrent, publishRefusalSlots],
+    [isCurrent, publishRefusalsByOperation],
   );
 
   return {
     status,
-    refusal: renderableRefusal(refusalSlots),
+    refusal: renderableRefusal(refusalsByOperation),
     publishStatus,
     clearRefusals,
     settle,

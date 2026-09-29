@@ -15,7 +15,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { TerminalRendererPool } from "./renderer-pool.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
-import { attachedHost, disposeLiveEmulators, trackAdapter } from "./xterm-adapter.test-support.js";
+import {
+  attachedMountElement,
+  disposeLiveEmulators,
+  trackAdapter,
+} from "./xterm-adapter.test-support.js";
 import { FakeWebglRenderer, resetWebglFallback } from "./webgl-fallback.test-support.js";
 
 vi.mock("@xterm/addon-webgl", async () => ({
@@ -41,11 +45,11 @@ describe("two panes on one session", () => {
     const firstPane = trackAdapter(
       new XtermTerminalAdapter({ terminalId: sessionTerminalId, pool }),
     );
-    firstPane.attach(attachedHost());
+    firstPane.attach(attachedMountElement());
     const secondPane = trackAdapter(
       new XtermTerminalAdapter({ terminalId: sessionTerminalId, pool }),
     );
-    secondPane.attach(attachedHost());
+    secondPane.attach(attachedMountElement());
 
     // Two renderers, two contexts, two of the page's allowance spent. The id-keyed
     // ledger reported one here while the page held two, which is how a burst of
@@ -72,7 +76,7 @@ describe("two panes on one session", () => {
     // anything at all, which would report a held context for the life of the page.
     const pool = new TerminalRendererPool();
     const onlyPane = trackAdapter(new XtermTerminalAdapter({ terminalId: "solo-session", pool }));
-    onlyPane.attach(attachedHost());
+    onlyPane.attach(attachedMountElement());
     expect(pool.holds("solo-session")).toBe(true);
 
     onlyPane.dispose();

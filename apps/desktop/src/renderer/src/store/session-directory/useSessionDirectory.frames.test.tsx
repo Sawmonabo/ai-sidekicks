@@ -1,12 +1,12 @@
 // Which frames a call swap paints, which no assertion on a settled state can see.
 //
-// The hook's sibling suite reads STATES — what one read settles on — and this one
-// reads FRAMES. They are different claims: a hook that reached the right
-// final answer by way of one commit showing the previous node's session list would
-// satisfy every case next door, and that commit is exactly the defect. It is one
-// frame long, and `act` has already replaced it by the time an assertion could look
-// at the DOM, so the reading is `CommittedFrameRecorder` — a `Profiler` over the
-// tree, called once per commit, before any passive effect runs.
+// The hook's sibling suite reads STATES — what one read settles on — and this one reads
+// FRAMES. They are different claims: a hook that reached the right final answer by way of
+// one commit showing the previous node's session list would satisfy every case in
+// `useSessionDirectory.test.tsx`, and that commit is exactly the defect. It is one frame
+// long, and `act` has already replaced it by the time an assertion could look at the DOM,
+// so the reading is `CommittedFrameRecorder` — a `Profiler` over the tree, called once
+// per commit, before any passive effect runs.
 //
 // The control is the shape this hook replaced: a `useState` cell reset from the first
 // statement of the effect body. That reset cannot run before the commit of the render
@@ -39,7 +39,7 @@ import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
  *
  * IT READS THE SAME WAY THE SHIPPED HOOK DOES, and that is what makes it a control
  * rather than a second experiment: the only thing that differs between the two
- * surfaces below is WHEN the state is reset — which is the whole of what a frame
+ * components below is WHEN the state is reset — which is the whole of what a frame
  * recorder can see.
  */
 function useSessionDirectoryWithEffectTimeReset(
@@ -91,7 +91,7 @@ function DirectoryFrame(props: { readonly read: SessionDirectoryReadCall }): Rea
   return <output>{directoryText(useSessionDirectory(props.read, NO_TRANSPORT_RECONNECT))}</output>;
 }
 
-/** The pre-holder hook, painted — the same surface over the shape this replaced. */
+/** The pre-holder hook, painted — the same component over the shape this replaced. */
 function EffectTimeResetFrame(props: {
   readonly read: SessionDirectoryReadCall;
 }): React.JSX.Element {
@@ -120,7 +120,7 @@ interface CallSwapFrames {
  * commit long: `act` has already replaced it by the time an assertion could look.
  */
 async function framesAcrossACallSwap(
-  Surface: (props: { readonly read: SessionDirectoryReadCall }) => React.JSX.Element,
+  DirectoryComponent: (props: { readonly read: SessionDirectoryReadCall }) => React.JSX.Element,
 ): Promise<CallSwapFrames> {
   const frames: string[] = [];
   const recorded = (read: SessionDirectoryReadCall): React.JSX.Element => (
@@ -130,7 +130,7 @@ async function framesAcrossACallSwap(
         frames.push(committedText);
       }}
     >
-      <Surface read={read} />
+      <DirectoryComponent read={read} />
     </CommittedFrameRecorder>
   );
   const view = render(recorded(readBusyNode));

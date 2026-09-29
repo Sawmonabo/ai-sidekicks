@@ -1,6 +1,6 @@
 // State that belongs to a subject, and can never be read about another one.
 //
-// THE FAMILY'S DOOR, AND THE REACT HALF OF ITS RULE. What a value addressed by a
+// THE HOOK CALLERS TAKE, AND THE REACT HALF OF THE RULE. What a value addressed by a
 // subject may do — when it is discarded, which publisher may write, what a late
 // settlement does — is `subject-scoped-holder.ts`, which has no renderer in it at
 // all. This file decides when React is told: it addresses the holder DURING the
@@ -50,7 +50,7 @@ export interface SubjectScopedState<TValue> {
    * Captured at render, so a closure a caller carried into a `.then` still names the
    * subject that dispatched the call: if the subject has moved since, the publish is
    * dropped. Its identity changes exactly when the ADDRESSING THIS RENDER READS does —
-   * which is a strictly finer fact than the pair, and the correct one: a surface
+   * which is a strictly finer fact than the pair, and the correct one: a view
    * routed away and back is at the same pair on two different visits, and only the
    * addressing tells them apart. So it is still a correct dependency for an effect
    * that must re-run on a re-address, and it is stable across every render that did
@@ -100,8 +100,8 @@ export function useSubjectScopedState<TValue>(
  *
  * The React half of the hook above, split out because `useSubjectScopedResource.ts`
  * needs exactly this and differs only in what it does about the value's LIFETIME —
- * two copies of a subscription with their own equality rules is the second path this
- * family's one door exists to keep shut.
+ * two copies of a subscription with their own equality rules would be a second path
+ * to the holder, which these two hooks exist to rule out.
  *
  * Addressing is deliberately the CALLER's, immediately before this runs: the whole
  * guarantee is that the pass which first sees a new subject already reads that

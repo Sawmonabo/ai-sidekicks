@@ -93,10 +93,10 @@ export function createClientCommandExecutor(options: {
 
 /** One invocation, resolved into exactly one settlement. Never throws. */
 async function settleInvocation(
-  surface: ComposerCommands,
+  composerCommands: ComposerCommands,
   commandId: string,
 ): Promise<CommandOutcome> {
-  const outcome = surface.invoke(commandId);
+  const outcome = composerCommands.invoke(commandId);
   switch (outcome.status) {
     case "unknown-command":
       // Reachable even though the recognizer just read the list: the registry is
@@ -119,7 +119,7 @@ async function settleInvocation(
       };
     case "unavailable":
       // The owner's own sentence, carried through rather than paraphrased. This zone
-      // knows a command was closed and never why; the family that closed it does.
+      // knows a command was closed and never why; the owner that closed it does.
       return {
         status: "refused",
         refusal: clientCommandRefusal("command-unavailable-now", outcome.reason),

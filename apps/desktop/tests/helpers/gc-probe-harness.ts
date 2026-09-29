@@ -13,8 +13,8 @@
 // two probes read different readings, arrange different activation gates, and
 // carry different diagnostics, so one function could not serve both without a
 // mode flag; what they genuinely share they take from one home — the bundle
-// entry paths and the package root below, and the spawn door itself, which is
-// the chokepoint `apps/desktop/eslint.config.mjs` holds every module under `test/` to.
+// entry paths and the package root below, and the spawner itself, the one module
+// `apps/desktop/eslint.config.mjs` lets any file under `tests/` reach `spawn` through.
 //
 // The harness asserts nothing, deliberately. A helper that could fail a test
 // would be a second place a probe failure can come from; the one test-framework
@@ -197,7 +197,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
     // `sidekicks-gc-test-` profile on disk for the rest of the run to
     // accumulate, which is how four of them were found beside four orphans; and
     // a settle-time registration that itself REFUSES is the path where there is
-    // no child to wait for at all, which the same door releases outright.
+    // no child to wait for at all, which the same spawner releases outright.
     const managed = spawnChildCleanedUpAtSettleTime(
       {
         command: spawnCommand,

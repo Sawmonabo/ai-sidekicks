@@ -1,19 +1,19 @@
 // The chip: one fact, in one word, with at most one color.
 //
 // Chips are where the two-hue rule is most easily broken, so the tone set is closed at
-// four and each one is spent on exactly the meaning rule 3 assigns it:
+// four and each one is spent on exactly the meaning the two-hue rule assigns it:
 //
 //   • `neutral`   — the common case, and the default. A chip that carries no
 //                   urgency carries no color. Most chips in a healthy session are
 //                   this one; a screen of neutral chips is a screen that needs
-//                   nobody, which is the property rule 3 exists to make visible.
+//                   nobody, which is the property the two-hue rule exists to make visible.
 //   • `attention` — amber. A person is needed. Nothing else earns amber.
 //   • `failure`   — red. Something failed. Nothing else earns red.
 //   • `accent`    — the one desaturated cyan, and only on something interactive.
 //
 // `mono` is not styling. It marks the label as a wire-true string, so a chip
 // carrying a `SessionState` or a provider name reads with the same provenance
-// signature as every other figure the daemon sent (rule 4). A chip whose label the
+// signature as every other figure the daemon sent. A chip whose label the
 // console composed leaves it off.
 
 import "./Chip.css";

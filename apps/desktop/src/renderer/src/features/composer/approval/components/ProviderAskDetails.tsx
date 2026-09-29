@@ -1,7 +1,7 @@
 // A provider's mid-run PERMISSION request, framed as the ordinary approval it is.
 //
-// Permission-kind asks belong on the approvals surface and nowhere else, and that
-// surface shares the approval card ENTIRELY — no additional primitive and no second
+// Permission-kind asks belong on the approval card and nowhere else, and they share
+// that card ENTIRELY — no additional primitive and no second
 // card type. So this is not a card: it is the body `ApprovalCard` already reserves
 // between its header and its action row, and the pane hands it there. The two answers
 // stay the card's two, because a permission ask is settled as an approval, which is why
@@ -20,10 +20,10 @@
 //     `ApprovalResource.tsx` — so the two placements cannot say different things.
 //
 // THE INPUT-KIND ASK IS NOT HERE. The `kind` discriminator on the originating ask
-// selects between this surface and the input-ask card, so exactly one of the two
-// renders any given ask and neither has to guess. The input card is the transcript
-// family's, and the `driver.respondToRequest` ingress that answers one is reached
-// from nowhere on this surface.
+// selects between these details and the input-ask card, so exactly one of the two
+// renders any given ask and neither has to guess. The input card belongs to the
+// transcript feature, and the `driver.respondToRequest` ingress that answers one is
+// reached from nowhere in the approval card.
 
 import "./ProviderAskDetails.css";
 

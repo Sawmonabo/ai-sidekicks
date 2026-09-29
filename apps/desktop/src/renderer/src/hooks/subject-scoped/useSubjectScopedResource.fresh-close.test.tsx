@@ -116,7 +116,7 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
 
     expect(ledger.opened).toStrictEqual(["discarded"]);
     expect(ledger.closed).toStrictEqual([]);
-    // And the surface is still reading through the resource it opened, rather than
+    // And the component is still reading through the resource it opened, rather than
     // through a replacement minted to cover for one that was closed underneath it.
     expect(new Set(passes.resources).size).toBe(1);
   });
@@ -140,7 +140,7 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
 
   it("negative control: the disposal-keyed lifetime closes the resource on screen", () => {
     // The identical script against the dependency list this replaced. Nothing was
-    // opened to replace what it closed, so the surface goes on rendering a resource
+    // opened to replace what it closed, so the component goes on rendering a resource
     // that has been disposed twice — which is the defect, and the reason the claim
     // above is about the dependency list rather than about the script.
     const ledger = new ResourceOpenCloseLog();

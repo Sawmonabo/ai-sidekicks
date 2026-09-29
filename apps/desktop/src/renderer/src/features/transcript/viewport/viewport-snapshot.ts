@@ -4,16 +4,14 @@
 // The seam is between the value vocabulary and the wiring. `viewport-controller.ts`
 // owns four live objects, three subscriptions, a virtualizer instance and a
 // coalescing frame; everything in this file is a value, computable from its
-// arguments and holding nothing. A view, the React binding, and this family's door
-// all speak the vocabulary below without ever holding the controller — which is why
-// the frame's own barrel re-exports a row type from HERE and not from the module
-// that wires the objects together.
+// arguments and holding nothing. A view and the React binding both speak the vocabulary
+// below without ever holding the controller, which is why a row type is imported from
+// HERE and not from the module that wires the objects together.
 //
-// The two functions are here for the same reason and not as a leftover. Each is a
+// The two functions are here for the same reason. Each is a
 // rule about the value vocabulary this module owns: one reads a row-key tail, the
 // other reads a reading mode and two offsets. Neither touches a field, so neither
-// can be tested by driving the controller — they are asserted directly, which is
-// the point of moving them out of a private method.
+// needs the controller to be tested — they are asserted directly.
 
 import { type ReadingAnchorState } from "../scroll/reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
@@ -49,7 +47,7 @@ export interface ViewportSnapshot {
   readonly lastPrune: PruneOutcome | undefined;
 }
 
-/** What the surrounding surface tells the frame each render. */
+/** What the surrounding feed tells the frame each render. */
 export interface ViewportConditions {
   readonly rows: readonly ViewportRow[];
   /** A turn is mid-flight, so prune waits rather than moving rows under a stream. */

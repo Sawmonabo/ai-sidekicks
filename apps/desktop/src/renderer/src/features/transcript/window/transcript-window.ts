@@ -89,7 +89,7 @@ export interface TranscriptWindowModel {
   readonly supersededBandByHeaderKey: ReadonlyMap<string, SupersededBand>;
   /** Which band each superseded row belongs to — the fold's per-row question. */
   readonly supersededBandKeyByRowId: ReadonlyMap<string, string>;
-  /** Which rows are collapsed, under rule 7's terminal run group fold. */
+  /** Which rows are collapsed, under the fold that closes every finished run group. */
   readonly collapsedRowIds: ReadonlySet<string>;
   /**
    * The run group behind each header row, keyed by the run id the header IS.
@@ -102,7 +102,7 @@ export interface TranscriptWindowModel {
   readonly runGroupByHeaderKey: ReadonlyMap<string, RunGroup>;
   /**
    * The seam behind each row that is one — the lookup the feed's row renderer
-   * consults BEFORE it delegates to the transcript row seat.
+   * consults BEFORE it delegates to the registered row renderer.
    *
    * The ONE form a seam is published in. The classifier's log-order pass is kept as a
    * local that feeds this map and is not carried on the model beside it: a second
@@ -113,7 +113,7 @@ export interface TranscriptWindowModel {
   readonly seamByRowId: ReadonlyMap<string, SystemMessageReading>;
   /**
    * The child-run summary behind each row that carries one — the second lookup the
-   * feed's row renderer consults before it delegates to the transcript row seat.
+   * feed's row renderer consults before it delegates to the registered row renderer.
    *
    * Anchored: a child re-summarized as it progresses has ONE entry, at the row that
    * first named it, so its card stays where a reader left it — and that entry carries
@@ -210,8 +210,7 @@ export function deriveTranscriptWindow(
 /**
  * Which rows are collapsed: every row of a run group that has reached a terminal.
  *
- * Rule 7 in terms — "run groups collapse once terminal and the live run group stays
- * open" — asked of the run group index's own `terminalRunGroups()` rather than
+ * Run groups collapse once terminal and the live run group stays open — asked of the run group index's own `terminalRunGroups()` rather than
  * re-derived from a terminal event type here, so the fold that decides a run group is
  * over and the fold that decides a row is collapsed are one fold.
  */

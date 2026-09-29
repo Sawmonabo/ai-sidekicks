@@ -3,7 +3,7 @@
 //
 // WHY THE COMPOSER NEEDS ONE AT ALL. `send-router.ts` takes a
 // `ClientCommandPredicate` whose default answers `false` for every name, so a
-// composer with no surface behind it refuses every `/name` a person types. That is
+// composer with no command registry behind it refuses every `/name` a person types. That is
 // the fail-loud default and it is correct as a default — but shipped alone it makes
 // the reserved `/` prefix a prefix that reserves nothing, which is the state this
 // module ends.
@@ -71,7 +71,7 @@ export function readComposerCommands(route: AppRoute): ComposerCommands {
  * Where a command run from the composer would be running.
  *
  * `sessionActive` is `true` unconditionally and that is a statement rather than a
- * shortcut: the composer is a seat addressed WITHIN one session, so a composer that
+ * shortcut: the composer is mounted and addressed WITHIN one session, so a composer that
  * is rendering at all is a window that has a session in hand. The frame derives the
  * same fact from its retained session id; both readings answer the same question and
  * neither can be true where the other is false.

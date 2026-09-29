@@ -3,14 +3,14 @@
 //
 // WHY THIS MODULE EXISTS AT ALL. `attachment-ingest-client.ts` is a class with a
 // lifecycle and the composer strip is a render; between them there has to be exactly one
-// place that owns construction, subscription, and teardown, or every surface that wanted
+// place that owns construction, subscription, and teardown, or every view that wanted
 // an upload would own three of them. That is this class; `hooks/useStagedAttachments.ts`
 // binds it to a component's lifetime.
 //
 // THE INSTANT IS PUBLISHED WITH THE ENTRIES. `AttachmentCard` reads a stall disclosure
 // and a stream ceiling off an instant it is handed, so something has to supply one. A
 // card that read the wall clock in its own render would move an age with nobody acting,
-// and a surface that re-stamped on every render would do the same thing one level up.
+// and a view that re-stamped on every render would do the same thing one level up.
 // So the stamp is taken WHEN THE LEDGER PUBLISHES and carried in the same snapshot the
 // entries are: an age moves when the upload moves, and at no other moment.
 //
@@ -57,13 +57,13 @@ export interface StagedAttachmentsOptions {
    * REQUIRED, AND THE HOOK READS THE WINDOW'S. `useBridgeClock` is the one answer to
    * which clock a window runs on: a staged list with a wall clock of its own
    * would stamp its entries from wall time while the rest of the window ran on the
-   * fixture's frozen time, and a surface showing an age would disagree with the ledger
+   * fixture's frozen time, and a card showing an age would disagree with the ledger
    * it was reading. There is no default, so every call site says which clock it means.
    */
   readonly clock: Clock;
 }
 
-/** One ingest client, its subscription, and the stamped snapshot a surface renders. */
+/** One ingest client, its subscription, and the stamped snapshot a view renders. */
 export class StagedAttachments {
   readonly #client: AttachmentIngestClient;
   readonly #clock: Clock;
@@ -104,7 +104,7 @@ export class StagedAttachments {
   /**
    * Begin following the ledger.
    *
-   * IDEMPOTENT, on `dispose`'s own reason next door: React runs an effect twice in
+   * IDEMPOTENT, for the reason `dispose` gives: React runs an effect twice in
    * development strict mode, and a second subscription would restamp and re-emit for
    * every publish forever after.
    */
@@ -158,7 +158,7 @@ export class StagedAttachments {
    * Drop the subscription first, then give the daemon back every spool still open.
    *
    * The wake-up is canceled here rather than left to fire against a disposed staged list:
-   * a timeout that outlived its surface would publish into an emitter whose sinks are
+   * a timeout that outlived its staged list would publish into an emitter whose sinks are
    * gone, which is a stamp nobody reads and a handle nobody can cancel.
    */
   public dispose(): void {
@@ -208,7 +208,7 @@ export class StagedAttachments {
    * The soonest disclosure deadline still ahead of now, or `undefined` for none.
    *
    * WHICH ENTRIES HAVE A DEADLINE IS THIS CLASS'S QUESTION; which of them is next is
-   * the console's, and `earliestFutureDeadline` answers it for every surface that
+   * the console's, and `earliestFutureDeadline` answers it for every view that
    * renders against one. A staged list is not a render, so it arms its own single shot
    * rather than taking the hook beside that rule — but a second copy of the rule was
    * the part worth removing, and this is the whole of what is left.

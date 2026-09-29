@@ -1,14 +1,14 @@
-/* The session screen: its own element, its banners and its composer slot.
+/* The session screen: its own element, its banners and its composer region.
  *
  * Every color is a Meridian custom property and every space a step on the scale,
- * so the family follows the scheme attribute with no conditional in JSX and its
+ * so the screen follows the scheme attribute with no conditional in JSX and its
  * rhythm is a decision made once in `tokens/palette.ts`.
  */
 
-/* --- The session shell -------------------------------------------------- */
+/* --- The session screen's grid ------------------------------------------ */
 
 /*
- * Three rows: the session header, the pane layout, and the composer's seat. The pane layout is the
+ * Three rows: the session header, the pane layout, and the composer's region. The pane layout is the
  * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
  * the things that scroll rather than pushing the composer off the bottom.
  */
@@ -26,7 +26,7 @@
  * A banner and the count of the raises it stands for, on one line.
  *
  * The row exists so the count can sit beside the banner without the banner having to
- * take a slot for it: a repeat count is the console's own reading, and the refusal
+ * carry it: a repeat count is the console's own reading, and the refusal
  * shape's two fields are the daemon's.
  */
 .meridian-session-screen__banner {

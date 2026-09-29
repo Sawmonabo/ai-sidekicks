@@ -1,8 +1,7 @@
 // The Meridian palette — the single source of truth for every console color.
 //
-// Design-language rule 2 (the user hue system), rule 3 (the two-hue rule and its
-// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realized here and
-// nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
+// The user hue wheel, the two attention hues with their WCAG 2.2 AA contrast floors,
+// and the colors type and figures are painted in are realized here and nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
 // byte-diffed against it by the console's assets tier, so a color edited in CSS alone
 // fails the build.
 //
@@ -12,15 +11,15 @@
 //     below are one scheme-independent set, because a person's identity does not
 //     change when the operator flips the theme. One lightness (`ACTOR_HUE_
 //     LIGHTNESS`) clears 3:1 as an edge, ring, or mark against BOTH schemes'
-//     grounds — which is exactly what rule 3 asks for and why the lightness sits
+//     grounds — which is exactly what the 3:1 floor asks for and why the lightness sits
 //     mid-scale rather than at either extreme.
 //   • Amber means a person is needed; red means something failed; the accent is
 //     one desaturated cyan on interactive affordances. Each carries a `-text`
 //     variant at the 4.5:1 floor and a `-mark` variant at the 3:1 floor, because
 //     one value cannot serve both without failing one of them.
 //   • `edge` is a decorative hairline and carries NO contrast floor; `edgeStrong`
-//     is the boundary of a non-text control and carries the 3:1 floor. Rule 3
-//     scopes its non-text floor to "non-text controls, their boundaries, and
+//     is the boundary of a non-text control and carries the 3:1 floor. The design
+//     language scopes its non-text floor to "non-text controls, their boundaries, and
 //     every focus ring" — a table rule or a section divider is neither, and
 //     forcing 3:1 onto every hairline would produce the high-contrast grid the
 //     density budget exists to avoid. The split is the reading, stated so a
@@ -46,9 +45,9 @@ import { BODY_LINE_HEIGHT, TYPE_SCALE_REM } from "./typography.js";
  * Six, and the number is a ceiling rather than a preference. The shortest window
  * the console ships is 720 px tall (the Agents pane auxiliary geometry), which is
  * 45 rem at the 16 px root; an enumeration allowed to take more than a third of
- * that would leave the surface holding it with nothing else on screen. Six rows is
+ * that would leave the pane holding it with nothing else on screen. Six rows is
  * 13.875 rem and clears that third; seven is 16.1875 rem and does not. The rem
- * height itself is the token family's, because it is this count multiplied by a row
+ * height itself belongs to the tokens, because it is this count multiplied by a row
  * height the type and space scales decide.
  */
 export const BOUNDED_ENUMERATION_MAX_ROWS = 6;
@@ -96,7 +95,7 @@ export const GROUND_TOKENS: Readonly<Record<string, SchemePair>> = {
   "edge-strong": { light: oklch(0.61, 0.014, 255), dark: oklch(0.538, 0.016, 255) },
 };
 
-/** Text tokens. All three clear 4.5:1 on every surface token above. */
+/** Text tokens. All three clear 4.5:1 on every ground token above. */
 export const TEXT_TOKENS: Readonly<Record<string, SchemePair>> = {
   text: { light: oklch(0.24, 0.014, 255), dark: oklch(0.955, 0.004, 255) },
   "text-muted": { light: oklch(0.455, 0.016, 255), dark: oklch(0.775, 0.012, 255) },
@@ -119,7 +118,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // The ink for a control FILLED with `accent` — a primary action's label, and
   // nothing else. `accent-text` is the ink for accent-colored text on a NEUTRAL
   // ground and is measured against the four grounds; painted on the accent itself
-  // it reaches 1.53:1 in light and 1.48:1 in dark, which is rule 3's floor missed
+  // it reaches 1.53:1 in light and 1.48:1 in dark, which is the 4.5:1 text floor missed
   // by a factor of three. The pair needs its own token because one value cannot
   // serve both, exactly as `-text` and `-mark` cannot.
   //
@@ -128,7 +127,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // `surface-raised` (pure white there), reaches 4.23:1, and `text` reaches 3.89:1.
   // So the light leg sits below the whole text scale, at L 0.13 (4.75:1); the dark
   // leg has room, because its accent is lighter, and sits at L 0.22 (7.41:1) —
-  // which is also where the dark scheme's own `surface` family sits, so a filled
+  // which is also where the dark scheme's own `surface` tokens sit, so a filled
   // control reads as the console's ground punched out of the accent rather than as
   // a black label stuck on top of it. Both carry a little of the accent's own
   // chroma for the same reason.
@@ -138,7 +137,7 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // scaling does not preserve a contrast ratio, because relative luminance carries
   // a 0.05 offset a multiplication does not distribute over. `brightness(0.94)` on
   // the light face took the measured `accent-ink` pair from 4.73:1 to 4.27:1 —
-  // through rule 3's 4.5:1 floor, in the state the treatment was meant to keep
+  // through the 4.5:1 text floor, in the state the treatment was meant to keep
   // legible.
   //
   // HOW FAR THE LIGHT FACE MAY DARKEN IS SETTLED BY ARITHMETIC, NOT BY TASTE. The
@@ -161,19 +160,19 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * The five code-token families that carry a color of their own.
+ * The five code-token kinds that carry a color of their own.
  *
  * HERE RATHER THAN IN THE TRANSCRIPT'S OWN SHEET, and the reason is measurement. These
  * five and the twelve ANSI ones below were hand-written `oklch()` literals in
  * `features/transcript/transcript.css`, outside every guarantee this module exists to make — and both
  * consequences were invisible: nothing fitted them into the sRGB gamut, so seven of
  * the thirty-four requests were remapped by the browser to a color no file states,
- * and nothing measured them against their ground, so six sat below rule 3's text
+ * and nothing measured them against their ground, so six sat below the 4.5:1 text
  * floor in the light scheme.
  *
  * WHAT THE SHEET'S OLD ARGUMENT GOT RIGHT AND WHERE IT STOPS. It said a syntax
  * palette is none of the three closed sets above, so folding it in would blur the
- * boundary rule 3 depends on. The first half is true, and is why this is its own
+ * boundary the two-hue rule depends on. The first half is true, and is why this is its own
  * record rather than more members of `ATTENTION_TOKENS`: the two-hue rule governs
  * what the console colors FOR ATTENTION, and a keyword is not. The second half does
  * not follow — a separate record here keeps the sets distinct while still putting
@@ -224,7 +223,7 @@ export const ANSI_TOKENS: Readonly<Record<string, SchemePair>> = {
 };
 
 /**
- * Tokens that are a family's own NAME for a console token, not a color.
+ * Tokens that are a code or terminal NAME for a console token, not a color.
  *
  * A code block's plain text is the console's text; a terminal's black and white are
  * the two ends of the reading scale, and reproducing a tool's literal black on a
@@ -247,7 +246,7 @@ export const TOKEN_ALIASES: Readonly<Record<string, string>> = {
   "ansi-bright-white": "text",
 };
 
-/** Steps on the user wheel. Twelve, per design-language rule 2. */
+/** Steps on the user wheel. The design language fixes the actor hues at twelve. */
 export const HUE_WHEEL_STEPS = 12;
 
 /**
@@ -268,7 +267,7 @@ export const HUE_WHEEL_LIGHTNESS = 0.57;
 /**
  * Requested chroma for every user hue. Green and cyan cannot hold it in
  * sRGB at this lightness, so those steps are chroma-fitted down; the wheel stays
- * perceptually even in lightness, which is what carries the "one family" reading.
+ * perceptually even in lightness, which is what carries the "one set" reading.
  */
 export const HUE_WHEEL_CHROMA = 0.135;
 
@@ -309,7 +308,7 @@ export const RADIUS_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
- * The attribution edge's width, in px. Rule 1 fixes it at 2 px: wide enough to
+ * The attribution edge's width, in px. The design language fixes it at 2 px: wide enough to
  * carry a hue at a glance, narrow enough that a screen of rows reads as a log
  * rather than as a striped table.
  */
@@ -354,7 +353,7 @@ export const ENUMERATION_ROW_HEIGHT_REM: number =
  * consequence of the type and space scales and lives here. This is their product, computed where the two meet, so a stylesheet
  * writes `max-height: var(--meridian-enumeration-max-height)` and never multiplies.
  * A list that grows past it scrolls inside its own box instead of pushing the rest
- * of its surface off screen.
+ * of its pane off screen.
  */
 export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
   BOUNDED_ENUMERATION_MAX_ROWS * ENUMERATION_ROW_HEIGHT_REM;
@@ -370,10 +369,10 @@ export const BOUNDED_ENUMERATION_HEIGHT_REM: number =
  * It is a FLOOR the frame declares, not a breakpoint anything switches on. The
  * console's answer to the criterion is one fluid layout that holds down to this
  * width — `frame.css` spends it as the frame's `min-width`, so a viewport below it
- * scrolls the whole document horizontally instead of squeezing every surface
- * inside an unbounded amount further. Above it every surface sizes off its own
+ * scrolls the whole document horizontally instead of squeezing every pane
+ * inside an unbounded amount further. Above it every pane and region sizes off its own
  * content; the four width-conditional rules the console has are each written to
- * collapse toward this end of the range, so no surface needs a second layout to
+ * collapse toward this end of the range, so no view needs a second layout to
  * reach it.
  *
  * A px value rather than a rem one, and that is the criterion's own unit: a CSS px

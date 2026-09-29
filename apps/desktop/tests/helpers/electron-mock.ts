@@ -50,8 +50,8 @@ import {
 
 // Republished, because a suite that reads a constructed window needs its type and
 // should not have to know this module is two files. Only the window itself: the
-// options, the `webContents` surface, and one sent message are reached THROUGH it
-// (`MockBrowserWindow["webContents"]`), so a re-export of each would be a door line
+// options, the `webContents` object, and one sent message are reached THROUGH it
+// (`MockBrowserWindow["webContents"]`), so a re-export of each would be an export
 // with no reader — which is what the dead-code gate reports.
 export type { MockBrowserWindow } from "./electron-mock-window.js";
 
@@ -154,7 +154,7 @@ export interface ElectronMock {
   releaseReady(): void;
 }
 
-/** The mock's own state and the `electron` surface built over it. */
+/** The mock's own state and the `electron` module exports built over it. */
 class ElectronMockImpl implements ElectronMock {
   public readonly moduleExports: Record<string, unknown>;
   public readonly constructed: MockBrowserWindow[] = [];
@@ -319,7 +319,7 @@ class ElectronMockImpl implements ElectronMock {
  * Binds the window class to one mock instance.
  *
  * A factory rather than a class declared inside the method, so the binding is
- * an argument instead of an aliased `this` — the `electron` surface hands
+ * an argument instead of an aliased `this` — the `electron` module hands
  * production code a CONSTRUCTOR, and a constructor cannot close over `this`
  * through an arrow the way every other member here does.
  */

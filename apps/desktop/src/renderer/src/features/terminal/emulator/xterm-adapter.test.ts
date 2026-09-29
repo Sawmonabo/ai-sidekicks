@@ -1,7 +1,7 @@
 // The emulator wrapper's own life: built once, kept across a detach, disposed once.
 //
 // What the ADAPTER owns, as opposed to the three modules it composes: when the
-// emulator comes into existence, which host element it is currently in, what its
+// emulator comes into existence, which mount element it is currently in, what its
 // scrollback is capped at, what a teardown lets go of, and what it spends on the
 // page's context ledger. The accessible view is here too, because
 // `screenReaderMode` is an option this module constructs the terminal with.
@@ -18,7 +18,7 @@ import { TerminalRendererPool } from "./renderer-pool.js";
 
 import {
   RecordingRendererPool,
-  attachedHost,
+  attachedMountElement,
   disposeLiveEmulators,
   emulatorElementsIn,
   mountedAdapter,
@@ -34,62 +34,62 @@ describe("the emulator wrapper", () => {
     const pool = new TerminalRendererPool();
     const adapter = unattachedAdapter({ terminalId: "t", pool });
     expect(adapter.isEmulatorLive).toBe(false);
-    adapter.attach(attachedHost());
+    adapter.attach(attachedMountElement());
     expect(adapter.isEmulatorLive).toBe(true);
   });
 
   it("keeps the emulator across a detach, so a remount does not reallocate", async () => {
-    const { adapter, host } = mountedAdapter();
+    const { adapter, mountElement } = mountedAdapter();
     await writeLines(adapter, 3);
     const linesBefore = adapter.bufferLineCount;
     adapter.detach();
     expect(adapter.isEmulatorLive).toBe(true);
-    adapter.attach(host);
+    adapter.attach(mountElement);
     expect(adapter.bufferLineCount).toBe(linesBefore);
   });
 
-  it("takes the emulator out of the host it is leaving", async () => {
-    // The finding. Dropping the host reference and the size observer takes the
+  it("takes the emulator out of the mount element it is leaving", async () => {
+    // The finding. Dropping the mount element and the size observer takes the
     // adapter off the box and takes nothing off the screen, so a detached pane went
     // on displaying a live grid whose data listener was still armed.
-    const { adapter, host } = mountedAdapter({ terminalId: "moved-away" });
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "moved-away" });
     await writeText(adapter, "printed before the move\n");
-    expect(emulatorElementsIn(host)).toHaveLength(1);
+    expect(emulatorElementsIn(mountElement)).toHaveLength(1);
 
     adapter.detach();
 
-    expect(emulatorElementsIn(host)).toHaveLength(0);
+    expect(emulatorElementsIn(mountElement)).toHaveLength(0);
   });
 
-  it("re-appends that same emulator on the next host, scrollback and all", async () => {
+  it("re-appends that same emulator on the next mount element, scrollback and all", async () => {
     // The other half: the element leaves, and the EMULATOR does not. The pinned
     // library's `open()` returns early for a terminal it has already built one for,
     // so the re-append is the adapter's own — and a second `open()` that had built a
-    // second element would show up here as two grids in the new host.
-    const { adapter, host } = mountedAdapter({ terminalId: "moved-on" });
+    // second element would show up here as two grids in the new mount element.
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "moved-on" });
     await writeText(adapter, "printed before the move\n");
-    const nextHost = attachedHost();
+    const nextMountElement = attachedMountElement();
 
     adapter.detach();
-    adapter.attach(nextHost);
+    adapter.attach(nextMountElement);
 
-    expect(emulatorElementsIn(host)).toHaveLength(0);
-    expect(emulatorElementsIn(nextHost)).toHaveLength(1);
+    expect(emulatorElementsIn(mountElement)).toHaveLength(0);
+    expect(emulatorElementsIn(nextMountElement)).toHaveLength(1);
     expect(adapter.serialize()).toContain("printed before the move");
     expect(adapter.isEmulatorLive).toBe(true);
   });
 
-  it("negative control: an attach to the host it is already on moves nothing", async () => {
+  it("negative control: an attach to the mount element it is already on moves nothing", async () => {
     // Without this the cases above would pass against an adapter that tore the
     // element out and put it back on every re-fit, which would drop the operator's
     // scroll position and the focus with it.
-    const { adapter, host } = mountedAdapter({ terminalId: "already-here" });
-    const grid = emulatorElementsIn(host)[0];
+    const { adapter, mountElement } = mountedAdapter({ terminalId: "already-here" });
+    const grid = emulatorElementsIn(mountElement)[0];
     expect(grid).toBeDefined();
 
-    adapter.attach(host);
+    adapter.attach(mountElement);
 
-    expect(emulatorElementsIn(host)[0]).toBe(grid);
+    expect(emulatorElementsIn(mountElement)[0]).toBe(grid);
   });
 
   it("caps the buffer at its scrollback rather than growing with the output", async () => {
@@ -116,7 +116,7 @@ describe("the emulator wrapper", () => {
 });
 
 describe("teardown", () => {
-  it("gives a disposed adapter's slot back", () => {
+  it("gives a disposed adapter's hold back", () => {
     const pool = new TerminalRendererPool();
     const { adapter } = mountedAdapter({ pool, terminalId: "pooled" });
     adapter.dispose();
@@ -133,16 +133,16 @@ describe("teardown", () => {
   });
 
   it("refuses to come back after disposal", () => {
-    const { adapter, host } = mountedAdapter();
+    const { adapter, mountElement } = mountedAdapter();
     adapter.dispose();
-    adapter.attach(host);
+    adapter.attach(mountElement);
     expect(adapter.isEmulatorLive).toBe(false);
   });
 
   it("lets go of the addons, which is what lets go of the buffer", async () => {
     const { adapter } = mountedAdapter();
     await writeText(adapter, "a line the serializer can see\n");
-    // Live: the addon surfaces answer, so the emulator behind them is reachable.
+    // Live: the addon APIs answer, so the emulator behind them is reachable.
     expect(adapter.serialize()).toContain("a line the serializer can see");
 
     adapter.dispose();
@@ -151,15 +151,15 @@ describe("teardown", () => {
     // this object still holds. An addon kept as a field outlives `#terminal` and
     // holds the whole emulator through it — measured, before this was fixed, as
     // almost all of a full instance's bytes surviving a teardown, which is what
-    // `test/console/endurance/terminal-endurance.test.ts` holds it to.
+    // `tests/endurance/xterm-adapter.test.ts` holds it to.
     expect(adapter.serialize()).toBe("");
     expect(adapter.findNext("a line the serializer can see")).toBe(false);
   });
 
   it("negative control: a live adapter DOES come back on attach", () => {
-    const { adapter, host } = mountedAdapter();
+    const { adapter, mountElement } = mountedAdapter();
     adapter.detach();
-    adapter.attach(host);
+    adapter.attach(mountElement);
     expect(adapter.isEmulatorLive).toBe(true);
   });
 
@@ -226,31 +226,31 @@ describe("the context ledger, through the adapter", () => {
 
 describe("the accessible view of the grid", () => {
   it("builds the row list and the live region a screen reader reads", async () => {
-    const { adapter, host } = mountedAdapter();
+    const { adapter, mountElement } = mountedAdapter();
     await writeText(adapter, "the shell printed this\n");
 
     // The grid itself is a canvas under the WebGL renderer and positioned spans
     // under the DOM one, and neither is readable. This is the readable form, and
     // the library builds it only when it is asked to.
-    expect(host.querySelector(".xterm-accessibility")).not.toBeNull();
-    const rowList = host.querySelector(".xterm-accessibility-tree");
+    expect(mountElement.querySelector(".xterm-accessibility")).not.toBeNull();
+    const rowList = mountElement.querySelector(".xterm-accessibility-tree");
     expect(rowList?.getAttribute("role")).toBe("list");
     expect(rowList?.querySelectorAll('[role="listitem"]').length).toBeGreaterThan(0);
-    expect(host.querySelector('[aria-live="assertive"]')).not.toBeNull();
+    expect(mountElement.querySelector('[aria-live="assertive"]')).not.toBeNull();
   });
 
   it("negative control: the library builds none of it under its own default", () => {
     // Driven against the library directly, because the wrapper no longer has the
     // shape that produced this. `screenReaderMode` defaults to off, and with it
-    // off a screen reader reaches the named group `XtermHost` renders and finds
+    // off a screen reader reaches the named group `XtermMountPoint` renders and finds
     // nothing inside it to read.
-    const host = attachedHost();
+    const mountElement = attachedMountElement();
     const defaultOptionsTerminal = new Terminal({});
     try {
-      defaultOptionsTerminal.open(host);
-      expect(host.querySelector(".xterm-accessibility")).toBeNull();
-      expect(host.querySelector(".xterm-accessibility-tree")).toBeNull();
-      expect(host.querySelector('[aria-live="assertive"]')).toBeNull();
+      defaultOptionsTerminal.open(mountElement);
+      expect(mountElement.querySelector(".xterm-accessibility")).toBeNull();
+      expect(mountElement.querySelector(".xterm-accessibility-tree")).toBeNull();
+      expect(mountElement.querySelector('[aria-live="assertive"]')).toBeNull();
     } finally {
       defaultOptionsTerminal.dispose();
     }

@@ -1,4 +1,4 @@
-// What a surface is TOLD about an attachment: the two instants, and the sentence an
+// What a view is TOLD about an attachment: the two instants, and the sentence an
 // unresolved marker carries.
 //
 // THE PROGRESS FIGURE IS NOT HERE, AND THAT IS THE SEAM MOVING RATHER THAN WIDENING.

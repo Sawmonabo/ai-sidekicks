@@ -1,8 +1,9 @@
-// The enumeration has three states, and a surface has to be able to tell them apart.
+// The enumeration has three states, and the definitions list has to be able to tell them
+// apart.
 //
-// The mount both suites share — the probe, the readings taken off it, and the call that
-// answers per cursor — is `definition-directory.test-support.tsx`. The pages beyond the
-// first are the other suite, `definition-directory.paging`.
+// The mount the suites share — the probe, the readings taken off it, and the call that
+// answers per cursor — is `useWorkflowDefinitionDirectory.test-support.tsx`. The pages
+// beyond the first are `useWorkflowDefinitionDirectory.paging.test.ts`.
 
 import { act, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";

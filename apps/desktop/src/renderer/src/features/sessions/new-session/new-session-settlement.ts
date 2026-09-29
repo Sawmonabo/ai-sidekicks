@@ -1,17 +1,17 @@
 // What a new-session send SETTLES as: the closed vocabularies, and the three
 // settlements a caller cannot compose for itself.
 //
-// SPLIT FROM `new-session-send.ts`, which makes the calls. That module owns the ORDER
+// APART FROM `new-session-send.ts`, which makes the calls. That module owns the ORDER
 // the two calls go in and what each answer means; this one owns the words the result
-// comes back in — and together they were one file past the package's ceiling. The seam
-// is the one the family already reads along: the draft and the composition both import
+// comes back in. The seam is the one the new-session code already reads along: the
+// draft and the composition both import
 // settlements from here and issue no call, so every rule below can be checked without
 // a bridge.
 //
 // EVERY SETTLEMENT A CALLER MIGHT OTHERWISE SPELL IS BUILT HERE. Two of them have more
 // than one producer — the ambiguous create is reached by the send that first read it
 // and again by the draft answering every later press — and a second spelling anywhere
-// would let two surfaces tell a person opposite things about one state. The codes are
+// would let two views tell a person opposite things about one state. The codes are
 // what a person pastes into an issue, so they have exactly one home.
 
 import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
@@ -95,7 +95,7 @@ export const RUN_QUEUE_CREATE_METHOD = "run.queueCreate";
  * What the coalesced send did.
  *
  * `completedCalls` carries the wire names verbatim and in order, because the rule
- * above requires the error slot to NAME the calls that succeeded — a person deciding
+ * above requires the error line to NAME the calls that succeeded — a person deciding
  * whether to press again needs to know a session already exists.
  */
 export interface NewSessionSendResult {
@@ -129,7 +129,7 @@ export interface NewSessionSendResult {
  * What a send that REJECTED reports, rather than reporting nothing.
  *
  * `new-session-send.ts` returns a typed result on every path, so a rejection out
- * of it is a fault inside this family — the case a caller cannot invent a sentence for
+ * of it is a fault inside the new-session code — the case a caller cannot invent a sentence for
  * and must not swallow. Built HERE so a control composing its own refusal cannot
  * become a second source of the codes a person pastes into an issue.
  */

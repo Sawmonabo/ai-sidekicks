@@ -1,6 +1,6 @@
 // The banners the session screen raises, when the same thing goes wrong twice.
 //
-// Every case drives the real surface rather than the fold: what a person sees is a
+// Every case drives the real screen rather than the fold: what a person sees is a
 // column of banners, and the defects this file exists for are things that column did —
 // it grew a duplicate row for every repeat of one refusal, dismissing one row
 // renumbered the keys of every row below it so React remounted banners nobody had

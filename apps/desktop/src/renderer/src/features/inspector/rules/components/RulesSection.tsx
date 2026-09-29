@@ -16,7 +16,7 @@ import { type ReadPhase } from "@renderer/lib/read-phase.js";
  */
 export function RulesSection(props: RulesSectionProps): React.JSX.Element {
   if (props.phase.status === "loading") {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading standing permissions." />;
+    return <Nothing kind="not-loaded" placement="block" title="Reading standing permissions." />;
   }
   return (
     <RememberedRules

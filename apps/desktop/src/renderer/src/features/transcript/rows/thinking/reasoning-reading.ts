@@ -1,9 +1,9 @@
-// The reasoning surface's model: what the four arms say, and how the tail is cut.
+// The reasoning row's model: what the four arms say, and how the tail is cut.
 //
 // WHY A MODEL MODULE BESIDE THE COMPONENT. The reasoning read answers a CLOSED
 // four-state discriminant, and three of the four states carry no payload at all —
 // the client renders the placeholder from the state itself. So the sentences ARE
-// the surface for those three, and a component that spelled them inline would put
+// the whole view for those three, and a component that spelled them inline would put
 // the one thing this feature is about (that `unavailable`, `compacted`, and
 // `policy_redacted` are three different facts and never one empty body) inside a
 // render body where nothing can hold it total over the union. Here the table is
@@ -13,7 +13,7 @@
 //
 // THE THREE DISTINCTIONS THE SENTENCES MUST KEEP, which is the whole of the rule:
 //
-//   • `unavailable` — the surface was not captured. Nothing was withheld.
+//   • `unavailable` — the reasoning was not captured. Nothing was withheld.
 //   • `compacted`   — it WAS captured and then discarded at a compaction boundary;
 //                     the durable summary beside it is what survives.
 //   • `policy_redacted` — it exists and is being withheld, and the reason travels
@@ -22,8 +22,8 @@
 //                     and the component renders `policyReason` verbatim beside it.
 //
 // NO PER-SESSION TOGGLE IS MODELED, deliberately: visibility follows product
-// policy and there are no session overrides, so the surface offers a read and never
-// a preference. A `showReasoning` flag anywhere in this family would be a second
+// policy and there are no session overrides, so the row offers a read and never
+// a preference. A `showReasoning` flag anywhere in this feature would be a second
 // answer to a question the daemon already answers.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
@@ -47,7 +47,7 @@ export const REASONING_TAIL_LINE_COUNT = 3;
  *
  * FOUR STATUSES AND NOT THREE. `not-asked` is a different fact from a read that
  * answered `unavailable`: the first says nobody put the question, the second says
- * the daemon answered it. Collapsing them would make the surface claim a provider
+ * the daemon answered it. Collapsing them would make the row claim a provider
  * captured no reasoning every time a reader had simply not expanded the row.
  */
 export type ReasoningReading =
@@ -71,7 +71,7 @@ export interface ReasoningAvailabilityCopy {
  * from the END, so a turn that has streamed four hundred lines shows the three a
  * reader is watching arrive. Blank lines are dropped before the window is taken —
  * a provider that emits paragraph breaks would otherwise spend two of the three
- * slots on nothing — and every surviving line is trimmed of trailing whitespace so
+ * lines on nothing — and every surviving line is trimmed of trailing whitespace so
  * a partially-arrived line does not render as a ragged one.
  *
  * A pure function over the text, so the same text always cuts the same way and the
@@ -124,7 +124,7 @@ export const REASONING_AVAILABILITY_COPY: Readonly<
  * The read is RUN-SCOPED, so a row with no run attribution has nothing to ask
  * about — a `general` row, or a projection that could not attribute one. Returning
  * `undefined` rather than inventing an identifier is what keeps the expand control
- * off a row the read could never answer for, which is this surface's fail-closed
+ * off a row the read could never answer for, which is this row's fail-closed
  * edge: the renderer derives no eligibility, it reports the absence of one.
  */
 export function reasoningRunIdOf(row: TimelineRow): RunId | undefined {

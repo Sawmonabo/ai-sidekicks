@@ -1,10 +1,10 @@
 // The bind form's mode rows, over the one derivation both pickers now read through.
 //
 // THE ARM THAT MATTERS is a mode the reply names as both available and restricted.
-// Two copies of that derivation existed, and the bind dialog's blanked the reason
-// while the mode picker's kept it — so the same malformed reply disclosed the
-// restriction on one surface and hid it on the other. This drives the real component
-// over the real `executionModeRows`, with the sibling surface's own case in
+// Two copies of that derivation could disagree, one blanking the reason and the other
+// keeping it — so the same malformed reply would disclose the restriction in one
+// component and hide it in the other. This drives the real component over the real
+// `executionModeRows`, with the sibling picker's own case in
 // `ExecutionModePicker.test.tsx` making the pair.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";

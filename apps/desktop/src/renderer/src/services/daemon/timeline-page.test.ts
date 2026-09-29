@@ -2,7 +2,7 @@
 //
 // Asserted against the CONTRACT's own types rather than against a hand-written record,
 // so a row the daemon may send and this boundary drops fails here rather than at the
-// first surface that looks for it.
+// first view that looks for it.
 
 import { describe, expect, it } from "vitest";
 

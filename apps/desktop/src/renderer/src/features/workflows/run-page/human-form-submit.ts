@@ -6,7 +6,7 @@ import type { Refusal } from "@renderer/lib/refusal.js";
 export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";
 
 /**
- * The refusals this surface raises on its own, and no others.
+ * The refusals the human-form submit raises on its own, and no others.
  *
  * Both are cases where there is no daemon in the loop at all — an answer that is not
  * an object cannot be composed into the request's `fields` at all, and a second press

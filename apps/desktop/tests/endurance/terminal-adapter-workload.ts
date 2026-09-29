@@ -9,11 +9,11 @@
 // saying so.
 //
 // The width itself is deliberately NOT here. It is
-// `TERMINAL_BUDGET_MEASUREMENT_COLUMNS` in the console's own constants module,
+// `TERMINAL_BUDGET_MEASUREMENT_COLUMNS` in the terminal feature's `terminal-caps.ts`,
 // beside the scrollback depth the same budget is read at, because a number the
-// budget's meaning depends on belongs in the package's one cap home rather than in
-// a test helper — and because the pane the budget bounds is measured against the
-// same width from the other file.
+// budget's meaning depends on lives with the feature that owns it rather than in a
+// test helper — and because the pane the budget bounds is measured against the same
+// width from the other file.
 
 import { expect } from "vitest";
 

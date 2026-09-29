@@ -15,7 +15,7 @@ import type { AttachmentIngestEntry } from "./attachment-shapes.js";
  * What this staged list would put on a send.
  *
  * A discriminated union rather than a list plus a flag: "nothing is attached" and
- * "something is attached, settled or not" are different facts, and a surface that read
+ * "something is attached, settled or not" are different facts, and a view that read
  * an empty list for both would report the second as the first.
  */
 export type SendAttachmentReference =
@@ -34,7 +34,7 @@ export function composeSendAttachmentReference(
 ): SendAttachmentReference {
   // Completed entries only: an artifact exists once `AttachmentIngestComplete` has settled,
   // so an in-flight upload has no id to reference and a refused one never will. The count
-  // of what is left out lets the surface say a send is leaving something behind.
+  // of what is left out lets the composer say a send is leaving something behind.
   const artifactIds: string[] = [];
   let unsettledCount = 0;
   for (const entry of entries) {

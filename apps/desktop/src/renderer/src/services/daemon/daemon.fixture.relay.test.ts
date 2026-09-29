@@ -11,7 +11,7 @@
 // it is opened for.
 //
 // Every case drives the REAL fixture bridge over a real scenario and the real
-// engine, so what is asserted is the seam a surface actually calls.
+// engine, so what is asserted is the seam a view actually calls.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,7 +28,7 @@ import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios
 /** Past the concurrent-streaming script's last beat, read off the script so it cannot go stale. */
 const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 100;
 
-/** A session the branded id type accepts that no scenario on the seat board plays. */
+/** A session the branded id type accepts that no shipped scenario plays. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
 
 /**

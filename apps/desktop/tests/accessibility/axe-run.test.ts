@@ -1,7 +1,7 @@
 // The rule set the tier claims to run, held to what axe actually selects.
 //
-// The tier's surfaces assert on VIOLATIONS, so a tag set that selects too little is
-// invisible there: every surface reports clean and the tier stays green over exactly
+// The tier's cases assert on VIOLATIONS, so a tag set that selects too little is
+// invisible there: every view reports clean and the tier stays green over exactly
 // the criteria it was narrowed away from. What the set names is therefore its own
 // claim and is checked here rather than trusted.
 

@@ -5,7 +5,7 @@
  * with a composition that mounts the body.
  *
  * Nothing outside `meridian-mcp__` appears here: a rule this sheet added to a shared class
- * would outlive the shell.
+ * would outlive the fixture body.
  *
  * Every color is a Meridian custom property and every space a step on the scale.
  * Nothing here is sized in absolute units: each list is a wrapping row of chips and

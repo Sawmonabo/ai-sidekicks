@@ -1,6 +1,6 @@
 // A worktree's record — one checkout, bound as an execution root.
 //
-// It shares a payload family with the workspace and still reads differently: the
+// It shares a payload shape with the workspace and still reads differently: the
 // worktree lifecycle vocabulary is its own (`creating` / `dirty` / `merged` /
 // `retired`), and the checkout path — the thing an operator actually wants — is on
 // no registered lifecycle member, so this record says so rather than leaving a

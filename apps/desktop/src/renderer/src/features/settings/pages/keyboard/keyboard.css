@@ -3,7 +3,7 @@
  * A sibling sheet rather than a block appended to `settings.css`: the filter, the row
  * table, the recorder and the two reset controls are all this page's and nothing else
  * draws them. Every value is a Meridian token — the recorder shares the console's one
- * control shape (`agents.css` states it for its own family's actions) rather than
+ * control shape (`agents.css` states it for its own feature's actions) rather than
  * minting a second button that agrees with the first only until one is restyled.
  */
 

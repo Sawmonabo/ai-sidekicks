@@ -1,5 +1,5 @@
 // The store an arrangement is written THROUGH, when that store is replaced under a
-// live surface.
+// live pane layout.
 //
 // The failure this file exists for is silent in both directions and looks like
 // nothing at all: the composition root re-mints the `UiStateStore` on a reconnect and
@@ -72,8 +72,8 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
   });
 
   it("negative control: a writer held in `useState` files into the retired store", async () => {
-    // The shape the fix replaced, driven over the same swap. Without this the case
-    // above would pass over a surface that stopped writing anywhere at all, and the
+    // A writer held in `useState`, driven over the same swap. Without this the case
+    // above would pass over a pane layout that stopped writing anywhere at all, and the
     // two ledgers would agree for the wrong reason.
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();

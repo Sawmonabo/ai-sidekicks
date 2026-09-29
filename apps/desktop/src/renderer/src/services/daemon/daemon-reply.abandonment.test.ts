@@ -1,4 +1,4 @@
-// The call door's fourth settlement: a read nobody is waiting for.
+// `callDaemon`'s fourth settlement: a read nobody is waiting for.
 //
 // The PARSE arm is `daemon-reply.test.ts` and the REJECTION arm is
 // `daemon-reply.rejections.test.ts`. This is the third claim about the same
@@ -8,24 +8,24 @@
 // of it.
 //
 // "PARSES NOTHING" IS TWO CLAIMS AND NOT ONE, so the cases below make it twice. A
-// reply arriving AFTER the abandonment loses the door's race and never reaches the
+// reply arriving AFTER the abandonment loses `callDaemon`'s race and never reaches the
 // parse. A reply arriving JUST BEFORE it WINS that race — so the
-// settlement reads `settled`, the door's abort listener is already retired, and the
-// departure lands one microtask later while the door's own frame is still waiting to
+// settlement reads `settled`, `callDaemon`'s abort listener is already retired, and the
+// departure lands one microtask later while `callDaemon`'s own frame is still waiting to
 // be resumed. The second is invisible to every assertion the first can make, because
-// the door was handed a settlement rather than an abandonment, and it is produced by
+// `callDaemon` was handed a settlement rather than an abandonment, and it is produced by
 // an interleaving rather than by an event.
 //
-// EVERY CASE DRIVES THE REAL DOOR OVER A REAL BRIDGE, with `daemon.call` replaced by
+// EVERY CASE DRIVES THE REAL `callDaemon` OVER A REAL BRIDGE, with `daemon.call` replaced by
 // an arm the case decides and RECORDS. The record is what makes the strongest claim
 // here checkable rather than asserted: "nothing was sent" is a statement about the
 // bridge, and `calls` is the bridge's own account of what it was asked.
 //
-// AND THE MUTATION CONTROL IS PLANTED, not inferred. A door that quietly abandoned
+// AND THE MUTATION CONTROL IS PLANTED, not inferred. A `callDaemon` that quietly abandoned
 // every call once any signal anywhere had aborted would pass every read case in this
-// file. So the last case sends a MUTATION through the same door in the same tick,
+// file. So the last case sends a MUTATION through the same `callDaemon` in the same tick,
 // with a read line that has been abandoned standing beside it, and asserts the call
-// was made and its reply parsed — which fails the moment the door reads a signal
+// was made and its reply parsed — which fails the moment `callDaemon` reads a signal
 // it was not handed.
 
 import type { RunId } from "@ai-sidekicks/contracts";
@@ -36,17 +36,17 @@ import { DAEMON_METHOD_BINDINGS } from "./daemon-reply-registry.js";
 import { refusalOf, SESSION_ID } from "@test/helpers/daemon-reply-refusal.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 
-/** The code the door raises for a read whose owner has gone. */
+/** The code `callDaemon` raises for a read whose owner has gone. */
 const READ_ABANDONED = "read-abandoned";
 
 /** A run id the branded schema accepts, for the mutation control below. */
 const RUN_ID = "019b79ee-0280-7f00-8110-a11ce0000002" as RunId;
 
 /**
- * One read line, in the shape the door actually receives.
+ * One read line, in the shape `callDaemon` actually receives.
  *
  * A bare `AbortController` and NOT `ReadScope`, deliberately. What is under test here
- * is the door, whose contract is an `AbortSignal` and nothing narrower; driving the
+ * is `callDaemon`, whose contract is an `AbortSignal` and nothing narrower; driving the
  * scope instead would put a second module inside every assertion and make a failure
  * ambiguous between the two. The scope's own behavior — that it aborts on unmount,
  * on re-address, and on supersession — is asserted where it lives, in
@@ -64,9 +64,9 @@ function servedPresenceReply(): unknown {
 /**
  * A reply the presence schema REFUSES, so a parse that ran is visible in the answer.
  *
- * The whole evidence of the late-reply case below. A door that went on to parse this
+ * The whole evidence of the late-reply case below. A `callDaemon` that went on to parse this
  * would answer `reply-unreadable`, and the negative control beside that case is what
- * proves the needle bites: over the same door, the same bridge, and this same body, a
+ * proves the needle bites: over the same `callDaemon`, the same bridge, and this same body, a
  * line that stays live really does settle as `reply-unreadable`.
  */
 function refusedPresenceReply(): unknown {
@@ -79,7 +79,7 @@ function refusedPresenceReply(): unknown {
  * THE BODY IS THE CALLER'S, and it is a parameter rather than a constant because the
  * two cases below need opposite ones. A case that only has to not WAIT can be answered
  * with anything; a case whose claim is that nothing was PARSED has to be answered with
- * a body the parse would reject, or its green result is equally satisfied by a door
+ * a body the parse would reject, or its green result is equally satisfied by a `callDaemon`
  * that parsed the reply and agreed with it.
  */
 function heldReply(reply: unknown): {
@@ -94,7 +94,7 @@ function heldReply(reply: unknown): {
 }
 
 /**
- * The registered reply schema the door itself resolves for the method these cases
+ * The registered reply schema `callDaemon` itself resolves for the method these cases
  * send, named once so the spy below watches the real parser rather than a lookalike.
  */
 const PRESENCE_REPLY_SCHEMA = DAEMON_METHOD_BINDINGS["presence.read"].responseSchema;
@@ -104,13 +104,13 @@ const PRESENCE_REPLY_SCHEMA = DAEMON_METHOD_BINDINGS["presence.read"].responseSc
  *
  * A HAND-WRITTEN THENABLE rather than a promise and a counted number of turns, and
  * the reason is that the interleaving under test is one microtask wide: the reply has
- * to win the door's race — retiring its abort listener as it settles — and the abort
- * has to land before the door's own `await` is resumed. Adopting a thenable calls
+ * to win `callDaemon`'s race — retiring its abort listener as it settles — and the abort
+ * has to land before `callDaemon`'s own `await` is resumed. Adopting a thenable calls
  * this `then` with the adopting promise's own resolver, so `settle` IS that
  * fulfillment and the `queueMicrotask` beside it is the first job queued after it.
  * Spelled instead as a resolved promise and some number of awaited turns, the same
  * case would be asserting how many microtasks a runtime spends adopting a promise,
- * which is a claim about the runtime rather than about this door — and one that
+ * which is a claim about the runtime rather than about `callDaemon` — and one that
  * lands on the wrong arm the moment the answer changes.
  *
  * The cast is the seam every thenable needs: the bridge's call arm answers
@@ -153,7 +153,7 @@ describe("callDaemon — a read whose owner has gone", () => {
   it("settles without waiting for a reply that never arrives", async () => {
     const line = readLine();
     // The body is immaterial here and is the refusable one all the same, so no case
-    // in this file can be satisfied by a door that read what it was handed.
+    // in this file can be satisfied by a `callDaemon` that read what it was handed.
     const held = heldReply(refusedPresenceReply());
     const underTest = bridgeAnswering(async () => await held.promise);
 
@@ -176,7 +176,7 @@ describe("callDaemon — a read whose owner has gone", () => {
 
   it("reads nothing from a reply that arrives after the abandonment", async () => {
     const line = readLine();
-    // A reply the registered schema REFUSES. A door that had gone on to parse it would
+    // A reply the registered schema REFUSES. A `callDaemon` that had gone on to parse it would
     // answer `reply-unreadable`, so the code below is evidence the parse never ran
     // rather than evidence that it ran and agreed — which is all a schema-VALID body
     // could ever have shown here.
@@ -196,7 +196,7 @@ describe("callDaemon — a read whose owner has gone", () => {
   });
 
   it("negative control: that same reply answers `reply-unreadable` on a live line", async () => {
-    // The recorded control for the case above. Restore a door that parses the late
+    // The recorded control for the case above. Restore a `callDaemon` that parses the late
     // reply — drop the guard between the race and the parse — and the case goes red
     // with THIS code, because this is what parsing that body produces. Without this
     // assertion the claim "the parse never ran" would rest on a body nobody had
@@ -237,8 +237,8 @@ describe("callDaemon — a read whose owner has gone", () => {
     const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
     // A reply the schema ADMITS, on purpose: the case above proves the parse never
     // ran by handing over a reply the schema would refuse, and that evidence is only
-    // available while the reply is refusable. Here the reply is one the door would
-    // have served, so nothing about the ANSWER could distinguish a door that parsed
+    // available while the reply is refusable. Here the reply is one `callDaemon` would
+    // have served, so nothing about the ANSWER could distinguish a `callDaemon` that parsed
     // it from one that did not — which is what the spy is for.
     const underTest = bridgeAnswering(() =>
       replyFulfillingAheadOfTheAbandonment(servedPresenceReply(), line),
@@ -265,7 +265,7 @@ describe("callDaemon — a read whose owner has gone", () => {
 
   it("negative control: that same spy sees the parse when the line stays live", async () => {
     // Without this the assertion above would be satisfied by a spy watching a schema
-    // the door never reaches — a green result about the wrong object.
+    // `callDaemon` never reaches — a green result about the wrong object.
     const line = readLine();
     const replyParse = vi.spyOn(PRESENCE_REPLY_SCHEMA, "safeParse");
     const underTest = bridgeAnswering(async () => servedPresenceReply());
@@ -296,9 +296,9 @@ describe("callDaemon — a read whose owner has gone", () => {
       { signal: line.signal },
     );
 
-    // The negative control for every case above: with the same door, the same bridge,
+    // The negative control for every case above: with the same `callDaemon`, the same bridge,
     // and the same request, a live line is served. Without it "the read was abandoned"
-    // would be satisfied by a door that abandoned everything.
+    // would be satisfied by a `callDaemon` that abandoned everything.
     expect(reply.status).toBe("served");
     expect(underTest.calls.map((call) => call.method)).toStrictEqual(["presence.read"]);
   });
@@ -318,7 +318,7 @@ describe("callDaemon — a mutation is never abandoned", () => {
     const reply = await callDaemon(underTest.bridge, "driver.interruptRun", { runId: RUN_ID });
 
     expect(underTest.calls.map((call) => call.method)).toStrictEqual(["driver.interruptRun"]);
-    // Served, and served through the registry's own parse. A door that read some
+    // Served, and served through the registry's own parse. A `callDaemon` that read some
     // ambient signal would answer `read-abandoned` here instead.
     expect(reply.status).toBe("served");
     expect(abandonedLine.signal.aborted).toBe(true);

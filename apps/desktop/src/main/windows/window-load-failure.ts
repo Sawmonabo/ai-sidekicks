@@ -70,8 +70,8 @@ function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string):
     // `before-quit` and no `will-quit` handler — so closing the main window
     // during a slow failing load would skip the sidecar drain and report a
     // renderer failure for a normal quit. Nothing is owed here: the window
-    // destroyed itself, so there is nothing to destroy, and there is no surface
-    // left to show a failure document ON.
+    // destroyed itself, so there is nothing to destroy, and there is no window
+    // left to show a failure document in.
     console.warn(
       `[ai-sidekicks/desktop] a window closed while its load was failing (${reason}); ` +
         `no failure document to serve.`,

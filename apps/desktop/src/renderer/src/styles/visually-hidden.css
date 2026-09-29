@@ -13,8 +13,8 @@
  * arrangement in which adding a state to that box cannot silently lose to load order.
  * Nothing was copied by the move — the ring is two declarations reading one token,
  * which is the console's idiom rather than an implementation, and sixty-odd sheets
- * already write it. Design-language rule 3 still governs its shape wherever it is
- * written: an outline rather than a box-shadow so it survives an `overflow: hidden`
+ * already write it. The design language's focus-ring rule still governs its shape
+ * wherever it is written: an outline rather than a box-shadow so it survives an `overflow: hidden`
  * ancestor, and `outline-offset` so it is never drawn over the control's own boundary
  * and always has an adjacent color to be measured against.
  */

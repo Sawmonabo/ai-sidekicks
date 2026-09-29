@@ -28,7 +28,7 @@ export interface WorkflowStartCandidatesProps {
   readonly complete: boolean;
   /** What has been typed after the verb so far. `undefined` offers everything. */
   readonly typedPrefix: string | undefined;
-  /** Put this name on the line. The caller owns the draft; this surface owns none. */
+  /** Put this name on the line. The caller owns the draft; this list owns none. */
   readonly onComplete: (definitionName: string) => void;
 }
 

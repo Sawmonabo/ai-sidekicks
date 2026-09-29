@@ -27,9 +27,9 @@
 // ones. So the definition is "mid-turn with output still ahead of it", which is the
 // state the frame cost being measured actually belongs to.
 //
-// The families are read from the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) rather
+// The categories are read from the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) rather
 // than from a `kind.startsWith("run.")` test, for the reason `tests/helpers/scenario-contract-check/contract-check.ts` gives:
-// the census is the wire's own answer to which family a type is in, and a prefix
+// the census is the wire's own answer to which category a type is in, and a prefix
 // test is this module's guess at it.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type SessionEventType } from "@ai-sidekicks/contracts";
@@ -97,7 +97,7 @@ function readNewState(beat: ScenarioBeat): string | undefined {
   return typeof newState === "string" ? newState : undefined;
 }
 
-/** Which family the census puts this beat's type in, or `undefined` for a type it has no entry for. */
+/** Which category the census puts this beat's type in, or `undefined` for a type it has no entry for. */
 function categoryOf(beat: ScenarioBeat): string | undefined {
   return SESSION_EVENT_CATEGORY_BY_TYPE.get(beat.event.kind as SessionEventType);
 }

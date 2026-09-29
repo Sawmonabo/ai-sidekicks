@@ -1,6 +1,6 @@
 // The Agents pane's pane registration.
 //
-// The feature's door publishes the registrar below and `app/registrations.ts` calls it.
+// The feature's public entry exports the registrar below and `app/registrations.ts` calls it.
 
 import { type PaneRegistry } from "@renderer/console/seats/index.js";
 
@@ -24,10 +24,10 @@ const AGENTS_PANE_OWNER = "agents";
  * derived from the window model — this registration makes no claim about it, and
  * passing a handler would not have made the control appear either.
  *
- * The narrowing and the mismatch refusal are the seat's: `paneBodyForKind` hands this
+ * The narrowing and the mismatch refusal are `paneBodyForKind`'s: it hands this
  * render an address already narrowed to the arm it claims, so the entity below is an
  * agent reference or nothing rather than a member some other arm might carry, and a
- * context that arrived at the wrong door renders a named refusal instead of throwing
+ * context addressed to another pane body renders a named refusal instead of throwing
  * inside the pane layout.
  */
 export function registerAgentsPane(registry: PaneRegistry): void {

@@ -7,7 +7,7 @@
 // row is their only reader — the list composes rows and decides nothing about what a
 // switch says about itself.
 //
-// Not exported through the family door. It is the list's own composition, and a row
+// Not exported through the feature's public entry. It is the list's own composition, and a row
 // rendered outside that list would be a policy row placed somewhere it does not belong.
 
 import { Switch } from "@base-ui/react/switch";
@@ -47,8 +47,7 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
 /**
  * One row: the control, its label, its consequence, and the default the node ships with.
  *
- * Exported to its list and to nothing else — it carries no door line, so the family
- * barrel cannot publish it.
+ * Exported to its list and to nothing else — the feature's index does not re-export it.
  */
 export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
   const traits = BROWSER_POLICY_SWITCH_TRAITS[props.switchId];

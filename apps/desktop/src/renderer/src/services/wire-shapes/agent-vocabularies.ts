@@ -9,10 +9,10 @@
 // `ListCapabilitiesResult`, `ProviderModel`, `DriverCapabilityFlag`,
 // `ProviderOutputSpeedState`, `DeclaredLossKind`. What it does NOT register is the
 // roster reply, the config-update settlement, or the child-run link read; those shapes
-// are `agents.ts` next door.
+// are `agents.ts` beside it.
 //
 // WHAT STAYS. Three things the renderer genuinely owns. The METHOD STRINGS, because which
-// call a surface makes is the renderer's decision. The EVENT KINDS each read refreshes
+// call a view makes is the renderer's decision. The EVENT KINDS each read refreshes
 // on, because that is a refresh story rather than a payload. And the CLOSED
 // VOCABULARIES, because they answer "is this a value I know how to render", which is a
 // different question from "what may the wire carry" — the reply shapes deliberately
@@ -23,8 +23,8 @@ import type { SessionEventType } from "@ai-sidekicks/contracts";
 
 // --- Method names ---------------------------------------------------------
 //
-// ONLY THE TWO REGISTERED READS ARE NAMED HERE. The rest of the agent plane has no
-// registered request/response pair, so no method string for it lives here: a constant
+// ONLY THE TWO REGISTERED READS ARE NAMED HERE. No other agent operation has a
+// registered request/response pair, so no method string for one lives here: a constant
 // would name a call nothing serves.
 
 /** The per-driver model catalog, and with it every model's effort vocabulary. */

@@ -30,7 +30,7 @@
 //
 //   • **One session open.** The console is launched on the concurrent-streaming scenario and
 //     navigated to that scenario's own session route, and the navigation is
-//     observed on a surface only that route renders.
+//     observed on markup only that route renders.
 //   • **With content.** The frozen clock is walked over the whole script, and the
 //     session store's ADMITTED event count is asserted non-zero against a live
 //     wire subscription. A reading over an empty store measures the substrate,

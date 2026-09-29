@@ -1,8 +1,8 @@
 // One definition, as the pane that opened it can honestly know it.
 //
 // The builder pane's whole subject is a definition, and this is what composes the
-// definition read, the version read and the chain read into the one answer a detail
-// surface renders. The three calls are the caller's, and a rejected call reaches
+// definition read, the version read and the chain read into the one answer the
+// definition detail renders. The three calls are the caller's, and a rejected call reaches
 // whoever supplied it.
 //
 // THREE READS AND NOT ONE, BECAUSE THE WIRE IS THREE READS. `workflow.definitionRead`
@@ -74,7 +74,7 @@ export type WorkflowVersionChainReading =
   | { readonly status: "served"; readonly versions: readonly WorkflowVersionChainEntry[] }
   | { readonly status: "unaddressable" };
 
-/** Everything one definition's detail surface renders, from one composed read. */
+/** Everything one definition's detail renders, from one composed read. */
 export interface WorkflowDefinitionDetail {
   readonly definition: WorkflowDefinitionReadResult;
   readonly version: WorkflowVersionBody;

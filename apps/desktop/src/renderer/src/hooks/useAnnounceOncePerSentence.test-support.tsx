@@ -6,29 +6,29 @@ import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAn
 import { ManualClock } from "@renderer/lib/clock.js";
 import { liveRegionText, politeText } from "@test/helpers/live-region.js";
 
-/** What one mounted surface hands back, whichever arity of the latch it drives. */
-export interface AnnouncedRender<SurfaceProps> {
+/** What one mounted component hands back, whichever arity of the latch it drives. */
+export interface AnnouncedRender<AnnouncingProps> {
   readonly polite: () => string;
   readonly assertive: () => string;
-  readonly rerender: (next: SurfaceProps) => void;
+  readonly rerender: (next: AnnouncingProps) => void;
   readonly settle: () => void;
 }
 
 /**
- * The window's announcer, and a surface announcing through it.
+ * The window's announcer, and a component announcing through it.
  *
  * One scaffold for every arity: the announcer, the provider, the two region readings
  * and the hold are the same for each, and only the component under it differs.
  */
-export function renderThroughAnnouncer<SurfaceProps extends object>(
-  Surface: (props: SurfaceProps) => null,
-  initialProps: SurfaceProps,
-): AnnouncedRender<SurfaceProps> {
+export function renderThroughAnnouncer<AnnouncingProps extends object>(
+  AnnouncingComponent: (props: AnnouncingProps) => null,
+  initialProps: AnnouncingProps,
+): AnnouncedRender<AnnouncingProps> {
   const clock = new ManualClock(0);
   const announcer = new LiveAnnouncer({ clock });
-  const mounted = (props: SurfaceProps): React.JSX.Element => (
+  const mounted = (props: AnnouncingProps): React.JSX.Element => (
     <LiveAnnouncerProvider announcer={announcer}>
-      <Surface {...props} />
+      <AnnouncingComponent {...props} />
     </LiveAnnouncerProvider>
   );
   const { container, rerender } = render(mounted(initialProps));

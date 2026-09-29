@@ -4,7 +4,7 @@
 // only act that list offers.
 //
 // TWO STEPS, AND THE SECOND IS THE ONE THAT FIRES. Revocation is not reversible
-// from this surface, so the first press only arms; the confirming press is the one
+// from the rules list, so the first press only arms; the confirming press is the one
 // that reaches the wire, and a control that is already revoking says so rather than
 // offering a second press that would.
 

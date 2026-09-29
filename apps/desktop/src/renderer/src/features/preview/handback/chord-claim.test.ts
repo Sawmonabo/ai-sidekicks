@@ -1,11 +1,11 @@
 // Which chords the console may claim at all, and what a wrong answer costs.
 //
-// Correct behavior on this surface is the absence of a complaint, which is exactly
+// Correct behavior for the handback is the absence of a complaint, which is exactly
 // why it needs adversarial cases rather than a happy path: a claim rule that is one
 // modifier too broad takes `S` away from a page's own search box, and a claim rule
 // that is one too narrow silently kills the operator's whole chord set inside a pane.
 // Both failures look like nothing at all until somebody is typing. The decision that
-// consumes this vocabulary is next door, in `keyboard-handback.test.ts`.
+// consumes this vocabulary is beside it, in `keyboard-handback.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

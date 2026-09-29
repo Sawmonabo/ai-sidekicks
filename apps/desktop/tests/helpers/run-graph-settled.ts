@@ -1,9 +1,9 @@
-// The readiness a surface owes any tier that reads it, when a lazily-drawn graph is
+// The readiness a view owes any tier that reads it, when a lazily-drawn graph is
 // on it.
 //
 // Not a test file — no `include` glob reaches it. It lives in `tests/helpers/` rather
 // than in one tier's directory because two tiers ask the same question of the same
-// surface: the screenshot tier asks it before a capture, and the accessibility tier
+// view: the screenshot tier asks it before a capture, and the accessibility tier
 // asks it before an axe run. One home, for the reason a second copy would rot — the
 // pre-fit transform this module names is a fact about the graph library, and a tier
 // carrying its own reading of it would be a tier that silently stopped waiting.
@@ -13,7 +13,7 @@
 // mounts the canvas when it arrives. The renderer stamps no pending-body marker, so
 // nothing in a mount helper's own wait waits for the picture.
 //
-// FOR AN AUDIT, THAT IS THE WHOLE SUBJECT MISSING. A tier that runs over the surface
+// FOR AN AUDIT, THAT IS THE WHOLE SUBJECT MISSING. A tier that runs over the view
 // at the mount helper's own return audits a loading placeholder: the canvas, its
 // focusable nodes, and the library's attribution link are not in the tree yet, so a
 // regression unique to any of them leaves the tier green.
@@ -80,15 +80,15 @@ function nextAnimationFrame(): Promise<void> {
 }
 
 /**
- * The fitted transform on this surface's graph, or `undefined` while there is none.
+ * The fitted transform on this element's graph, or `undefined` while there is none.
  *
  * `undefined` covers all three of the unready states deliberately, because a caller
  * has the same thing to do about each: the chunk has not arrived, the canvas has
  * mounted without a viewport, or the viewport is still carrying the library's
  * pre-fit default.
  */
-function fittedViewportTransform(surface: HTMLElement): string | undefined {
-  const viewport = surface.querySelector<HTMLElement>(".react-flow__viewport");
+function fittedViewportTransform(mountedElement: HTMLElement): string | undefined {
+  const viewport = mountedElement.querySelector<HTMLElement>(".react-flow__viewport");
   if (viewport === null) {
     return undefined;
   }
@@ -107,12 +107,12 @@ function fittedViewportTransform(surface: HTMLElement): string | undefined {
  * collapsed root satisfies.
  *
  * The node is compared against the ROOT rather than against the pane's canvas box: this
- * module is the readiness rule for any surface that mounts a graph, and where the
- * picture sits inside the surface around it is the geometry gate's subject
+ * module is the readiness rule for any view that mounts a graph, and where the
+ * picture sits inside the view around it is the geometry gate's subject
  * (`browser/workflow-run-geometry.test.tsx`), which measures the canvas by name.
  */
-function isGraphPainted(surface: HTMLElement): boolean {
-  const paintedRoot = surface.querySelector<HTMLElement>(".meridian-run-graph .react-flow");
+function isGraphPainted(mountedElement: HTMLElement): boolean {
+  const paintedRoot = mountedElement.querySelector<HTMLElement>(".meridian-run-graph .react-flow");
   if (paintedRoot === null) {
     return false;
   }
@@ -120,39 +120,39 @@ function isGraphPainted(surface: HTMLElement): boolean {
   if (rootBox.height <= 0 || rootBox.width <= 0) {
     return false;
   }
-  return [...surface.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node")].some(
-    (node) => {
-      const nodeBox = node.getBoundingClientRect();
-      return (
-        nodeBox.height > 0 &&
-        nodeBox.width > 0 &&
-        nodeBox.top >= rootBox.top - 0.5 &&
-        nodeBox.bottom <= rootBox.bottom + 0.5 &&
-        nodeBox.left >= rootBox.left - 0.5 &&
-        nodeBox.right <= rootBox.right + 0.5
-      );
-    },
-  );
+  return [
+    ...mountedElement.querySelectorAll<HTMLElement>(".meridian-run-graph .react-flow__node"),
+  ].some((node) => {
+    const nodeBox = node.getBoundingClientRect();
+    return (
+      nodeBox.height > 0 &&
+      nodeBox.width > 0 &&
+      nodeBox.top >= rootBox.top - 0.5 &&
+      nodeBox.bottom <= rootBox.bottom + 0.5 &&
+      nodeBox.left >= rootBox.left - 0.5 &&
+      nodeBox.right <= rootBox.right + 0.5
+    );
+  });
 }
 
 /**
- * Whether this surface is still enough to read.
+ * Whether this element is still enough to read.
  *
- * A surface that draws no graph is settled by construction — the predicate reads the
+ * An element that draws no graph is settled by construction — the predicate reads the
  * pane's own container rather than the library's, so "no graph here" and "the graph
  * has not arrived" are different answers rather than one absent element — which is
- * what lets a caller run this over every surface it reads rather than over the one it
+ * what lets a caller run this over every element it reads rather than over the one it
  * knows draws a graph.
  */
-export function isRunGraphSettled(surface: HTMLElement): boolean {
-  if (surface.querySelector(".meridian-run-graph") === null) {
+export function isRunGraphSettled(mountedElement: HTMLElement): boolean {
+  if (mountedElement.querySelector(".meridian-run-graph") === null) {
     return true;
   }
-  return fittedViewportTransform(surface) !== undefined && isGraphPainted(surface);
+  return fittedViewportTransform(mountedElement) !== undefined && isGraphPainted(mountedElement);
 }
 
 /**
- * Hold until this surface's graph has been fitted and that fit has survived a frame.
+ * Hold until this element's graph has been fitted and that fit has survived a frame.
  *
  * Two waits, because they are waits for different things. The FIT arrives on a state
  * update React drives, so it is waited for through the library's own `waitFor`, whose
@@ -163,16 +163,16 @@ export function isRunGraphSettled(surface: HTMLElement): boolean {
  * fit has been computed" and "the fit is what the compositor last drew", and a frame
  * is the only clock that answers it.
  */
-export async function awaitRunGraphSettled(surface: HTMLElement): Promise<void> {
-  if (surface.querySelector(".meridian-run-graph") === null) {
+export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise<void> {
+  if (mountedElement.querySelector(".meridian-run-graph") === null) {
     return;
   }
   await waitFor(
     () => {
-      if (fittedViewportTransform(surface) === undefined) {
+      if (fittedViewportTransform(mountedElement) === undefined) {
         throw new Error("the phase graph has not been fitted yet");
       }
-      if (!isGraphPainted(surface)) {
+      if (!isGraphPainted(mountedElement)) {
         throw new Error(
           "the phase graph was fitted into a root that paints no phase — the box on " +
             "screen is empty",
@@ -181,9 +181,9 @@ export async function awaitRunGraphSettled(surface: HTMLElement): Promise<void> 
     },
     { timeout: FIT_DEADLINE_MS },
   );
-  const fitted = fittedViewportTransform(surface);
+  const fitted = fittedViewportTransform(mountedElement);
   await nextAnimationFrame();
-  const afterOneFrame = fittedViewportTransform(surface);
+  const afterOneFrame = fittedViewportTransform(mountedElement);
   if (afterOneFrame !== fitted) {
     throw new Error(
       `the phase graph's fitted transform moved across a frame (\`${String(fitted)}\` then ` +

@@ -23,7 +23,7 @@ import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index
 /**
  * The diff pane, at an address the pane layout resolved to this kind.
  *
- * Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader
+ * Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name a loader
  * module publishes. The narrowing and the mismatch refusal are `paneBodyForKind`'s:
  * every pane body writing that comparison itself would be one answer per pane to one
  * question, and a mismatch is a rendered refusal rather than a throw because one bad

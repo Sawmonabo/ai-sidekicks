@@ -1,4 +1,4 @@
-// The diff surfaces' bounds: the inline card's height, the file list's fold, the two
+// The diff views' bounds: the inline card's height, the file list's fold, the two
 // intraline cost bounds, its cache, and the largest patch the parser is handed.
 
 /**
@@ -63,7 +63,7 @@ export const DIFF_INTRALINE_CACHE_ENTRY_CAP = 512;
  * A DIFFERENT BOUND FROM THE ARTIFACT PREVIEW BELOW, AND DELIBERATELY MUCH LARGER. That
  * one bounds how much of a payload a person is SHOWN at once, so a screenful and a half
  * is the right size for it. This one bounds what the parser is handed, and the diff
- * surfaces are virtualized: a five-thousand-line change set renders a viewport's worth
+ * views are virtualized: a five-thousand-line change set renders a viewport's worth
  * of rows however long it is, so cutting the patch at preview size would throw away
  * files a reader can reach rather than text nobody would read.
  *

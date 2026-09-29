@@ -1,9 +1,9 @@
 // What a suite watching the console's resource seam counts, and why it counts THAT.
 //
-// A RESOURCE THIS FAMILY OPENS IS DISPOSED ONCE. `useSubjectScopedResource` is handed
-// one disposal object, and which SHAPE it has is what says whether the ending is
-// terminal: this family's four all hand over `{ dispose, isClosed }`, where the reading
-// is not optional beside the `dispose` it belongs with. Handed a bare release instead,
+// A RESOURCE A SUBJECT-SCOPED HOOK OPENS IS DISPOSED ONCE. `useSubjectScopedResource` is
+// handed one disposal object, and which SHAPE it has is what says whether the ending is
+// terminal: the resources these suites watch all hand over `{ dispose, isClosed }`, where
+// the reading is not optional beside the `dispose` it belongs with. Handed a bare release instead,
 // the seam records a corpse as committed, the caller publishes a replacement, and the
 // value-change cleanup disposes the corpse a second time. Every one of those disposals
 // happens to be re-entrant, so the second call changes nothing observable ON THE

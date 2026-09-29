@@ -1,4 +1,4 @@
-// What a collection's three surfaces are CALLED: one entry, the control that adds one,
+// What a collection's three parts are CALLED: one entry, the control that adds one,
 // and the control that drops one.
 //
 // SPLIT FROM THE VOCABULARY BECAUSE THIS IS PROSE AND THAT IS A TYPE SYSTEM.
@@ -7,10 +7,10 @@
 // answers any of that. These three compose the sentences a person hears, and holding both
 // jobs in one module was what took it to the length at which a reader stops seeing two.
 //
-// COMPOSED ONCE AND NEVER AT THE SURFACE THAT SPEAKS THEM. The remove control's name is
+// COMPOSED ONCE AND NEVER AT THE CONTROL THAT SPEAKS THEM. The remove control's name is
 // built out of the entry's own, so the control that drops an entry names exactly what the
-// entry is called and the two cannot drift; and a reading of either name — a test, a
-// second surface — asks this module rather than re-spelling the template.
+// entry is called and the two cannot drift; and a reading of either name — a test,
+// another component — asks this module rather than re-spelling the template.
 
 import type { SchemaListDescriptor } from "../plan/schema-fields.js";
 

@@ -1,5 +1,5 @@
-// One chip's line, held to the rules the composer and the artifact pane must not
-// answer differently: whose name is on it, which reading is the truth, what a refusal
+// One chip's line, held to the rules the composer's chip and the transcript's attachment
+// card must not answer differently: whose name is on it, which reading is the truth, what a refusal
 // recommends, and which acts an entry in this state actually offers.
 
 import { describe, expect, it } from "vitest";

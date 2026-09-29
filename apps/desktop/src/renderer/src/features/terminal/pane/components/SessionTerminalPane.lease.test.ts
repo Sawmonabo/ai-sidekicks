@@ -25,10 +25,10 @@ describe("terminal pane — bound to a session", () => {
 
   it("shows no keyboard while the identity read has not landed", () => {
     const region = renderPane(storeThrough(1));
-    const host = region.querySelector(".meridian-terminal-host");
+    const mountPoint = region.querySelector(".meridian-terminal-mount-point");
     // Fail-closed: a held lease is another device's until a read says otherwise, and
     // the write gate follows that rather than the other way round.
-    expect(host?.getAttribute("data-write-enabled")).toBe("false");
+    expect(mountPoint?.getAttribute("data-write-enabled")).toBe("false");
     expect(region.textContent).not.toContain("You may type into the shared shell.");
   });
 });

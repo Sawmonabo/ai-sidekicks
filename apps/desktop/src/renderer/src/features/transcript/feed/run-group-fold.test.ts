@@ -150,7 +150,8 @@ describe("a run group re-sealed over the rows a narrowing admitted", () => {
     expect(narrowed?.rowIds).toStrictEqual([...admitted]);
     // Lifecycle and the terminal are facts about the SESSION. Re-deriving them over
     // the admitted rows would turn a finished run live the moment a narrowing
-    // excluded its `run.completed` row, and rule 7 would then keep it open forever.
+    // excluded its `run.completed` row, and a live run stays open, so it would then stay
+    // open forever.
     expect(narrowed?.lifecycle).toBe("terminal");
     expect(narrowed?.terminalEventType).toBe(runGroup.terminalEventType);
     expect(narrowed?.terminalRowId).toBe(runGroup.terminalRowId);
@@ -217,7 +218,7 @@ describe("the run group disclosure follows the session the pane is a log of", ()
    * One disclosure under a bridge, over a session the caller can move.
    *
    * The pane is not remounted between the two sessions, which is the whole case: the
-   * shell opens session stores and never closes them, so navigating between two open
+   * app window opens session stores and never closes them, so navigating between two open
    * sessions re-renders this position rather than unmounting it.
    */
   function mountDisclosureOver(

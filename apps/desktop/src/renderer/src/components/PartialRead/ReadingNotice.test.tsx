@@ -1,6 +1,6 @@
 // One notice, driven by shape rather than by state.
 //
-// The set's own test proves that a surface owes a notice per reading it holds; this
+// The set's own test proves that a view owes a notice per reading it holds; this
 // proves the thing that moved out of it — which primitive each of the four shapes
 // reaches the screen through, and that the component reads the SHAPE and never the
 // state a second time.
@@ -21,14 +21,14 @@ describe("ReadingNotice — the shape is the instruction", () => {
     expect(renderNotice({ shape: "none" }).innerHTML).toBe("");
   });
 
-  it("renders a read in flight as rule 8's absence and not as prose", () => {
+  it("renders a read in flight as the not-loaded absence and not as prose", () => {
     const container = renderNotice({ shape: "reading", title: "Reading the queue." });
     expect(container.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
     expect(container.querySelector(".meridian-partial-read")).toBeNull();
   });
 
   it("leads a counted sentence with the derived figure and never a wire one", () => {
-    // Rule 4: the console counted these, so the count must not wear the wire
+    // The console counted these, so the count must not wear the wire
     // signature. The refusal beneath it still does, which is why the assertion is
     // scoped to the copy line.
     const copy = renderNotice({

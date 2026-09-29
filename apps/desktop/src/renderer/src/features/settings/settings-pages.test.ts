@@ -1,4 +1,4 @@
-// The settings entry index, and the two claims the surface rests on.
+// The settings entry index, and the two claims the settings screen rests on.
 //
 // The rail is the closed section tuple and the search is one shared matcher. Both
 // are claims about SETS, so the cases drive the sets rather than a hand-listed copy

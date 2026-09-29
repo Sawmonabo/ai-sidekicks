@@ -51,7 +51,7 @@ export interface AttachmentIngestStreamDriverOptions {
   readonly port: IngestLegs;
   readonly sessionId: SessionId;
   readonly clock: Clock;
-  /** The staged list's own record. Written here, owned next door. */
+  /** The staged list's own record. Written here, owned by the staged list. */
   readonly ledger: AttachmentIngestEntries;
   /** Where a spool this driver opened and could not reach the ledger with is given back. */
   readonly reclaimer: AttachmentSpoolReclaimer;
@@ -61,8 +61,8 @@ export interface AttachmentIngestStreamDriverOptions {
  * One attachment's stream, from Init to Complete, driven on demand.
  *
  * THE RUNNING SET IS RE-ENTRANCY AND NOT SUPERSESSION, which is why it is a set here
- * rather than a key taken from `lib/reads/generation-latch.ts`. Supersession in this family
- * is the ledger's stamp, which that register already supplies; what this one answers is
+ * rather than a key taken from `lib/reads/generation-latch.ts`. Supersession in the attachment
+ * modules is the ledger's stamp, which that register already supplies; what this one answers is
  * whether a second `drive` for the same attachment would put a second Init on the wire —
  * and the caller has to be able to ASK, because a retry offered while a stream is
  * running is a duplicate upload. The register answers that question only by TAKING the
@@ -108,7 +108,7 @@ export class AttachmentIngestStreamDriver {
    * surfaces as the page's unhandled rejection rather than as ledger state.
    *
    * A subscriber that throws while the ledger publishes is different: the write has
-   * already landed, so the record is ahead of the surfaces reading it. That is reported
+   * already landed, so the record is ahead of the views reading it. That is reported
    * as an `apply-chokepoint-bypass` tripwire and not written again, since a second write
    * would publish into the same throwing subscriber.
    */
@@ -134,7 +134,7 @@ export class AttachmentIngestStreamDriver {
       reportTripwire(
         "apply-chokepoint-bypass",
         INGEST_STREAM_SITE,
-        `the ingest of ${localId} recorded its step and could not publish it (${lossyStringify(escape)}); the ledger holds the entry and every surface subscribed to it is now a step behind`,
+        `the ingest of ${localId} recorded its step and could not publish it (${lossyStringify(escape)}); the ledger holds the entry and every view subscribed to it is now a step behind`,
       );
     } finally {
       this.#runningLocalIds.delete(localId);

@@ -1,9 +1,9 @@
 // The definitions this session can start, read once and read whole.
 //
-// ONE ENUMERATION DOOR, TWO READERS. The accelerator resolves a typed name against
-// this list, and the discovery surface offers candidates from it while the name is
+// ONE ENUMERATION FUNCTION, TWO READERS. The accelerator resolves a typed name against
+// this list, and the command list offers candidates from it while the name is
 // still being typed. Written twice they would be two reads of one wire that answer
-// two different questions about one line — and the surface that offered a candidate
+// two different questions about one line — and the command list that offered a candidate
 // would stop agreeing with the path that starts it the first time either side's
 // paging or filtering was tuned.
 //
@@ -58,8 +58,8 @@ const ALWAYS_LIVE: WorkflowEnumerationLiveness = () => true;
  * Read every definition this session can start, following the wire's own cursor.
  *
  * A plain function rather than a hook, so the accelerator's dispatch and the
- * discovery surface's candidate source spend ONE implementation: the dispatch has no
- * React tree to read from, and a hook-shaped door would have forced it to grow a
+ * command list's candidate source spend ONE implementation: the dispatch has no
+ * React tree to read from, and a hook-shaped entry would have forced it to grow a
  * second walk beside this one.
  *
  * A page read that rejects rejects the whole walk: a partial list presented as the

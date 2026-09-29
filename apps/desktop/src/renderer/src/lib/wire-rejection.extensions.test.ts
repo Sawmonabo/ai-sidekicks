@@ -3,7 +3,7 @@
 // Split from `wire-rejection.test.ts`, which owns two other rules over the same
 // function: that the arms keep the refusing side's own code, and that it is total
 // against a value that fights back. This is the rule that grows: every reader
-// `refusal-extensions.ts` registers is a member that reaches a surface BECAUSE it was
+// `refusal-extensions.ts` registers is a member that reaches a component BECAUSE it was
 // registered and never because the wire carried it, and every one of them can arrive on
 // either the JSON-RPC `data.fields` payload or the flat envelope.
 //
@@ -54,7 +54,7 @@ describe("normalizeWireRejection — the retry bound the wire registered", () =>
 
   it("drops a reset instant it cannot read rather than reporting a wrong one", () => {
     // The concurrency-cap refusals register no timing pair at all, so a malformed one
-    // is a producer defect; the surface renders no countdown rather than a countdown
+    // is a producer defect; the component renders no countdown rather than a countdown
     // to a date that does not exist.
     expect(
       normalizeWireRejection("sessions", {
@@ -92,7 +92,7 @@ describe("normalizeWireRejection — the failed bindings a goal refusal names", 
   });
 
   it("negative control: the sibling `driverCode` is not registered and does not survive", () => {
-    // The point of the registry: a member off `data.fields` reaches a surface only
+    // The point of the registry: a member off `data.fields` reaches a component only
     // because a reader was registered for it, never because the wire carried it.
     const refusal = normalizeWireRejection("approvals", {
       code: -32603,

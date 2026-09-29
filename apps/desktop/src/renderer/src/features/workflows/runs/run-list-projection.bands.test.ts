@@ -1,7 +1,7 @@
 // What one row reads: whether it is parked, and the parks it folds.
 //
-// The park discriminator itself is asserted next door, on the module that owns it
-// (`run-list-rows.test.ts`); what is asserted here is what the LIST reads off a set of
+// The park discriminator itself is asserted against the module that owns it, in
+// `run-list-rows.test.ts`; what is asserted here is what the LIST reads off a set of
 // runs.
 
 import { describe, expect, it } from "vitest";

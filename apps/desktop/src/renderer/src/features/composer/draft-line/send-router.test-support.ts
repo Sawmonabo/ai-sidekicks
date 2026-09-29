@@ -1,5 +1,5 @@
 // The send router's shared scaffolding: one router, one set of stub calls, one ledger —
-// and the composer family's one copy of the wire shapes a send travels on.
+// and the composer feature's one copy of the wire shapes a send travels on.
 //
 // Lives here because both suites build the SAME router — resolution and dispatch are
 // two halves of one send — and a second builder written beside one of them would let

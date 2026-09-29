@@ -70,7 +70,7 @@ describe("the snapshot never regresses a newer tail row", () => {
   });
 
   it("negative control: writing the snapshot over the tail reverses and regresses", () => {
-    // The old seat, spelled out so the cases above fail on it rather than passing
+    // The naive fold, spelled out so the cases above fail on it rather than passing
     // over a fold that never had the defect: this is what `Map.set` per snapshot row
     // does to a map the tail wrote into first.
     const writtenOver = new Map<string, QueueItemSummary>();

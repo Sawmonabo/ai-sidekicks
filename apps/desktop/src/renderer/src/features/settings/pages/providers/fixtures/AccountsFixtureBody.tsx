@@ -1,11 +1,11 @@
-// The provider-account shell: the states the account registry can be in — an account
+// The provider-account fixture body: the states the account registry can be in — an account
 // nothing has ever observed, a reading months old, a readiness entry carrying a sign-in
 // remedy, three quota limits sharing one window — drawn from the reading and the calls
 // it is handed. It authors no rule: no eligibility, no health verdict, no remedy.
 //
-// The sign-in plane is one flow, not one per row: this machine runs one brokered
-// sign-in at a time, so every start control is disabled, with its reason, while one is
-// running. `signin-plane.ts` owns that rule. The registry's completion report is what
+// The sign-in is one flow, not one per row: this machine runs one brokered sign-in at a
+// time, so every start control is disabled, with its reason, while one is running.
+// `sign-in-flow-tracker.ts` owns that rule. The registry's completion report is what
 // releases a flow the node ended on its own, correlated by attempt id.
 
 import "./accounts-fixture-body.css";
@@ -35,7 +35,7 @@ import {
 } from "./sign-in-flow-tracker.js";
 import { TokenRegistrationForm } from "./components/TokenRegistrationForm.js";
 
-/** The daemon verbs the shell drives. Held stable by the caller. */
+/** The daemon verbs the fixture body drives. Held stable by the caller. */
 export interface AccountOperations {
   readonly login: ProviderAccountLoginCall;
   readonly cancelLogin: ProviderAccountLoginCancelCall;
@@ -43,7 +43,7 @@ export interface AccountOperations {
 }
 
 /**
- * What the shell renders the account list from: the registry's accounts, readiness
+ * What the fixture body renders the account list from: the registry's accounts, readiness
  * projection and quota rows, and whether the first read has landed.
  */
 export interface AccountListReading extends Pick<
@@ -54,7 +54,7 @@ export interface AccountListReading extends Pick<
 }
 
 /**
- * The provider-account shell: the registry, the sign-in flow and the token registration
+ * The provider-account fixture body: the registry, the sign-in flow and the token registration
  * form, drawn from the reading and the verbs it is handed.
  */
 export function AccountsFixtureBody(props: {
@@ -70,7 +70,7 @@ export function AccountsFixtureBody(props: {
   const [selectedAccountId, setSelectedAccountId] = useState<string | undefined>(undefined);
   // Built in a memo and disposed in an effect, so a memo React discards costs an object
   // rather than a call in flight.
-  const signInPlane = useMemo(
+  const signInFlowTracker = useMemo(
     () =>
       new SignInFlowTracker({
         startSignIn: async (accountId) => await startProviderSignIn(operations.login, accountId),
@@ -82,29 +82,29 @@ export function AccountsFixtureBody(props: {
   );
   useEffect(
     () => () => {
-      signInPlane.dispose();
+      signInFlowTracker.dispose();
     },
-    [signInPlane],
+    [signInFlowTracker],
   );
   const signIn = useSyncExternalStore(
-    (onStoreChange: () => void) => signInPlane.subscribe(onStoreChange),
-    () => signInPlane.snapshot(),
-    () => signInPlane.snapshot(),
+    (onStoreChange: () => void) => signInFlowTracker.subscribe(onStoreChange),
+    () => signInFlowTracker.snapshot(),
+    () => signInFlowTracker.snapshot(),
   );
   // The registry's completion report ends a flow the node finished on its own. Keyed on
   // the attempt id so a re-render over the same completion re-runs nothing.
   const completedAttemptId = registry.newestLoginCompletion?.attemptId;
   useEffect(() => {
     if (completedAttemptId !== undefined) {
-      signInPlane.noteLoginCompleted(completedAttemptId);
+      signInFlowTracker.noteLoginCompleted(completedAttemptId);
     }
-  }, [completedAttemptId, signInPlane]);
+  }, [completedAttemptId, signInFlowTracker]);
 
   if (registry.phase === "reading") {
     return (
       <Nothing
         kind="not-loaded"
-        placement="surface"
+        placement="block"
         title="Reading this machine’s account registry."
       />
     );
@@ -142,7 +142,7 @@ export function AccountsFixtureBody(props: {
                   : signIn.refusalByAccountId.get(readiness.resolvedAccountId)
               }
               onStartSignIn={(accountId) => {
-                signInPlane.start(accountId);
+                signInFlowTracker.start(accountId);
               }}
             />
           ))}
@@ -150,7 +150,7 @@ export function AccountsFixtureBody(props: {
         <SignInCard
           flow={signIn.flow}
           onCancel={() => {
-            signInPlane.cancel();
+            signInFlowTracker.cancel();
           }}
         />
       </section>
@@ -160,7 +160,7 @@ export function AccountsFixtureBody(props: {
         {registry.accounts.length === 0 ? (
           <Nothing
             kind="empty"
-            placement="surface"
+            placement="block"
             title="This machine has no provider accounts."
             detail="A run will refuse until one is registered. Register one below."
           />

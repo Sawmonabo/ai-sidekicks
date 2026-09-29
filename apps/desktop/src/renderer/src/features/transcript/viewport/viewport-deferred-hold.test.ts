@@ -1,7 +1,7 @@
 // Which arm a reconcile owes the reading position, and what each one writes.
 //
 // Driven against a REAL `ReadingAnchor` and a REAL `ScrollController` over a
-// detached surface, so the arbitration is asserted through the objects that arbitrate.
+// detached scroll container, so the arbitration is asserted through the objects that arbitrate.
 // The two collaborators the controller supplies as functions — the retained key list
 // and a row's offset — are the seam this suite steers, which is what makes the head
 // hold's arithmetic assertable without a virtualizer.
@@ -24,7 +24,7 @@ interface HoldUnderTest {
   readonly anchor: ReadingAnchor;
   readonly scroll: ScrollController;
   /** The layout engine's stand-in — `happy-dom` answers zero for every dimension. */
-  readonly surface: CountingScrollContainer;
+  readonly scrollContainer: CountingScrollContainer;
   readonly immediateHolds: () => number;
   setRowKeys: (rowKeys: readonly string[]) => void;
 }
@@ -32,8 +32,8 @@ interface HoldUnderTest {
 function holdUnderTest(): HoldUnderTest {
   const anchor = new ReadingAnchor();
   const scroll = new ScrollController({ clock: new ManualClock() });
-  const surface = createCountingScrollContainer({ initialScrollTop: 0 });
-  scroll.attach(surface);
+  const scrollContainer = createCountingScrollContainer({ initialScrollTop: 0 });
+  scroll.attach(scrollContainer);
   let rowKeys: readonly string[] = [];
   let immediateHolds = 0;
   const hold = new ViewportDeferredHold({
@@ -50,7 +50,7 @@ function holdUnderTest(): HoldUnderTest {
     hold,
     anchor,
     scroll,
-    surface,
+    scrollContainer,
     immediateHolds: () => immediateHolds,
     setRowKeys: (next) => {
       rowKeys = next;
@@ -126,7 +126,7 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
     subject.hold.commit();
 
     // 3 rows above it at 40px each, plus where the reader already was.
-    expect(subject.surface.scrollTop).toBe(3 * ROW_HEIGHT_PX + 120);
+    expect(subject.scrollContainer.scrollTop).toBe(3 * ROW_HEIGHT_PX + 120);
     expect(subject.scroll.writeCount("hold-reading-position")).toBe(1);
   });
 
@@ -144,7 +144,7 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
     });
     subject.hold.commit();
 
-    expect(subject.surface.scrollTop).toBe(2 * ROW_HEIGHT_PX + 80);
+    expect(subject.scrollContainer.scrollTop).toBe(2 * ROW_HEIGHT_PX + 80);
     expect(subject.scroll.writeCount("follow-tail")).toBe(0);
   });
 
@@ -206,26 +206,26 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     const subject = holdUnderTest();
     scrollAwayFromTail(subject.anchor);
     subject.setRowKeys(FIRST_WINDOW);
-    subject.surface.scrollTop = READING_AT_PX;
-    expect(rowAtViewportTop(FIRST_WINDOW, subject.surface.scrollTop)).toBe("r42");
+    subject.scrollContainer.scrollTop = READING_AT_PX;
+    expect(rowAtViewportTop(FIRST_WINDOW, subject.scrollContainer.scrollTop)).toBe("r42");
 
     subject.hold.armAfterReconcile({
       headInsertedCount: 3,
       previousHeadKey: "r40",
-      scrollTopPx: subject.surface.scrollTop,
+      scrollTopPx: subject.scrollContainer.scrollTop,
     });
     subject.setRowKeys(AFTER_FIRST_PAGE);
     subject.hold.commit();
-    expect(rowAtViewportTop(AFTER_FIRST_PAGE, subject.surface.scrollTop)).toBe("r42");
+    expect(rowAtViewportTop(AFTER_FIRST_PAGE, subject.scrollContainer.scrollTop)).toBe("r42");
 
     subject.hold.armAfterReconcile({
       headInsertedCount: 2,
       previousHeadKey: "r35",
-      scrollTopPx: subject.surface.scrollTop,
+      scrollTopPx: subject.scrollContainer.scrollTop,
     });
     subject.setRowKeys(AFTER_SECOND_PAGE);
     subject.hold.commit();
-    expect(rowAtViewportTop(AFTER_SECOND_PAGE, subject.surface.scrollTop)).toBe("r42");
+    expect(rowAtViewportTop(AFTER_SECOND_PAGE, subject.scrollContainer.scrollTop)).toBe("r42");
   });
 
   it("negative control: the same two pages with no hold walk the reader backwards", () => {
@@ -235,16 +235,16 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     const subject = holdUnderTest();
     scrollAwayFromTail(subject.anchor);
     subject.setRowKeys(FIRST_WINDOW);
-    subject.surface.scrollTop = READING_AT_PX;
+    subject.scrollContainer.scrollTop = READING_AT_PX;
 
     subject.hold.armAfterReconcile({
       headInsertedCount: 0,
       previousHeadKey: "r40",
-      scrollTopPx: subject.surface.scrollTop,
+      scrollTopPx: subject.scrollContainer.scrollTop,
     });
     subject.setRowKeys(AFTER_FIRST_PAGE);
     subject.hold.commit();
 
-    expect(rowAtViewportTop(AFTER_FIRST_PAGE, subject.surface.scrollTop)).toBe("r37");
+    expect(rowAtViewportTop(AFTER_FIRST_PAGE, subject.scrollContainer.scrollTop)).toBe("r37");
   });
 });

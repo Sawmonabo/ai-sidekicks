@@ -222,7 +222,7 @@ function drawnLeaves(plan: SchemaFormPlan): readonly SchemaLeafEntry[] {
  * Narrowed HERE, before the entries are minted, rather than trusted from the descriptor:
  * a `default` of another shape is one the compiled validator refuses on its own terms, and
  * seeding it would put a string at a member whose control renders lists — the answer
- * holding one thing while the surface showed another, which is what this module exists
+ * holding one thing while the control showed another, which is what this module exists
  * to prevent.
  */
 function declaredEntries(declared: unknown): readonly unknown[] | undefined {

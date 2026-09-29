@@ -70,7 +70,7 @@ export interface RunGroupDisclosure {
  * could no longer show it.
  *
  * AND THE FOLD REPORTS WHAT IT WITHHELD, on the narrowing stage's rule and for its
- * reason: rule 7 folds every finished run by default, so this is the largest of the
+ * reason: every finished run folds by default, so this is the largest of the
  * find field's four counts on any session that has finished a run, and the pass below
  * is the one that already separates those rows.
  */
@@ -168,8 +168,8 @@ export function selectRunGroupRowIdsWithinCap(rowIds: readonly string[]): readon
  * of its rows would make its own figure a lie. Lifecycle, the terminal that ended
  * the run and the row it was read from are facts about the SESSION, so they are
  * carried through untouched: a filter that hid a run's `run.completed` row would
- * otherwise turn a finished run group live, and rule 7 would then keep it open
- * forever.
+ * otherwise turn a finished run group live, and a live run group stays open, so it
+ * would then stay open forever.
  *
  * The clipped figure is re-derived from the cap's own selector rather than from a
  * second subtraction, so there is one expression of where a run group clips.

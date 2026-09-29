@@ -1,7 +1,7 @@
 // No durable store means a visible degradation, not a silent one.
 //
 // A renderer whose scheme was not registered privileged runs on the in-memory adapter and
-// SAYS SO, on the quota gauge as well as in prose — a surface that reads only the gauge
+// SAYS SO, on the quota gauge as well as in prose — a view that reads only the gauge
 // must not see three empty numbers and report a silent nothing. The five kinds of nothing
 // are distinct here too: an unread gauge is not an empty one.
 //
@@ -35,7 +35,7 @@ describe("no durable store means a visible degradation, not a silent one", () =>
     expect(health.description).toContain("not survive a restart");
     // "Storage unavailable" alone would leave an operator with nothing to check.
     expect(health.description).toContain("renderer scheme");
-    // And the gauge — which is what a storage surface reads — carries the reason
+    // And the gauge — which is what a storage view reads — carries the reason
     // rather than three absent numbers a reader cannot interpret.
     expect(health.quota.unavailableReason).toBe("open-refused");
     expect(describeQuotaUnavailability(health.quota)).toBe(

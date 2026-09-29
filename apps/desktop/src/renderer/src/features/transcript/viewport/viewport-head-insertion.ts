@@ -6,7 +6,7 @@
 // decides WHICH key to name, and getting that wrong is not a subtle drift.
 //
 // THE KEY IS THE LAST SET THIS OBJECT WAS SHOWN, NEVER THE ONE THE WINDOW RETAINED.
-// The window's cap trims from the oldest end and the surrounding surface keeps
+// The window's cap trims from the oldest end and the surrounding feed keeps
 // handing over the whole projection, so after a single prune the retained head sits
 // in the middle of every later set. Counted against that, an ordinary reconcile
 // reports hundreds of rows "inserted before the head" and the caller pins history

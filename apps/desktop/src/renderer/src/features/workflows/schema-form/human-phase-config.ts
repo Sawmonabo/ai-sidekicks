@@ -38,8 +38,8 @@ const HUMAN_PHASE_TYPE = "human";
  * Read one phase's form config, or nothing where this phase has no form.
  *
  * `undefined` covers two cases on purpose — a phase that is not a human phase, and a
- * human phase whose definition declared no schema — because a surface renders nothing for
- * both, and a second discriminator would be a distinction nothing acts on.
+ * human phase whose definition declared no schema — because the form's mount renders
+ * nothing for both, and a second discriminator would be a distinction nothing acts on.
  */
 export function humanPhaseFormConfigOf(
   phase: WorkflowPhaseDefinition,

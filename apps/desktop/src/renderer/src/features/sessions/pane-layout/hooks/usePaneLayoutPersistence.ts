@@ -89,11 +89,12 @@ export function usePaneLayoutPersistence(
   const publishRestoreRefusals = restoreRefusals.publish;
 
   // The partition rides the REQUEST rather than being read here. A writer coalesces,
-  // so a queued arrangement settles after the act that queued it — and the session screen
-  // survives a navigation between two already-open sessions, because the shell opens
-  // session stores and never closes them. Reading a mutable current-session holder at
-  // write time filed the older session's arrangement under the newer one's partition
-  // and overwrote a pane layout the person had not touched.
+  // so a queued arrangement settles after the act that queued it — and the session
+  // screen survives a navigation between two already-open sessions, because the session
+  // store registry keeps every store it opened until the window goes away. Reading a
+  // mutable current-session holder at write time filed the older session's arrangement
+  // under the newer one's partition and overwrote a pane layout the person had not
+  // touched.
   //
   // AND THE WRITER ITSELF IS HELD PER STORE. The partition axis above is the session;
   // this is the other one. The store handed down is replaced on a reconnect without
@@ -137,7 +138,7 @@ export function usePaneLayoutPersistence(
   // for the store: the pane layout is the subject and the session is the key, so a `UiStateStore`
   // replacement leaves this exactly as it was. It is a write gate and a dispatch gate and
   // nothing else, which is why it is held here rather than on the pane layout: a rendered
-  // `hasSettled` is a fact a surface announces on, so hoisting one of the two onto the
+  // `hasSettled` is a fact a view announces on, so hoisting one of the two onto the
   // other would give a persistence gate a place in a rendered state shape, or an
   // announcement a place in a hook.
   const { value: restore } = useSubjectScopedState(layout, sessionId, () => new RestoreProgress());

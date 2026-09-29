@@ -1,7 +1,7 @@
-// Which durable store a surface is reading from, and what happens to the one it
+// Which durable store a view is reading from, and what happens to the one it
 // replaces.
 //
-// `durable-view-state.ts` next door decides what a durable view value IS and what a
+// `durable-view-state.ts` beside it decides what a durable view value IS and what a
 // refused write means. This module answers the other question: which `UiStateStore`
 // a binding is attached to, and what becomes of a binding whose store has been
 // replaced. They are two jobs — a state machine and a React lifetime — reviewed
@@ -23,17 +23,16 @@
 // binding was minted for hands that binding back; a different one disposes the
 // binding before it and mints a successor.
 //
-// AND THE HOLDER'S OWN LIFETIME IS THE WINDOW'S, WHICH IS THE SECOND HALF OF THE
-// SAME DEFECT. The holder was minted by a `useState` initializer, so it belonged to
-// the COMPONENT that called this hook: leaving the sessions destination and coming
-// back minted a second holder, which minted a second `SessionPinStore` over the one
-// `UiStateStore` this window is on — two writers of one durable record, each holding
-// its own in-memory copy of it. Nothing on screen showed it, because the mounted
-// surface always read the newest of the two; what read the older one was the auto-pin
-// authority stamped when a session was started, which then answered a first send with
-// a switch nobody was changing any more and spread a pin map the durable record had
-// moved past. So the holder is declared at MODULE scope by the module that owns the
-// binding — `machineSettingsHolder` in `features/settings/machine-settings/` is the
+// AND THE HOLDER'S OWN LIFETIME IS THE WINDOW'S. A holder minted by a `useState`
+// initializer would belong to the COMPONENT that called this hook: leaving the
+// sessions destination and coming back would mint a second holder, which would mint a
+// second `SessionPinStore` over the one `UiStateStore` this window is on — two writers
+// of one durable record, each holding its own in-memory copy of it. Nothing on screen
+// would show it, because the mounted view always reads the newest of the two; what
+// reads the older one is the auto-pin authority stamped when a session was started,
+// which would answer a first send with a switch nobody was changing any more and
+// spread a pin map the durable record had moved past. So the holder is declared at
+// MODULE scope by the module that owns the binding — `machineSettingsHolder` in `features/settings/machine-settings/` is the
 // same shape for the same reason — and module scope is window scope here, since an
 // auxiliary window is its own renderer process and no channel joins two windows'
 // module graphs. One holder per binding kind per window, so a remount finds the
@@ -65,11 +64,11 @@ export interface DurableViewBinding {
   subscribe(sink: () => void): Unsubscribe;
 }
 
-/** What a surface holds: the live binding while there is one, and the way to reach it. */
+/** What a view holds: the live binding while there is one, and the way to reach it. */
 export interface DurableViewBindingAccess<TBinding extends DurableViewBinding> {
   /**
    * The binding this render may read, or `undefined` while the acquiring effect has
-   * not settled — the OPENING arm. A surface renders its own initial value there,
+   * not settled — the OPENING arm. A view renders its own initial value there,
    * which is what a freshly minted binding holds anyway, so the arm costs a person
    * nothing and never shows a disposed binding's contents.
    */

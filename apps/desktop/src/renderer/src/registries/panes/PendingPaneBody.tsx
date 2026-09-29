@@ -12,9 +12,9 @@
 // inside it is motion that settles nothing, which the console's motion rule does not
 // admit. A skeleton would be worse — it would draw rows the body may not have.
 //
-// AND IT IS DELIBERATELY NOT ONE OF THE FIVE KINDS OF NOTHING. Rule 8 enumerates five
-// absences — not loaded, empty, error, not checked, unknown — and says a renderer that
-// collapses two of them into one is wrong. None of them is this: nothing about the
+// AND IT IS DELIBERATELY NOT ONE OF THE FIVE KINDS OF NOTHING. The console draws five
+// absences — not loaded, empty, error, not checked, unknown — each differently because
+// a person's next move differs, so a renderer that collapses two of them into one is wrong. None of them is this: nothing about the
 // entity is missing, unknown, or refused, and no read has been attempted yet. What is
 // absent is a MODULE, which is a fact about the bundle rather than about the session,
 // and rendering `not loaded` here would tell a person their data had not arrived, which

@@ -1,4 +1,4 @@
-// How a React surface holds one artifact pane's reader, and nothing about what the reader
+// How a React component holds one artifact list reader, and nothing about what the reader
 // reads.
 //
 // Split from `artifact-list-reader.ts`: that class owns the read, and this module owns the
@@ -7,7 +7,7 @@
 // The reader is constructed in a hook and never in a render body, subscribed through
 // `useSyncExternalStore` so a publish is a single transition, and disposed on unmount. It
 // is also stamped to its subject: a reader holds subject-scoped state (the payload and
-// the single-flight fetch are both about one artifact), so a surface reused for another
+// the single-flight fetch are both about one artifact), so a component reused for another
 // artifact must not keep the first artifact's bytes or its held control.
 
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
@@ -22,7 +22,7 @@ import type { ArtifactOperations } from "../services/artifact-reads.js";
 import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
 import { ArtifactListReader } from "../artifact-list-reader.js";
 
-/** What the hook hands its surface: the reading, and the acts it can put to the port. */
+/** What the hook hands its component: the reading, and the acts it can put to the port. */
 export interface ArtifactListBinding {
   readonly reading: ArtifactListReading;
   readonly refresh: () => void;
@@ -31,13 +31,13 @@ export interface ArtifactListBinding {
 }
 
 /**
- * Bind one surface to its reader.
+ * Bind one component to its reader.
  *
  * The subject is the bridge together with the operations, and the key is the artifact id,
  * held through the console's resource seam. `useSubjectScopedResource` opens the reader
  * on the render that first sees a `(bridge, operations, artifact)` triple and closes it
  * however that render ended, including a pass React discards. A moved subject mints a new
- * reader, so the surface opens on the new artifact's `loading` reading rather than the
+ * reader, so the component opens on the new artifact's `loading` reading rather than the
  * previous artifact's bytes, and a fetch still on the wire for the previous subject
  * settles into a disposed reader. The operations are compared by identity, so a caller
  * that builds them anew on every render would mint a reader on every render and has to

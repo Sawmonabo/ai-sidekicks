@@ -2,25 +2,26 @@
 //
 // The REQUEST and its readings live here; the lifetime rule that decides when one is
 // live — keyed on the addressed agent, discarded before a re-read, discarded when the
-// surface closes — is `provider-command-holder.ts`'s, because two zones observe that
+// command list closes — is `provider-command-enumeration.ts`'s, because two zones observe that
 // decision and only one of them may make it. Splitting them keeps this module a pure
 // round trip a test can drive without a component, and keeps the holder free of the
 // parsing.
 //
-// THE READ GOES THROUGH THE ONE DOOR AND HOLDS NO PARSE OF ITS OWN. `callDaemon`
+// THE READ GOES THROUGH `callDaemon` AND HOLDS NO PARSE OF ITS OWN. `callDaemon`
 // parses the request before it is sent and the reply against the shape the corpus
 // registers for `driver.listProviderCommands`, and answers `served` or `refused`
 // without ever rejecting — so a reply this console cannot read, a request it could
 // not build, and the daemon's own `driver.unavailable` all arrive as one refusal
 // carrying its own code verbatim. What is left here is the pair of identifiers,
-// parsed through their registered schemas, and the three settled states a surface
-// renders.
+// parsed through their registered schemas, and the three settled states the command
+// list renders.
 //
-// AND THE ROUND'S SIGNAL GOES THROUGH THE DOOR WITH IT. This is a surface-owned read:
+// AND THE ROUND'S SIGNAL GOES THROUGH `callDaemon` WITH IT. The command list owns this read:
 // the popover that opened it closes, or the composer addresses another agent, and
-// nobody is waiting for the bindings any more. Without the signal the door went on
+// nobody is waiting for the bindings any more. Without the signal `callDaemon` went on
 // waiting for the reply and parsing the whole `ProviderCommandListResult` against its
-// registered schema for an owner who had left — the holder next door superseded what
+// registered schema for an owner who had left — the holder in
+// `provider-command-enumeration.ts` superseded what
 // came back, which discards the answer and pays for it anyway. The signal is a
 // PARAMETER rather than something this module opens, because whose read this is and
 // when it ends are the holder's to say.
@@ -38,10 +39,10 @@ export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
 /**
  * Why the console refused an enumeration on its own side.
  *
- * One code, closed, and it is NOT the unreadable reply — that one belongs to the
- * call door, which owns the whole `DaemonReplyRefusalCode` vocabulary, and a second
+ * One code, closed, and it is NOT the unreadable reply — that one belongs to
+ * `callDaemon`, which owns the whole `DaemonReplyRefusalCode` vocabulary, and a second
  * spelling of it here would be a second name for one failure. What remains is the
- * question the door cannot answer: this composer is addressed at something whose
+ * question `callDaemon` cannot answer: this composer is addressed at something whose
  * identifiers the registered request would not accept, so nothing was asked.
  */
 export const PROVIDER_COMMAND_READ_REFUSAL_CODES = ["addressed-agent-unparseable"] as const;
@@ -53,8 +54,8 @@ export type ProviderCommandReadRefusalCode = (typeof PROVIDER_COMMAND_READ_REFUS
  * Where the enumeration read has got to.
  *
  * `not-checked` is a first-class arm and not an empty list: a composer addressed at the
- * session has no agent to enumerate, so nobody asked — which rule 8 renders
- * differently from a provider that answered with nothing.
+ * session has no agent to enumerate, so nobody asked — which renders differently
+ * from a provider that answered with nothing, because the next move differs.
  */
 export type ProviderCommandReadState =
   | { readonly phase: "not-checked" }
@@ -67,7 +68,7 @@ export type ProviderCommandReadState =
  *
  * `signal` is the round's, from the read line the holder opened for this address. An
  * already-abandoned line puts nothing on the wire and one abandoned mid-flight parses
- * nothing — both settle as the door's own `read-abandoned` refusal, which the holder
+ * nothing — both settle as `callDaemon`'s own `read-abandoned` refusal, which the holder
  * never publishes because the round it was opened on is no longer the live one.
  */
 export async function settleEnumeration(

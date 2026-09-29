@@ -121,7 +121,7 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     // table under the same row shape this tree's own descendant sits in. A kill
     // list built from that table hands `taskkill` a process this package never
     // started — the same false success as walking a reissued pid, arriving
-    // through the door marked `gone`. Two claims: the stranger was not signaled,
+    // as a `gone` reading. Two claims: the stranger was not signaled,
     // and the member this tree captured was.
     name: "a stale parent row under a dead root pid is read, never signaled",
     axes: {

@@ -1,6 +1,6 @@
 // THE diff renderer. One implementation, two hosts.
 //
-// THIS FAMILY'S OWN RULE, stated here because no committed document states it: one
+// THIS FEATURE'S OWN RULE, stated here because no committed document states it: one
 // diff renderer serves both the pane and the transcript card, so a one-character edit
 // reads as one character in
 // both. That rule is the whole reason this file is separate from either of
@@ -32,7 +32,7 @@
 //
 // THE WINDOW IS THE ADOPTED VIRTUALIZER'S, AND THE FLATTENING IS OURS.
 // `@tanstack/react-virtual` is adopted with constraints, and `row-window.ts` is the one
-// place it is configured — this family windows two
+// place it is configured — this feature windows two
 // lists, the rows and the changed-file list beside them, and the bounds they share
 // are stated there once. `diff-row-index.ts` still answers
 // WHICH ROWS EXIST — a diff is a nested structure and no virtualizer's contract
@@ -114,7 +114,7 @@ export function DiffRenderer(props: DiffRendererProps): React.JSX.Element {
   if (index.rowCount === 0) {
     return (
       <div className="meridian-diff meridian-diff--empty">
-        <Nothing kind="empty" placement="surface" title="nothing to review" />
+        <Nothing kind="empty" placement="block" title="nothing to review" />
       </div>
     );
   }

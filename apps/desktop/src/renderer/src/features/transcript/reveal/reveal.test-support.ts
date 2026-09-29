@@ -5,8 +5,8 @@
 // over in full. Markdown is what the gate withholds a tail of, so the filler has to
 // contain none of it, and a per-suite copy of that rule is three chances for one of
 // them to drift into text whose reveal is bounded by something other than the frame
-// budget. A fixture module beside the code it serves, on `scroll-surface.test-support.ts`'
-// terms.
+// budget. A fixture module beside the code it serves, like
+// `scroll-container.test-support.ts`.
 
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 

@@ -1,6 +1,7 @@
 // The repos section's act half: one mode switch per workspace on the wire at a time.
 //
-// The reader next door owns the reads: which calls, on which reasons, and what it publishes.
+// The reader in `repo-mounts-reader.ts` owns the reads: which calls, on which reasons, and
+// what it publishes.
 // This class owns the mutation, which is a different subject with its own collaborator and
 // its own teardown.
 //
@@ -27,7 +28,7 @@ import type { RepoMountsReading } from "./repo-mounts-model.js";
 import type { RepoOperations } from "../repo-operations.js";
 
 /** What an act needs from the half of the section that reads. */
-export interface ExecutionModeSelectionHost {
+export interface RepoMountsReadingPublisher {
   /** The reading standing right now. Every publish below spreads forward from it. */
   currentReading(): RepoMountsReading;
   publish(reading: RepoMountsReading): void;
@@ -38,13 +39,13 @@ export interface ExecutionModeSelectionHost {
 export interface ExecutionModeSelectionsOptions {
   /** The one call this class makes. */
   readonly operations: Pick<RepoOperations, "selectExecutionMode">;
-  readonly host: ExecutionModeSelectionHost;
+  readonly publisher: RepoMountsReadingPublisher;
 }
 
 /** The one mutation this section sends, and the register that holds one per workspace. */
 export class ExecutionModeSelections {
   readonly #operations: Pick<RepoOperations, "selectExecutionMode">;
-  readonly #host: ExecutionModeSelectionHost;
+  readonly #publisher: RepoMountsReadingPublisher;
   /**
    * Which workspaces have a switch outstanding, keyed by workspace id.
    *
@@ -56,7 +57,7 @@ export class ExecutionModeSelections {
 
   public constructor(options: ExecutionModeSelectionsOptions) {
     this.#operations = options.operations;
-    this.#host = options.host;
+    this.#publisher = options.publisher;
   }
 
   /**
@@ -69,7 +70,7 @@ export class ExecutionModeSelections {
    * follow it.
    */
   public async request(workspaceId: WorkspaceId, executionMode: ExecutionMode): Promise<void> {
-    const claim = this.#inFlight.takeShell(this, workspaceId);
+    const claim = this.#inFlight.claim(this, workspaceId);
     if (claim === undefined) {
       return;
     }
@@ -77,7 +78,7 @@ export class ExecutionModeSelections {
     try {
       await this.#operations.selectExecutionMode(workspaceId, executionMode);
       claim.settle(() => {
-        this.#host.requestRefreshAfterSelect();
+        this.#publisher.requestRefreshAfterSelect();
       });
     } finally {
       // Read before the release, because releasing is what makes it false. It is asked at
@@ -106,7 +107,7 @@ export class ExecutionModeSelections {
 
   /** Publish the pending map with one workspace's entry set, or removed where absent. */
   #publishPending(workspaceId: string, executionMode: ExecutionMode | undefined): void {
-    const reading = this.#host.currentReading();
+    const reading = this.#publisher.currentReading();
     const pendingModeByWorkspaceId = { ...reading.pendingModeByWorkspaceId };
     if (executionMode === undefined) {
       // Deleted rather than set to `undefined`: `exactOptionalPropertyTypes` makes a held
@@ -116,7 +117,7 @@ export class ExecutionModeSelections {
     } else {
       pendingModeByWorkspaceId[workspaceId] = executionMode;
     }
-    this.#host.publish({ ...reading, pendingModeByWorkspaceId });
+    this.#publisher.publish({ ...reading, pendingModeByWorkspaceId });
   }
 }
 

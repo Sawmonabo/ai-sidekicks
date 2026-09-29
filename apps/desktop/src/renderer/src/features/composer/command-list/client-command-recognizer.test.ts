@@ -54,8 +54,8 @@ describe("recognizeClientCommand", () => {
   });
 
   it("negative control: a name the provider also publishes resolves as the console's", () => {
-    // Both surfaces may publish `compact`. The console's registration is what decides
-    // here, because the console's is the only one this composer can run.
+    // The console and the provider may both publish `compact`. The console's registration
+    // is what decides here, because the console's is the only one this composer can run.
     const recognition = recognizeClientCommand("compact", {
       registeredCommandIds: ["compact"],
     });

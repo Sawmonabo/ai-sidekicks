@@ -9,7 +9,7 @@
 // A COMPONENT BETWEEN THE MOUNT AND THE BODY, rather than a hook in the mount point above it. The
 // submit is addressed by an attempt that exists only where a phase is open, so a hook in the
 // wrapper would have to run on the render where nothing is waiting. `EngineMountPoint`
-// renders only its empty frame on that arm, so the channel is mounted as the seat's body and
+// renders only its empty frame on that arm, so the channel is mounted as the mount point's body and
 // the supplied body is composed inside it, which puts the hook behind the same absence check
 // the empty frame is behind.
 //
@@ -20,7 +20,7 @@
 // share a member name would show one branch's typed answer under the other's question,
 // and a press would record it against the phase now on screen. A key on `phaseRunId`
 // makes them two elements, which is React's own way of saying they are two forms, and
-// it is applied HERE so it holds for a supplied body as well as for the console's own shell.
+// it is applied HERE so it holds for a supplied body as well as for the console's default body.
 //
 // `phaseRunId` AND NOT THE PHASE, AND NOT THE REVISION EITHER. The attempt is what the
 // answer is composed against and submitted for — a retry mints a new one — so it is the
@@ -31,7 +31,7 @@
 // identity by `useSubjectScopedState`, so both halves of the form's state are scoped to
 // one attempt by two mechanisms that agree rather than by one that covers half.
 //
-// THE OUTCOME STANDS BENEATH THE BODY. It is the seat's reading of what the daemon
+// THE OUTCOME STANDS BENEATH THE BODY. It is this binding's reading of what the daemon
 // answered and not part of the form, so it sits under whatever the body drew rather than
 // inside it — and a supplied body gets the settlement rendered for it without owning a
 // line of it.
@@ -47,7 +47,7 @@ export interface HumanFormSubmitBindingProps {
   /** The wait this channel is the submit for. Present by construction — see the header. */
   readonly phase: HumanFormPhase;
   /**
-   * The supplied body, or `undefined` while there is none and the console's shell stands.
+   * The supplied body, or `undefined` while there is none and the console's default body stands.
    *
    * Required-carrying-undefined rather than optional, because the mount point above always
    * knows which it has and an absent key would read as one that forgot to say.

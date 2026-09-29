@@ -50,7 +50,7 @@ export type SystemMessageKind = (typeof SYSTEM_MESSAGE_KINDS)[number];
 /**
  * Whether the wire type a seam reads is in the registered event census.
  *
- * Rendered, never inferred: a surface showing a seam vocabulary owes the operator
+ * Rendered, never inferred: a view showing a seam vocabulary owes the operator
  * the difference between "this has not happened" and "the daemon cannot say this
  * yet".
  */
@@ -72,10 +72,10 @@ export interface SystemMessageBinding {
   /**
    * The glyph the one-line row carries.
    *
-   * Drawn from `tokens/glyphs.ts`'s closed family. Two readings here are
-   * deliberate substitutions rather than the obvious pick, because the family
-   * carries no rewind and no fold glyph and minting one is the token family's
-   * edit, not this lane's: a rollback takes `clock` (history moved) and a
+   * Drawn from `styles/glyphs.ts`'s closed set. Two readings here are
+   * deliberate substitutions rather than the obvious pick, because the set
+   * carries no rewind and no fold glyph and minting one is an edit to the glyph
+   * set, not to this table: a rollback takes `clock` (history moved) and a
    * compaction takes `chevron-down` (the log folded).
    */
   readonly glyph: GlyphName;
@@ -84,8 +84,8 @@ export interface SystemMessageBinding {
    *
    * Only the FAILED switch is a caution: `'in_place'` and
    * `'replayed'` render "without a loss clause and without a warning, because
-   * nothing was lost". Amber and red are spent on attention and failure alone
-   * (rule 3), so this is the single member that earns one.
+   * nothing was lost". Amber and red are spent on attention and failure alone,
+   * so this is the single member that earns one.
    */
   readonly isCaution: boolean;
 }

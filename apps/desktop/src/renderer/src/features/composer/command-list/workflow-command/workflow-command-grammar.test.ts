@@ -1,6 +1,6 @@
 // The documented line parses, and a dotted id is nobody's command.
 //
-// The surface is fixed: one command root, `workflow`, one verb, `start`, and the line
+// The grammar is fixed: one command root, `workflow`, one verb, `start`, and the line
 // `/workflow start <name>`. The end-to-end case below is what makes that a claim about
 // the SHIPPED path rather than about this module — the same recognizer the send bar
 // hands the router, the real router, and the real executor over the real console

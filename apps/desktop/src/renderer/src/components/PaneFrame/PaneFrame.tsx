@@ -1,11 +1,11 @@
 // The chrome every pane in the pane layout wears, and the two tables that make it legible.
 //
-// One entity lives in one pane behind a single mount door, and three of the head's
+// One entity lives in one pane behind a single mount point, and three of the head's
 // contents are fixed — panes are each headed by an entity breadcrumb and a kind glyph,
 // with the actor's hue as the focus ring. What no committed document says is that each
-// of the six families should draw its own frame, and six frames drawn independently is
+// of the six features should draw its own frame, and six frames drawn independently is
 // six spacings, six breadcrumb separators, six control strips, and six answers to where
-// the focus ring goes. So the frame is drawn once, here, and a pane body is what a family writes.
+// the focus ring goes. So the frame is drawn once, here, and a pane body is what a feature writes.
 //
 // THE CONTROL STRIP IS THIS MODULE'S, because no committed document enumerates it: the
 // kind's own actions and close. The close arrives either explicitly, from a caller that
@@ -25,11 +25,10 @@
 //
 // AND SO IS THE PANE-LEVEL KEY CLAIM, for the same structural reason. A chord that
 // means "this pane" has to be heard wherever focus is inside the pane, and the head
-// is not inside the body — so a family that wants one cannot get it by wrapping its
+// is not inside the body — so a feature that wants one cannot get it by wrapping its
 // own body, and wrapping the chrome from OUTSIDE puts an element between the pane layout and
-// the section it lays out. The browser pane shipped exactly that adapter, with
-// `display: contents` on it to stop the pane layout seeing a box; the prop below is what it
-// was standing in for.
+// the section it lays out, one that needs `display: contents` to stop the pane layout seeing
+// a box. The prop below gives the pane its key claim without that element.
 //
 import "./PaneFrame.css";
 
@@ -49,7 +48,7 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
  * rather than render as a nameless square in whichever pane layout first opened it. Two
  * kinds share a glyph on purpose — `workflow-run` is a run OF a workflow and
  * `workflow-builder` is the workflow itself — and inventing a distinct mark for each would
- * grow the glyph family past what a person can hold, which is the cost `tokens/glyphs.ts`
+ * grow the glyph set past what a person can hold, which is the cost `styles/glyphs.ts`
  * names.
  */
 export const GLYPH_BY_PANE_KIND: Readonly<Record<PaneKind, GlyphName>> = {
@@ -104,7 +103,7 @@ export interface PaneFrameProps {
    * The id the pane's `<section>` names itself by, minted here when absent.
    *
    * A prop AND a mint, because both callers exist: a host that has already written
-   * `aria-controls` or a heading reference at the id it chose passes it, and a family
+   * `aria-controls` or a heading reference at the id it chose passes it, and a feature
    * mounting a body through the registry has no id to pass and must not have to invent
    * one. `useId` is what makes the second case safe — two panes of one kind in one pane layout
    * would otherwise collide on any literal.
@@ -129,11 +128,10 @@ export interface PaneFrameProps {
    * IT IS ON THE SECTION AND NOT ON THE BODY, and that is the whole reason the seam
    * exists. What a pane-level chord protects is the WINDOW, so the claim has to cover
    * every element the chord can be pressed on while this pane has focus — and the head
-   * this chrome draws is not a descendant of the body a family supplies. A family that
+   * this chrome draws is not a descendant of the body a feature supplies. A feature that
    * wraps `<PaneFrame>` from the outside to get the capture is drawing a second
-   * element around a laid-out pane; the one that shipped had to declare
-   * `display: contents` to stop the pane layout seeing a box, which is an adapter that exists
-   * only because this prop did not.
+   * element around a laid-out pane, which has to declare `display: contents` to stop
+   * the pane layout seeing a box: an adapter that exists only where this prop does not.
    *
    * CAPTURE and not bubble, on the same reasoning: the claim is the pane's, so it is
    * decided before whatever the person was typing into sees the key. A handler that

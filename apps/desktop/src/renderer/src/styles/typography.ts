@@ -16,21 +16,21 @@
 // box plus its padding — so this file stays a LEAF that imports nothing local and
 // the dependency cannot become a cycle.
 //
-// Design-language rule 4 governs everything here: UI text in a humanist grotesque,
+// The design language's type rule governs everything here: UI text in a humanist grotesque,
 // every wire-true figure in mono, and the two set on one shared scale so a figure and
 // its label sit on the same baseline.
 //
-// WHERE THE OPENTYPE FEATURES ARE NOT, AND WHY. Rule 4 asks for a slashed zero and
+// WHERE THE OPENTYPE FEATURES ARE NOT, AND WHY. The type rule asks for a slashed zero and
 // tabular figures, and this file declares neither.
 //
 //   The SLASHED ZERO belongs to the mono FACE and is declared as a descriptor
-//   inside its two `@font-face` rules in `frame/bindings/typeface.ts`. It was on
-//   `body` here first, and that was the wrong home twice over: rule 4 makes mono
+//   inside its two `@font-face` rules in `typeface.ts`. It is not on `body`,
+//   and that would be the wrong home twice over: mono is
 //   the signature that a number came from the wire, and `font-feature-settings`
-//   INHERITS, so a root declaration slashed the zero in every user name,
+//   INHERITS, so a root declaration would slash the zero in every user name,
 //   repo path, and branch name in the console — and then, because CSS Fonts 4
 //   gives that property precedence over the features `font-variant-*` computes,
-//   left no descendant able to scope the feature back.
+//   leave no descendant able to scope the feature back.
 //
 //   TABULAR FIGURES need no feature at all in these faces. Read out of the shipped
 //   `woff2` files on 2026-09-09: neither family carries `tnum` in `GSUB` or `GPOS`,
@@ -52,7 +52,7 @@
 export const BODY_LINE_HEIGHT = 1.5;
 
 /**
- * Type scale, in rem. Rule 4 sets UI text in a humanist grotesque and every
+ * Type scale, in rem. UI text is set in a humanist grotesque and every
  * wire-true figure in mono; the scale is shared so a figure and its label sit on
  * the same baseline.
  */
@@ -65,8 +65,8 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
- * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces — rule 4's
- * choice, admitted by the console's fonts rules — and the console self-hosts the
+ * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces — the design
+ * language's choice, admitted by the console's fonts rules — and the console self-hosts the
  * VARIABLE builds both name: `frame/bindings/typeface.ts` declares two `@font-face`
  * rules per family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable` — the
  * Roman and Italic Latin-1 splits of each, so an italic run gets the italic the foundry

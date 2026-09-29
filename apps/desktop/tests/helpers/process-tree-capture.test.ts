@@ -44,7 +44,7 @@ describe("process termination — a claimant that predates the root was never th
   // THE FINDING. Windows does not reparent, so a process whose parent exited
   // keeps naming that parent's number for as long as it runs — including once
   // the number has been handed to this tree's root. Its row is byte for byte a
-  // descendant's row, and the stamp check next door passes it: the claimant is
+  // descendant's row, and the start-stamp check passes it: the claimant is
   // still itself, it was simply never ours. Captured, it becomes a member of the
   // rootless kill list and `taskkill` takes an unrelated long-lived process.
   //
@@ -233,7 +233,7 @@ describe("process termination — the reading after the root's exit may only rem
   // listing taken from there can carry rows a NEW holder of the number fathered
   // inside the window the listing itself takes, and nothing in such a row tells
   // them apart from this tree's — same parent pid, and a start stamp AFTER the
-  // original root's, so the ancestry proof next door admits them. Handed to
+  // original root's, so the ancestry proof admits them. Handed to
   // `taskkill /t`, that is an unrelated tree this package never spawned.
   //
   // No filter over the rows closes it, which is why the fix is a rule about

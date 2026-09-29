@@ -5,7 +5,7 @@ import { useActController } from "../../../acts/hooks/useActController.js";
 import type { RepoOperations } from "../../../repo-operations.js";
 import { AttachController, type AttachRequestReading } from "../attach-controller.js";
 
-/** What the hook hands a surface: the reading, and the two things it can ask for. */
+/** What the hook hands a dialog: the reading, and the two things it can ask for. */
 export interface AttachBinding {
   readonly reading: AttachRequestReading;
   readonly attach: (localPath: string) => void;
@@ -13,7 +13,7 @@ export interface AttachBinding {
 }
 
 /**
- * Bind one session section's attach controller to a surface.
+ * Bind one session section's attach controller to a dialog.
  *
  * KEYED ON THE SESSION, so a section re-addressed to another session drops the
  * settlement the previous one's dialog was showing.

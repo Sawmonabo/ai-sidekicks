@@ -1,7 +1,7 @@
 // Expanding a child run, over a real bridge whose one call the case decides.
 //
 // `bridgeAnswering` rather than a hand-built port: the expansion reaches the console's
-// own call door, so a stand-in would prove the case answers itself rather than that
+// own `callDaemon`, so a stand-in would prove the case answers itself rather than that
 // the reply is parsed against the shape the corpus registers.
 
 import { act, renderHook } from "@testing-library/react";
@@ -115,7 +115,7 @@ describe("child-run expansion — what a press leaves on screen", () => {
     expect(expandCall?.params).toEqual({ runId: CHILD_RUN_ID });
   });
 
-  it("takes the door's own refusal when the call is rejected, and never raises", async () => {
+  it("takes callDaemon's own refusal when the call is rejected, and never raises", async () => {
     const { bridge } = bridgeAnswering(async (call, passThrough) => {
       if (call.method !== "timeline.childRunExpand") {
         return passThrough();

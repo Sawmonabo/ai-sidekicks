@@ -27,9 +27,9 @@ describe("the identifier readers answer the wire's own value", () => {
   });
 
   it("refuses a value the registered shape does not admit", () => {
-    // The negative control the cast never had: a friendly label reaches the daemon
-    // as a rejected round trip, and the reader is what turns it into a decision the
-    // surface can render instead.
+    // The negative control: a friendly label reaches the daemon as a rejected round
+    // trip, and the reader is what turns it into a decision the view can render
+    // instead.
     expect(readSessionId(NOT_AN_IDENTIFIER)).toBeUndefined();
     expect(readRunId(NOT_AN_IDENTIFIER)).toBeUndefined();
     expect(readWorkspaceId(NOT_AN_IDENTIFIER)).toBeUndefined();
@@ -43,7 +43,7 @@ describe("the run-state reader answers the closed union", () => {
 
   it("refuses a word this build has never heard", () => {
     // A newer daemon against an older console is the real case, and answering
-    // `undefined` is what lets a surface say so rather than falling into whichever
+    // `undefined` is what lets a view say so rather than falling into whichever
     // arm its own branch happened to end on.
     expect(readRunState("hibernating")).toBeUndefined();
   });

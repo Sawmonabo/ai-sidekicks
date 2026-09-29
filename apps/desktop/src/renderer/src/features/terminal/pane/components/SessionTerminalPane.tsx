@@ -13,22 +13,22 @@ import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionSto
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { LeaseLine } from "../../lease/components/LeaseLine.js";
-import { XtermHost } from "../../emulator/components/XtermHost.js";
+import { XtermMountPoint } from "../../emulator/components/XtermMountPoint.js";
 import { projectTerminalLease, type TerminalLeaseState } from "../../lease/lease-model.js";
 
-/** What this family calls the surface, and the base the name below is built on. */
+/** What the terminal feature calls its pane, and the base the name below is built on. */
 const TERMINAL_PANE_WORD = "Terminal";
 
 /**
  * The emulator's accessible name, inside the pane.
  *
- * `seats/PaneFrame` names the pane's own region, from a title table that is
- * module-private to it — deliberately, so the view families cannot each spell the same
- * pane two ways — and the emulator INSIDE it is still this family's to name. Deriving
- * from a local word rather than reaching for that table is what keeps the private table
- * private; the cost is that a rename of the pane kind does not reach in here, which is
- * why the word above is stated as the base of a derivation rather than as the pane's
- * name.
+ * The pane frame names the pane's own region, from a title table that is
+ * module-private to it — deliberately, so two features cannot each spell the same
+ * pane two ways — and the emulator INSIDE it is still the terminal feature's to name.
+ * Deriving from a local word rather than reaching for that table is what keeps the
+ * private table private; the cost is that a rename of the pane kind does not reach in
+ * here, which is why the word above is stated as the base of a derivation rather than
+ * as the pane's name.
  */
 const TERMINAL_OUTPUT_LABEL = `${TERMINAL_PANE_WORD} output`;
 
@@ -53,7 +53,7 @@ export function SessionTerminalPane(props: SessionTerminalPaneProps): React.JSX.
   return (
     <>
       <LeaseLine state={lease} />
-      <XtermHost
+      <XtermMountPoint
         terminalId={sessionId}
         isWriteEnabled={lease.holding === "held-by-this-device"}
         label={TERMINAL_OUTPUT_LABEL}

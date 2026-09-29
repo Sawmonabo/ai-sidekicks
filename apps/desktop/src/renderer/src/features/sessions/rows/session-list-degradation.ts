@@ -15,7 +15,7 @@ import type { SessionDegradedCause } from "@renderer/store/session-degradation.j
  * What one standing cause means for a person reading the list.
  *
  * Total over the closed five by construction, so a sixth cause fails to compile here
- * before it can reach a surface that renders it namelessly. Each sentence names what
+ * before it can reach a view that renders it namelessly. Each sentence names what
  * is WRONG rather than what the console did about it: a person deciding whether to
  * trust the list needs the fact, and "retrying" is not one.
  */

@@ -7,9 +7,9 @@
 // tokens, which main dereferences on a second round trip. Raw `ipcRenderer`, `require`,
 // `process` and Node built-ins never appear.
 //
-// The daemon, control-plane and Electron dialog types are stubs, so the surface is
-// reviewable before those surfaces exist; the dialog shapes are local so this module takes
-// no dependency on the `electron` package.
+// The daemon, control-plane and Electron dialog types are stubs, so this API can be reviewed
+// before the daemon and control-plane clients behind it exist; the dialog shapes are local so
+// this module takes no dependency on the `electron` package.
 
 import type {
   DaemonEvent,
@@ -64,10 +64,10 @@ export interface NotificationOptions {}
  * Whether this machine will show an OS notification for this application.
  *
  * `not-determined` is the state before the person has been asked, the one a fresh install is
- * in; folding it onto `denied` would tell the person the notification center is their only
- * surface on a machine that would show the first notification it is sent. `unsupported` is a
- * platform main cannot read the permission on. Only `denied` says the notification center is
- * the only surface.
+ * in; folding it onto `denied` would tell the person the notification center is the only place
+ * they will see a notification, on a machine that would show the first one it is sent.
+ * `unsupported` is a platform main cannot read the permission on. Only `denied` says the
+ * notification center is the only place.
  */
 export interface NotificationPermission {
   readonly state: "granted" | "denied" | "not-determined" | "unsupported";
@@ -107,8 +107,8 @@ export class NotImplementedError extends Error {
 
 /**
  * The one object the preload exposes on `window.desktopBridge`: the daemon's JSON-RPC over
- * IPC, the control plane's tRPC and relay, main-mediated OS surfaces, the auto-updater's state,
- * and read-only build meta.
+ * IPC, the control plane's tRPC and relay, the OS calls main makes for the renderer, the
+ * auto-updater's state, and read-only build meta.
  */
 export interface PreloadApi {
   readonly daemon: {

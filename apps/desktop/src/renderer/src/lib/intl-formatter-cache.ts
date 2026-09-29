@@ -10,9 +10,8 @@
 // keeps every key it is handed grows for as long as it is handed new ones. Both
 // caches here answer that, with one eviction policy between them.
 //
-// Reached by its own specifier from `wire-figures.ts` — an intra-family import —
-// and on no door: the console's callers ask for a FIGURE, and which instance
-// composed it is this family's business.
+// Imported by `wire-figures.ts` beside it and by nothing else in the console: callers
+// ask for a FIGURE, and which instance composed it is the figure module's business.
 
 /**
  * Make room in a cache that is at its cap, by dropping the entry seen longest ago.
@@ -38,7 +37,7 @@ function dropOldestEntry<Key, Value>(cache: Map<Key, Value>, cap: number): void 
  * A window renders in one locale and its callers pass that or nothing, so a real
  * session holds one or two. The bound is for the other case, and it is why these
  * caches no longer call themselves bounded by construction: the parameter is a
- * STRING every family reaches through the primitives door, and "callers pass the
+ * STRING every feature passes in through `wire-figures.ts`, and "callers pass the
  * host locale" is a claim about callers rather than a property of the cache. The
  * figure is the currency cache's, for its reason — far above any real render.
  */
@@ -61,8 +60,8 @@ interface LocaleResolvingFormatter {
  *
  * GENERIC OVER THE FORMATTER because two kinds are now held on one policy — the
  * relative time and the day duration — and a second copy of an eviction rule, a
- * resolved-tag key and a host slot is exactly the drift the shared-code rule in
- * `apps/desktop/AGENTS.md` hoists on the second use. What differs between the two is
+ * resolved-tag key and a held host formatter is exactly the drift the shared-code rule
+ * in `apps/desktop/AGENTS.md` hoists on the second use. What differs between the two is
  * the MINT, so that is what a caller supplies and the only thing it supplies.
  *
  * KEYED ON WHAT `Intl` RESOLVED, not on what the caller wrote. `en-US` and `en-us`
@@ -71,11 +70,11 @@ interface LocaleResolvingFormatter {
  * this". The requested spelling keeps a map of its own so a repeat ask costs a
  * lookup rather than the mint resolving needs, and both maps share the one cap.
  *
- * THE ABSENT LOCALE IS A SLOT OF ITS OWN, never a map entry and never folded into
+ * THE ABSENT LOCALE HAS A FORMATTER OF ITS OWN, never a map entry and never folded into
  * whatever the host resolves to. It is the hottest key by far, so an eviction that
- * could reach it would drop the formatter every row uses; and a caller that asked
- * for nothing is asking for the host default rather than for the tag the host
- * carries today. A `""` key would have been neither — it throws.
+ * could reach it would drop the formatter every row uses; and a caller that asked for
+ * nothing is asking for the host default rather than for the tag the host carries
+ * today. A `""` key would have been neither — it throws.
  */
 class LocaleKeyedFormatters<TFormatter extends LocaleResolvingFormatter> {
   readonly #mint: (locale: string | undefined) => TFormatter;
@@ -87,7 +86,7 @@ class LocaleKeyedFormatters<TFormatter extends LocaleResolvingFormatter> {
     this.#mint = mint;
   }
 
-  /** How many NAMED locales are held. The host slot is one more and never evicted. */
+  /** How many NAMED locales are held. The host formatter is one more and never evicted. */
   public get namedLocaleCount(): number {
     return this.#byResolvedLocale.size;
   }
@@ -138,7 +137,7 @@ export function relativeTimeFormatFor(locale?: string): Intl.RelativeTimeFormat 
  * How many named locales the relative-time cache holds, and its ceiling.
  *
  * Exported for the reason `relativeTimeFormatFor` is: a bound nothing can count
- * is a sentence in a comment. The host formatter is a slot, not in this figure.
+ * is a sentence in a comment. The host formatter is held apart and is not in this figure.
  *
  * It reports the relative-time cache alone even though the day-duration cache runs
  * the same policy on the same cap: the two hold disjoint keys, and one figure over
@@ -244,9 +243,9 @@ const currencyMinorUnits = new CurrencyMinorUnitRegistry();
 /**
  * How many fractional digits `currency`'s own minor unit has.
  *
- * The registry's one door, so its instance stays private to this module the way
- * the relative-time one does. Throws `RangeError` for a code `Intl` will not
- * accept — the throw `formatMoney`'s fallback arm already handles.
+ * The registry's one exported call, so its instance stays private to this module the
+ * way the relative-time one does. Throws `RangeError` for a code `Intl` will not accept
+ * — the throw `formatMoney`'s fallback arm already handles.
  */
 export function currencyMinorUnitDigits(currency: string, locale: string | undefined): number {
   return currencyMinorUnits.digitsFor(currency, locale);

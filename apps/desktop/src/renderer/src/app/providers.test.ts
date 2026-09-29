@@ -188,7 +188,7 @@ describe("AppProviders — a modal overlay inerts the frame's background", () =>
     // `AppFrame` proves the attribute follows its prop and `CommandPalette` proves
     // the chord toggles the state; nothing below this file proves the two are
     // joined, and they were not — the prop existed, the palette opened, and the
-    // rail and the whole surface stayed in the accessibility tree underneath it.
+    // rail and the whole screen stayed in the accessibility tree underneath it.
     const mounted = await mountApp();
     expect(backgroundOf(mounted).hasAttribute("inert")).toBe(false);
 

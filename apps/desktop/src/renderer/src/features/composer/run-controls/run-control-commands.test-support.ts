@@ -1,7 +1,7 @@
-// What the run-control suites are handed: a run to contribute for, and a surface that
-// records what a pressed row dispatched.
+// What the run-control suites are handed: a run to contribute for, and a dispatch state
+// that records what a pressed row dispatched.
 //
-// One recording surface, so every suite that drives the palette hook answers "what did
+// One recording dispatch state, so every suite that drives the palette hook answers "what did
 // the palette dispatch" the same way; a test file may not import another test file.
 
 import type { InterventionRequestResponse, RunControlAck, RunState } from "@ai-sidekicks/contracts";
@@ -55,9 +55,9 @@ export function commandRun(runId: string, state: RunState = "running"): RunContr
   return { runId, runVersion: 7, state };
 }
 
-/** A surface whose dispatcher records the verb and target it was asked for. */
+/** A dispatch state whose dispatcher records the verb and target it was asked for. */
 export function recordingRunControlDispatch(): {
-  readonly surface: RunControlDispatchState;
+  readonly dispatchState: RunControlDispatchState;
   readonly calls: RecordedRunControlCall[];
 } {
   const calls: RecordedRunControlCall[] = [];
@@ -75,7 +75,7 @@ export function recordingRunControlDispatch(): {
     resume: record("resume"),
     interrupt: record("interrupt"),
   } as unknown as RunControlDispatcher;
-  const surface: RunControlDispatchState = {
+  const dispatchState: RunControlDispatchState = {
     dispatcher,
     records: [],
     inFlightKeys: new Set<string>(),
@@ -84,5 +84,5 @@ export function recordingRunControlDispatch(): {
       return { admitted: true, dispatchToken: "token", settled: Promise.resolve() };
     },
   };
-  return { surface, calls };
+  return { dispatchState, calls };
 }

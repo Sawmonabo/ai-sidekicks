@@ -1,4 +1,4 @@
-// The palette's bridge-backed commands, and the door they reach the bridge through.
+// The palette's bridge-backed commands, and the hook they reach the bridge through.
 //
 // Two claims worth proving separately. The BEHAVIOR — an act that the bridge
 // refuses settles as a rendered refusal rather than as a dropped promise — is
@@ -139,7 +139,7 @@ describe("palette bridge commands — the hook reaches the bridge through the pr
   });
 
   it("negative control: refuses to build outside the provider", async () => {
-    // `usePlatformBridge` throws rather than returning `undefined`, so a surface
+    // `usePlatformBridge` throws rather than returning `undefined`, so a component
     // mounted outside the provider is a wiring bug that surfaces at once instead of
     // rendering an empty palette that looks like "no commands apply here".
     function OrphanProbe(): React.JSX.Element {

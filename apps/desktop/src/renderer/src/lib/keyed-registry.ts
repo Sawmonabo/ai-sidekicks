@@ -9,7 +9,7 @@
 //
 // So the policy is a parameter and not a coincidence of which file you landed in:
 //
-//   • `"throw"` — a repeat is a defect. Two families claiming one command id have a
+//   • `"throw"` — a repeat is a defect. Two features claiming one command id have a
 //     real conflict, and keeping the last would make behavior depend on module
 //     import order.
 //   • `"idempotent"` — a repeat is expected and a no-op. Registration that runs
@@ -42,7 +42,7 @@ export interface KeyedRegistryOptions<Value> {
   readonly duplicatePolicy: DuplicatePolicy;
   /**
    * What the registry holds, in the words a failure message should use — "command",
-   * "screen slot", "scenario". Appears in every error this class raises.
+   * "screen", "pane kind". Appears in every error this class raises.
    */
   readonly describeWhat: string;
   /**
@@ -64,11 +64,11 @@ export interface KeyedRegistryOptions<Value> {
 /**
  * Raised when a registration is refused.
  *
- * A `RefusalError` rather than a bare `Error` carrying its own message
- * vocabulary: a registration conflict surfaces at a seam that already renders
- * refusals — the screen registry mounting a family, the palette registering a
- * command — and `code` / `detail` / `origin` is what those three renderings consume.
- * A second shape here would mean translating one at the catch site.
+ * A `RefusalError` rather than a bare `Error` carrying its own message vocabulary: a
+ * registration conflict surfaces at a seam that already renders refusals — the screen
+ * registry mounting a feature's screen, the palette registering a command — and `code`
+ * / `detail` / `origin` is what those three renderings consume. A second shape here
+ * would mean translating one at the catch site.
  *
  * `key` stays on the class beside the refusal because `detail` is prose a person
  * reads, and a caller reporting the conflict needs the value it collided on.
@@ -140,7 +140,7 @@ export class KeyedRegistry<Key, Value> {
    * Register several atomically.
    *
    * Every key is checked before anything is stored, so a duplicate half way
-   * through one family's contribution leaves the registry exactly as it was rather
+   * through one feature's contributions leaves the registry exactly as it was rather
    * than half-populated — a state no caller can reason about and none unwinds.
    */
   public registerAll(entries: readonly (readonly [Key, Value])[]): void {

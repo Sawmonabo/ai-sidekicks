@@ -3,7 +3,7 @@
 //
 // The fourth claim — that a refusal SETTLING the request withdraws both answers, and
 // withdraws the pane's palette rows with them — is `ApprovalCard.settled.test.tsx`
-// beside this file. It is a different subject (one offer reading, two surfaces)
+// beside this file. It is a different subject (one offer reading behind the card and the palette)
 // and it is what took this file past the length the package splits at.
 //
 // The payload assertions drive the REAL `onResolve` the component calls, so what is
@@ -85,7 +85,7 @@ describe("the two answers", () => {
       ACCENT_FILL_CLASS,
     );
 
-    // The negative control, and rule 1 itself: one primary action per surface. A
+    // The negative control, and the design rule itself: one filled primary action per card. A
     // reject that also carried the fill would be a second — and reject is never
     // colored at all, because a rejection is the console working.
     expect(within(actions).getByRole("button", { name: "Reject" }).classList).not.toContain(

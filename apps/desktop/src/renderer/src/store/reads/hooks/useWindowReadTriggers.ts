@@ -28,7 +28,7 @@ export function useWindowReadTriggers(
 ): void {
   useEffect(() => {
     // In an effect and not in the render body: a render React discards would
-    // otherwise put a call on the wire for a surface nobody ever saw.
+    // otherwise put a call on the wire for a view nobody ever saw.
     reader.requestRead("subscribe");
   }, [reader]);
 

@@ -10,7 +10,7 @@ import { useAnnounceOncePerSentence } from "./useAnnounceOncePerSentence.js";
 import { renderThroughAnnouncer } from "./useAnnounceOncePerSentence.test-support.js";
 
 describe("useAnnounceOncePerSentence — the two arms of the latch's memory", () => {
-  function LatchedSurface(props: { readonly sentences: readonly string[] | undefined }): null {
+  function LatchedAnnouncement(props: { readonly sentences: readonly string[] | undefined }): null {
     useAnnounceOncePerSentence(props.sentences);
     return null;
   }
@@ -21,7 +21,7 @@ describe("useAnnounceOncePerSentence — the two arms of the latch's memory", ()
     readonly rerender: (next: readonly string[] | undefined) => void;
     readonly settle: () => void;
   } {
-    const mounted = renderThroughAnnouncer(LatchedSurface, { sentences });
+    const mounted = renderThroughAnnouncer(LatchedAnnouncement, { sentences });
     return {
       ...mounted,
       rerender: (next) => {

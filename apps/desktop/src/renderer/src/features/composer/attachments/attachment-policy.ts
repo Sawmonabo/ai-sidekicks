@@ -6,7 +6,7 @@
 // for the next act, and the six causes an attachment can be unresolved for are all the
 // daemon's vocabulary — the console chooses none of them. So nothing here reads an
 // entry, renders a figure, or knows that a `Blob` exists, and this module imports
-// nothing from its own family. It is the leaf the other three attachment modules rest
+// nothing from the other attachment modules. It is the leaf the other three attachment modules rest
 // on, which is what keeps a contract change from touching a card.
 //
 // IT DOES HOLD THE COPY, and that is deliberate rather than a leak of presentation. A

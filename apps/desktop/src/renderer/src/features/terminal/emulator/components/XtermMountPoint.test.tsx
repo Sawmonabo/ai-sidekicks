@@ -10,24 +10,24 @@
 // component can build an emulator and never get a disposer — a parent whose
 // `onRendererMode` throws inside the effect body — tears it down anyway.
 //
-// The write gate is `XtermHost.write-gate.test.tsx`'s and the renderer fallback is
-// `XtermHost.renderer-mode.test.tsx`'s. The readers every one of them takes are in
-// `XtermHost.test-support.tsx`.
+// The write gate is `XtermMountPoint.write-gate.test.tsx`'s and the renderer fallback is
+// `XtermMountPoint.renderer-mode.test.tsx`'s. The readers every one of them takes are in
+// `XtermMountPoint.test-support.tsx`.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { XtermTerminalAdapter } from "../xterm-adapter.js";
 import { TerminalRendererPool, terminalRendererPool } from "../renderer-pool.js";
-import { XtermHost } from "./XtermHost.js";
+import { XtermMountPoint } from "./XtermMountPoint.js";
 import {
   COMPONENT_TERMINAL_IDS,
-  mountHost,
+  renderSettledMountPoint,
   reclaimComponentHolds,
   settleEmulatorLoad,
   emulatorElementOf,
   typeOneCharacter,
-} from "./XtermHost.test-support.js";
+} from "./XtermMountPoint.test-support.js";
 
 afterEach(() => {
   reclaimComponentHolds(COMPONENT_TERMINAL_IDS);
@@ -36,13 +36,13 @@ afterEach(() => {
 describe("the emulator's code is fetched, not linked", () => {
   it("stands the box in as a read-in-flight absence before the chunk lands", async () => {
     const { container } = render(
-      <XtermHost terminalId="host-1" isWriteEnabled={false} label="Terminal output" />,
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
-    // Synchronously after the mount there is no surface, because the module that
-    // draws into one has not arrived. The box is still there and still says which
+    // Synchronously after the mount there is no mount element, because the module
+    // that draws into one has not arrived. The box is still there and still says which
     // gate it is under — only its contents are absent.
-    expect(container.querySelector(".meridian-terminal-host")).not.toBeNull();
-    expect(container.querySelector(".meridian-terminal-host__surface")).toBeNull();
+    expect(container.querySelector(".meridian-terminal-mount-point")).not.toBeNull();
+    expect(container.querySelector(".meridian-terminal-mount-point__mount-element")).toBeNull();
     const absence = container.querySelector(".meridian-nothing");
     expect(absence?.className).toContain("meridian-nothing--not-loaded");
     expect(absence?.className).toContain("meridian-nothing--block");
@@ -58,7 +58,7 @@ describe("the emulator's code is fetched, not linked", () => {
 
   it("negative control: the absence is not the kind that would look finished", async () => {
     const { container } = render(
-      <XtermHost terminalId="host-1" isWriteEnabled={false} label="Terminal output" />,
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
     // `empty` would claim the shell printed nothing and `not-checked` would claim
     // nobody asked. Both are claims about the SESSION made by a component that is
@@ -72,8 +72,8 @@ describe("the emulator's code is fetched, not linked", () => {
   it("ignores an emulator that arrives after the pane closed", async () => {
     const observed = vi.fn();
     const { container, unmount } = render(
-      <XtermHost
-        terminalId="host-1"
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onRendererMode={observed}
@@ -81,22 +81,22 @@ describe("the emulator's code is fetched, not linked", () => {
     );
     // Closed inside the fetch. The promise is still in flight over a component
     // React has already dropped, and settling it into state would be a write
-    // against a disposed host.
+    // against a disposed component.
     unmount();
     await settleEmulatorLoad();
     expect(observed).not.toHaveBeenCalled();
-    expect(container.querySelector(".meridian-terminal-host__surface")).toBeNull();
-    // No adapter was built, so nothing took a slot that nothing will give back.
-    expect(terminalRendererPool.holds("host-1")).toBe(false);
+    expect(container.querySelector(".meridian-terminal-mount-point__mount-element")).toBeNull();
+    // No adapter was built, so nothing took a hold that nothing will give back.
+    expect(terminalRendererPool.holds("terminal-1")).toBe(false);
   });
 
-  it("negative control: that same wait does build one for a host still mounted", async () => {
+  it("negative control: that same wait does build one for a mount point still mounted", async () => {
     // Without this the case above would pass against a wait too short for the
     // chunk to have arrived at all, which asserts nothing about the unmount.
     const observed = vi.fn();
     render(
-      <XtermHost
-        terminalId="host-1"
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onRendererMode={observed}
@@ -108,21 +108,21 @@ describe("the emulator's code is fetched, not linked", () => {
 });
 
 describe("the mount point — one adapter per mount", () => {
-  it("builds an emulator into the host box on mount", async () => {
-    const { container } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled={false} label="Terminal output" />,
+  it("builds an emulator into the mount element on mount", async () => {
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
     // The library writes its own grid into the box it was opened against, so a
-    // non-empty surface is evidence a real emulator attached rather than that a
+    // non-empty mount element is evidence a real emulator attached rather than that a
     // ref was set.
     expect(emulatorElementOf(container).childElementCount).toBeGreaterThan(0);
   });
 
-  it("reports the renderer it settled on, so a surface can say which it got", async () => {
+  it("reports the renderer it settled on, so its parent can say which it got", async () => {
     const observed = vi.fn();
-    await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onRendererMode={observed}
@@ -134,28 +134,28 @@ describe("the mount point — one adapter per mount", () => {
     expect(observed).toHaveBeenCalledWith("dom");
   });
 
-  it("disposes on unmount, which is what gives the renderer slot back", async () => {
+  it("disposes on unmount, which is what gives the renderer hold back", async () => {
     const pool = new TerminalRendererPool();
-    const { unmount, container } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled={false} label="Terminal output" />,
+    const { unmount, container } = await renderSettledMountPoint(
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
-    const surface = emulatorElementOf(container);
-    expect(surface.childElementCount).toBeGreaterThan(0);
+    const mountElement = emulatorElementOf(container);
+    expect(mountElement.childElementCount).toBeGreaterThan(0);
     unmount();
     // The adapter tore its own DOM down; nothing of the emulator is left behind in
     // a box React is about to drop.
-    expect(surface.childElementCount).toBe(0);
+    expect(mountElement.childElementCount).toBe(0);
     expect(pool.heldContextCount).toBe(0);
-    expect(terminalRendererPool.holds("host-1")).toBe(false);
+    expect(terminalRendererPool.holds("terminal-1")).toBe(false);
   });
 });
 
 describe("the emulator outlives the parent's callback identities", () => {
   it("keeps the same instance when a parent hands it fresh callbacks", async () => {
     const observedAtMount = vi.fn();
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={() => undefined}
@@ -168,8 +168,8 @@ describe("the emulator outlives the parent's callback identities", () => {
     const observedAfterRerender = vi.fn();
     act(() => {
       rerender(
-        <XtermHost
-          terminalId="host-1"
+        <XtermMountPoint
+          terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"
           onKeystroke={() => undefined}
@@ -190,9 +190,9 @@ describe("the emulator outlives the parent's callback identities", () => {
   it("sends a keystroke to the callback the parent passed most recently", async () => {
     const firstKeystrokeHandler = vi.fn();
     const latestKeystrokeHandler = vi.fn();
-    const { container, rerender } = await mountHost(
-      <XtermHost
-        terminalId="host-1"
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled
         label="Terminal output"
         onKeystroke={firstKeystrokeHandler}
@@ -200,8 +200,8 @@ describe("the emulator outlives the parent's callback identities", () => {
     );
     act(() => {
       rerender(
-        <XtermHost
-          terminalId="host-1"
+        <XtermMountPoint
+          terminalId="terminal-1"
           isWriteEnabled
           label="Terminal output"
           onKeystroke={latestKeystrokeHandler}
@@ -221,12 +221,12 @@ describe("the emulator outlives the parent's callback identities", () => {
   it("negative control: a different terminal DOES get a different emulator", async () => {
     // Without this the first case would pass against a component whose mount
     // effect never re-ran at all, which is a different bug and not a fix.
-    const { container, rerender } = await mountHost(
-      <XtermHost terminalId="host-1" isWriteEnabled label="Terminal output" />,
+    const { container, rerender } = await renderSettledMountPoint(
+      <XtermMountPoint terminalId="terminal-1" isWriteEnabled label="Terminal output" />,
     );
     const emulatorBefore = emulatorElementOf(container).firstElementChild;
     act(() => {
-      rerender(<XtermHost terminalId="host-2" isWriteEnabled label="Terminal output" />);
+      rerender(<XtermMountPoint terminalId="terminal-2" isWriteEnabled label="Terminal output" />);
     });
     expect(emulatorElementOf(container).firstElementChild).not.toBe(emulatorBefore);
   });
@@ -235,9 +235,9 @@ describe("the emulator outlives the parent's callback identities", () => {
     // And without this the case above would pass against a wrapper that forwarded
     // every keystroke regardless of the gate the adapter reads.
     const watcherKeystrokeHandler = vi.fn();
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-2"
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-2"
         isWriteEnabled={false}
         label="Terminal output"
         onKeystroke={watcherKeystrokeHandler}
@@ -252,7 +252,7 @@ describe("the emulator outlives the parent's callback identities", () => {
 //
 // `subscribeToRendererMode` delivers the settled mode SYNCHRONOUSLY, inside the
 // effect body and before its cleanup exists. A parent whose `onRendererMode` throws
-// therefore threw out of the effect with the adapter already attached and its slot
+// therefore threw out of the effect with the adapter already attached and its hold
 // already taken, and React had nothing to dispose: the terminal, its observers, and
 // its renderer allocation outlived the tree that made them.
 //
@@ -260,12 +260,12 @@ describe("the emulator outlives the parent's callback identities", () => {
 // than standing in for it — so the claim is about what the component does to the
 // emulator it actually built.
 describe("a renderer-mode consumer that throws during the first delivery", () => {
-  it("disposes the adapter, leaves no slot held, and still raises the failure", async () => {
+  it("disposes the adapter, leaves no hold taken, and still raises the failure", async () => {
     const dispose = vi.spyOn(XtermTerminalAdapter.prototype, "dispose");
     const consumerFailure = new Error("the renderer-mode consumer refused the delivery");
     render(
-      <XtermHost
-        terminalId="host-1"
+      <XtermMountPoint
+        terminalId="terminal-1"
         isWriteEnabled={false}
         label="Terminal output"
         onRendererMode={() => {
@@ -287,9 +287,9 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
     // reported which renderer it had settled on.
     const dispose = vi.spyOn(XtermTerminalAdapter.prototype, "dispose");
     const modes: string[] = [];
-    const { container } = await mountHost(
-      <XtermHost
-        terminalId="host-2"
+    const { container } = await renderSettledMountPoint(
+      <XtermMountPoint
+        terminalId="terminal-2"
         isWriteEnabled={false}
         label="Terminal output"
         onRendererMode={(mode) => modes.push(mode)}

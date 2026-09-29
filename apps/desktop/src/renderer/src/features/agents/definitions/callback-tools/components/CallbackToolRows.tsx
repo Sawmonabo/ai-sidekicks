@@ -12,7 +12,7 @@
 // what a person opening this section came to read, and a dozen expanded schemas is a
 // wall of JSON where a list of tools should be. The panel names the tool's ARGUMENTS
 // and renders no value, which is the smallest thing that answers "what does it take"
-// without becoming a schema viewer this surface has no business being. Which names
+// without becoming a schema viewer this panel has no business being. Which names
 // those are is `callback-tool-arguments.ts`'s reading and not this file's: the panel
 // used to list the top-level keys, which for a JSON Schema are its keywords, so the
 // one shipped entry named neither of the two arguments it actually takes.

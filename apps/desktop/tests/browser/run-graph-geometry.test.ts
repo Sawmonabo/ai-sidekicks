@@ -16,7 +16,7 @@
 // `.react-flow`, the element that actually paints, and the box a phase node lands in —
 // the two readings a collapsed root cannot satisfy.
 //
-// The graph is mounted as a piece, from a hand-built parked run, because no surface
+// The graph is mounted as a piece, from a hand-built parked run, because no view
 // composes it until the run read is built.
 
 import { describe, expect, it } from "vitest";
@@ -26,7 +26,7 @@ import { awaitRunGraphSettled } from "../helpers/run-graph-settled.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 
-/** One element a case measures, or a throw naming what the surface did not render. */
+/** One element a case measures, or a throw naming what the graph did not render. */
 function requireElement(root: HTMLElement, selector: string): HTMLElement {
   const found = root.querySelector<HTMLElement>(selector);
   if (found === null) {
@@ -65,7 +65,7 @@ describe("browser — the phase graph stays inside its own box", () => {
     const wrapper = requireElement(graph, ".meridian-run-graph").getBoundingClientRect();
     const canvas = requireElement(graph, ".meridian-run-graph__canvas").getBoundingClientRect();
 
-    // Said about the pair rather than about a sibling: whatever else the surface
+    // Said about the pair rather than about a sibling: whatever else the graph
     // grows, a child painting past its own parent's edge is the mechanism.
     expect(canvas.bottom).toBeLessThanOrEqual(wrapper.bottom + 0.5);
     expect(canvas.top).toBeGreaterThanOrEqual(wrapper.top - 0.5);

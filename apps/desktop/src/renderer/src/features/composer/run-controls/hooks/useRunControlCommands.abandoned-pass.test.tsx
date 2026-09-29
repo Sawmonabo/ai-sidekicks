@@ -1,12 +1,12 @@
 // A registered run-control row dispatches through the render that is ON SCREEN.
 //
 // The rows are memoized on what they SAY, so the run list, the comparand source
-// and the pane's own dispatcher are all read through a ref when a person presses
+// and the caller's own dispatcher are all read through a ref when a person presses
 // Enter. That makes WHERE the ref is written the safety property: a pass React
-// discards has already run this hook, and a pass discarded while the pane was being
-// re-addressed to another session or another bridge carries that surface — latch,
-// idempotency keys and all. If the discarded pass could write the ref, the row still
-// on screen would dispatch through a surface nobody is looking at.
+// discards has already run this hook, and a pass discarded while the caller was being
+// re-addressed to another session or another bridge carries that dispatch state —
+// latch, idempotency keys and all. If the discarded pass could write the ref, the row
+// still on screen would dispatch through a dispatch state nobody is looking at.
 //
 // Driven through a real transition that suspends, and asserted while the pass is still
 // abandoned: a case that let the tree recover first would pass over the defect,
@@ -36,13 +36,13 @@ const CAPABLE = capabilityReadout([["claude", []]], [[TARGET_RUN, "claude"]]);
 /**
  * The hook under a tree that can re-address and suspend in one transition.
  *
- * The two surfaces are the case's, handed in as props: what the assertion needs is
+ * The two dispatch states are the case's, handed in as props: what the assertion needs is
  * which of them the registered row dispatched through, and one minted inside the tree
  * would be a fresh identity on every pass rather than two distinguishable ones.
  */
-function RunControlCommandsHost(props: {
-  readonly committedSurface: RunControlDispatchState;
-  readonly abandonedSurface: RunControlDispatchState;
+function ReaddressableRunCommandContributor(props: {
+  readonly committedDispatchState: RunControlDispatchState;
+  readonly abandonedDispatchState: RunControlDispatchState;
   readonly readdress: { current: (() => void) | undefined };
 }): React.JSX.Element {
   const [addressedToAbandoned, setAddressedToAbandoned] = useState(false);
@@ -51,10 +51,12 @@ function RunControlCommandsHost(props: {
     () => ({
       runs: [commandRun(TARGET_RUN)],
       driverCapabilities: CAPABLE,
-      surface: addressedToAbandoned ? props.abandonedSurface : props.committedSurface,
+      dispatchState: addressedToAbandoned
+        ? props.abandonedDispatchState
+        : props.committedDispatchState,
       onRequestSteer: () => undefined,
     }),
-    [addressedToAbandoned, props.abandonedSurface, props.committedSurface],
+    [addressedToAbandoned, props.abandonedDispatchState, props.committedDispatchState],
   );
   useRunControlCommands(input);
   props.readdress.current = () => {
@@ -65,14 +67,14 @@ function RunControlCommandsHost(props: {
 }
 
 describe("the run-control palette rows dispatch through the committed render", () => {
-  it("dispatches through the on-screen render's surface after a discarded re-address", async () => {
+  it("dispatches through the on-screen render's dispatch state after a discarded re-address", async () => {
     const committed = recordingRunControlDispatch();
     const abandoned = recordingRunControlDispatch();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
-      <RunControlCommandsHost
-        committedSurface={committed.surface}
-        abandonedSurface={abandoned.surface}
+      <ReaddressableRunCommandContributor
+        committedDispatchState={committed.dispatchState}
+        abandonedDispatchState={abandoned.dispatchState}
         readdress={readdress}
       />,
     );
@@ -83,7 +85,7 @@ describe("the run-control palette rows dispatch through the committed render", (
     commandRegistry.get(PAUSE_COMMAND_ID)?.run();
 
     // The rows say the same thing in both passes, so the command object never
-    // changed — only which surface it would reach. Dispatching through the abandoned
+    // changed — only which dispatch state it would reach. Dispatching through the abandoned
     // one would mint an idempotency key on a latch no live render holds.
     expect(abandoned.calls).toStrictEqual([]);
     expect(committed.calls).toStrictEqual<readonly RecordedRunControlCall[]>([
@@ -91,16 +93,16 @@ describe("the run-control palette rows dispatch through the committed render", (
     ]);
   });
 
-  it("negative control: a committed re-address DOES move the row onto the new surface", async () => {
+  it("negative control: a committed re-address DOES move the row onto the new dispatch state", async () => {
     // Without this the case above would pass over a hook that ignored its input
     // entirely, or over a driver whose transition never re-ran this component at all.
     const committed = recordingRunControlDispatch();
     const later = recordingRunControlDispatch();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     const { rerender } = render(
-      <RunControlCommandsHost
-        committedSurface={committed.surface}
-        abandonedSurface={later.surface}
+      <ReaddressableRunCommandContributor
+        committedDispatchState={committed.dispatchState}
+        abandonedDispatchState={later.dispatchState}
         readdress={readdress}
       />,
     );
@@ -108,9 +110,9 @@ describe("the run-control palette rows dispatch through the committed render", (
     // The same re-address, committed rather than abandoned: no transition and no
     // suspension, so React keeps the pass.
     rerender(
-      <RunControlCommandsHost
-        committedSurface={later.surface}
-        abandonedSurface={later.surface}
+      <ReaddressableRunCommandContributor
+        committedDispatchState={later.dispatchState}
+        abandonedDispatchState={later.dispatchState}
         readdress={readdress}
       />,
     );

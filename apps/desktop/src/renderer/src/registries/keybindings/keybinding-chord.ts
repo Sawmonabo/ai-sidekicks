@@ -13,7 +13,7 @@
 // WHAT IS NOT HERE. How a chord is PRINTED and SPOKEN lives in
 // `primitives/chord/chord-format.ts`. A keycap is a renderer's concern and primitives
 // are below palette in the console's import graph, so keeping the tables here
-// forced `ChordHint` to reach up into this family for its vocabulary. The one
+// forced `ChordHint` to reach up into this folder for its vocabulary. The one
 // symbol that has to be shared is imported below, and it is shared rather than
 // duplicated because the printer and the conflict comparator disagreeing about
 // whether `k` and `KeyK` are one keystroke is the exact defect it prevents.

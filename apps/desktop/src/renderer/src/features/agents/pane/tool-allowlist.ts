@@ -15,7 +15,7 @@
 // be the console answering a question nobody put, which is the one thing the position
 // below exists to refuse.
 //
-// ONE POSITION, ONE READING, ON BOTH SURFACES THAT STATE IT. The card says what this
+// ONE POSITION, ONE READING, FOR THE LINE AND THE ROW THAT BOTH STATE IT. The card says what this
 // agent may reach twice — the governance line above the disclosure and the Tools row
 // inside it — and each of them used to read the wire for itself: the line read this
 // projection and the row read `toolAllowlist` alone, which cannot tell a
@@ -23,9 +23,9 @@
 // So one wire state was called "the provider's default set" on the line and "not
 // reported" a few pixels below it. Both now read this module: the position is
 // resolved once by the card, the words for each position are the table below, and the
-// names ride the populated arm so neither surface re-reads the member.
+// names ride the populated arm so neither the line nor the row re-reads the member.
 //
-// WHAT EACH SURFACE DOES WITH IT IS STILL DIFFERENT, and that is the split rather
+// WHAT THE LINE AND THE ROW EACH DO WITH IT IS STILL DIFFERENT, and that is the split rather
 // than a duplication. The line states the position at length, because a governance
 // ceiling a reader has to open a disclosure to find is a ceiling nobody reads; the
 // row inside the disclosure names the tools, because that is what the echo is for,
@@ -36,7 +36,7 @@
 // page tool set from every spawn on the node and an allowlist cannot raise that
 // ceiling, so "this agent can browse" is a conjunction of two facts one of which the
 // card never reads. The words state each position and let the daemon adjudicate,
-// which is the same rule every other console surface follows.
+// which is the same rule every other console view follows.
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../agents-caps.js";
 import { formatCount } from "@renderer/console/primitives/index.js";
@@ -81,7 +81,7 @@ type NamelessToolGrantKind = Exclude<
  * The words for every position that names no tool.
  *
  * Total over {@link NamelessToolGrantKind} by construction, so a fifth nameless
- * position fails to compile here before it can reach a surface that renders it. The
+ * position fails to compile here before it can reach a renderer. The
  * populated arm is deliberately absent: its sentence carries a figure and a cap, so
  * it is composed by {@link namedToolAllowlistSentence} rather than stored.
  */
@@ -123,7 +123,7 @@ export const NAMELESS_TOOL_ALLOWLIST_WORDING: Readonly<
  * `sessions/notifications/attention-sentences.ts` takes for one session. And a list
  * longer than the echo's own cap is not promised whole: the disclosure names the
  * first {@link TOOL_ALLOWLIST_NAMED_CAP} and folds the rest to a figure, so a line
- * saying all fifteen are "named below" would be describing a surface that is not
+ * saying all fifteen are "named below" would be describing a list that is not
  * there. The cap is read from its one home rather than spelled here.
  */
 export function namedToolAllowlistSentence(toolNames: readonly string[]): string {

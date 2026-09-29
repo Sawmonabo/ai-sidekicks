@@ -9,7 +9,7 @@
 // filter counts are derived from the rows a list answered with and render on the `listed`
 // arm alone; while a read is in flight the head is the heading with no figure beside it,
 // and the body's absence card is the whole reading. This module is the session-scoped
-// surface; one manifest's face, act and disclosure are `ArtifactRow.tsx`.
+// section; one manifest's face, act and disclosure are `ArtifactRow.tsx`.
 
 import "./artifacts.css";
 
@@ -37,7 +37,7 @@ import {
 
 export interface ArtifactsSectionProps {
   readonly state: ArtifactsSectionState;
-  /** The instant the surface read at. Ages move when it re-reads and never on a timer. */
+  /** The instant the section read at. Ages move when it re-reads and never on a timer. */
   readonly nowMilliseconds: number;
   /**
    * Re-read one row's manifest.
@@ -49,9 +49,9 @@ export interface ArtifactsSectionProps {
   /**
    * The rows whose manifest re-read is on the wire, so each one's control holds.
    *
-   * The mounting surface's register and never a second copy: a re-read is single-flight
+   * The mounting view's register and never a second copy: a re-read is single-flight
    * per row, so a control offered while that row's call is outstanding would send a
-   * second read. Absent means the surface performs no re-read at all.
+   * second read. Absent means the section performs no re-read at all.
    */
   readonly manifestReadInFlightArtifactIds?: ReadonlySet<string> | undefined;
 }
@@ -126,18 +126,16 @@ function renderPanelBody(
   typeFilter: ArtifactTypeFilter,
 ): React.JSX.Element {
   if (props.state.kind === "loading") {
-    return (
-      <Nothing kind="not-loaded" placement="surface" title="Reading this session's artifacts" />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Reading this session's artifacts" />;
   }
   if (props.state.rows.length === 0) {
-    return <Nothing kind="empty" placement="surface" title="Nothing made here yet." />;
+    return <Nothing kind="empty" placement="block" title="Nothing made here yet." />;
   }
   if (visibleRows.length === 0) {
     return (
       <Nothing
         kind="empty"
-        placement="surface"
+        placement="block"
         title="No artifacts of the type this filter is set to."
         detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
         // The type is a wire word, so it renders through `WireFigure` rather than as

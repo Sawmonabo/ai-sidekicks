@@ -1,15 +1,13 @@
-// The reasoning row's surface, and the read that fills it, in the one component that
+// The reasoning row's body, and the read that fills it, in the one component that
 // draws one.
 //
-// ITS OWN COMPONENT FOR `BoundQuestionCard.tsx`' REASON, applied to the other read
-// the shell used to arm on every row. `useReasoningRead` holds a reading and a
-// press handler; a row that is not a reasoning row has nothing to read and no control
-// to press, and until this existed it built both anyway — the rules of hooks bind a
-// component and not a tree, so the read moves into the component that renders it and
-// the ordinary row stops paying for it.
+// ITS OWN COMPONENT FOR `BoundQuestionCard.tsx`' REASON. `useReasoningRead` holds a
+// reading and a press handler; a row that is not a reasoning row has nothing to read and
+// no control to press — the rules of hooks bind a component and not a tree, so the read
+// lives in the component that renders it and the ordinary row does not pay for it.
 //
 // THE ELEMENT IS COMPOSED BY THE MOUNT AND HANDED TO THE CARD, unchanged: `MessageRow`
-// decides layout and the surface that performed the read decides what a row is allowed
+// decides layout and the component that performed the read decides what a row is allowed
 // to show, which is why the reasoning body arrives as a node rather than as a flag.
 
 import { ThinkingRow } from "./ThinkingRow.js";
@@ -23,7 +21,7 @@ export interface BoundThinkingRowProps {
   readonly liveText: string | undefined;
 }
 
-/** One reasoning row's four-arm availability surface, over its own read. */
+/** One reasoning row's four-arm availability view, over its own read. */
 export function BoundThinkingRow(props: BoundThinkingRowProps): React.JSX.Element {
   const reasoningRead = useReasoningRead(props.runId);
   return (

@@ -19,7 +19,7 @@
 // equivalent language of the editor this console is not copying, and every one of
 // them turns a visibility predicate into a small programming language whose
 // failure modes have to be specified. A context key is a boolean the frame
-// computed; a clause combines them. That is the whole surface, and keeping it
+// computed; a clause combines them. That is the whole language, and keeping it
 // that small is what lets `whenClausesCanOverlap` decide conflicts by enumeration
 // instead of by heuristics.
 //

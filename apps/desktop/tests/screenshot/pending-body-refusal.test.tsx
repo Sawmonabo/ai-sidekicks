@@ -2,7 +2,7 @@
 //
 // WHAT THIS ADDS TO THE TWO CONTROLS THAT ALREADY EXIST. `settled-capture.test.ts`
 // drives the pure half — a list of kinds in, a throw out — and
-// `seats/pane/pending-pane-body.test.ts` drives the DOM read against a planted marker.
+// `components/LazyBody/pending-body-marker.test.ts` drives the DOM read against a planted marker.
 // Neither one mounts anything, so between them they prove every link of the chain
 // except the one that failed in practice: a REAL pane, mounted from a real
 // registration whose module has not landed, handed to the real `captureSettled`.
@@ -27,24 +27,24 @@ import { captureSettled } from "./settled-capture.js";
 
 import { PaneRegistry } from "@renderer/console/seats/index.js";
 import type { PaneContext } from "@renderer/console/seats/index.js";
-// The LEAF: `LazyBodyModule` is the loader's own return type and has no production
-// reader through the seats door, which is the shape that door's header refuses a line
-// for. `seats/lazy-body/lazy-body.test.tsx` reaches it the same way.
+// The module itself: `LazyBodyModule` is the loader's own return type, and no production
+// code imports it through a barrel. The pane registry's `lazy-body` suites reach it the
+// same way.
 import type { LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 
 /** The kind the planted registration claims. Any real kind; the body is synthetic. */
 const PLANTED_KIND = "browser";
 
-/** The owner a planted registration declares, which no family uses. */
+/** The owner a planted registration declares, which no feature uses. */
 const PLANTED_OWNER = "pending-body-refusal-control";
 
 /**
  * A pane context carrying only what the reserved region reads.
  *
- * The same shape and the same reasoning as `seats/lazy-body/lazy-body.test.tsx`'s: the fallback
- * reads `kind`, `focusHue`, `sessionStore`, and whether an `entity` is present, and
- * standing up a bridge and three stores to prove a refusal would be a fixture testing
- * the fixture. The cast says so rather than hiding behind a builder.
+ * The same shape and the same reasoning as `syntheticPaneContextAt` in
+ * `tests/helpers/lazy-body-contexts.ts`: the fallback reads `kind`, `focusHue`,
+ * `sessionStore`, and whether an `entity` is present, and standing up a bridge and three
+ * stores to prove a refusal would be a fixture testing the fixture. The cast says so rather than hiding behind a builder.
  */
 function plantedPaneContext(): PaneContext {
   return {
@@ -100,7 +100,7 @@ describe("the capture refusal, over a real mount", () => {
   // a settled tree reaches the capture and the capture completes.
   //
   // The name carries a `probe-` prefix because this one DOES write, and what it writes
-  // is a planted registry fixture rather than a console surface. The directory is the
+  // is a planted registry fixture rather than a console view. The directory is the
   // one a person opens to look at the console, so a picture that is not of the console
   // says so in its own file name rather than only in the spec directory above it.
   it("takes the capture once the body has landed", async () => {

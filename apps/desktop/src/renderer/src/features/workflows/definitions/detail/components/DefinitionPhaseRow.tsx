@@ -2,8 +2,8 @@
 //
 // ITS OWN MODULE BECAUSE EVERY `.tsx` HOLDS ONE COMPONENT — the module-shape rule in
 // `apps/desktop/AGENTS.md`, held in review. It is reached from the list in
-// `DefinitionVersionBody.tsx` and from nothing else, which makes it a deep sibling
-// import and not a name on any door.
+// `DefinitionVersionBody.tsx` and from nothing else, by a relative import, and no
+// `index.ts` exports it.
 //
 // THE THREE CLOSED MEMBERS ARE CHIPS because each is a value from a vocabulary the wire
 // declares, and the two optional ones are rendered only where the phase carries them —
@@ -89,9 +89,9 @@ export function DefinitionPhaseRow(props: DefinitionPhaseRowProps): React.JSX.El
        * closed vocabulary values, and it renders nothing at all for the four phase types
        * that ask no question — which is what keeps the row a row for every other phase.
        *
-       * Mounted through the seat's loader rather than as an element, because the schema
-       * form kit is its own chunk: the seat holds the single in-flight load and the
-       * reserved region the preview leaves while its module is arriving.
+       * Mounted through the schema form's loader-backed body rather than as an element,
+       * because the schema form kit is its own chunk: that body holds the single in-flight
+       * load and the reserved region the preview leaves while its module is arriving.
        */}
       {schemaFormPreviewBody.render({ phase })}
     </li>

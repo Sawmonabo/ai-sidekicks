@@ -246,7 +246,7 @@ function settleToTotal(panes: readonly SessionPane[], floor: number): readonly S
 const MINIMUM_NORMALIZED_PERMILLE = 1;
 
 /**
- * Seat arriving panes in front of an arrangement a person already made.
+ * Place arriving panes in front of an arrangement a person already made.
  *
  * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
  * whole point: equalizing a pane layout that already holds panes destroys the drag the person
@@ -348,7 +348,7 @@ export function highestOrdinal(panes: readonly SessionPane[]): number {
 }
 
 /**
- * Seat an arriving pane by halving ONE pane's share, leaving every other alone.
+ * Place an arriving pane by halving ONE pane's share, leaving every other alone.
  *
  * THE SPLIT ACT'S WIDTH RULE, and the whole difference between splitting a pane and
  * opening one. {@link distributeEvenly} re-divides the pane layout, which is right for a pane

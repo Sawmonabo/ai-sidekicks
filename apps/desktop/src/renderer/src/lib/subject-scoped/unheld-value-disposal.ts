@@ -23,7 +23,7 @@
 //     React throws renders away routinely — so it reports only where the disposal
 //     threw, and under the RENDER kind rather than the settlement kind, because that
 //     is what an escaping throw would have been recorded as: left to propagate it
-//     reaches the surface's error boundary, which records a throw raised while
+//     reaches the region's error boundary, which records a throw raised while
 //     rendering and unmounts the subtree on top of it.
 //
 // SO WHAT IS SHARED IS THE CLOSE AND NOT THE SENTENCE. One backstopped call, written
@@ -121,11 +121,11 @@ export class UnheldValueDisposal<TValue> {
    * Close the value a successful publish replaced, and say nothing where it worked.
    *
    * TWO PUBLISHES BEFORE A COMMIT LEAVE THE FIRST ONE UNREACHABLE, and that is the
-   * whole case. The lifetime effect next door closes the value the last commit saw,
-   * and the discard path closes what an abandoned pass seeded — neither runs here. So
-   * a caller that published B and then C in one batched event left B installed
-   * nowhere, held by no effect, and named by nothing: the holder's own write is the
-   * last moment anything in the program can reach it.
+   * whole case. The lifetime effect in `useSubjectScopedResource.ts` closes the value
+   * the last commit saw, and the discard path closes what an abandoned pass seeded —
+   * neither runs here. So a caller that published B and then C in one batched event
+   * left B installed nowhere, held by no effect, and named by nothing: the holder's own
+   * write is the last moment anything in the program can reach it.
    */
   public disposeReplaced(replaced: TValue): void {
     const outcome = this.#hand(replaced);
@@ -159,7 +159,7 @@ export class UnheldValueDisposal<TValue> {
       return;
     }
     reportTripwire(
-      "surface-render-failure",
+      "region-render-failure",
       SITE,
       `a subject-scoped value seeded by a render pass that never committed could not be disposed, so it is installed nowhere and held by nothing: ${wireRejectionToError(outcome.failure, { total: true }).message}`,
     );

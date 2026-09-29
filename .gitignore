@@ -80,8 +80,8 @@ venv/
 # Browser-mode and Playwright run artifacts.
 #
 # The console screenshot captures are local QA aids a developer writes to look at a
-# surface, compared against nothing, so no reference image is versioned here.
-apps/desktop/test/console/screenshot/__screenshots__/
+# view, compared against nothing, so no reference image is versioned here.
+apps/desktop/tests/screenshot/__screenshots__/
 .vitest-attachments/
 playwright-report/
 test-results/

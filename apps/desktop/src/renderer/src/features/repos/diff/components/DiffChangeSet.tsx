@@ -36,7 +36,7 @@ export function DiffChangeSet(props: DiffChangeSetProps): React.JSX.Element {
 
   return (
     // A column of its own inside the chrome's body box, because the body scrolls as one
-    // and this surface has two bands: the toolbar, and the list-and-rows pair that takes
+    // and this view has two bands: the toolbar, and the list-and-rows pair that takes
     // the rest of the height.
     <div className="meridian-diff-pane">
       <DiffToolbar controls={viewControls} />

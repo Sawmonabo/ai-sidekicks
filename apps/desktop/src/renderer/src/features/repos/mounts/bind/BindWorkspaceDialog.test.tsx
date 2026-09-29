@@ -29,7 +29,7 @@ const SESSION_ID = "session-repos";
 const MOUNT_ID = "019b79ee-0280-7ea1-8110-e5e0d1150044";
 const MOUNT_ROOT = "/Users/dev/code/ai-sidekicks";
 
-/** A frame that owes this family's readings a fresh answer. */
+/** A frame that owes the repos feature's readings a fresh answer. */
 const REPO_FRAME_KIND = "workspace.stale";
 
 /** A mount admitting both modes, `provisioned-worktree` the daemon's own default. */

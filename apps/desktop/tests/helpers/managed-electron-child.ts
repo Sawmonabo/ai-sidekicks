@@ -1,7 +1,7 @@
 // The object that owns one spawned child's fate, and how it learns that fate.
 //
 // Split out of `electron-child.ts` rather than left inside it because that
-// module is the SPAWN door — the one file under `test/` allowed to reach
+// module is the SPAWNER — the one file under `tests/` allowed to reach
 // `spawn`, which `apps/desktop/eslint.config.mjs` enforces — and the
 // lifetime object beside it had become a second job in the same file.
 //
@@ -57,7 +57,7 @@ export const TERMINATION_GRACE_MS = 2_000;
  * It lives HERE, beside the class whose `disposeUntilKillDelivered` spends it,
  * because three callers need it and two of them cannot reach the fourth
  * candidate home: `electron-child-cleanup.ts` imports `electron-child.ts`, so a
- * figure declared there and read by the spawn door would close an import cycle.
+ * figure declared there and read by the spawner would close an import cycle.
  * `bounded-cleanup.ts` takes it from here rather than restating it,
  * because two `3`s in two files are two bounds that will disagree.
  */
@@ -373,7 +373,7 @@ export class ManagedElectronChild {
    * THE ONE HOME FOR THE KILL RETRY, and it is here rather than in either
    * caller because the two callers are otherwise unable to share it. The
    * settle-time disposal in `electron-child-cleanup.ts` retries around a wait
-   * for `close`; the spawn door's misuse recovery has nothing to wait ON and
+   * for `close`; the spawner's misuse recovery has nothing to wait ON and
    * cannot await anything at all — it is rethrowing a registration refusal out
    * of a synchronous function — and a second loop written there would be a
    * second bound that drifts from this one.

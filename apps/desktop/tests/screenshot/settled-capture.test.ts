@@ -8,7 +8,7 @@
 //
 // THE PURE HALF IS WHAT IS DRIVEN. `captureSettled` composes the DOM read with this
 // refusal; the read has its own controls beside the marker it reads
-// (`console/seats/pane/pending-pane-body.test.ts`), and driving the composed function here
+// (`components/LazyBody/pending-body-marker.test.ts`), and driving the composed function here
 // would mean minting a real half-loaded capture, which is the thing it exists to
 // prevent.
 //
@@ -41,7 +41,7 @@ import {
 } from "./settled-capture.js";
 
 /** What the fake window throws when it is asked to settle and told to fail. */
-const SETTLE_REJECTION = "the surface threw while settling the resize";
+const SETTLE_REJECTION = "the element threw while settling the resize";
 
 /** What it throws when the resize itself fails, part-way through moving the window. */
 const RESIZE_REJECTION = "the tester window could not be resized";
@@ -50,7 +50,7 @@ const RESIZE_REJECTION = "the tester window could not be resized";
 const PROBE_WINDOWS_TALL = 2;
 
 /**
- * The height of the surface `tall-capture.test.ts` holds whole, which is the failure.
+ * The height of the element `tall-capture.test.ts` holds whole, which is the failure.
  *
  * That probe photographs a 1 200 × 2 400 box, and on a loaded runner the capture of it
  * reported "Could not capture a stable screenshot within 5000ms" against a diff that
@@ -115,26 +115,26 @@ function testerWindow(): CaptureViewport {
 }
 
 /**
- * A surface of a stated height at the document's origin.
+ * An element of a stated height at the document's origin.
  *
  * Anchored at the origin and half the window wide so its measured box is its own size:
  * `requiredViewportFor` reads the DOCUMENT-space bottom-right corner, and a probe that
  * was inset or full-width would be asserting the clip arithmetic that
  * `tall-capture.test.ts` already reads out of the captured pixels.
  */
-function mountSurfaceOfHeightPx(heightPx: number, startedAt: CaptureViewport): HTMLElement {
-  const surface = document.createElement("div");
-  surface.style.position = "absolute";
-  surface.style.top = "0";
-  surface.style.left = "0";
-  surface.style.width = `${String(Math.floor(startedAt.width / 2))}px`;
-  surface.style.height = `${String(heightPx)}px`;
-  document.body.append(surface);
-  return surface;
+function mountElementOfHeightPx(heightPx: number, startedAt: CaptureViewport): HTMLElement {
+  const element = document.createElement("div");
+  element.style.position = "absolute";
+  element.style.top = "0";
+  element.style.left = "0";
+  element.style.width = `${String(Math.floor(startedAt.width / 2))}px`;
+  element.style.height = `${String(heightPx)}px`;
+  document.body.append(element);
+  return element;
 }
 
 // One home for the mounted-probe cleanup, at file scope rather than repeated per
-// suite: two suites below mount surfaces into the same document, and a second copy of
+// suite: two suites below mount elements into the same document, and a second copy of
 // this hook is the shape that goes stale the first time only one of them is edited.
 afterEach(() => {
   for (const leftOver of document.body.querySelectorAll("div")) {
@@ -173,16 +173,16 @@ describe("the screenshot tier's pending-body refusal", () => {
 
 describe("the tester window a capture opens", () => {
   it("puts the window back when the settle after a resize rejects", async () => {
-    // The failure the ordering exists for. The resize lands, the surface throws while
+    // The failure the ordering exists for. The resize lands, the element throws while
     // React flushes the layout it caused, and the window is left open — so a `restore`
     // gated on a flag written AFTER that settle returns early, and every later capture
     // in the run is taken in a console this one enlarged.
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver({ settleRejectsOnCall: 1 });
     const captureWindow = new CaptureWindow(startedAt, driver);
-    const surface = mountSurfaceOfHeightPx(startedAt.height * PROBE_WINDOWS_TALL, startedAt);
+    const element = mountElementOfHeightPx(startedAt.height * PROBE_WINDOWS_TALL, startedAt);
 
-    await expect(captureWindow.holdWhole(surface, "settle-rejects-probe")).rejects.toThrowError(
+    await expect(captureWindow.holdWhole(element, "settle-rejects-probe")).rejects.toThrowError(
       SETTLE_REJECTION,
     );
     await captureWindow.restore();
@@ -199,9 +199,9 @@ describe("the tester window a capture opens", () => {
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver({ resizeRejectsOnCall: 1 });
     const captureWindow = new CaptureWindow(startedAt, driver);
-    const surface = mountSurfaceOfHeightPx(startedAt.height * PROBE_WINDOWS_TALL, startedAt);
+    const element = mountElementOfHeightPx(startedAt.height * PROBE_WINDOWS_TALL, startedAt);
 
-    await expect(captureWindow.holdWhole(surface, "resize-rejects-probe")).rejects.toThrowError(
+    await expect(captureWindow.holdWhole(element, "resize-rejects-probe")).rejects.toThrowError(
       RESIZE_REJECTION,
     );
     await captureWindow.restore();
@@ -220,9 +220,9 @@ describe("the tester window a capture opens", () => {
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver();
     const captureWindow = new CaptureWindow(startedAt, driver);
-    const surface = mountSurfaceOfHeightPx(Math.floor(startedAt.height / 2), startedAt);
+    const element = mountElementOfHeightPx(Math.floor(startedAt.height / 2), startedAt);
 
-    await captureWindow.holdWhole(surface, "fits-in-the-window-probe");
+    await captureWindow.holdWhole(element, "fits-in-the-window-probe");
     await captureWindow.restore();
 
     expect(driver.resizedTo).toStrictEqual([]);
@@ -231,14 +231,14 @@ describe("the tester window a capture opens", () => {
 
 describe("the stability wait a capture is given for the window it held", () => {
   it("gives a capture that fitted the tier's own wait", async () => {
-    // The unchanged capture, which is most of the committed set: a surface inside the
+    // The unchanged capture, which is most of the committed set: an element inside the
     // window opens nothing, holds one window, and is compared under exactly the five
     // seconds this tier has always given it.
     const startedAt = testerWindow();
     const captureWindow = new CaptureWindow(startedAt, new RecordingWindowDriver());
-    const surface = mountSurfaceOfHeightPx(Math.floor(startedAt.height / 2), startedAt);
+    const element = mountElementOfHeightPx(Math.floor(startedAt.height / 2), startedAt);
 
-    await captureWindow.holdWhole(surface, "fits-in-the-window-probe");
+    await captureWindow.holdWhole(element, "fits-in-the-window-probe");
 
     expect(stabilityWaitMsFor(captureWindow.heldViewportRatio)).toBe(
       STABILITY_WAIT_PER_VIEWPORT_MS,
@@ -247,14 +247,14 @@ describe("the stability wait a capture is given for the window it held", () => {
 
   // The measured failure, driven end to end. Before the wait was sized to the hold,
   // this capture was raced against the same five seconds as one a quarter its size,
-  // and a static surface came back reported as unstable on a loaded runner.
+  // and a static element came back reported as unstable on a loaded runner.
   it("gives the tall probe's own geometry more than one window's wait", async () => {
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver();
     const captureWindow = new CaptureWindow(startedAt, driver);
-    const surface = mountSurfaceOfHeightPx(TALL_CAPTURE_PROBE_HEIGHT_PX, startedAt);
+    const element = mountElementOfHeightPx(TALL_CAPTURE_PROBE_HEIGHT_PX, startedAt);
 
-    await captureWindow.holdWhole(surface, "tall-capture-probe");
+    await captureWindow.holdWhole(element, "tall-capture-probe");
 
     // The hold is asserted first, so a wait that came back large because the window
     // was never opened at all fails here with the sizes rather than there with a
@@ -274,9 +274,9 @@ describe("the stability wait a capture is given for the window it held", () => {
   it("reports one window again once the capture has put the window back", async () => {
     const startedAt = testerWindow();
     const captureWindow = new CaptureWindow(startedAt, new RecordingWindowDriver());
-    const surface = mountSurfaceOfHeightPx(TALL_CAPTURE_PROBE_HEIGHT_PX, startedAt);
+    const element = mountElementOfHeightPx(TALL_CAPTURE_PROBE_HEIGHT_PX, startedAt);
 
-    await captureWindow.holdWhole(surface, "tall-capture-probe");
+    await captureWindow.holdWhole(element, "tall-capture-probe");
     await captureWindow.restore();
 
     expect(stabilityWaitMsFor(captureWindow.heldViewportRatio)).toBe(

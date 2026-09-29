@@ -1,13 +1,13 @@
 // What a definition's detail OFFERS: which acts it draws, which refusals it raises on
 // its own, and what an act's answer settles to.
 //
-// THE DISPATCH IS THE MODULE BESIDE THIS ONE. `definition-authoring-dispatch.ts` holds
+// THE DISPATCH IS ITS OWN MODULE. `hooks/useWorkflowDefinitionAuthoring.ts` holds
 // the latch and the held record and hands each press to the act that carries it out —
 // `definition-authoring-export.ts` for the one that reaches the host,
-// `definition-authoring-port-acts.ts` for the one that rides the create — on the split
-// `run-control-commands.ts` and `run-control-dispatch.ts` already make one family over:
-// what a surface offers is read by the component that draws the controls, and how a
-// press is carried out is read by nothing but itself.
+// `definition-authoring-port-acts.ts` for the one that rides the create — the same
+// split `run-control-commands.ts` and `run-control-dispatch.ts` make for the composer's
+// run controls: what a view offers is read by the component that draws the controls,
+// and how a press is carried out is read by nothing but itself.
 //
 // TWO ACTS. Importing and exporting are the acts whose subject is the definition already in
 // front of the person. Exporting submits nothing: it serializes the version body on screen
@@ -26,11 +26,11 @@ export const WORKFLOW_DETAIL_ACTS = ["export", "import"] as const;
 /** One act a detail draws. Derived from the tuple, never restated. */
 export type WorkflowDetailAct = (typeof WORKFLOW_DETAIL_ACTS)[number];
 
-/** The subsystem name every refusal this surface raises is attributed to. */
+/** The subsystem name every refusal the definition detail raises is attributed to. */
 export const WORKFLOW_DETAIL_ORIGIN = "workflow-definition-detail";
 
 /**
- * The refusals this surface raises on its own, and no others.
+ * The refusals the definition detail raises on its own, and no others.
  *
  * Three, and not one of them is a daemon's — each is a fact about this window that
  * settles before any call is put.
@@ -93,13 +93,13 @@ export interface WorkflowDefinitionAuthoring {
 }
 
 /**
- * Raise one of this surface's own refusals.
+ * Raise one of the definition detail's own refusals.
  *
  * THE NARROWING LIVES HERE BECAUSE `refuse` CANNOT DO IT. That constructor's `code`
- * parameter is a deliberately-wide `string` — `core/refusal.ts` cannot close it without
+ * parameter is a deliberately-wide `string` — `lib/refusal.ts` cannot close it without
  * importing every producer and inverting the DAG — so every locally-raised refusal goes
- * through this one door, and a code the tuple above does not declare is a compile error
- * rather than a string nobody notices.
+ * through this one function, and a code the tuple above does not declare is a compile
+ * error rather than a string nobody notices.
  */
 export function detailRefusal(code: WorkflowDetailRefusalCode, sentence: string): Refusal {
   return refuse(WORKFLOW_DETAIL_ORIGIN, code, sentence);

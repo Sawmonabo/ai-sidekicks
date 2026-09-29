@@ -1,6 +1,6 @@
 // The five kinds of nothing, in the two shapes an absence can take.
 //
-// The console's design language, rule 8: five absences render differently because the
+// The console's design language: five absences render differently because the
 // operator's next move differs for each, and a renderer that collapses two of these
 // into one is wrong. The rule is enforced structurally here — the kind set is closed,
 // the traits table below is total over it, and each kind supplies copy, a glyph, and a
@@ -10,8 +10,8 @@
 //                     operator waits. It says nothing, because there is nothing yet
 //                     to say, and a sentence would be replaced a beat later.
 //   • `empty`       — a quiet line with the escape hatch. The read succeeded and
-//                     found none. The next move is to create one, so the action
-//                     slot is where that control goes.
+//                     found none. The next move is to create one, so the `action`
+//                     prop is where that control goes.
 //   • `error`       — the daemon's own message text under an alert glyph on a red
 //                     edge. The read failed; the next move depends on what the
 //                     daemon said, so the console does not paraphrase it.
@@ -31,13 +31,13 @@
 // line as a hover tooltip. So the caller names the placement and the placement picks
 // the shape:
 //
-//   • `inline`  — a badge, sitting beside the value it qualifies.
-//   • `surface` — a block, standing in for the surface that is not there.
+//   • `inline` — a badge, sitting beside the value it qualifies.
+//   • `block`  — a block, standing in for the content of a region that is not there.
 //
-// Every kind renders in both. Rule 8 stays exactly as written, because it names the
-// treatment each kind carries — dotted for `not-checked`, a clock for `computing` —
-// and the kind carries that treatment into either shape. What the placement decides
-// is the box it is carried in, which rule 8 does not speak to.
+// Every kind renders in both. The design language names the treatment each kind
+// carries — dotted for `not-checked`, a clock for `computing` — and the kind carries
+// that treatment into either shape. What the placement decides is the box it is
+// carried in, which the design language does not speak to.
 //
 // The default reproduces the placement each kind was previously hard-wired to, so a
 // call site that names none renders exactly what it rendered before.
@@ -52,9 +52,9 @@ import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
 /**
- * Closed. Adding a sixth kind is a deliberate edit here and in rule 8.
+ * Closed. Adding a sixth kind is a deliberate edit here and in the design language.
  *
- * The tuple is the declaration and the union is derived from it: rule 8's claim is
+ * The tuple is the declaration and the union is derived from it: the design language's claim is
  * that FIVE absences render differently, and a claim about a count has to be
  * countable at runtime for a test to hold it.
  */
@@ -68,7 +68,7 @@ export type NothingKind = (typeof NOTHING_KINDS)[number];
  * a hand-written union while this list stayed at two is the drift the tuple form
  * makes impossible.
  */
-export const NOTHING_PLACEMENTS = ["inline", "surface"] as const;
+export const NOTHING_PLACEMENTS = ["inline", "block"] as const;
 
 export type NothingPlacement = (typeof NOTHING_PLACEMENTS)[number];
 
@@ -77,8 +77,8 @@ export interface NothingProps {
   /**
    * Where this absence is mounted. Omitted, it is the placement the kind is
    * ordinarily mounted at — a qualifier beside a value is `inline`, an absence
-   * standing in for a surface is `surface`. Name it whenever the mount contradicts
-   * that: a whole pane of `not-checked` is `surface`, and it is the caller that
+   * standing in for a region's content is `block`. Name it whenever the mount contradicts
+   * that: a whole pane of `not-checked` is `block`, and it is the caller that
    * knows, because the caller is what mounted it.
    */
   readonly placement?: NothingPlacement;
@@ -86,13 +86,13 @@ export interface NothingProps {
   readonly title: string;
   /**
    * The second line. For `error` this is the daemon's message text, rendered
-   * verbatim — never paraphrased, shortened, or explained (rule 9 puts the code in
+   * verbatim — never paraphrased, shortened, or explained (the refusal grammar puts the code in
    * mono and the message verbatim, and a paragraph set in mono is a paragraph
    * nobody reads). For every other kind it is the console's own prose.
    *
    * A block renders it as prose. A badge has no room for a second line and carries
    * it as the badge's tooltip, which is the honest limit of that shape and the
-   * reason a caller with something to say mounts on a surface.
+   * reason a caller with something to say mounts it as a block.
    */
   readonly detail?: string;
   /** The next step, when there is one. A button, a link, a control. */
@@ -131,19 +131,19 @@ interface NothingKindTraits {
  */
 const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
   "not-loaded": {
-    defaultPlacement: "surface",
+    defaultPlacement: "block",
     copy: "skeleton",
     detailClassName: "meridian-nothing__detail",
     role: "status",
     busy: true,
   },
   empty: {
-    defaultPlacement: "surface",
+    defaultPlacement: "block",
     copy: "prose",
     detailClassName: "meridian-nothing__detail",
   },
   error: {
-    defaultPlacement: "surface",
+    defaultPlacement: "block",
     copy: "prose",
     glyph: "alert",
     detailClassName: "meridian-nothing__message",
@@ -166,7 +166,7 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
 /** The shape each placement renders as. The other half of the two-question split. */
 const SHAPE_MODIFIER_BY_PLACEMENT: Readonly<Record<NothingPlacement, string>> = {
   inline: "meridian-nothing--badge",
-  surface: "meridian-nothing--block",
+  block: "meridian-nothing--block",
 };
 
 /** How wide each skeleton bar is, as a fraction of the measure. Uneven on purpose:
@@ -216,7 +216,7 @@ function renderBadge(
   );
 }
 
-/** The block: an absence standing in for the surface that is not there. */
+/** The block: an absence standing in for the content that is not there. */
 function renderBlock(
   props: NothingProps,
   traits: NothingKindTraits,

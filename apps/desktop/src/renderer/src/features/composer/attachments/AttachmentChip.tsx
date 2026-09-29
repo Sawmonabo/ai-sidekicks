@@ -1,14 +1,14 @@
 // One attachment, on one line, beside the message it will ride with.
 //
 // A CHIP AND NOT A CARD, which is the composer's density rather than a lesser version
-// of the artifact pane's row: name, type, and size in one line with progress inline, so
-// a staged list of several does not push the message input off the bottom of the session screen.
-// The pane's card is where an upload is READ; this is where it is watched while a
-// person keeps typing.
+// of the transcript's attachment card: name, type, and size in one line with progress
+// inline, so a staged list of several does not push the message input off the bottom of
+// the session screen. The card is where an upload is READ; this is where it is watched
+// while a person keeps typing.
 //
 // EVERY WORD IT SAYS IS THE FOLD'S. This file branches on a model and renders; it looks
 // nothing up, formats no figure, and decides no eligibility. `composer-attachment-chip.ts`
-// composes that model out of the repos family's own readings, so the chip and the card
+// composes that model out of the attachment modules' own readings, so the chip and the card
 // cannot describe one upload differently.
 //
 // CANCEL SAYS WHAT CANCELING DOES. There is no cancel call in the ingest trio, so

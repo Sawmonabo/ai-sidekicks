@@ -2,9 +2,9 @@
 //
 // Beside the aggregate entry with its sibling axis files, and every case drives
 // `findScenarioContractDefects` rather than the leg module — the aggregate is the
-// only surface a family's scenario is ever measured through.
+// only function a feature's scenario is ever measured through.
 //
-// EVERY CASE IS BUILT FROM THE SHIPPED SEAT BOARD. The concurrent-streaming scenario's own replies are
+// EVERY CASE IS BUILT FROM THE SHIPPED SCENARIOS. The concurrent-streaming scenario's own replies are
 // the base, so what a case varies is the one property it is about; its beats are
 // the beats every other leg already accepts, which is what keeps a reported defect
 // attributable to the reply and not to the script around it.
@@ -41,7 +41,7 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
 
   it("reports a scripted reply to a method nothing registers", () => {
     // The defect this leg was written for, and it is not hypothetical: a scenario
-    // answering `workflow.runList` renders a surface that looks served, ships a
+    // answering `workflow.runList` renders a view that looks served, ships a
     // reference image of it, and reaches nothing on the day the fixture define flips.
     const defects = findScenarioContractDefects([scenarioAnswering("workflow.runList")]);
 
@@ -54,8 +54,8 @@ describe("scenario wire truth — a call the corpus registers nowhere", () => {
     expect(findScenarioContractDefects([scenarioAnswering("presence.read")])).toStrictEqual([]);
   });
 
-  it("negative control: the shipped seat board answers only registered calls", () => {
-    // The real tree, which is where a family's invented name would land. Every call it
+  it("negative control: the shipped scenarios answer only registered calls", () => {
+    // The real tree, which is where a feature's invented name would land. Every call it
     // scripts is admitted by a derived registry rather than by a transcription: the
     // daemon binding table.
     expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
@@ -76,7 +76,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
   it("reports a latency of Infinity, which parks the reply past every finite advance", () => {
     // The engine parks a delayed reply at `elapsedMs + afterMs` and releases it when
     // an advance reaches that tick. No advance reaches this one, so the reply is
-    // settled only by teardown — as abandoned — and the surface awaiting it renders
+    // settled only by teardown — as abandoned — and the view awaiting it renders
     // its loading state for the life of the window.
     const defects = findScenarioContractDefects([
       scenarioWithProbeReply("parks-forever", Number.POSITIVE_INFINITY),
@@ -122,7 +122,7 @@ describe("scenario wire truth — a scripted latency the frozen clock cannot spe
     ).toStrictEqual([]);
   });
 
-  it("negative control: the shipped seat board's own replies stay clean", () => {
+  it("negative control: the concurrent-streaming scenario's own replies stay clean", () => {
     expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
   });
 });

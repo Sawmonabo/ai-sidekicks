@@ -178,7 +178,7 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     stagedAttachments.dispose();
     clock.advance(INGEST_STALL_DISCLOSURE_MS * 3);
 
-    // A timeout that outlived the surface would stamp a snapshot nobody reads and
+    // A timeout that outlived the staged list would stamp a snapshot nobody reads and
     // hold a handle nobody can cancel.
     expect(clock.pendingCount).toBe(0);
     expect(publishCount).toBe(publishCountAtDisposal);
@@ -264,7 +264,7 @@ function underWindow(fixture: BridgeOnClock, element: ReactElement): React.JSX.E
   );
 }
 
-/** A surface that holds the binding and hands its one control back to the case. */
+/** A component that holds the binding and hands its one control back to the case. */
 function StagedAttachmentsProbe(props: {
   readonly bridge: PlatformBridge;
   readonly port: AttachmentIngestPort;
@@ -280,7 +280,7 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
     // The bug, exercised: StrictMode runs the cleanup and then the setup again on the
     // same component instance, and a memoized staged list survives that. The cleanup
     // terminally disposed the ingest client, so every file chosen afterwards reached a
-    // client whose `attach` returns at once — the surface inert, and silently.
+    // client whose `attach` returns at once — the strip inert, and silently.
     const port = new ScriptedIngestPort();
     const fixture = bridgeOnClock("composer");
     let binding: StagedAttachmentsBinding | undefined;
@@ -311,7 +311,7 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
 
   it("negative control: a changed collaborator re-mints once, not once per render", async () => {
     // The same cleanup runs when the bridge or the session moves, so this drives the
-    // re-mint through the other door — and asserts that exactly ONE stream opens. A
+    // re-mint through the other path — and asserts that exactly ONE stream opens. A
     // hook that minted a staged list on every render would satisfy the case above while
     // opening a stream per pass, which is the leak the memo existed to prevent dressed
     // as a fix for the one it caused.

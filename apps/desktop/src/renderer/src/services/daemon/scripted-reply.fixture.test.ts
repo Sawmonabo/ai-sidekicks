@@ -59,7 +59,7 @@ const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003";
  * WHOLE `RepoMountReadResponse`s and not two-member stand-ins. `repo.mountRead` is
  * a method the corpus registers, so the fixture holds a scripted reply for it to
  * that shape (`daemon.fixture.wire-contract.test.ts`) — and a scenario that could
- * answer it with `{id, health}` would be teaching every mount surface a frame the
+ * answer it with `{id, health}` would be teaching every view that reads a mount a frame the
  * daemon cannot send. Only `id` and `health.status` vary between the two, which is
  * what these cases read.
  */
@@ -160,9 +160,9 @@ describe("the fixture bridge's scripted calls — the same seam, rejecting inste
 describe("a computed reply — one call, one answer per entity", () => {
   it("answers each request with the entity that request named", async () => {
     // The defect this arm exists for: `replyFor` matches on the method NAME, so a
-    // session holding two mounts asked twice and got the same mount back both times.
-    // Both calls go through the real bridge, so what is asserted is what a surface
-    // would have received.
+    // session holding two mounts that asked twice would get the same mount back both
+    // times. Both calls go through the real bridge, so what is asserted is what a view
+    // would receive.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
     await expect(
@@ -193,7 +193,7 @@ describe("a computed reply — one call, one answer per entity", () => {
   it("refuses a request that names no entity at all, rather than picking one", async () => {
     // A request carrying no id is a request the scenario answers for nothing, and the
     // seam says so. The alternative a fixture reaches for — answering with the table's
-    // first row — is how a surface ships having only ever been drawn against one
+    // first row — is how a view ships having only ever been drawn against one
     // entity, which is the whole defect this arm exists to close.
     const { bridge } = createFixture(scenarioComputingMountRead());
 

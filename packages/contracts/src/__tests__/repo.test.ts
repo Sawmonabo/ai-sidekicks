@@ -387,9 +387,9 @@ describe("RepoWorkspaceLifecyclePayloadSchema (Workspace, and Worktree Lifecycle
     // predicate `brandedUuidIdSchema` composes (`uuidTextFormSchema`, the
     // unbranded export beside it), so a value's parse result cannot move when
     // narrows this to `WorktreeId`. The case-variant sentinel is the
-    // discriminating input: `z.string().uuid()` — what this member composed
-    // before the two exports were unified — refuses it while every branded id
-    // accepts it, so this pair fails on the divergence and on nothing else.
+    // discriminating input: Zod's own `z.uuid()` refuses it while every branded id
+    // accepts it, so this pair fails if the member ever composed Zod's format instead
+    // of the shared predicate, and on nothing else.
     const upperCaseSentinel = "FFFFFFFF-FFFF-FFFF-FFFF-FFFFFFFFFFFF";
     expect(contracts.SessionIdSchema.safeParse(upperCaseSentinel).success).toBe(true);
     expect(

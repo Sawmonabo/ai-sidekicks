@@ -89,7 +89,7 @@ describe("the composer chord in the window that has the composer", () => {
 
   it("negative control: the modifier held with another key asks for nothing", async () => {
     // The other half. A table that answered every modified press would pass the
-    // first case, and would take a chord a family bound to something else.
+    // first case, and would take a chord a feature bound to something else.
     const takeFocus = vi.fn();
     const mounted = await mountApp();
     listenForComposerFocus(takeFocus);

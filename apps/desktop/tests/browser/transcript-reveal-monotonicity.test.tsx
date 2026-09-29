@@ -14,7 +14,7 @@
 // and the deltas, which is what a producer supplies in production too.
 //
 // AND THE RECORDER IS NOT THIS FILE'S. `visible-text-monotonicity.ts`
-// owns the watcher, because any surface that reveals text incrementally wants the
+// owns the watcher, because any view that reveals text incrementally wants the
 // same one; a copy here would be the second implementation of a role.
 
 import { act } from "@testing-library/react";
@@ -56,7 +56,7 @@ interface StreamingProbeProps {
 /**
  * One row body over one lane, and nothing else.
  *
- * Deliberately not a `LedgerFeed`: the feed's window, cap and run groups are
+ * Deliberately not a `TranscriptFeed`: the feed's window, cap and run groups are
  * asserted at the unit tier over structural stand-ins, and mounting them here would
  * make a regression in any of them look like a reveal regression. What this file
  * needs from the tree is a text node a layout engine paints and an engine that
@@ -90,7 +90,7 @@ function StreamingProbeBody(props: { readonly laneId: string }): React.JSX.Eleme
 }
 
 /**
- * Mount the probe, and hand back the subject, the clock, and the ingest door.
+ * Mount the probe, and hand back the subject, the clock, and the ingest handle.
  *
  * `renderSettled` is the tier's one mount, so the console's own cleanup discipline
  * owns the unmount and no case here disposes a tree by hand.
@@ -176,7 +176,7 @@ describe("the visible text of a streaming lane", () => {
   });
 
   it("grows the row's painted box monotonically while it reveals", async () => {
-    // GEOMETRY, WHICH IS WHY IT IS HERE. `LedgerViewport.test.tsx` records that a
+    // GEOMETRY, WHICH IS WHY IT IS HERE. `TranscriptViewport.test.tsx` records that a
     // geometry-dependent transcript assertion "would pass vacuously" under happy-dom,
     // because every rect reads zero there. A box that never shrinks while text
     // arrives is the layout half of "no lane teleports", and only a layout engine

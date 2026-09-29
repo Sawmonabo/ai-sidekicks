@@ -2,7 +2,7 @@
 //
 // Split from `SteerBox.tsx` because it is a second job: that file
 // renders a form and decides what to send, and this one reads the two answers the
-// form can get back — the surface's admission verdict at dispatch time, and the
+// form can get back — the console's admission verdict at dispatch time, and the
 // daemon's own settled state afterwards — into the three things the form does with
 // them. No JSX here, so every arm is drivable from a test with no rendered tree at
 // all, which is what the exhaustive tails below are worth.

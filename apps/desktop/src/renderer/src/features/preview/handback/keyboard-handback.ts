@@ -1,6 +1,6 @@
 // Keeping the application's chords alive inside a page the application does not own.
 //
-// Nothing here renders: correct behavior on this surface is the absence of a
+// Nothing here renders: correct behavior for the handback is the absence of a
 // complaint. Four rules, and each one is a
 // decision about who wins a keystroke:
 //
@@ -19,8 +19,8 @@
 //     would be a second source of truth for a binding, and the two would drift the
 //     first time somebody rebound a key.
 //   • **Unreadable defaults to the page.** No mirror, no claim. Failing open toward
-//     the page is the safe direction here, because the page is the surface the
-//     operator is looking at.
+//     the page is the safe direction here, because the page is what the operator
+//     is looking at.
 //
 // THE MACHINE, AND NOT THE VOCABULARY. The keystroke descriptor, the two modifier
 // predicates, the projection a mirror is built from, and the close-tab chord live in
@@ -56,7 +56,7 @@
 // is dispatched a line later.
 //
 // WHAT IS NOT INVENTED HERE. The handback carrier is `browser.onAccelerator`, an arm of
-// `browser.subscribe`, and no code package registers either. So this family owns the
+// `browser.subscribe`, and no code package registers either. So this module owns the
 // two halves that are the renderer's either way — the PROJECTION a main-process mirror
 // is built from, and the REPLAY a claimed chord arrives at — and names no method
 // string. The projection is deliberately handed a chord LIST rather than reading one
@@ -66,7 +66,7 @@
 // projection of one table rather than a second list, which is the drift the third rule
 // forbids. Reading it here instead of taking it as an argument is what would make this
 // module undrivable from a case with no palette in it, which is the whole reason the
-// seam is a parameter. What this module does take from that family is the GRAMMAR the
+// seam is a parameter. What this module does take from the palette's code is the GRAMMAR the
 // paragraph above names, because a second chord grammar is that same drift by another
 // route.
 //
@@ -121,7 +121,8 @@ export type ChordReplayOutcome =
 export interface KeyboardHandbackOptions {
   /**
    * The chords the console has installed, or `undefined` while the registry has not
-   * loaded. `undefined` is a real answer and is 12.4's degraded arm — it is not an
+   * loaded. `undefined` is a real answer and is the degraded case, where nothing is
+   * claimed and every chord reaches the page — it is not an
    * empty list, which would say "the console has no chords" rather than "nobody has
    * asked yet".
    */
@@ -169,7 +170,7 @@ export class KeyboardHandback {
     return this.#replayCount;
   }
 
-  /** 12.4's whole claim rule, in the order the rules are stated. */
+  /** The whole claim rule, in the order the rules are stated in this module's header. */
   public decide(descriptor: ChordDescriptor): HandbackDecision {
     if (descriptor.isComposing) {
       return { claimed: false, because: "composing" };
@@ -190,14 +191,14 @@ export class KeyboardHandback {
    * Focus the pane and replay the chord into it as a key event.
    *
    * An EVENT and not a direct command invocation, which is the point of the whole
-   * surface: the keybinding table, its `when` clauses, the palette, and the pane's own
+   * handback: the keybinding table, its `when` clauses, the palette, and the pane's own
    * handlers all see a keystroke indistinguishable from one typed with the pane
    * focused, so none needs a second code path for chords that came from a page.
    *
    * ON THE PANE ROOT, NOT ON THE WINDOW. Dispatching on `window` makes the window the
    * target, and a target's propagation path excludes its descendants — so the pane's
-   * own `onKeyDownCapture` never ran and the one chord `PreviewPane` handles there,
-   * the close-tab chord of 12.2, was silently swallowed: no refusal, no close, and a
+   * own `onKeyDownCapture` would never run and the one chord `PreviewPane` handles there,
+   * the close-tab chord, would be silently swallowed: no refusal, no close, and a
    * keystroke the mirror had just CLAIMED from the page. The window still hears it,
    * which is why this is a re-target and not a second route: a bubbling event
    * dispatched inside the document reaches `window` on the way down to a capture

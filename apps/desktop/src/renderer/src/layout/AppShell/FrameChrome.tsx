@@ -1,4 +1,4 @@
-// The chrome itself: the rail, the banner stack, and one slot for whatever the
+// The chrome itself: the rail, the banner stack, and one region for whatever the
 // route names.
 //
 // The frame owns chrome and nothing else. It does not know what a session screen
@@ -7,10 +7,10 @@
 // parallel, and it is why the screen arrives as `children` rather than an import: an
 // import would make the frame depend on every feature.
 //
-// THE BACKGROUND WRAPPER IS THE SHELL'S `inert` GUARD, and it is why the rail and the
-// column are wrapped rather than left as direct children. The adopted dialog family
+// THE BACKGROUND WRAPPER IS THE APP CHROME'S `inert` GUARD, and it is why the rail and the
+// column are wrapped rather than left as direct children. The widget library's dialog
 // runs under `modal="trap-focus"`, which traps focus and deliberately does not lock the
-// document's scroll — and leaves inerting the app root to the shell, because the dialog
+// document's scroll — and leaves inerting the app root to the app's chrome, because the dialog
 // cannot know what "the rest of the app" is. Focus containment alone leaves the rail
 // and the whole screen in the accessibility tree, reachable by every reader that
 // navigates by structure rather than by focus. The wrapper carries `display: contents`,
@@ -49,8 +49,8 @@ export interface FrameChromeProps {
    *
    * The frame's background is `inert` for exactly that lifetime — see the
    * background-wrapper note in the file header. It is a prop rather than
-   * something the frame works out for itself because the overlay slot is filled
-   * by the caller: the frame renders whatever it is handed and is not the owner
+   * something the frame works out for itself because `overlays` is filled by the
+   * caller: the frame renders whatever it is handed and is not the owner
    * of any overlay's open state.
    */
   readonly modalOverlayOpen?: boolean;
@@ -89,12 +89,12 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
           <main className="meridian-frame__screen">
             {/*
               KEYED BY THE ROUTE, so navigating away from a crash is the retry.
-              The boundary's caught error is its own state and its identity used to
-              be constant across every route, so one screen's render throw hid the
-              NEXT screen behind the previous route's failure card until someone
-              clicked "Try again" — a control that offered to re-render a route they
-              had already left. `formatRoute` rather than a second identity
-              function: it is the routing family's existing total, round-tripping
+              The boundary's caught error is its own state, and with one identity
+              across every route one screen's render throw would hide the NEXT
+              screen behind the previous route's failure card until someone clicked
+              "Try again" — a control offering to re-render a route they had already
+              left. `formatRoute` rather than a second identity function: it is
+              `routing/`'s existing total, round-tripping
               rendering of a route, so two routes are one boundary exactly when they
               are one address.
             */}

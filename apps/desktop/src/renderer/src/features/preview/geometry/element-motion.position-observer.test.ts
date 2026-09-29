@@ -1,7 +1,7 @@
 // The four ways a pane moves while its own box stays exactly the shape it was.
 //
 // Each source here is a case a size observer on the element reports as nothing at all:
-// the pane layout reorders its seats, a sibling shrinks and the flex line redistributes, a
+// the pane layout reorders its panes, a sibling shrinks and the flex line redistributes, a
 // rail slides in carrying everything inside it, and a fixed-size box beside it is given
 // a new width in one step by a class. The pane's rectangle is wrong for the whole of
 // each of them and the platform never says so on the element itself.

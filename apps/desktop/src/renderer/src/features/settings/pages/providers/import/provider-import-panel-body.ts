@@ -18,6 +18,6 @@
 // defers is exactly the two components nothing eager renders: the panel and the progress
 // line it draws.
 //
-// Named `Body` because `seats/lazy-body/lazy-body.ts` fixes the export name a loader resolves.
+// Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name a loader resolves.
 
 export { ProviderImportPanel as Body } from "./ProviderImportPanel.js";

@@ -2,7 +2,7 @@
 //
 // The command zone reads the name a person is filtering the discovery list by, and the
 // send router reads the name a person is asking it to run. Both readings live in this
-// module: two copies of one normalization drift, and the surface that lists a name
+// module: two copies of one normalization drift, and the list that shows a name
 // stops agreeing with the path that acts on it while every test stays green.
 //
 // The slash prefix is reserved for client commands. A slash word on no list is not
@@ -16,7 +16,7 @@
 // with a slash is prose; a command occupies the whole line from its first byte. Both
 // readers get that same answer, which is the property this module exists to hold.
 
-/** The prefix that opens the discovery surface and claims a line for a command. */
+/** The prefix that opens the command list and claims a line for a command. */
 export const SLASH_COMMAND_TRIGGER = "/";
 
 /** Splits a directive line on its first run of whitespace, to read the name. */

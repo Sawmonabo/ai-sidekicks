@@ -42,8 +42,8 @@ export const ENTITY_KINDS = [
   // already routes.
   //
   // NO PROJECTOR IS OWED BY THIS ENTRY. A kind here is a valid REFERENCE kind and a
-  // partition that exists; it is not a promise that some family projects rows into
-  // it. An inspector card for a repo reads the row from its own family's reader, exactly
+  // partition that exists; it is not a promise that some feature projects rows into
+  // it. An inspector card for a repo reads the row from its own feature's reader, exactly
   // as it would if it had a partition full of rows, and the empty partition costs one
   // `Map` per session. The alternative was a second kind vocabulary for references that
   // the store does not fill, which is two closed sets for one idea.

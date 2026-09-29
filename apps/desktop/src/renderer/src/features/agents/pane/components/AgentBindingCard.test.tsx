@@ -245,7 +245,7 @@ describe("agent card — one wire state, one reading of it", () => {
     expect(container.querySelector(".meridian-agent-card__resolved")).toBeNull();
   });
 
-  it("says the empty-allowlist sentence once on the card, not once per surface", () => {
+  it("says the empty-allowlist sentence once on the card, not once per renderer", () => {
     // Both renderers spelled the whole sentence, so the `no-tools` arm printed
     // "No tools." twice on one card. The line states the position; the disclosure adds
     // only what the line left out.

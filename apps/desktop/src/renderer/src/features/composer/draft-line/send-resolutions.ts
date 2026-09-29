@@ -48,7 +48,7 @@ export type ComposerSendResolution =
   | ComposerClientCommandResolution
   | ComposerRefusedResolution;
 
-/** What a dispatch settled as. The surface renders exactly one of these. */
+/** What a dispatch settled as. The composer renders exactly one of these. */
 export type ComposerSendOutcome =
   | { readonly status: "sent"; readonly path: ComposerSendPath }
   | { readonly status: "intercepted"; readonly commandName: string }
@@ -57,7 +57,7 @@ export type ComposerSendOutcome =
 /**
  * Whether a name is a registered client command.
  *
- * A PORT rather than a registry handle: the composer seat is handed a session
+ * A PORT rather than a registry handle: the composer is handed a session
  * store, a bridge, a draft store, a route, and a focused pane, and no command
  * registry — so the router takes the one predicate it needs. The default answers
  * `false` for every name, which means an unrecognized `/word` refuses loudly and
@@ -78,7 +78,7 @@ export type EnumeratedProviderCommand = Pick<ProviderCommandEntry, "name" | "kin
  *
  * A SECOND port beside the client-command predicate and deliberately not a widening
  * of it: the two answers lead to opposite acts. A client command is run; a provider
- * entry is refused by name, because the enumeration is a discovery surface — exactly
+ * entry is refused by name, because the enumeration is for discovery only — exactly
  * one enumerated entry, the compaction command, is sent through its own control and
  * never through a typed line. The default answers `undefined` for every name,
  * which leaves a composer with no enumeration behind it saying exactly what it said

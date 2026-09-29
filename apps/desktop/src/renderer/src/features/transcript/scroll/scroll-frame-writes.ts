@@ -11,7 +11,7 @@
 // THREE DECISIONS THIS MODULE MAKES:
 //
 //   • **The sample is taken once, before any of the frame's writes.** Every reactive
-//     caller in one frame computes against the same geometry. Re-reading the surface
+//     caller in one frame computes against the same geometry. Re-reading the scroll container
 //     per caller would hand the second caller a height the first one moved, which is
 //     the disagreement that makes a follower and an anchor fight over one frame.
 //   • **Coalesced per CALLER, on the union the chokepoint already closes.** A follower
@@ -51,15 +51,15 @@ export interface ScrollWriteTarget {
 
 /** Reactive scroll writes, held for phase one of the next frame. */
 export class ScrollFrameWrites {
-  readonly #writeSurface: ScrollWriteTarget;
+  readonly #writeTarget: ScrollWriteTarget;
   readonly #taskKeyByCaller = new Map<ScrollCaller, string>();
   readonly #pendingByCaller = new Map<ScrollCaller, ScrollTargetComputation>();
 
   #frameCoordinator: AnimationFrameCoordinator | undefined;
   #released = false;
 
-  public constructor(writeSurface: ScrollWriteTarget) {
-    this.#writeSurface = writeSurface;
+  public constructor(writeTarget: ScrollWriteTarget) {
+    this.#writeTarget = writeTarget;
   }
 
   /**
@@ -129,9 +129,9 @@ export class ScrollFrameWrites {
     if (computeTarget === undefined || this.#released) {
       return;
     }
-    const geometry = this.#writeSurface.lastGeometry;
+    const geometry = this.#writeTarget.lastGeometry;
     if (geometry === undefined) {
-      // No sample yet means no attached surface, so there is nothing to write to and
+      // No sample yet means no attached scroll container, so there is nothing to write to and
       // nothing to compute against. Silently dropping is right here and only here:
       // the request was for a frame this controller turned out not to have a box in.
       return;
@@ -140,7 +140,7 @@ export class ScrollFrameWrites {
     if (targetScrollTop === undefined) {
       return;
     }
-    this.#writeSurface.glide(caller, targetScrollTop);
+    this.#writeTarget.glide(caller, targetScrollTop);
   }
 
   /** One key per caller per coordinator, so two callers never coalesce into one. */

@@ -11,13 +11,13 @@
 // 95th-percentile frame duration of the renderer" — which is the main-thread work
 // one frame costs. Until 2026-09-02 this file sampled the INTERVAL between
 // consecutive `requestAnimationFrame` callbacks instead, and that is a different
-// quantity: on a surface that presents at 60 Hz a healthy renderer is called back
+// quantity: on a display that presents at 60 Hz a healthy renderer is called back
 // every ~16.67 ms whatever it does, so its p95 interval is ~16.7 ms by construction
 // and cannot be under a 16.7 ms ceiling. The spec's own reference profile is "one
 // 60 Hz display", so the interval reading made the row unpassable on the very
 // machine its figure is written for — and on the Xvfb software begin-frame source
 // the pinned runner presents through, which is also 60 Hz. The p50 is printed
-// beside the p95 for exactly that reason: a p50 pinned at ~16.67 ms is the surface's
+// beside the p95 for exactly that reason: a p50 pinned at ~16.67 ms is the display's
 // cadence being reported, not the console's work.
 //
 // So the sample is taken from the START of the frame's animation-frame callback to
@@ -141,7 +141,7 @@ const MEASURED_RUN_COUNT = 3;
  *
  * Comfortably over the ceiling on its own, so the control's verdict does not depend
  * on the machine: the stall is synchronous work inside the frame's own callback, so
- * it lands in the measured duration whatever the surface's cadence is. Measured p95
+ * it lands in the measured duration whatever the display's cadence is. Measured p95
  * 37.40–38.30 ms against a 6.80–9.20 ms clean reading, each pair taken in the same
  * pass of this file on the same machine.
  */
@@ -342,7 +342,7 @@ describe.skipIf(!bundleIsBuilt)(
       //
       // The p50 is beside the p95 because it is what tells the two possible readings
       // apart. A typical frame's WORK is a small fraction of the frame; a p50 sitting
-      // at the surface's own cadence — ~16.67 ms on a 60 Hz presenter — would mean the
+      // at the display's own cadence — ~16.67 ms on a 60 Hz presenter — would mean the
       // instrument had gone back to reporting how often frames arrive.
       process.stdout.write(
         `[console-endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +

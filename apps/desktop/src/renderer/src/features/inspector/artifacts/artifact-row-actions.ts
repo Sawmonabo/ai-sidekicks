@@ -1,9 +1,9 @@
-// The artifact pane's manifest re-read: what a press on one row sends, and what the answer
+// The artifact list's manifest re-read: what a press on one row sends, and what the answer
 // leaves standing on the reading.
 //
 // `artifact-list-reader.ts` owns the scheduled reads. This class owns the re-read, whose
 // concurrency rule is not the scheduler's, and delegates the payload fetch to
-// `artifact-payload-fetch.ts`. Both meet the reader at `ArtifactRowActionHost`.
+// `artifact-payload-fetch.ts`. Both meet the reader at `ArtifactListReadingPublisher`.
 //
 // A re-read is single-flight per row and superseded by a refresh: the refresh is already
 // re-reading the same row from the list, so the fresher answer lands either way. The
@@ -12,7 +12,7 @@
 
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
-import type { ArtifactRowActionHost } from "./artifact-row-action-host.js";
+import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
 import { ArtifactPayloadFetches } from "./artifact-payload-fetch.js";
 import {
   withArtifactActInFlight,
@@ -25,25 +25,25 @@ import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-
 
 export interface ArtifactRowActionsOptions {
   readonly readArtifact: ReadArtifact;
-  readonly host: ArtifactRowActionHost;
+  readonly publisher: ArtifactListReadingPublisher;
 }
 
 /** The two acts a row offers, and what each answer writes onto the reading. */
 export class ArtifactRowActions {
   readonly #readArtifact: ReadArtifact;
-  readonly #host: ArtifactRowActionHost;
+  readonly #publisher: ArtifactListReadingPublisher;
   readonly #payloadFetches: ArtifactPayloadFetches;
   /**
    * The manifest re-read awaiting its answer on each row.
    *
-   * Keyed by artifact id and never per pane: two rows re-reading are two calls about two
+   * Keyed by artifact id and never per section: two rows re-reading are two calls about two
    * manifests that cannot collide.
    */
   readonly #manifestReads = new GenerationLatch();
 
   public constructor(options: ArtifactRowActionsOptions) {
     this.#readArtifact = options.readArtifact;
-    this.#host = options.host;
+    this.#publisher = options.publisher;
     this.#payloadFetches = new ArtifactPayloadFetches(options);
   }
 
@@ -59,16 +59,16 @@ export class ArtifactRowActions {
    * deferred arm. The served `manifest` replaces the listed row member for member. A
    * superseded re-read is dropped, because the refresh that superseded it is already
    * re-reading that row. A second press while the row's re-read is on the wire throws.
-   * The panel holds the control while the re-read is in flight, so the throw is reached
+   * The section holds the control while the re-read is in flight, so the throw is reached
    * only by a caller that offers the act without holding its control. A rejected call
    * propagates.
    */
   public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
-    const manifestRound = this.#manifestReads.takeShell(this, artifactId);
+    const manifestRound = this.#manifestReads.claim(this, artifactId);
     if (manifestRound === undefined) {
       throw new Error(`The manifest of ${artifactId} is already being read.`);
     }
-    const readRound = this.#host.scheduledReadClaim();
+    const readRound = this.#publisher.scheduledReadClaim();
     this.#holdManifestRead(artifactId);
     try {
       const answer = await this.#readArtifact({ artifactId });
@@ -78,8 +78,8 @@ export class ArtifactRowActions {
       if (!manifestRound.isCurrent || !readRound.isCurrent) {
         return { status: "superseded" };
       }
-      const reading = this.#host.currentReading();
-      this.#host.publish({
+      const reading = this.#publisher.currentReading();
+      this.#publisher.publish({
         ...reading,
         // The reply nests the envelope beside the payload members, so the row is built
         // from `manifest` and not from the reply.
@@ -91,7 +91,10 @@ export class ArtifactRowActions {
     }
   }
 
-  /** Terminal. A call still on the wire settles into nothing rather than onto an unmounted pane. */
+  /**
+   * Terminal. A call still on the wire settles into nothing rather than onto an unmounted
+   * section.
+   */
   public dispose(): void {
     this.#payloadFetches.dispose();
     this.#manifestReads.supersedeAll();
@@ -99,8 +102,8 @@ export class ArtifactRowActions {
 
   /** Take this row's key, and redraw so its re-read control holds. */
   #holdManifestRead(artifactId: string): void {
-    const reading = this.#host.currentReading();
-    this.#host.publish({
+    const reading = this.#publisher.currentReading();
+    this.#publisher.publish({
       ...reading,
       manifestReadInFlightArtifactIds: withArtifactActInFlight(
         reading.manifestReadInFlightArtifactIds,
@@ -121,8 +124,8 @@ export class ArtifactRowActions {
     if (!heldByThisRound) {
       return;
     }
-    const reading = this.#host.currentReading();
-    this.#host.publish({
+    const reading = this.#publisher.currentReading();
+    this.#publisher.publish({
       ...reading,
       manifestReadInFlightArtifactIds: withoutArtifactActInFlight(
         reading.manifestReadInFlightArtifactIds,

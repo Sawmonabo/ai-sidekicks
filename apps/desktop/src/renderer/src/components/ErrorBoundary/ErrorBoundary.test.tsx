@@ -2,7 +2,7 @@
 //
 // The boundary's other behaviors — the fallback card, the retry remount — are read
 // off the screen by the browser and screenshot tiers. The claim that only a unit
-// test can hold is the one about the diagnostic band: a surface that threw while
+// test can hold is the one about the diagnostic band: a region that threw while
 // rendering mutated no store, so it must not land in the count that says a store
 // was written outside its single `apply`. An operator reads those counts to decide
 // what kind of defect they have, and a rendering bug reported as a state-write
@@ -19,7 +19,7 @@ import { reportTripwire } from "@renderer/lib/tripwires.js";
 import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { ErrorBoundary } from "./ErrorBoundary.js";
 
-const RENDER_FAILURE_MESSAGE = "the timeline could not render this row";
+const RENDER_FAILURE_MESSAGE = "the transcript could not render this row";
 
 /** A region that fails the way a real one does: during its own render. */
 function ExplodingRegion(): React.JSX.Element {
@@ -27,7 +27,7 @@ function ExplodingRegion(): React.JSX.Element {
 }
 
 function CalmRegion(): React.JSX.Element {
-  return <p>the timeline rendered</p>;
+  return <p>the transcript rendered</p>;
 }
 
 describe("ErrorBoundary — a render crash is recorded as a render crash", () => {
@@ -56,33 +56,33 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
     const applyBypassBefore = windowTripwires.firingCount("apply-chokepoint-bypass");
 
     render(
-      <ErrorBoundary regionName="The timeline">
+      <ErrorBoundary regionName="The transcript">
         <ExplodingRegion />
       </ErrorBoundary>,
     );
 
-    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.firingCount("region-render-failure")).toBe(1);
     expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(applyBypassBefore);
   });
 
-  it("names the surface and carries the thrown message, so the record is actionable", () => {
+  it("names the region and carries the thrown message, so the record is actionable", () => {
     render(
-      <ErrorBoundary regionName="The approvals pane">
+      <ErrorBoundary regionName="The inspector">
         <ExplodingRegion />
       </ErrorBoundary>,
     );
 
     const report = windowTripwires.reports().at(-1);
-    expect(report?.kind).toBe("surface-render-failure");
-    expect(report?.site).toBe("ErrorBoundary(The approvals pane)");
+    expect(report?.kind).toBe("region-render-failure");
+    expect(report?.site).toBe("ErrorBoundary(The inspector)");
     expect(report?.detail).toContain(RENDER_FAILURE_MESSAGE);
   });
 
-  it("negative control: a surface that renders reports nothing at all", () => {
+  it("negative control: a region that renders reports nothing at all", () => {
     // Without this, a boundary that reported on every mount would satisfy both
     // cases above and still be wrong.
     render(
-      <ErrorBoundary regionName="The timeline">
+      <ErrorBoundary regionName="The transcript">
         <CalmRegion />
       </ErrorBoundary>,
     );

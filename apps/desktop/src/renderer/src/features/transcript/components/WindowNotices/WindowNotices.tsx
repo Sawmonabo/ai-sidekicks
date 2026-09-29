@@ -35,7 +35,7 @@ export function WindowNotices(props: WindowNoticesProps): React.JSX.Element | nu
         <Nothing
           key={notice.title}
           kind={notice.kind}
-          placement="surface"
+          placement="block"
           title={notice.title}
           {...(notice.detail === undefined ? {} : { detail: notice.detail })}
         />

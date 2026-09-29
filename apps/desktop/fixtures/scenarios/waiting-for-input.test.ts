@@ -1,7 +1,7 @@
 // The waiting-for-input scenario, held to the properties a scenario file can silently lose.
 //
 // A scripted reply names a call something can actually make: the registry carries no
-// `session.list`, so a reply for it is an answer to a question no surface asks. And the
+// `session.list`, so a reply for it is an answer to a question no view asks. And the
 // scenario states which user this window is, from inside its own roster.
 
 import { describe, expect, it } from "vitest";

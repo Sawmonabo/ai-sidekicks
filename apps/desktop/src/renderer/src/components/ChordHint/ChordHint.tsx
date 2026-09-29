@@ -8,15 +8,12 @@
 //
 // This component decides LAYOUT — a run of keycaps with an accessible label — and
 // nothing about vocabulary. What each token prints and how it is spoken comes from
-// `chord-format.ts`, its sibling in this family. That single source is not a
-// tidiness preference: this file previously kept its own parallel tables, and they
-// had diverged — the palette's decoded `KeyK` to `K` and these did not, so every
-// hint for a `code`-form binding printed the literal string `KeyK` on a keycap.
+// `lib/chord-format.ts`, the one source every place that prints a chord reads. That
+// single source is not a tidiness preference: two parallel tables drift, and one that
+// failed to decode `KeyK` to `K` would print the literal string `KeyK` on a keycap.
 //
-// The vocabulary used to live in `palette/keybindings/keybindings.ts`, which made this
-// primitive import UP into a family above it. It moved down here instead of the
-// import being tolerated: a keycap is a renderer's concern, and the console's
-// import graph is the thing that keeps a family reusable.
+// The vocabulary sits in the shared library, below the features, so this component
+// never imports up into a feature; that import direction is what keeps it reusable.
 //
 // One thing is worth stating because it is easy to get wrong: **glyphs are shown
 // and words are spoken.** A screen reader reads ⌘ as "place of interest sign" and

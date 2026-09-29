@@ -16,7 +16,7 @@ export const PANE_LAYOUT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "No panes are open in this window. Open a session and try again.",
 );
 
-/** What asking the seat to perform an act produced. */
+/** What asking the mounted pane layout to perform an act produced. */
 export type PaneLayoutActOutcome =
   | { readonly status: "performed"; readonly act: PaneLayoutActName }
   | { readonly status: "refused"; readonly refusal: Refusal };
@@ -25,7 +25,7 @@ export type PaneLayoutActOutcome =
  * The mounted pane layouts, in mount order.
  *
  * A class rather than a module-level array, and release is by IDENTITY rather than by
- * position: a StrictMode double mount and a route change must not leave the seat
+ * position: a StrictMode double mount and a route change must not leave the list
  * holding a pane layout that is gone. The newest mount is the one a command acts on.
  */
 export class MountedPaneLayouts {
@@ -51,5 +51,5 @@ export class MountedPaneLayouts {
   }
 }
 
-/** This window's seat. Module scope is window scope. */
+/** This window's mounted pane layouts. Module scope is window scope. */
 export const mountedPaneLayouts: MountedPaneLayouts = new MountedPaneLayouts();

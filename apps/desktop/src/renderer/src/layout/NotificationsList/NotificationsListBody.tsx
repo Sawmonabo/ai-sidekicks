@@ -10,10 +10,10 @@ export function NotificationsListBody(props: {
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
 }): React.JSX.Element | null {
   if (props.reading.phase === "reading") {
-    return <Nothing kind="not-loaded" placement="surface" title="Reading what needs you." />;
+    return <Nothing kind="not-loaded" placement="block" title="Reading what needs you." />;
   }
-  const { plane, droppedCount, refusedSessions } = props.reading;
-  if (plane.groups.length === 0) {
+  const { summary, droppedCount, refusedSessions } = props.reading;
+  if (summary.groups.length === 0) {
     // Nothing survived the boundary. WHY nothing survived decides what is drawn: a
     // read that answered for every session with an empty projection draws nothing
     // under the heading, because nothing waiting is shown by absence; a read some
@@ -26,7 +26,7 @@ export function NotificationsListBody(props: {
         <>
           <Nothing
             kind="not-checked"
-            placement="surface"
+            placement="block"
             title="Some sessions could not be checked."
             detail={`${uncheckedSessionsSentence(refusedSessions.length)} Nothing was found in the ones that answered, which is not an all-clear.`}
           />
@@ -41,7 +41,7 @@ export function NotificationsListBody(props: {
       <>
         <Nothing
           kind="not-checked"
-          placement="surface"
+          placement="block"
           title="Nothing in that read could be recognized."
         />
         <ReadCompleteness reading={props.reading} />
@@ -52,11 +52,11 @@ export function NotificationsListBody(props: {
     <>
       <ReadCompleteness reading={props.reading} />
       <ul className="meridian-attention__groups">
-        {plane.groups.map((group) => (
+        {summary.groups.map((group) => (
           <li key={group.sessionId}>
             <SessionNotificationGroup
               group={group}
-              foldInformational={plane.hasActionable}
+              foldInformational={summary.hasActionable}
               onOpen={props.onOpen}
             />
           </li>

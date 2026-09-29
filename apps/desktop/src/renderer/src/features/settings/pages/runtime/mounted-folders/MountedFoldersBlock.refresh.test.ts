@@ -18,7 +18,7 @@ import { contextReading, renderSettledBlock } from "./mounted-folders-block.test
 
 describe("the page's refresh signals", () => {
   it("re-reads the inventory when the retained session reports a run terminal", async () => {
-    // The wire this case pins is the PAGE's: the surface resolves the retained
+    // The wire this case pins is the PAGE's: the settings screen resolves the retained
     // session's store, the page hands it to the read, and the read binds it. A page
     // that dropped the member on its way through would still render, and the list
     // would go quietly stale.

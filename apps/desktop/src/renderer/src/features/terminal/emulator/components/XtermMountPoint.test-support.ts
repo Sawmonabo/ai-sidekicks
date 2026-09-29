@@ -19,11 +19,11 @@ import { terminalEmulatorLoader } from "../emulator-loader.js";
 import { terminalRendererPool } from "../renderer-pool.js";
 
 /**
- * The hidden textarea xterm.js listens on: the emulator's one input surface.
+ * The hidden textarea xterm.js listens on: the emulator's one input element.
  * Resolved once, because every reading of it is about that same element.
  */
-export function emulatorInputOf(surface: HTMLElement): HTMLTextAreaElement {
-  const textarea = surface.querySelector("textarea");
+export function emulatorInputOf(mountElement: HTMLElement): HTMLTextAreaElement {
+  const textarea = mountElement.querySelector("textarea");
   if (!(textarea instanceof HTMLTextAreaElement)) {
     throw new Error("the emulator rendered no input");
   }
@@ -36,24 +36,24 @@ export function emulatorInputOf(surface: HTMLElement): HTMLTextAreaElement {
  * to `onKeystroke` — so dispatching here makes the assertion about the wiring rather
  * than about a function reference the test already holds.
  */
-export function typeOneCharacter(surface: HTMLElement): void {
-  emulatorInputOf(surface).dispatchEvent(
+export function typeOneCharacter(mountElement: HTMLElement): void {
+  emulatorInputOf(mountElement).dispatchEvent(
     new KeyboardEvent("keydown", { key: "a", keyCode: 65, bubbles: true, cancelable: true }),
   );
 }
 
 export function emulatorElementOf(container: HTMLElement): HTMLElement {
-  const surface = container.querySelector(".meridian-terminal-host__surface");
-  if (!(surface instanceof HTMLElement)) {
-    throw new Error("XtermHost rendered no surface");
+  const mountElement = container.querySelector(".meridian-terminal-mount-point__mount-element");
+  if (!(mountElement instanceof HTMLElement)) {
+    throw new Error("XtermMountPoint rendered no mount element");
   }
-  return surface;
+  return mountElement;
 }
 
-export function hostBoxOf(container: HTMLElement): HTMLElement {
-  const box = container.querySelector(".meridian-terminal-host");
+export function mountPointBoxOf(container: HTMLElement): HTMLElement {
+  const box = container.querySelector(".meridian-terminal-mount-point");
   if (!(box instanceof HTMLElement)) {
-    throw new Error("XtermHost rendered no box");
+    throw new Error("XtermMountPoint rendered no box");
   }
   return box;
 }
@@ -74,7 +74,7 @@ export async function settleEmulatorLoad(): Promise<void> {
 }
 
 /**
- * Whether the LIBRARY thinks this surface may be typed into.
+ * Whether the LIBRARY thinks this terminal may be typed into.
  *
  * xterm.js mirrors its own `disableStdin` option onto the hidden textarea it listens on
  * — at open and again on every change of that option — so this reads the emulator's gate
@@ -82,25 +82,25 @@ export async function settleEmulatorLoad(): Promise<void> {
  * gate becomes observable outside the adapter, and it is what makes "the gate reached
  * the emulator" a claim a test can hold.
  */
-export function isEmulatorAcceptingInput(surface: HTMLElement): boolean {
-  return !emulatorInputOf(surface).readOnly;
+export function isEmulatorAcceptingInput(mountElement: HTMLElement): boolean {
+  return !emulatorInputOf(mountElement).readOnly;
 }
 
 /**
- * Render a host and wait until its emulator has attached and settled a renderer.
+ * Render a mount point and wait until its emulator has attached and settled a renderer.
  *
- * The wait is on the ATTRIBUTE rather than on the surface element, and the two are
- * different commits: the surface appears when the chunk lands, and the adapter is built
+ * The wait is on the ATTRIBUTE rather than on the mount element, and the two are
+ * different commits: the mount element appears when the chunk lands, and the adapter is built
  * by the effect that runs after that commit. Waiting on the element alone returns in
  * between and reads the mount-pending value — which is the whole subject of the
  * renderer-mode suite, and is a latent race for every other case that reads the box.
  * The stronger wait is the one every suite gets, because it strictly follows the weaker
- * one: no host reaches a settled mode without its surface already on screen.
+ * one: no mount point reaches a settled mode without its mount element already on screen.
  */
-export async function mountHost(element: React.JSX.Element): Promise<RenderResult> {
+export async function renderSettledMountPoint(element: React.JSX.Element): Promise<RenderResult> {
   const view = render(element);
   await waitFor(() => {
-    expect(hostBoxOf(view.container).getAttribute("data-renderer")).not.toBe("pending");
+    expect(mountPointBoxOf(view.container).getAttribute("data-renderer")).not.toBe("pending");
   });
   return view;
 }
@@ -120,4 +120,4 @@ export function reclaimComponentHolds(terminalIds: readonly string[]): void {
 }
 
 /** The terminal ids this component's suites mount under. */
-export const COMPONENT_TERMINAL_IDS: readonly string[] = ["host-1", "host-2"];
+export const COMPONENT_TERMINAL_IDS: readonly string[] = ["terminal-1", "terminal-2"];

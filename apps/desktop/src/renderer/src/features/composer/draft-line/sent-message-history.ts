@@ -26,12 +26,12 @@ export class SentMessageHistory {
   #recallIndex = -1;
   #stashedDraft = "";
 
-  /** True while a walk is in progress, so the surface can mark the line as recalled. */
+  /** True while a walk is in progress, so the line can be marked as recalled. */
   public get isRecalling(): boolean {
     return this.#recallIndex >= 0;
   }
 
-  /** How many messages are walkable. Bounded by the cap; read by tests and the surface. */
+  /** How many messages are walkable. Bounded by the cap; read by tests and the line. */
   public get recallableCount(): number {
     return this.#sentNewestFirst.length;
   }

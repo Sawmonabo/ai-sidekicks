@@ -9,7 +9,7 @@ import { buildBridgeCommands, type BridgeCommandRefusalSink } from "../contribut
  *
  * `usePlatformBridge` throws when the bridge is unavailable, and that is correct
  * here rather than something to guard: the frame renders the unavailable arm above
- * every surface, so any component that reaches this hook is already below a
+ * every screen, so any component that reaches this hook is already below a
  * resolved bridge, and a `undefined` return would let a palette render "no commands
  * apply here" over a window whose preload never ran.
  *

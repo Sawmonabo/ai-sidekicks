@@ -1,7 +1,7 @@
 // The frozen start instant, and why it is read rather than parsed.
 //
 // This suite could not have been written before the stamp had one home: it lived in
-// a view family, again inside a sessions suite, and twice more in the `test/console/`
+// a feature, again inside a sessions suite, and twice more in the `test/console/`
 // tiers as `Date.parse("…")`. Nothing could assert across four copies, which is the
 // whole reason a moved fixture instant used to move two of them.
 

@@ -305,7 +305,7 @@ export class SpawnedTreeIdentity {
    *
    * Pruned from the TABLE rather than filtered out of the walk's result, and
    * that is the difference between removing a stranger and removing a stranger's
-   * family: a claimant's own children postdate the root perfectly happily, and a
+   * children: a claimant's own children postdate the root perfectly happily, and a
    * post-filter would keep every one of them while dropping the one row that
    * explains where they came from.
    *

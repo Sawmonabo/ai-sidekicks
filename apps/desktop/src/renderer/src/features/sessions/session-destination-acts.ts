@@ -1,14 +1,14 @@
 // What the four acts this destination offers actually DO, bound to one context.
 //
-// SPLIT FROM `SessionsSurface.tsx`, which composes the screen: that file says what is
+// APART FROM `SessionsFlyout.tsx`, the destination's frame: that file says what is
 // drawn and where, and these are what a press performs. The seam is clean because
-// nothing here renders — every act below is a call on a store, a seat or a route, and
-// a suite can drive one without mounting a surface.
+// nothing here renders — every act below is a call on a store, a registry or a route,
+// and a suite can drive one without mounting a screen.
 //
 // FOUR ACTS AND ONE NAVIGATION, and the navigation is shared on purpose. Opening a
 // session from a row, from an attention item, and after a start are the same act —
 // "open the session this thing belongs to" — so they are declared together and no two
-// surfaces can drift into a second answer for where a press goes.
+// views can drift into a second answer for where a press goes.
 //
 // AN ATTENTION ITEM RESOLVES NOTHING BY BEING OPENED. Resolution lives in the daemon,
 // and the notification center offers no dismiss precisely because a client-side one
@@ -29,12 +29,12 @@ export interface SessionDestinationActs {
 }
 
 /**
- * Bind the destination's acts to one surface context.
+ * Bind the destination's acts to one screen context.
  *
  * NOT A HOOK AND NOT MEMOIZED, on the rule `ScreenContext` itself states: the
  * context is composed fresh on every frame render, so a dependency array naming it
  * memoizes nothing. Nothing here needs a stable identity either — every consumer is
- * rendered by the surface on every pass regardless, and the one callback that IS read
+ * rendered by the screen on every pass regardless, and the one callback that IS read
  * outside a render is read through the commit-time ref its own control holds.
  *
  * A mount-lifetime cell naming a session is the shape the console holds through its

@@ -20,7 +20,7 @@
 // event that changed nothing visible re-rendered the whole mounted window TWICE —
 // measured on a ten-row window, ten bodies at mount and twenty-one more per event.
 // `transcript-window.ts`'s retention table holds those objects across passes and
-// `LedgerFeedRow`'s memo is what spends the stability, so what an event costs now is
+// `TranscriptFeedRow`'s memo is what spends the stability, so what an event costs now is
 // the rows it actually changed.
 //
 // The mount is composed here rather than taken from `TranscriptFeed.test-support.tsx`
@@ -36,7 +36,6 @@ import { type TranscriptRowProps } from "@renderer/console/seats/index.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 import {
-  TRANSCRIPT_FIXTURE_PANE_ID,
   LeasingRowBody,
   SHORT_LOG_EVENT_COUNT,
   renderFeed,
@@ -54,7 +53,7 @@ afterEach(() => {
 
 interface FeedParentProps {
   readonly sessionStore: SessionStore;
-  readonly renderTimelineRow: (mount: TranscriptRowProps) => React.JSX.Element;
+  readonly renderTranscriptRow: (mount: TranscriptRowProps) => React.JSX.Element;
   /**
    * Moved to make the parent render, and read by nothing.
    *
@@ -72,9 +71,8 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
     <FixtureBridgeProvider fixture={FIXTURE}>
       <TranscriptFeed
         sessionStore={props.sessionStore}
-        paneId={TRANSCRIPT_FIXTURE_PANE_ID}
-        renderTimelineRow={props.renderTimelineRow}
-        feedLabel="Session timeline"
+        renderTranscriptRow={props.renderTranscriptRow}
+        feedLabel="Transcript"
       />
     </FixtureBridgeProvider>
   );
@@ -96,7 +94,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
     // Stable across the re-render below, so the only thing that can move the
     // callback's identity is the dependency this case is about.
-    const renderTimelineRow = (mount: TranscriptRowProps): React.JSX.Element => {
+    const renderTranscriptRow = (mount: TranscriptRowProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
     };
@@ -104,7 +102,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
     const { rerender } = render(
       <FeedParent
         sessionStore={sessionStore}
-        renderTimelineRow={renderTimelineRow}
+        renderTranscriptRow={renderTranscriptRow}
         renderNudge={0}
       />,
     );
@@ -116,7 +114,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
     rerender(
       <FeedParent
         sessionStore={sessionStore}
-        renderTimelineRow={renderTimelineRow}
+        renderTranscriptRow={renderTranscriptRow}
         renderNudge={1}
       />,
     );
@@ -139,7 +137,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
     const { rerender } = render(
       <FeedParent
         sessionStore={sessionStore}
-        renderTimelineRow={countingRenderer}
+        renderTranscriptRow={countingRenderer}
         renderNudge={0}
       />,
     );
@@ -148,7 +146,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
     rerender(
       <FeedParent
         sessionStore={sessionStore}
-        renderTimelineRow={(mount) => countingRenderer(mount)}
+        renderTranscriptRow={(mount) => countingRenderer(mount)}
         renderNudge={0}
       />,
     );

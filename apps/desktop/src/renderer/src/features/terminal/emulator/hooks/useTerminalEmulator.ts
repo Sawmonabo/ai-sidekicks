@@ -1,8 +1,8 @@
-// Where the emulator's code got to, as a reading a surface can render.
+// Where the emulator's code got to, as a reading the mount point can render.
 //
-// Split out of `XtermHost.tsx` because the mount point renders it and this decides
+// Split out of `XtermMountPoint.tsx` because the mount point renders it and this decides
 // it, and because the arm that matters is not reachable from that component at all:
-// the host resolves the page's one loader, so a fetch that REFUSES can only be
+// the mount point resolves the page's one loader, so a fetch that REFUSES can only be
 // driven where the loader is a parameter. It is one here, which is the same seam
 // `emulator-loader.ts` opened when it made the memo a private field rather than a
 // module-level promise.
@@ -15,7 +15,7 @@
 // to act on, and a hostile one threw INSIDE the rejection handler, so nothing was
 // ever recorded and the pane sat on "Loading the terminal emulator" for the life of
 // the mount, with no refusal anywhere. `core/wire-rejection.ts` is total by
-// construction and is what every other rejection tail in this family already
+// construction and is what every other rejection tail in the terminal feature already
 // reaches for, so the answer is a `Refusal` for every input and a throw for
 // none.
 //
@@ -36,7 +36,7 @@ import type { TerminalEmulatorLoader, TerminalEmulatorModule } from "../emulator
 /**
  * The subsystem name a refusal raised by the emulator's own fetch carries.
  *
- * `output-stream.ts`'s reason, for the other deferred edge in this family: the code
+ * `output-stream.ts`'s reason, for the terminal's other deferred edge: the code
  * a person reads names the seam that failed, so a chunk that never arrived and a
  * shell that never answered are two different next moves rather than one generic
  * sentence.
@@ -67,7 +67,7 @@ export const LOADING_EMULATOR: TerminalEmulatorState = { status: "loading" };
  * UNMOUNT BEFORE THE CHUNK ARRIVES is the arm worth naming. A pane opened and
  * closed inside one fetch leaves a promise still in flight over a component React
  * has already dropped, and settling it into state would be a write against a
- * disposed host. The flag below is read on both arms, so a late resolution and a
+ * disposed component. The flag below is read on both arms, so a late resolution and a
  * late rejection are each ignored rather than one of them handled — and the memo
  * inside the loader means the fetch itself is not wasted: the next mount gets the
  * chunk this one paid for.

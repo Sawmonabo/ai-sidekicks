@@ -34,7 +34,7 @@ import type { SessionListRow } from "./session-rows.js";
  * The kind of nothing the destination renders when it has no row.
  *
  * A subset of the primitive's five kinds, because only two of them are reachable
- * here: nothing on this surface is filtered.
+ * here: nothing on this screen is filtered.
  */
 export type SessionListNothingKind = "not-loaded" | "empty";
 

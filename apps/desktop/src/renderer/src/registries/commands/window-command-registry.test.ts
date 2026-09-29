@@ -1,4 +1,4 @@
-// The window's command registry door and the `when` vocabulary it publishes.
+// The window's command registry and the `when` vocabulary it publishes.
 //
 // The vocabulary is checked from both sides: the tuple a feature reads at runtime and
 // the context type the compiler holds must be one set.
@@ -37,7 +37,7 @@ const CONTEXT_THE_COMPILER_REJECTS: WindowWhenClauseContext = {
   sessionActiveish: false,
 };
 
-describe("window command registry — the door commands are registered through", () => {
+describe("window command registry — the call commands are registered through", () => {
   it("registers several atomically", () => {
     try {
       registerCommands([
@@ -53,7 +53,7 @@ describe("window command registry — the door commands are registered through",
   });
 
   it("leaves the registry untouched when one id in a batch is taken", () => {
-    // Atomic is the whole reason the plural door exists. Half an owner's commands
+    // Atomic is the whole reason the plural call exists. Half an owner's commands
     // is a state no caller can reason about, and none of them unwinds it.
     try {
       commandRegistry.register({
@@ -86,7 +86,7 @@ describe("window command registry — the door commands are registered through",
   });
 
   it("negative control: nothing this file registered survives it", () => {
-    // Without this every case above would pass against a door that registered
+    // Without this every case above would pass against a call that registered
     // into a registry nobody reads, and the `has` assertions would be reading
     // leftovers from the case before.
     expect(commandRegistry.has("console-commands-test.a")).toBe(false);
@@ -99,7 +99,7 @@ describe("window command registry — the published when-clause vocabulary", () 
     // The tuple is the declaration and `WindowWhenClauseContext` is derived from
     // it, so the compiler already refuses a context that is missing a key or
     // invents one. This holds the other direction at runtime: that the tuple a
-    // family READS is the same set, rather than a stale copy of it.
+    // feature READS is the same set, rather than a stale copy of it.
     expect([...WHEN_CLAUSE_KEYS].sort()).toStrictEqual(Object.keys(NO_CONTEXT).sort());
   });
 

@@ -154,7 +154,7 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
     // Every member of the record the header does not already carry, in the order
     // the stored shape declares them, so a reader can check the projection against
     // the shape by reading down. An axis for a member that is not there would be a
-    // field invented in a view family.
+    // field invented by a view.
     axes: [
       wireAxis("driver", "Driver", definition.driverName),
       wireAxis("model", "Model", definition.modelId),

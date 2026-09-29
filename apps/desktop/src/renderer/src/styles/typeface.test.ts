@@ -8,10 +8,8 @@ describe("the self-hosted faces", () => {
   // token sheet's stack asks for first: a typo in either leaves the console
   // silently on a system face, which is the exact failure self-hosting was added
   // to end. It is asserted against the GENERATED SHEET rather than against
-  // `FONT_STACKS`, because that record is internal to the tokens family — putting
-  // it on that family's door for a test would be a door line with no production
-  // reader, which the barrel census fails. The sheet is what the document
-  // actually gets, so it is also the better witness. It is also the assertion that
+  // `FONT_STACKS`, because the sheet is what the document actually gets, so it is
+  // the better witness. It is also the assertion that
   // catches the descriptor the variable builds make easy to get wrong: these files
   // are named `IBM Plex Sans Var` internally, and a face declared under that name
   // would load and be asked for by nothing.

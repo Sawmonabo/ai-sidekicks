@@ -6,15 +6,15 @@
  * must never be one: the contrast tier measures the TOKENS, and a hard-coded hex
  * would be a value the accessibility sweep cannot see.
  *
- * Motion obeys rule 5 — settles, never bounces. Entrances fade with a 2 px rise
+ * Motion settles, never bounces. Entrances fade with a 2 px rise
  * over `--meridian-motion-settle` (180 ms) using `@starting-style`, and nothing
  * overshoots. `prefers-reduced-motion` is collapsed to opacity globally by the
  * generated base sheet, so this file does not restate it.
  *
  * Attention is steered by LUMINANCE, not hue: a matched character is the
- * full-strength text token against a muted row, and the highlighted row is a
- * raised surface. Amber and red appear only in the absence block, where they mean
- * what the two-hue rule says they mean.
+ * full-strength text token against a muted row, and the highlighted row sits on
+ * `--meridian-surface-raised`. Amber and red appear only in the absence block,
+ * where they mean what the two-hue rule says they mean.
  */
 
 .command-palette__backdrop {
@@ -180,14 +180,11 @@
 }
 
 /*
- * The chord slot. LAYOUT ONLY — the keycap itself is `ChordHint`, and this rule
- * deliberately sets nothing about how a key is drawn.
- *
- * There used to be a second keycap here, a border-and-background rule that painted
- * `formatChordForPlatform`'s string. Two keycap treatments in one console is one
- * too many, and the palette's was the one that could never be right: a chord
- * printed as a single string cannot separate the modifiers from the key, so a
- * screen reader got "⌘K" — which it pronounces "place of interest sign K".
+ * Where the chord sits. LAYOUT ONLY — the keycap itself is `ChordHint`, and this
+ * rule deliberately sets nothing about how a key is drawn: the console has one
+ * keycap treatment, and a chord painted here as a single string could not separate
+ * the modifiers from the key, so a screen reader would read "⌘K" as "place of
+ * interest sign K".
  */
 .command-palette__chord {
   display: flex;
@@ -201,9 +198,8 @@
 }
 
 /*
- * The five kinds of nothing (rule 8). Each absence gets its own shape because the
- * operator's next move differs for each; collapsing two of them into one row is
- * the mistake the rule names.
+ * The five kinds of nothing. Each absence gets its own shape because the operator's
+ * next move differs for each, so no two of them collapse into one row.
  */
 .command-palette__empty-state {
   display: flex;

@@ -2,7 +2,7 @@
 //
 // `providers.tsx` arms the tripwire route and then registers every feature's
 // contributions, both at module scope, and the order is part of the design: a registrar
-// can report while it registers (the registries refuse a second owner on one slot, and a
+// can report while it registers (the registries refuse a second owner on one name, and a
 // projector claim can collide), and the tripwire registry's emitter replays nothing to a
 // late subscriber, so a route armed below the registration would miss exactly the
 // composition-time breaches the capture most needs.

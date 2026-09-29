@@ -17,7 +17,7 @@ import type { TimelineResubscribeRequest } from "@renderer/services/daemon/sessi
  * Whether this window can ask for a replay, and what it would ask with.
  *
  * A discriminated union rather than a request that may be absent, because the two
- * absences are different facts a surface says differently: a window with nothing
+ * absences are different facts the transcript says differently: a window with nothing
  * missing has no reason to ask, and a window that IS missing rows and holds no kept
  * position cannot ask at all — its only repair is the whole-window re-read, which is
  * worth saying rather than leaving as a request that quietly never went out.

@@ -17,7 +17,7 @@
 // perfectly. Each clean set is therefore pinned against a kind that must be absent
 // and a kind that must be present.
 //
-// THE KINDS ARE READ THROUGH THE ROUTING TABLE next door, because what a stream
+// THE KINDS ARE READ THROUGH THE ROUTING TABLE in `session-event-streams.ts`, because what a stream
 // carries is only a claim about the wire once the row a subscriber reaches is the row
 // carrying it. What that table then DELIVERS, and whether anything can re-route it
 // under a running renderer, is `session-event-streams.test.ts` — the sibling suite

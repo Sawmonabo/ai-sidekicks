@@ -3,7 +3,7 @@
 // A `Blob` is a handle rather than a copy, but it is a KEEP: the browser holds the file
 // behind it for as long as anything can reach it. A staged list that held one per attachment
 // and released none would pin ten files' worth of memory for ten finished uploads until
-// the surface unmounted — invisible, because every figure on the card is a number the
+// the composer unmounted — invisible, because every figure on the card is a number the
 // ledger already has.
 //
 // The rule the cases below hold the ledger to is one sentence: an entry holds the bytes
@@ -58,7 +58,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     // nowhere to put a `Blob`.
     expect(holdsPayload(entry)).toBe(false);
     expect(entry?.payload).toBeUndefined();
-    // Everything a card reads survives, which is why the release costs no surface: the
+    // Everything a card reads survives, which is why the release costs the card nothing: the
     // name, the declared size, and the derived truth are all still here.
     expect(entry?.declared.declaredName).toBe("notes.md");
     expect(entry?.declared.byteLength).toBe(300);

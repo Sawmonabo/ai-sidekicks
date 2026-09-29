@@ -3,13 +3,13 @@
 // An attachment belongs to the turn that carried it and sits in its declared position, which
 // is what a card inside the row is, and why this is a card and not a pane.
 //
-// One body, not two: the card this draws is the same component the attachment surface
+// One body, not two: the card this draws is the same component the attachment strip
 // renders, `AttachmentCard.tsx`, so the two cannot drift in the details an unresolved marker
 // is read for.
 //
-// The seat carries `InlineCardAttachmentRef`, an opaque `attachmentId` and nothing else, and
-// no bridge, so this body makes no read. It draws the card when its caller supplies a
-// reading, and the reference it was given when not.
+// The inline card registry hands over `InlineCardAttachmentRef`, an opaque `attachmentId`
+// and nothing else, and no bridge, so this body makes no read. It draws the card when
+// its caller supplies a reading, and the reference it was given when not.
 
 import { WireFigure } from "@renderer/console/primitives/index.js";
 import type { AttachmentInlineCardProps } from "@renderer/console/seats/index.js";
@@ -41,7 +41,7 @@ export type InlineAttachmentCardProps =
 /**
  * The attachment card when a reading is supplied, and the attachment id when not.
  *
- * The bare id is named by the seat's attachment id, so it has an accessible name before a
+ * The bare id is named by the reference's attachment id, so it has an accessible name before a
  * reading arrives; the attachment card names itself.
  */
 export function InlineAttachmentCard(props: InlineAttachmentCardProps): React.JSX.Element {

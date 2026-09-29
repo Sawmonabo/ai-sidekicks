@@ -151,7 +151,7 @@ describe("useSubjectScopedResource — a resource its own close ended is re-mint
 
   it("still opens per subject, and closes the resource the swap retires", () => {
     // The re-mint is about one subject's value ending; it changes nothing about the
-    // holder's own rule. A swap — the window handing this surface a different bridge —
+    // holder's own rule. A swap — the window handing this component another bridge —
     // opens the new subject's resource and retires the old one through the effect.
     const ledger = new ResourceOpenCloseLog();
     const seen: OpenResource[] = [];

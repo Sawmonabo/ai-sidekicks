@@ -8,17 +8,16 @@
 //
 // IT IS ITS OWN MODULE RATHER THAN A SECOND EXPORT OF `wire-strings.ts`. That module
 // is named for the noun it owns and its header is the string rule end to end: the
-// empty string is absent, whitespace is content, and it is not the registered-shape
-// read next door. None of those sentences is true of a record, and re-describing the
+// empty string is absent, whitespace is content, and it is not a registered-shape
+// read. None of those sentences is true of a record, and re-describing the
 // module to admit one would leave a reader of either rule holding the other's
-// reasoning. Siblings in `core/` for the same reason `readWireString` is here at all:
-// the readers are view families, and view families never import each other.
+// reasoning. Siblings in `lib/` for the same reason `readWireString` is here at all:
+// the readers sit in several features, and one feature never imports another.
 //
-// IT LIVES IN `core/` AND NOT IN THE FAMILY THAT NEEDED IT FIRST. Its callers sit in
-// `bridge/`, `frame/`, and `persistence/` — three different heights on the console's
-// family DAG, two of which cannot reach the third. The floor is the only home a
-// shared rule can have, and this one needs nothing at all: no store type, no schema,
-// no React.
+// IT LIVES IN `lib/` AND NOT IN THE FEATURE THAT NEEDED IT FIRST. Its callers sit in
+// `services/`, `store/`, and two features — different layers, and features that cannot
+// import one another. Shared code is the only home such a rule can have, and this one
+// needs nothing at all: no store type, no schema, no React.
 //
 // IT READS NO PROPERTY, and that is a property of the predicate rather than an
 // accident of how it is written. Every caller is holding a value that crossed an

@@ -281,8 +281,8 @@ describe("what one window wrote, the next one reads", () => {
     // acts would be: one rebound, one explicitly left with no chord.
     await store.writeGlobal(KEYBINDING_OVERRIDES_KEY, "keybinding", {
       "frame.goToSessions": "$mod+9",
-      "retired.openLedger": "$mod+8",
-      "retired.closeLedger": null,
+      "retired.openTranscript": "$mod+8",
+      "retired.closeTranscript": null,
     });
 
     const reader = overrideStore();
@@ -390,18 +390,18 @@ describe("the shipped table is read, not captured", () => {
   }
 
   it("composes over a table that grew after the store was built", () => {
-    // A view family contributes its chords from an effect, so the shipped table is not
+    // A feature contributes its chords from an effect, so the shipped table is not
     // whole when this store is constructed. A store holding the array it was handed
     // would install a keyboard missing every chord that arrived after it.
     const growable = growableBase();
     const overrides = new KeybindingOverrideStore(growable.options);
     expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
 
-    growable.contribute({ chord: "Alt+Digit3", commandId: "ledger.open" });
+    growable.contribute({ chord: "Alt+Digit3", commandId: "transcript.open" });
 
     expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length + 1);
     expect(overrides.snapshot.bindings.map((binding) => binding.commandId)).toContain(
-      "ledger.open",
+      "transcript.open",
     );
   });
 
@@ -414,7 +414,7 @@ describe("the shipped table is read, not captured", () => {
     const overrides = new KeybindingOverrideStore(growable.options);
     expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
 
-    growable.contributeSilently({ chord: "Alt+Digit4", commandId: "ledger.close" });
+    growable.contributeSilently({ chord: "Alt+Digit4", commandId: "transcript.close" });
 
     expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
   });

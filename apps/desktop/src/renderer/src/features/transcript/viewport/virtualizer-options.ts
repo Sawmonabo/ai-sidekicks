@@ -37,10 +37,10 @@ export class VirtualizerOptions {
   readonly #measurements: RowMeasurementTable;
   readonly #virtualKeyAt: (index: number) => string | undefined;
 
-  #surface: HTMLElement | undefined;
+  #scrollContainer: HTMLElement | undefined;
 
-  /** The surface the library and the chokepoint both address. */
-  public readonly getScrollElement = (): HTMLElement | null => this.#surface ?? null;
+  /** The scroll container the library and the chokepoint both address. */
+  public readonly getScrollElement = (): HTMLElement | null => this.#scrollContainer ?? null;
 
   /**
    * Every offset the library would write, performed by the one writer.
@@ -113,12 +113,12 @@ export class VirtualizerOptions {
   /**
    * Point the seams at the box the chokepoint just took, or at nothing.
    *
-   * Only an `HTMLElement` can be handed to the library; a structural surface driven
+   * Only an `HTMLElement` can be handed to the library; a structural stand-in driven
    * by a test leaves the library detached, which is the honest state rather than a
    * stand-in element it would try to observe.
    */
-  public bindSurface(surface: ScrollContainer | undefined): void {
-    this.#surface = surface instanceof HTMLElement ? surface : undefined;
+  public bindScrollContainer(scrollContainer: ScrollContainer | undefined): void {
+    this.#scrollContainer = scrollContainer instanceof HTMLElement ? scrollContainer : undefined;
   }
 }
 

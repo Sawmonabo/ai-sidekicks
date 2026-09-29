@@ -35,7 +35,7 @@ export interface FixtureSessionReadRequest {
  * one refusal the console's resume cycle can receive. The refusal is on the arm that
  * carries a position and the base state is served on the arm that does not, which makes
  * the console's recovery observable: the entry forgets the refused position, re-reads
- * the same session with none, and records the refusal for the surface. A scenario that
+ * the same session with none, and records the refusal for the view to show. A scenario that
  * refused both arms would leave the store with no base state at all.
  */
 export function fixtureSessionAnswers(engine: ScenarioEngine): {

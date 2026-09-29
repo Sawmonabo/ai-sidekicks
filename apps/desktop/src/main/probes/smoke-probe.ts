@@ -100,9 +100,9 @@ export function installReadinessBreadcrumbs(
  *
  * The probe mechanism lives on the trusted side deliberately. External CDP /
  * `chrome-remote-interface` attachment was rejected as too heavyweight and a new
- * dependency family, and renderer `console.log` parsing was rejected because
- * renderer source is untrusted — adding a probe there would couple a non-test
- * surface to the test mechanism.
+ * set of dependencies, and renderer `console.log` parsing was rejected because
+ * renderer source is untrusted — adding a probe there would couple product code
+ * to the test mechanism.
  */
 export async function runSmokeProbe(browserWindow: BrowserWindow, windowMs: number): Promise<void> {
   const rendererReadings = `

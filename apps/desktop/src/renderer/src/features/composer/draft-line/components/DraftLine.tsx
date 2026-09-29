@@ -1,6 +1,6 @@
 // The composer's message line: the draft field, and what needs only the draft.
 //
-// THE LINE'S TEXT IS THE DRAFT STORE'S. The seat is handed a window-lifetime store and
+// THE LINE'S TEXT IS THE DRAFT STORE'S. The composer is handed a window-lifetime store and
 // this line neither owns the body nor copies it: it reads the addressed key, writes
 // every edit back, and re-reads on every write, so a remount or a re-address finds the
 // text where it was left.
@@ -12,7 +12,7 @@
 //
 // The component renders and does nothing else: a text field over the draft, the
 // neutralization card the addressed run's failure detail asks for, and the focus ask a
-// surface elsewhere in the window can make.
+// view elsewhere in the window can make.
 
 import { useCallback, useEffect, useRef } from "react";
 import { RefusalCard } from "@renderer/console/primitives/index.js";
@@ -47,7 +47,7 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
     address.target.path === "provider-bound" ? address.target.providerFailureDetail : undefined,
   );
 
-  // The seat's other direction. A surface elsewhere in the window tells a person to send
+  // The line's other direction. A view elsewhere in the window tells a person to send
   // a message; this is what makes that sentence actionable from where they are
   // standing. The ask carries nothing, so what focusing means stays this component's
   // decision, and an ask that arrives while no composer is mounted reaches nobody

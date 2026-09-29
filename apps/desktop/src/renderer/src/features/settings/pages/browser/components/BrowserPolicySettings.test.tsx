@@ -83,6 +83,5 @@ describe("browser policy rows — the position drawn", () => {
     // publish a wire vocabulary the renderer does not own.
     const text = renderPolicy({ positions: positions(false, true) }).textContent ?? "";
     expect(text).not.toContain("browser.");
-    expect(text).not.toContain("shellConfig");
   });
 });

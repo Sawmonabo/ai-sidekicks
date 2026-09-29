@@ -1,13 +1,13 @@
-// One session's queue reading: the feed every surface on it reads, the watchers it
+// One session's queue reading: the feed every view on it reads, the watchers it
 // publishes to, and the scheduler that decides when to ask again.
 //
-// `queue-feed.ts` is the window's registry of these readings and the React door onto
+// `queue-feed.ts` is the window's registry of these readings and the React hook onto
 // one. This module never opens a stream or names a method: the list and the tail are
 // calls it is handed.
 //
 // The rows are a fold over what the daemon sends, kept by `QueueOrder`: this file has no
 // sort of its own and keeps the order the daemon gave, and a canceled row stays in the
-// feed. A surface that shows only the waiting rows filters at the point it renders.
+// feed. A view that shows only the waiting rows filters at the point it renders.
 //
 // THE SNAPSHOT IS TAKEN BEHIND THE TAIL AND ONLY BEHIND IT. A list read with no stream
 // up stops being true the moment it lands, so the tail is opened first and the open
@@ -70,7 +70,7 @@ export interface QueueFeed extends QueueCancellationState {
 /**
  * One session's live queue reading, and everyone watching it.
  *
- * A class with private fields rather than a hook's state, because every surface in
+ * A class with private fields rather than a hook's state, because every view in
  * the window asks the same question of the same session: the first watcher opens the
  * tail and takes the snapshot once, and a later one is handed the reading in hand.
  */
@@ -95,9 +95,9 @@ export class SessionQueueReading implements ReadTriggerTarget {
   /**
    * Whether this reading has been forgotten by the registry that held it.
    *
-   * Terminal. A surface that captured the reading during a render and subscribed after
+   * Terminal. A view that captured the reading during a render and subscribed after
    * the last watcher left would otherwise revive it outside the registry, with a tail
-   * of its own, and the next surface would mint a second reading for the same session.
+   * of its own, and the next view would mint a second reading for the same session.
    */
   #isRetired = false;
   #closeTail: (() => void) | undefined = undefined;
@@ -126,13 +126,13 @@ export class SessionQueueReading implements ReadTriggerTarget {
    * Ask for a fresh snapshot.
    *
    * The tail keeps rows current while it is up; this is what answers for the time it
-   * was not. Coalesced by the scheduler, so the surfaces that mount together on one
+   * was not. Coalesced by the scheduler, so the views that mount together on one
    * session still cost one call.
    */
   public requestRead(reason: RefreshReason): void {
     if (reason === "subscribe" && this.#closeTail !== undefined) {
       // The open took the first read and the tail has kept the rows current since, so a
-      // surface joining an open reading asks for nothing.
+      // view joining an open reading asks for nothing.
       return;
     }
     this.#refresh.request(reason);
@@ -153,8 +153,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
     return () => {
       this.#listeners.delete(listener);
       if (this.#listeners.size === 0) {
-        // The last surface left. The stream closes and the reading is forgotten, so a
-        // surface that mounts later reads afresh rather than being handed a list that
+        // The last view left. The stream closes and the reading is forgotten, so a
+        // view that mounts later reads afresh rather than being handed a list that
         // stopped being updated when nobody was watching it.
         this.#isRetired = true;
         this.#refresh.dispose();
@@ -187,7 +187,7 @@ export class SessionQueueReading implements ReadTriggerTarget {
     }
     const round = this.#readLine.openRound();
     const items = await this.#calls.list(this.#sessionId);
-    // A superseded round and an abandoned line each seat nothing.
+    // A superseded round and an abandoned line each install nothing.
     round.settle(() => {
       this.#order.replaceWithSnapshot(items);
       this.#items = this.#order.items();

@@ -20,8 +20,8 @@
 //   • `apply-chokepoint-bypass` — a store was mutated outside its single `apply`.
 //   • `wire-figure-formatting`  — a wire figure was rendered through something
 //                              other than the two classes the console's rules fix.
-//   • `surface-render-failure`  — a surface threw while RENDERING and its error
-//                              boundary caught it. Its own kind rather than a
+//   • `region-render-failure`   — a region threw while RENDERING and the error
+//                              boundary wrapping it caught it. Its own kind rather than a
 //                              state-write breach: a component that crashes on a
 //                              value it could not render mutated nothing, and
 //                              counting it as a chokepoint bypass would report a
@@ -53,7 +53,7 @@ export const TRIPWIRE_KINDS = [
   "persistence-value-class",
   "apply-chokepoint-bypass",
   "wire-figure-formatting",
-  "surface-render-failure",
+  "region-render-failure",
 ] as const;
 
 /** One runtime tripwire, derived from the tuple above. */
@@ -68,7 +68,7 @@ export interface TripwireReport {
   readonly site: string;
 }
 
-/** A sink the shell installs to forward reports to the diagnostic band. */
+/** A sink the window's composition installs to forward reports to the diagnostic band. */
 export type TripwireSink = (report: TripwireReport) => void;
 
 /**
@@ -117,7 +117,7 @@ export class TripwireRegistry {
     return this.#reportEmitter.subscribe(sink);
   }
 
-  /** Whether a report throws. The shell sets this from the build mode at boot. */
+  /** Whether a report throws. The window's composition sets it from the build mode at boot. */
   public setThrowOnReport(throwOnReport: boolean): void {
     this.#throwOnReport = throwOnReport;
   }

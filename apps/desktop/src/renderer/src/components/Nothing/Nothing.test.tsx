@@ -1,4 +1,4 @@
-// Rule 8, made countable — and the placement split, made independent of it.
+// The five kinds of nothing, made countable — and the placement split, made independent of it.
 //
 // "Five absences render differently because the operator's next move differs for
 // each … A renderer that collapses two of these into one is wrong." That is a claim
@@ -22,9 +22,9 @@ import { NOTHING_KINDS, NOTHING_PLACEMENTS, Nothing } from "./Nothing.js";
 
 /** Which placement each kind is mounted at when the caller names none. */
 const DEFAULT_PLACEMENT_BY_KIND = {
-  "not-loaded": "surface",
-  empty: "surface",
-  error: "surface",
+  "not-loaded": "block",
+  empty: "block",
+  error: "block",
   "not-checked": "inline",
   computing: "inline",
 } as const;
@@ -32,7 +32,7 @@ const DEFAULT_PLACEMENT_BY_KIND = {
 /** What each placement renders as: the tag, and the shape modifier that goes with it. */
 const SHAPE_BY_PLACEMENT = {
   inline: { tagName: "SPAN", modifier: "meridian-nothing--badge" },
-  surface: { tagName: "DIV", modifier: "meridian-nothing--block" },
+  block: { tagName: "DIV", modifier: "meridian-nothing--block" },
 } as const;
 
 function renderNothing(element: React.JSX.Element): HTMLElement {
@@ -83,7 +83,7 @@ describe("Nothing — five absences, and no two of them the same", () => {
 describe("Nothing — shape follows placement, and placement alone", () => {
   it("renders the placement's shape for every kind in the set", () => {
     // The grid, in full: no cell of it reads the kind to decide the shape, which is
-    // the whole claim. `not-checked` at `surface` is the cell that used to be
+    // the whole claim. `not-checked` at `block` is the cell that used to be
     // impossible — a badge centered in a pane — and it is not called out here,
     // because a rule that needs its hardest case called out is a rule with an
     // exception in it.
@@ -115,8 +115,8 @@ describe("Nothing — shape follows placement, and placement alone", () => {
       expect(rendered.tagName).toBe(shape.tagName);
       expect(rendered.classList.contains(shape.modifier)).toBe(true);
     }
-    // `not-checked` by name, because it is the default the fix could most easily
-    // have taken with it: rule 8 names a dotted BADGE, and it is still one here.
+    // `not-checked` by name, because it is the default most easily lost: the design
+    // language names a dotted BADGE, and it is still one here.
     const notChecked = renderNothing(<Nothing kind="not-checked" title="Not checked" />);
     expect(notChecked.tagName).toBe("SPAN");
     expect(notChecked.classList.contains("meridian-nothing--badge")).toBe(true);
@@ -126,14 +126,14 @@ describe("Nothing — shape follows placement, and placement alone", () => {
   it("keeps the kind's copy, glyph, and tone across both shapes", () => {
     // The other half of the split: if placement took the glyph or the second line
     // with it, the shape would still be right and the kind would have been diluted.
-    const surfaceComputing = renderNothing(
-      <Nothing kind="computing" placement="surface" title="Working it out" detail="Still going." />,
+    const blockComputing = renderNothing(
+      <Nothing kind="computing" placement="block" title="Working it out" detail="Still going." />,
     );
-    expect(surfaceComputing.querySelector("svg")).not.toBeNull();
-    expect(surfaceComputing.getAttribute("role")).toBe("status");
-    expect(surfaceComputing.classList.contains("meridian-nothing--computing")).toBe(true);
+    expect(blockComputing.querySelector("svg")).not.toBeNull();
+    expect(blockComputing.getAttribute("role")).toBe("status");
+    expect(blockComputing.classList.contains("meridian-nothing--computing")).toBe(true);
     // A block has room for the second line, so it is prose rather than a tooltip.
-    expect(surfaceComputing.querySelector(".meridian-nothing__detail")?.textContent).toBe(
+    expect(blockComputing.querySelector(".meridian-nothing__detail")?.textContent).toBe(
       "Still going.",
     );
 

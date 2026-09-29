@@ -143,7 +143,7 @@ describe("CoalescingLayoutWriter — which session an arrangement is filed under
     // The defect this binding exists for: the writer coalesces, so a request settles
     // later than the act that made it. A writer that read the caller's current session
     // at write time filed session A's arrangement under session B's partition the
-    // moment a person navigated between two sessions the shell already had open.
+    // moment a person navigated between two sessions the window already had open.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
@@ -214,7 +214,7 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
   });
 
   it("negative control: two records in flight coalesce independently of each other", async () => {
-    // Without this the case above would pass over a writer holding one static slot
+    // Without this the case above would pass over a writer holding one static pending request
     // for every caller — which would make one record's write drop the pane layout's queued
     // arrangement, and the pane layout's drop the other's.
     const paneLayoutWrites: PaneLayoutSnapshotRecord[] = [];
@@ -257,7 +257,7 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
     });
 
     writer.request(SESSION_A, snapshotAt(1));
-    // In the writer's pending slot, behind the write held open above.
+    // In the writer's pending request, behind the write held open above.
     writer.request(SESSION_A, snapshotAt(2));
     writer.flushAndClose();
     held.settle();

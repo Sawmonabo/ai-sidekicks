@@ -1,7 +1,7 @@
 // Streaming markdown — the committed-and-volatile split, mounted.
 //
-// Settled blocks parse once, with a two-block settle lag. `markdown-rules.ts` rule 1
-// owns the rest of the split — the
+// Settled blocks parse once, with a two-block settle lag. The committed-and-volatile
+// split in `markdown-rules.ts` owns the rest — the
 // committed prefix is memoized and stable, the volatile tail is the reveal engine's, and
 // an incomplete construct never mounts.
 //

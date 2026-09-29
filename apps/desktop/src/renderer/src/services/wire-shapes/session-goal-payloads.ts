@@ -3,8 +3,8 @@
 // WHY HERE AND NOT BESIDE THE FOLD. `session.goalUpdate` and its two events carry
 // payloads `@ai-sidekicks/contracts` does not publish, so there is no registered
 // shape for the projection to narrow against and the reading has to be written.
-// Written where it is READ it would put a validator inside a view family, which is
-// what `apps/desktop/eslint.config.mjs` forbids: a surface that can import a
+// Written where it is READ it would put a validator inside a feature, which is
+// what `apps/desktop/eslint.config.mjs` forbids: a feature that can import a
 // validator can write a second, different reading of a seam that already has one. So
 // the reading lives at the bridge boundary beside the stream projection, and the fold
 // above consumes ANSWERS rather than schemas — `undefined` for a payload that does
@@ -47,7 +47,7 @@ const sessionGoalTextSchema = z
  * Whether the console will send this draft at all.
  *
  * A BOOLEAN and not a parse result, because the caller is an editor deciding whether
- * its confirm control is live. Handing back the parse would hand a view family a
+ * its confirm control is live. Handing back the parse would hand a feature a
  * validator's error object, which is the reading this module exists to keep in one
  * place — and the text a caller sends is the text it holds, never a value this module
  * rewrote.
@@ -92,8 +92,8 @@ const goalOriginKeysSchema = z.object({
  * The origin keys a goal payload carries, or `undefined` for one appended before them.
  *
  * A payload that does not carry the pair is not an error — an event written before the
- * keys existed carries neither — and such an event folds through the envelope-ordered
- * slot instead.
+ * keys existed carries neither — and such an event is ranked on its envelope
+ * instead.
  */
 export function readGoalOriginKeys(payload: unknown): GoalOriginKeys | undefined {
   const parsed = goalOriginKeysSchema.safeParse(payload);

@@ -34,7 +34,7 @@
 // which `scenario-delivery.ts` states from its own side.
 //
 // A FRAME CAN BE APPENDED THAT THE SCRIPT DOES NOT CARRY. A scenario is a recording,
-// and a person acting on a fixture surface does something the recording does not
+// and a person acting on a view the fixture drives does something the recording does not
 // contain: a lifecycle move answers, and against a daemon the event it produced would
 // arrive on this session's stream. `appendEvent` is that, and it is the engine's
 // because the stream is — a fixture namespace that emitted onto its own feed would be
@@ -88,7 +88,7 @@ export const SCENARIO_TICK_MS = 50;
 
 /**
  * Scripted replies the engine holds waiting for the frozen clock. A held reply is one
- * in-flight request on one surface, so a handful is the whole working set; the clock moves
+ * in-flight request from one view, so a handful is the whole working set; the clock moves
  * only when a caller moves it, so past the cap the engine refuses the call rather than
  * parking it for a driver that will never release any of it.
  */
@@ -335,7 +335,7 @@ export class ScenarioEngine {
    * and the clock stays exactly where the caller left it.
    *
    * Never rejects. The outcome carries the refusal, because the vocabulary a
-   * surface renders belongs to the bridge and not to the engine — and that holds
+   * view renders belongs to the bridge and not to the engine — and that holds
    * for a scripted REFUSAL too: the release says only that the reply came due,
    * and `scripted-reply.fixture.ts` is what turns a due `ScenarioRejectingReply` into a
    * rejection. An engine that rejected here would have to know the wire's error
@@ -391,7 +391,7 @@ export class ScenarioEngine {
     return ordinal;
   }
 
-  /** How many sinks are attached. Read by tests and by the diagnostics surface. */
+  /** How many sinks are attached. Read by tests. */
   public get sinkCount(): number {
     return this.#delivery.beatSinkCount;
   }
@@ -402,7 +402,7 @@ export class ScenarioEngine {
    * The held replies are ABANDONED rather than left alone, and that is the half
    * that is easy to miss: a sink dropped on teardown simply stops being called,
    * but a reply dropped on teardown is a promise nobody can ever settle, and the
-   * surface awaiting it renders its loading state for the life of the window.
+   * view awaiting it renders its loading state for the life of the window.
    */
   public dispose(): void {
     this.#disposed = true;

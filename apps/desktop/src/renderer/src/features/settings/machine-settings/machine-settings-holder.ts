@@ -1,6 +1,6 @@
 // Who owns this window's machine-settings store, and for how long.
 //
-// The store is the window's and not a page's: more than one surface reads these keys, and
+// The store is the window's and not a page's: more than one page reads these keys, and
 // a store built per calling component would die with its page. Module scope is window
 // scope here, because an auxiliary window is its own renderer process and no channel
 // joins two windows' module graphs.

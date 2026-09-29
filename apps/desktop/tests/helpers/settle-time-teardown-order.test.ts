@@ -117,7 +117,7 @@ describe("settle-time teardown — the release is the act after the LAST attempt
       // THE SUPERSEDED SHAPE, spelled as a caller used to spell it — spawn, then
       // register the removal — and driven through the same refusing platform.
       // The runner settles in registration STACK order, so this removal runs
-      // first and the spawn door's own disposer terminates afterwards. Without
+      // first and the spawner's own disposer terminates afterwards. Without
       // this the case above is ambiguous between "the order is owned" and "this
       // platform happened to stop asking".
       const registrar = new RecordingSettleRegistrar();

@@ -6,7 +6,7 @@
 // function's output, so a color edited in CSS alone turns the build red rather than
 // quietly diverging from what the contrast test measures.
 //
-// Why generate rather than hand-write: rule 3's floors are asserted against the
+// Why generate rather than hand-write: the contrast floors are asserted against the
 // TypeScript records, and an assertion about one table proves nothing about a
 // second table a human maintains beside it.
 //
@@ -62,7 +62,8 @@ export const SCHEME_ATTRIBUTE = "data-color-scheme";
 export function generateMeridianCss(): string {
   // The emitted banner deliberately names no document: this text is written into the
   // live stylesheet, and a reference like that belongs in source comments rather than
-  // in shipped output. The rules it alludes to are design-language rules 2-5 and 7.
+  // in shipped output. The rules it alludes to are the design language's hue,
+  // contrast, type, motion and density rules.
   const header = [
     "/*",
     " * GENERATED AT RUNTIME — there is no committed copy of this sheet.",
@@ -140,15 +141,15 @@ export function generateMeridianCss(): string {
     "  font-family: var(--meridian-font-sans);",
     "  font-size: var(--meridian-text-md);",
     `  line-height: ${BODY_LINE_HEIGHT};`,
-    // No `font-feature-settings` here, deliberately. Rule 4's slashed zero is the
+    // No `font-feature-settings` here, deliberately. The slashed zero is the
     // MONO signature, and this property inherits — declaring it on the root put the
     // slash on every user name, repo path, and branch in the console, and
     // then prevented any descendant from scoping the feature back. It rides the mono
-    // `@font-face` descriptors in `frame/bindings/typeface.ts` instead.
+    // `@font-face` descriptors in `typeface.ts` instead.
     "  -webkit-font-smoothing: antialiased;",
     "}",
     "",
-    "/* Rule 5: `prefers-reduced-motion` collapses everything to opacity. */",
+    "/* Reduced motion: `prefers-reduced-motion` collapses everything to opacity. */",
     "@media (prefers-reduced-motion: reduce) {",
     "  *,",
     "  *::before,",
@@ -198,7 +199,7 @@ function invariantBlock(): string {
   });
 
   lines.push("");
-  lines.push("  /* Vocabulary aliases — a family's own name for a console token.");
+  lines.push("  /* Vocabulary aliases — a code or terminal name for a console token.");
   lines.push("     Emitted here rather than in each scheme layer because the token");
   lines.push("     each one defers to already swaps. */");
   for (const [tokenName, targetTokenName] of Object.entries(TOKEN_ALIASES)) {
@@ -226,7 +227,7 @@ function invariantBlock(): string {
   lines.push(declaration("enumeration-max-height", `${BOUNDED_ENUMERATION_HEIGHT_REM}rem`));
   // The reflow floor. Emitted rather than written into `frame.css` as a literal
   // because it is the palette's number and the frame is only the first thing to
-  // spend it — a surface that has to declare the same floor reads the property
+  // spend it — a stylesheet that has to declare the same floor reads the property
   // instead of copying the figure. It cannot be a media-query condition (custom
   // properties do not reach one), and it is not meant to be: the console holds this
   // width with one fluid layout rather than with a breakpoint.

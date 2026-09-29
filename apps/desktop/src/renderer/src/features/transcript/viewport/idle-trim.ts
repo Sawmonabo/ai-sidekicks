@@ -1,6 +1,6 @@
 // What the transcript frame stops holding once the transcript has been still for a while.
 //
-// THE TWO THINGS A QUIET TRANSCRIPT KEEPS AND CANNOT USE. The cap next door bounds the
+// THE TWO THINGS A QUIET TRANSCRIPT KEEPS AND CANNOT USE. The cap in `window-cap.ts` bounds the
 // rows the window holds, and both of the tables that hang off those rows outlive
 // them on purpose:
 //

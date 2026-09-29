@@ -322,7 +322,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
       type: z.literal("steer"),
       targetRunId: RunIdSchema,
       expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.string().uuid(),
+      clientIdempotencyKey: z.uuid(),
       content: wireFreeFormString(
         DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
         "InterventionRequestPayload.content",
@@ -343,7 +343,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
       type: z.literal("interrupt"),
       targetRunId: RunIdSchema,
       expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.string().uuid(),
+      clientIdempotencyKey: z.uuid(),
       reason: wireFreeFormString(
         DRIVER_WIRE_REASON_MAX_LEN,
         "InterventionRequestPayload.reason",
@@ -355,7 +355,7 @@ export const InterventionRequestPayloadSchema: z.ZodType<
       type: z.literal("cancel"),
       targetRunId: RunIdSchema,
       expectedRunVersion: runCounterSchema,
-      clientIdempotencyKey: z.string().uuid(),
+      clientIdempotencyKey: z.uuid(),
       reason: wireFreeFormString(
         DRIVER_WIRE_REASON_MAX_LEN,
         "InterventionRequestPayload.reason",

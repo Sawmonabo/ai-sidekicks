@@ -87,7 +87,7 @@ function signalOf(reads: readonly StartedRead[], index: number): AbortSignal {
 }
 
 describe("PrerequisiteReader — a read is performed inside a round", () => {
-  it("hands the read a signal, and it is live while the surface is", async () => {
+  it("hands the read a signal, and it is live while the dialog is", async () => {
     // The floor every case below rests on. A reader that passed `undefined` — or that
     // never called the closure at all — would make each assertion vacuous.
     const { reader, clock, reads } = open();
@@ -100,7 +100,7 @@ describe("PrerequisiteReader — a read is performed inside a round", () => {
 
   it("negative control: disposing abandons the read in flight and installs nothing", async () => {
     // THE CASE THE ROUND EXISTS FOR. The pane closed while the prerequisite was
-    // outstanding: the signal it holds is aborted, so the door drops the pending call
+    // outstanding: the signal it holds is aborted, so `callDaemon` drops the pending call
     // and parses nothing, and the answer that lands afterwards settles nowhere.
     const { reader, clock, reads } = open();
     reader.ask("first", "subscribe");

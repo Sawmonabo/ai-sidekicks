@@ -1,16 +1,16 @@
-// The pane layout's single mount door: one owner per pane kind.
+// The pane layout's single mount registry: one owner per pane kind.
 //
 // The pane layout rule, in structural terms: one entity opens one pane, through a single
-// mount door and a tripwire that fails on a second. This module is that door. A view
-// family is HANDED this table by the composition and claims the kind it owns inside its
-// own `register<Family>` entry point; the pane layout resolves a pane's kind to a descriptor
+// mount point and a tripwire that fails on a second. This module is that mount point. A
+// feature is HANDED this table by the composition and claims the kind it owns inside its
+// own `register<Feature>` entry point; the pane layout resolves a pane's kind to a descriptor
 // and mounts it. There is deliberately no module-scope convenience that writes into the
-// process-wide instance — a family calling one would compose into production from
+// process-wide instance — a feature calling one would compose into production from
 // inside a composition that had handed it somewhere else.
 //
-// WHY THIS IS NOT `registries/screens/screen-registry.ts`, BESIDE IT IN THIS FAMILY
+// WHY THIS IS NOT `registries/screens/screen-registry.ts`, BESIDE IT IN THIS FOLDER
 //
-// A SURFACE is what a route mounts — one per navigable destination, at most one on
+// A SCREEN is what a route mounts — one per navigable destination, at most one on
 // screen. A PANE is what the pane layout holds — several at once, opened by the sidebar,
 // keyed by the entity they are a view of. The two tables answer different questions and are
 // keyed by different closed sets, so folding them together would mean one key
@@ -36,28 +36,28 @@ import { PendingPaneBody } from "./PendingPaneBody.js";
 import { type PaneContext } from "./pane-context.js";
 import { PANE_KINDS, type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 
-/** What a family registers to claim a pane kind. */
+/** What a feature registers to claim a pane kind. */
 export interface PaneDescriptor {
   readonly kind: PaneKind;
-  /** The task or family that owns it, so an unrendered kind names someone. */
+  /** The task or feature that owns it, so an unrendered kind names someone. */
   readonly owner: string;
   readonly render: (context: PaneContext) => React.ReactNode;
 }
 
 /**
- * What a family hands `register`, in one of exactly two forms.
+ * What a feature hands `register`, in one of exactly two forms.
  *
  * THE COMPONENT FORM is the original: a `render` the registrar already holds, for a
  * body that is on the flagship first paint and therefore belongs in the entry graph.
  *
  * THE LOADER FORM is `body: () => import("./pane/XBody.js")`, for a body that is not.
  * The distinction is a product fact rather than a size threshold — what decides it is
- * whether the surface is painted before a person acts — and `apps/desktop/AGENTS.md`
+ * whether the pane is painted before a person acts — and `apps/desktop/AGENTS.md`
  * states the rule beside the pane-board one.
  *
  * A UNION AND NOT TWO OPTIONAL MEMBERS. `render?` and `body?` beside each other would
  * make "both" and "neither" representable, and both would have to be answered at run
- * time by a registry that cannot know which the family meant. The `never` arms are what
+ * time by a registry that cannot know which the feature meant. The `never` arms are what
  * make the compiler refuse a registration carrying both.
  */
 export type PaneRegistration =
@@ -72,7 +72,7 @@ export type PaneRegistration =
 
 export class PaneRegistry {
   // `"owner-scoped"`, for `registries/screens/screen-registry.ts`'s reason: re-registering
-  // under the same owner replaces (a hot reload re-runs a family's module), and a
+  // under the same owner replaces (a hot reload re-runs a feature's module), and a
   // different owner claiming a taken kind is a conflict rather than a swap,
   // because which body mounts would otherwise depend on module import order.
   readonly #descriptorsByKind = new KeyedRegistry<PaneKind, PaneDescriptor>({
@@ -160,7 +160,7 @@ export class PaneRegistry {
    *
    * `registeredPaneKinds`' ordering rule, for its reason: the warm walk's order is
    * observable in what lands first, and registration order would make it depend on which
-   * family's module evaluated first. Already-resolved kinds are filtered out so a second
+   * feature's module evaluated first. Already-resolved kinds are filtered out so a second
    * walk over a warmed board does nothing rather than re-entering every memo.
    */
   public unloadedKeys(): readonly PaneKind[] {
@@ -176,7 +176,7 @@ export class PaneRegistry {
    *
    * Declaration order because the answer is read by the gallery and by the layout
    * validator, and both want the spec's order; registration order would make it
-   * depend on which family's module happened to evaluate first.
+   * depend on which feature's module happened to evaluate first.
    */
   public registeredPaneKinds(): readonly PaneKind[] {
     return PANE_KINDS.filter((kind) => this.#descriptorsByKind.has(kind));
@@ -189,7 +189,7 @@ interface ConsolePaneRegistrationBase {
   readonly owner: string;
 }
 
-/** The process-wide registry the view families call at module scope. */
+/** The process-wide registry the features call at module scope. */
 export const paneRegistry: PaneRegistry = new PaneRegistry();
 
 /** Which pane kinds the process-wide registry has a body for. */

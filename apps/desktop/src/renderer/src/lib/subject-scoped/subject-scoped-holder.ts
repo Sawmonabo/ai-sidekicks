@@ -1,10 +1,9 @@
 // The rule a subject-scoped value obeys, with no renderer anywhere in it.
 //
-// THE FAILURE, WHICH FIVE FAMILIES EACH FOUND SEPARATELY. A mounted surface is
-// re-addressed — one session to another, one run to another, one bridge to another
-// when the fixture scenario switches, one agent binding to a newer reading of
-// itself — by a prop changing. Its React state survives that change, and two things
-// go wrong at once:
+// THE FAILURE. A mounted component is re-addressed — one session to another, one run to
+// another, one bridge to another when the fixture scenario switches, one agent binding
+// to a newer reading of itself — by a prop changing. Its React state survives that
+// change, and two things go wrong at once:
 //
 //   • THE FIRST COMMITTED RENDER UNDER THE NEW SUBJECT SHOWS THE OLD ONE'S VALUE.
 //     Clearing it from an effect narrows that window rather than closing it, because
@@ -23,12 +22,12 @@
 // publisher carries the subject it was captured under — so a settlement arriving after
 // the subject moved writes nothing rather than overwriting what the new subject said.
 //
-// AND A PUBLISHER CARRIES THE ADDRESSING, NOT THE PAIR. A surface routed away from a
+// AND A PUBLISHER CARRIES THE ADDRESSING, NOT THE PAIR. A component routed away from a
 // session and back to it — s1 → s2 → s1 — is addressed at the same pair twice, and
 // re-seeds on both visits because nothing here survives the move. A guard comparing
 // only the pair would find the first visit's publisher still valid on the third, so
 // that visit's reply — dispatched first, answered last — would overwrite the answer the
-// surface on screen had already read. So each addressing takes a serial that is never
+// component on screen had already read. So each addressing takes a serial that is never
 // reissued, the same mechanism `lib/reads/generation-latch.ts` uses, and a settlement
 // is admitted only while the addressing it was captured under is one still held.
 //
@@ -45,20 +44,21 @@
 // over — a pass for another subject, or one back at the committed subject.
 //
 // THE SUBJECT IS AN OBJECT AND A KEY WITHIN IT, and the object is deliberately opaque.
-// `store/` sits below `bridge/` in the console's DAG and may not name a `PlatformBridge`
-// or a `SessionStore`; each of them is a live object whose replacement retires the
-// calls made through it, which is exactly what identity comparison expresses. So the subject is `object`, compared by reference,
-// and the families name their own subjects at their own doors —
-// `seats/session-subject.ts` is the session-named one. THE KEY ADMITS `undefined`,
-// which is a reading and not a hole: it says the surface has no subject to be about,
-// and the caller's own `initial()` decides what that renders as.
+// `lib/` sits below `store/` and `services/` in the import layering and may not name a
+// `PlatformBridge` or a `SessionStore`; each of them is a live object whose replacement
+// retires the calls made through it, which is exactly what identity comparison
+// expresses. So the subject is `object`, compared by reference, and each caller names
+// its own subject in its own module — `store/subject-scoped/session-subject.ts` is the
+// session-named one. THE KEY ADMITS `undefined`, which is a reading and not a hole: it
+// says the component has no subject to be about, and the caller's own `initial()`
+// decides what that renders as.
 //
-// THE REACT HALF IS NEXT DOOR, and the split is the one the rule itself draws: every
-// decision in this file is a property of the SUBJECT moving rather than of a render
-// happening, so it is drivable with no renderer at all — a test addresses and commits
-// in the order React would. `useSubjectScopedState.ts` decides when React is told, and
-// `useSubjectScopedResource.ts` adds the half about a value that has to be disposed
-// rather than dropped.
+// THE REACT HALF IS IN `hooks/subject-scoped/`, and the split is the one the rule
+// itself draws: every decision in this file is a property of the SUBJECT moving rather
+// than of a render happening, so it is drivable with no renderer at all — a test
+// addresses and commits in the order React would. `useSubjectScopedState.ts` decides
+// when React is told, and `useSubjectScopedResource.ts` adds the half about a value
+// that has to be disposed rather than dropped.
 //
 // AND WHAT BECOMES OF A VALUE THIS CLASS LETS GO OF IS `unheld-value-disposal.ts`.
 // This file answers who may write; that one answers what happens to the value the
@@ -71,7 +71,7 @@ import { Emitter, type Unsubscribe } from "../emitter.js";
 import { UnheldValueDisposal, type SubjectScopedHolderOptions } from "./unheld-value-disposal.js";
 
 /**
- * The key within a subject, or `undefined` where the surface is about nothing yet.
+ * The key within a subject, or `undefined` where the component is about nothing yet.
  *
  * A string because a key is a NAME inside one object's key space — a session id, a
  * composer address, a run id, a derived binding digest — and never an identity of its
@@ -97,7 +97,7 @@ interface HeldSubjectValue<TValue> {
   readonly key: SubjectKey;
   /**
    * Which addressing seeded this value. Never reissued, so it names ONE visit, which
-   * the pair alone cannot: a surface routed s1 → s2 → s1 is at the same pair twice.
+   * the pair alone cannot: a component routed s1 → s2 → s1 is at the same pair twice.
    */
   readonly epoch: number;
   readonly value: TValue;
@@ -115,12 +115,12 @@ const NO_ADDRESSING = 0;
  *
  * REACT-FREE ON PURPOSE. Every rule this class carries — when a value is discarded,
  * which publisher may write, what a late settlement does — is a property of the
- * subject moving and not of a render happening, and five families proved that the
- * place two copies of it drift is the comparison. A test drives this object directly
- * with no renderer at all; the hook next door only decides when React is told.
+ * subject moving and not of a render happening, and the comparison is where two copies
+ * of it would drift. A test drives this object directly with no renderer at all; the
+ * hook in `hooks/subject-scoped/` only decides when React is told.
  *
  * ONE INSTANCE PER MOUNT, held by the hook. There is no module-level register, so
- * nothing here outlives the surface that owns it and no subject is reachable from a
+ * nothing here outlives the component that owns it and no subject is reachable from a
  * root after its holder is gone.
  */
 export class SubjectScopedHolder<TValue> {
@@ -340,7 +340,7 @@ export class SubjectScopedHolder<TValue> {
         typeof next === "function" ? (next as (was: TValue) => TValue)(held.value) : next;
       if (Object.is(resolved, held.value)) {
         // A publish that changes nothing wakes nobody. Two acts settling into the
-        // same value in one tick would otherwise render the surface twice for it.
+        // same value in one tick would otherwise render the component twice for it.
         return;
       }
       const replaced = held.value;

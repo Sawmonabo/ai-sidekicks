@@ -10,8 +10,8 @@
 //
 // WHY THE BUILDERS TAKE `unknown`. `StoredEntity.body` is
 // `Readonly<Record<string, unknown>>` — a renderer-local extension point whose
-// shape belongs to whichever view family registers the projector for that kind, and
-// no family has registered one yet. So a detail reads a body member by NAME, and
+// shape belongs to whichever feature registers the projector for that kind, and
+// no feature has registered one yet. So a detail reads a body member by NAME, and
 // the name is this console's read-side expectation rather than a claim about a
 // wire: where a registered contract member exists the detail quotes it verbatim
 // (the repo / workspace / worktree lifecycle payload's `repoMountId` /
@@ -69,7 +69,7 @@ export interface EntityDetailProps {
 /**
  * What a facet's value is, closed at three forms.
  *
- * Closed because the forms are the provenance signature rule 4 fixes — a value the
+ * Closed because the forms are the console's provenance signature for figures — a value the
  * wire supplied is mono, a value the console computed is not, and a value that is
  * not there is neither. A fourth form would be a fourth provenance.
  */
@@ -93,7 +93,7 @@ export function readBodyMember(entity: StoredEntity | undefined, memberName: str
 /** A string the wire supplied — an id, a handle, a state name. Mono and verbatim. */
 export function wireFacet(label: string, value: unknown, memberName: string): EntityFacet {
   // The empty-string-is-absent rule is `core/wire-strings.ts`', not this builder's:
-  // three view families were each spelling it for themselves, and a facet that read
+  // three views were each spelling it for themselves, and a facet that read
   // `""` as a value would put an empty mono cell where the absent arm belongs.
   const text = readWireString(value);
   return {

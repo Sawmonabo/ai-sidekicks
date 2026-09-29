@@ -5,12 +5,12 @@
 // settlement is admitted — and this one is about the value that write refused or
 // replaced, and the value a proposal no render committed left behind. All three rules
 // live in `unheld-value-disposal.ts`, behind one seam the holder is handed at
-// construction, and are driven here through the holder's own door because a caller
+// construction, and are driven here through the holder's own API because a caller
 // reaches them no other way.
 //
 // Tripwires throw in a development build, which would turn the backstops below into
 // the very escaping throws they exist to prevent. The recording arm is the one under
-// test, exactly as it is for the surface error boundary next door.
+// test, the same arm the error boundary around each region reports through.
 //
 // Every clean assertion is paired with a NEGATIVE CONTROL, because "the value was
 // disposed" is also satisfied by a holder that disposed everything it touched — which
@@ -41,10 +41,10 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
   const UNDISPOSABLE = "the value that owns a registry";
 
   it("leaves the proposal that superseded it addressed and publishable, and records why", () => {
-    // This runs inside a render body. Escaping, the throw reaches the surface's error
+    // This runs inside a render body. Escaping, the throw reaches the region's error
     // boundary, which unmounts the subtree on top of a holder whose newest proposal is
     // already installed and reachable through nothing — so the resource the disposal
-    // was clearing room for is held by nothing AND the surface is gone.
+    // was clearing room for is held by nothing AND the region is gone.
     const holder = new SubjectScopedHolder<string>({
       disposeUnheldValue: (unheld) => {
         if (unheld === UNDISPOSABLE) {
@@ -60,7 +60,7 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     }).not.toThrow();
 
     expect(holder.value).toBe("the proposal that superseded it");
-    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.firingCount("region-render-failure")).toBe(1);
     expect(windowTripwires.reports().at(-1)?.detail).toContain("refused to dispose");
     // And the pass that superseded it can still settle into what it addressed, which
     // is what "the render was not taken with it" means from the caller's side.
@@ -85,7 +85,7 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     }).not.toThrow();
 
     expect(holder.value).toBe("second");
-    expect(windowTripwires.firingCount("surface-render-failure")).toBe(1);
+    expect(windowTripwires.firingCount("region-render-failure")).toBe(1);
   });
 
   it("negative control: a disposal that returns records nothing", () => {
@@ -103,7 +103,7 @@ describe("SubjectScopedHolder — a disposal that throws does not take the rende
     holder.address(SUBJECT_TWO, "beta", () => "second");
 
     expect(disposals).toBe(1);
-    expect(windowTripwires.firingCount("surface-render-failure")).toBe(0);
+    expect(windowTripwires.firingCount("region-render-failure")).toBe(0);
   });
 });
 
@@ -119,7 +119,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
   it("closes a resource that settled into a visit which had already ended", () => {
     // The async open: a caller opened a connection for the visit on screen, the
-    // surface was re-addressed while the open was in flight, and the settlement now
+    // component was re-addressed while the open was in flight, and the settlement now
     // names a visit nothing is addressed at. Installed nowhere, it is reachable
     // through this disposal and through no other path in the program.
     const closed: string[] = [];
@@ -137,8 +137,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
   });
 
   it("closes a resource offered to a capture taken before any subject", () => {
-    // The one publisher that used to answer through a no-op of its own. A surface
-    // about nothing yet can still have an open in flight, and the value it settles
+    // A component about nothing yet can still have an open in flight, and the value it settles
     // with is as unreachable as any other the holder refuses.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
@@ -210,7 +209,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
   it("disposes nothing for a publish that changes nothing", () => {
     // The value was not replaced — it is the one still held — so handing it over
-    // would close the resource the surface is reading through.
+    // would close the resource the component is reading through.
     const closed: string[] = [];
     const holder = holderDisposing(closed);
     visit(holder, SUBJECT_ONE, "alpha", () => "the only connection");
@@ -278,7 +277,7 @@ describe("SubjectScopedHolder — a resource it refuses is disposed rather than 
 
   it("negative control: a publish that lands is installed rather than closed", () => {
     // Without this, "closed" above would also be satisfied by a holder that disposed
-    // every publish — which would close the resource the surface just opened for the
+    // every publish — which would close the resource the component just opened for the
     // visit it is on. What the holder lets go of is the value that was REPLACED, and
     // never the one it now holds; whether that replaced value may actually be
     // released is the caller's question, and the resource hook answers it by refusing

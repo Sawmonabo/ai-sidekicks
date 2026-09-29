@@ -130,7 +130,7 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
       try {
         // THE REFUSED KILL, and the two things it has to leave behind. Asked of
         // ONE disposal rather than of a settlement, because a settlement is now
-        // the whole bounded retry — the spawn door's single disposer owns every
+        // the whole bounded retry — the spawner's single disposer owns every
         // attempt — and the readings below are about what ONE refused ask leaves
         // for the next one to work with.
         //
@@ -155,7 +155,7 @@ describe("a spawned Electron child does not outlive the test that spawned it", (
         expect(readProcessLiveness(grandchildPid)).toBe("running");
 
         // The retry the marker would have suppressed, walking the root the
-        // refusal preserved, through the same door — and inside the ONE
+        // refusal preserved, through the same disposer — and inside the ONE
         // settlement, because a resource release is sequenced after the last
         // attempt and a retry deferred to a later disposer would land after it.
         await registrar.settle();

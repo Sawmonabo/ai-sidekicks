@@ -1,10 +1,10 @@
-// The loader form on the FRAME's board: the same mechanism, keyed by slot.
+// The loader form on the FRAME's board: the same mechanism, keyed by screen name.
 //
-// Split from `pane-registry.lazy-body.test.tsx` on the boundary the two boards already are. That file
-// makes the pane layout's claims — registration shape, reserved chrome, one fetch per
-// registration, and survival of the duplicate policy — over `PaneRegistry`; these
-// three make the same claims over `ScreenRegistry`, whose key is a slot rather
-// than a pane kind. Reading either half no longer means holding the other's registry.
+// Split from `pane-registry.lazy-body.test.tsx` on the boundary the two boards already are. That
+// file makes the pane layout's claims — registration shape, reserved chrome, one fetch per
+// registration, and survival of the duplicate policy — over `PaneRegistry`; these three make the
+// same claims over `ScreenRegistry`, whose key is a screen name rather than a pane kind. Reading
+// either half no longer means holding the other's registry.
 //
 // The loader itself is shared and is therefore not written twice: `countingLoader` lives
 // in this directory's fixture module, beside the synthetic contexts both halves take.
@@ -19,16 +19,16 @@ import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body
 import { type ScreenContext } from "./screen-context.js";
 import { ScreenRegistry } from "./screen-registry.js";
 
-describe("the frame's board — the same mechanism, keyed by slot", () => {
+describe("the frame's board — the same mechanism, keyed by screen name", () => {
   it("registers, mounts an absence frame, then the screen", async () => {
     const registry = new ScreenRegistry();
     registry.register({
-      slot: "settings",
-      owner: "settings-family",
+      name: "settings",
+      owner: "settings",
       body: countingLoader<ScreenContext>(() => createElement("p", null, "the settings screen"))
         .load,
     });
-    expect(registry.registeredSlots()).toStrictEqual(["settings"]);
+    expect(registry.registeredScreenNames()).toStrictEqual(["settings"]);
 
     const { container } = render(
       <>{registry.descriptorFor("settings")?.render(createSyntheticScreenContext())}</>,
@@ -46,8 +46,8 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
     // on exactly the path that had done the work to avoid it.
     const registry = new ScreenRegistry();
     registry.register({
-      slot: "workflows",
-      owner: "workflows-family",
+      name: "workflows",
+      owner: "workflows",
       body: countingLoader<ScreenContext>(() =>
         createElement("p", null, "the workflows destination"),
       ).load,
@@ -67,8 +67,8 @@ describe("the frame's board — the same mechanism, keyed by slot", () => {
   it("loads once however many callers ask, and offers the walk only what is unloaded", async () => {
     const registry = new ScreenRegistry();
     const loader = countingLoader<ScreenContext>(() => null);
-    registry.register({ slot: "settings", owner: "settings-family", body: loader.load });
-    registry.register({ slot: "sessions", owner: "sessions-family", render: () => null });
+    registry.register({ name: "settings", owner: "settings", body: loader.load });
+    registry.register({ name: "sessions", owner: "sessions", render: () => null });
     expect(registry.unloadedKeys()).toStrictEqual(["settings"]);
     await Promise.all([registry.preload("settings"), registry.preload("settings")]);
     expect(loader.callCount()).toBe(1);

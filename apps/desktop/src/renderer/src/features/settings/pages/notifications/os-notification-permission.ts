@@ -1,7 +1,7 @@
 // Whether this machine's operating system will let the main process raise a notification.
 //
 // Lives at the bridge because the notification center and the notifications page both
-// ask it, and a view family may not import its sibling. Every window trigger re-reads
+// ask it, and one feature may not import another. Every window trigger re-reads
 // it, since the person grants the permission outside this application; the scheduler
 // serializes probes and the latch drops a reply from a superseded round.
 import type { NotificationPermission } from "@shared/preload-api.js";
@@ -64,7 +64,7 @@ export class OsNotificationPermissionRead implements ReadTriggerTarget {
     });
   }
 
-  /** What a surface renders from. One held value, so its identity is stable. */
+  /** What a view renders from. One held value, so its identity is stable. */
   public snapshot(): OsNotificationPermissionReading {
     return this.#reading;
   }

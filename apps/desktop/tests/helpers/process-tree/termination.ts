@@ -7,7 +7,7 @@
 // had not performed. A rule with two homes is a rule that will disagree with
 // itself; this is the home.
 //
-// This module is the DOOR and the dispatch, and deliberately nothing else. The
+// This module is the public entry and the dispatch, and deliberately nothing else. The
 // readings live in `readers.ts` and `liveness.ts`, the pid-versus-process
 // question in `identity.ts`, the shared deadline in `budget.ts`, and the two
 // platform decisions in `arms.ts` — five roles that were one 509-line file until

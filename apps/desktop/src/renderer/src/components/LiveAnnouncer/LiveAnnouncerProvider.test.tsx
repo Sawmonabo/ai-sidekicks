@@ -3,7 +3,7 @@
 // `live-announcer.test.ts` owns the queue, the coalescing, and the clock, and
 // `LiveRegion.test.tsx` owns what a region does with an announcement once it has
 // one. These cases own the three things only the React mount can be wrong about:
-// the pair exists, empty, before anything is announced, a surface outside the
+// the pair exists, empty, before anything is announced, a component outside the
 // provider is told rather than silently ignored, and the announcer the provider
 // BUILT is the only one it disposes.
 
@@ -20,16 +20,16 @@ afterEach(() => {
   cleanup();
 });
 
-/** A surface that announces once on demand, so the hook is exercised for real. */
-function AnnouncingSurface(props: {
+/** A component that announces once on demand, so the hook is exercised for real. */
+function AnnouncingComponent(props: {
   readonly onReady: (announce: ReturnType<typeof useAnnounce>) => void;
 }): React.JSX.Element {
   const announce = useAnnounce();
   props.onReady(announce);
-  return <p>a surface</p>;
+  return <p>a component</p>;
 }
 
-function SurfaceWithoutProvider(): React.JSX.Element {
+function ComponentWithoutProvider(): React.JSX.Element {
   useAnnounce();
   return <p>never rendered</p>;
 }
@@ -38,7 +38,7 @@ describe("LiveAnnouncerProvider — it mounts the pair before anything is said",
   it("renders exactly two empty regions, one per politeness, from the first paint", () => {
     const { container } = render(
       <LiveAnnouncerProvider>
-        <p>a surface</p>
+        <p>a component</p>
       </LiveAnnouncerProvider>,
     );
 
@@ -60,19 +60,19 @@ describe("LiveAnnouncerProvider — it mounts the pair before anything is said",
   });
 });
 
-describe("LiveAnnouncerProvider — a surface outside it is told, not ignored", () => {
+describe("LiveAnnouncerProvider — a component outside it is told, not ignored", () => {
   it("throws when useAnnounce is called with no provider above it", () => {
-    expect(() => render(<SurfaceWithoutProvider />)).toThrow(/outside <LiveAnnouncerProvider>/u);
+    expect(() => render(<ComponentWithoutProvider />)).toThrow(/outside <LiveAnnouncerProvider>/u);
   });
 
   it("negative control: the same hook inside the provider returns a working announce", () => {
     // Without this, a hook that threw unconditionally would satisfy the case above
-    // and make every surface in the console unrenderable.
+    // and make every component in the console unrenderable.
     const announcer = new LiveAnnouncer({ clock: new ManualClock() });
     let announced: ReturnType<typeof useAnnounce> | undefined;
     const { container } = render(
       <LiveAnnouncerProvider announcer={announcer}>
-        <AnnouncingSurface
+        <AnnouncingComponent
           onReady={(announce) => {
             announced = announce;
           }}
@@ -93,7 +93,7 @@ describe("LiveAnnouncerProvider — it disposes only the announcer it built", ()
     const announcer = new LiveAnnouncer({ clock: new ManualClock() });
     const { unmount } = render(
       <LiveAnnouncerProvider announcer={announcer}>
-        <p>a surface</p>
+        <p>a component</p>
       </LiveAnnouncerProvider>,
     );
 
@@ -113,7 +113,7 @@ describe("LiveAnnouncerProvider — it disposes only the announcer it built", ()
     try {
       const { unmount, container } = render(
         <LiveAnnouncerProvider>
-          <AnnouncingSurface
+          <AnnouncingComponent
             onReady={(announce) => {
               built = announce;
             }}

@@ -1,28 +1,25 @@
 // A read that a push signal refreshes, and never a poll.
 //
-// A SEAT rather than one family's module: the roster, the Agents pane, the mount
-// inventory, and the attention plane each make a live read,
-// and every one of them has the same five-part discipline — stated for the roster and
-// needed identically by the others. It renders nothing, which is what lets it sit
-// below the view families that spend it:
+// Shared rather than owned by one feature: the roster, the Agents pane, the mount
+// inventory, and the attention read each make a live read, and every one of them has
+// the same five-part discipline. It renders nothing, which is what lets it sit in
+// `store/`, below the features that use it:
 //
 //   1. **Subscribe before reading.** The subscription is opened first, so no update
 //      can land in the gap between a read returning and a handler attaching. A
-//      surface that read first would miss exactly the changes that happened while
+//      reader that read first would miss exactly the changes that happened while
 //      it was reading, and would look correct doing it.
 //   2. **The signal is opaque.** A push carries no state. It is answered with a
-//      fresh read, so the surface holds no second copy of the publisher's model and
+//      fresh read, so the reader holds no second copy of the publisher's model and
 //      cannot drift from it.
 //   3. **One read per burst.** Every refresh goes through `lib/reads/refresh-scheduler.ts`'s
 //      `RefreshScheduler`, the console's refresh chokepoint — trailing debounce with
 //      an absolute deadline, so a continuous stream still gets a read.
 //   4. **No stale reply wins.** The scheduler serializes: a read requested while one
 //      is in flight becomes the NEXT read rather than a parallel one, so two replies
-//      never race and no sequence counter is needed to drop the loser. The shipped
-//      The pre-console roster needs one because it calls the bridge directly; routing through
-//      the chokepoint is what retires it.
+//      never race and no sequence counter is needed to drop the loser.
 //   5. **No flicker.** A refresh replaces the value in place and never returns a
-//      loaded surface to its loading shape, because a roster that blinked on every
+//      loaded view to its loading shape, because a roster that blinked on every
 //      presence push would be unreadable in a busy room. `not-loaded` is entered at
 //      construction and on one other occasion — an open that succeeded after a
 //      refusal, where nothing has arrived behind the new subscription yet.
@@ -38,22 +35,22 @@
 // what it does with it is the read's own business, and a read that ignores it lands
 // exactly where it always did.
 //
-// AND ONE ABOUT THE SUBSCRIPTION THAT CANNOT BE OPENED AT ALL. Rule 1 puts the
-// subscribe first, so a `subscribe` that throws SYNCHRONOUSLY throws out of the open
-// — which runs from a mount effect, so the throw lands in React's commit phase and
-// takes the surface down instead of producing the model's own `failed` state. Not
-// hypothetical: the installed stub preload bridge implements every daemon method
-// by throwing, so the device-presence read's subscribe is exactly this call under a live
-// window. So the open catches it and settles `failed` carrying the thrower's own
-// words — and requests no read, because a value fetched behind a subscription that
-// never opened could never be refreshed and would render as a live surface that has
-// quietly stopped listening.
+// AND ONE ABOUT THE SUBSCRIPTION THAT CANNOT BE OPENED AT ALL. Subscribing before reading
+// puts the subscribe first, so a `subscribe` that throws SYNCHRONOUSLY throws out of the
+// open — which runs from a mount effect, so the throw lands in React's commit phase and
+// takes the view down instead of producing the model's own `failed` state. Not
+// hypothetical: the installed stub preload bridge implements every daemon method by
+// throwing, so the device-presence read's subscribe is exactly this call under a live
+// window. So the open catches it and settles `failed` carrying the thrower's own words —
+// and requests no read, because a value fetched behind a subscription that never opened
+// could never be refreshed and would render as a live view that has quietly stopped
+// listening.
 //
-// WHICH IS WHY A REFUSED OPEN IS NOT THE END OF THE SURFACE. What "started" means here
+// WHICH IS WHY A REFUSED OPEN IS NOT THE END OF THE READ. What "started" means here
 // is the subscription HANDLE and nothing else. A separate flag, set before the attempt
 // rather than after it, made a refused open permanent: every later open returned at the
 // guard, `refresh()` went on requesting reads behind a subscription nothing had ever
-// taken, and the surface stayed `failed` for the life of the window — under the shipped
+// taken, and the read stayed `failed` for the life of the window — under the shipped
 // stub preload, whose subscribe throws, that is the ordinary path and not the unlucky
 // one. So a trigger — repair, focus, reconnect, a person asking again — re-attempts the
 // open, and one that succeeds clears the refusal rather than leaving `failed` beside a
@@ -83,14 +80,15 @@ export interface PushDrivenReadOptions<TValue> {
    *
    * The signal is the round's, from the read line the scheduler beneath this model
    * owns: it aborts when a newer read supersedes this one and when the model is
-   * disposed. A read that forwards it to the call door stops costing anything the
-   * moment its surface goes; one that ignores it still has its answer discarded, and
+   * disposed. A read that forwards it to the daemon call stops costing anything the
+   * moment its view goes; one that ignores it still has its answer discarded, and
    * that is the difference the parameter exists to make visible.
    */
   readonly read: (signal: AbortSignal) => Promise<TValue>;
   /**
    * Opens the change subscription. Called exactly once, BEFORE the first read is
-   * requested. The callback takes no payload on purpose — rule 2 above.
+   * requested. The callback takes no payload on purpose: the signal is opaque, and a
+   * push is answered with a fresh read.
    */
   readonly subscribe: (onChangeSignal: () => void) => Unsubscribe;
   /** Names this read in a refusal, so a failure says which read failed. */
@@ -123,7 +121,7 @@ export class PushDrivenRead<TValue> {
       // The perform body already converts a rejection into the `failed` arm, so
       // this handler covers only a throw from the conversion itself. It must exist:
       // without it the scheduler re-throws, and a re-throw inside a timer callback
-      // reaches no `catch` a surface could render.
+      // reaches no `catch` a view could render.
       onError: (error) => {
         this.#settle({ kind: "failed", refusal: this.#refusalFor(error) });
       },
@@ -172,8 +170,8 @@ export class PushDrivenRead<TValue> {
    *
    * Idempotent while the subscription is held, because React mounts an effect twice
    * under strict mode and a second subscription would double every refresh for the
-   * life of the surface — and deliberately not idempotent after an open that
-   * refused, which is how a re-mounting surface gets its subscription back.
+   * life of the view — and deliberately not idempotent after an open that
+   * refused, which is how a re-mounting view gets its subscription back.
    */
   public start(): void {
     this.#open("subscribe");
@@ -183,7 +181,7 @@ export class PushDrivenRead<TValue> {
    * Ask for a read, taking the subscription first where it is not held.
    *
    * Repeated calls inside the coalescing window cost one read. A caller asking while
-   * the subscription is down wants the live surface back, not one read behind a dead
+   * the subscription is down wants the live read back, not one read behind a dead
    * seam — so the open is part of what this does.
    */
   public refresh(reason: RefreshReason): void {
@@ -271,7 +269,7 @@ export class PushDrivenRead<TValue> {
     } catch (error) {
       if (round.signal.aborted) {
         // An abandoned read has no failure to report: whatever it settled as, the
-        // surface that would have rendered the refusal is gone or is already
+        // view that would have rendered the refusal is gone or is already
         // rendering a newer read's answer.
         return;
       }

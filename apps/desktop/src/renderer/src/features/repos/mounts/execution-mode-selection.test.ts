@@ -1,6 +1,6 @@
 // One mode switch per workspace on the wire at a time.
 //
-// Driven through `RepoMountsReader.requestModeSelection`, which is the one seam a surface
+// Driven through `RepoMountsReader.requestModeSelection`, which is the one seam a view
 // has: the selections are constructed by the reader and handed its host, so a case that
 // built an `ExecutionModeSelections` over a hand-written host would be asserting against a
 // host the console never composes.

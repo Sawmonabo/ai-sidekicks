@@ -7,7 +7,7 @@
 //     when a `pty.control_changed` transition reaches the fold, and not before.
 //   • **Never offers a take by the current holder.** A device that holds the shell
 //     sees no control, so the idempotent self-take — which succeeds and broadcasts
-//     nothing — is not reachable from this surface at all.
+//     nothing — is not reachable from the lease line at all.
 //   • **Never queues a take.** No retry, no timer, no wait list.
 //   • **Never offers a take it cannot attribute.** The control acts on this device's
 //     behalf and the fold names the holder by user id, so until this device's
@@ -28,7 +28,7 @@ export interface LeaseTakeControlProps {
    * Which device this is, which is what the control is gated on.
    *
    * The control acts on this device's behalf and the fold names the holder by user id,
-   * so a surface that offered it without the identity would be offering a control it
+   * so a lease line that offered it without the identity would be offering a control it
    * cannot report the outcome of: a take would come back as a hold it could not
    * recognize.
    */

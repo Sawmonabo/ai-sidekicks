@@ -1,6 +1,7 @@
 // The palette's five kinds of nothing.
 //
-// Rule 8: a renderer that collapses two of these into one is wrong. The palette
+// Each absence renders differently because the next move differs, so a renderer that
+// collapses two of these into one is wrong. The palette
 // can be empty for five distinct reasons and renders five distinct things — a
 // skeleton while contributions are still arriving, three different quiet lines
 // (nothing registered / nothing offered here / nothing matched), a red-edged row
@@ -29,7 +30,7 @@ import { QuietEmptyState } from "./QuietEmptyState.js";
  *
  * Supplied by the frame, because only the frame knows whether command
  * contributions have finished arriving or whether its context keys have been
- * evaluated. Defaults to `ready`, so a surface that does not care says nothing.
+ * evaluated. Defaults to `ready`, so a caller that does not care says nothing.
  */
 export type PaletteReadiness =
   | { readonly status: "ready" }

@@ -61,7 +61,7 @@ describe("a refused open says whether trying again is worth anything", () => {
     expect(lifecycle.isOpenable).toBe(true);
   });
 
-  it("closes the door on a request the registered shape refused", () => {
+  it("never re-opens after a request the registered shape refused", () => {
     const lifecycle = new WireReadLifecycle();
     lifecycle.refuseOpenTerminally(OPEN_REFUSED);
 

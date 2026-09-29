@@ -88,7 +88,7 @@ function renderNode(
     case "text":
       return node.value;
     case "html":
-      // Rule 1. The arm this whole file is arranged around.
+      // Model HTML renders as literal text. The arm this whole file is arranged around.
       return node.value;
     case "inlineCode":
       return <code className="meridian-markdown__code">{node.value}</code>;
@@ -104,7 +104,7 @@ function renderNode(
       // A message's `#` is not a page title — the transcript's rows are the document's
       // structure — so every level renders as one element carrying its depth, and
       // `markdown.css` gives the levels their weights. That is what keeps a message from
-      // out-shouting the surface it sits inside.
+      // out-shouting the transcript it sits inside.
       return (
         <p
           className="meridian-markdown__heading"
@@ -158,7 +158,7 @@ function renderNode(
       return renderFence(node.value, node.lang ?? null, context);
     case "link":
     case "linkReference":
-      // Rule 2. The text always survives; the anchor is what is withheld.
+      // No path links. The text always survives; the anchor is what is withheld.
       return (
         <span className="meridian-markdown__link meridian-markdown__link--inert">
           {renderChildren(node.children, context)}

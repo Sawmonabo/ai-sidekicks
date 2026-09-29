@@ -5,13 +5,11 @@
 // `driver-capability-read.ts` beside the wire. That module owns one call per bridge,
 // the scheduler that refreshes it, the cache that shares it, and the two hooks that
 // wire its triggers — a subject whose cases need a bridge, a frozen clock, and a
-// mounted probe. These need a `Map`. `driver-capability-readings.test.ts` had already
-// been split off for exactly that reason and was driving symbols that still lived
-// next door; this is the other half of that split.
+// mounted probe. These need a `Map`.
 //
 // THE READOUT IS THE PARAMETER AND NEVER A DEPENDENCY. Every function here takes the
 // readout it answers about, so the direction of the import is one-way — the wire does
-// not reach for these, and a surface holding a readout resolves against them without
+// not reach for these, and a view holding a readout resolves against them without
 // touching the read at all. `undefined` is admitted on every entry point because the
 // read may not have answered yet, and that absence is one of the three facts the
 // reading vocabulary below exists to keep apart.
@@ -29,7 +27,7 @@ import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capa
  * consumer, rather than inside the per-bridge cache, which holds no session and must
  * not start holding one.
  *
- * The readout is returned untouched where there is nothing to join, so a surface
+ * The readout is returned untouched where there is nothing to join, so a caller
  * that asked and got no bindings compares the same pointer it had.
  */
 export function withRunDriverBindings(
@@ -66,7 +64,7 @@ export function declaredFlagsForDriver(
  * declared it; `undeclared` — that driver declared it absent; `unknown` — nobody
  * has answered the question, because the read has not landed, the run's binding is
  * not nameable, or the named driver filed no report. The third is what a boolean
- * cannot carry, and the reason this is a set rather than a flag: a surface that
+ * cannot carry, and the reason this is a set rather than a flag: a view that
  * collapsed `unknown` onto `undeclared` would show a session whose read has not
  * landed exactly as it shows one bound to a driver that cannot do the thing.
  */
@@ -98,13 +96,11 @@ export function boundDriverNameForRun(
 /**
  * What this build knows about one flag on the driver ONE RUN is bound to.
  *
- * The console's single answer to that question. It used to be three: a
- * `boolean | undefined` in the runs pane, a three-value union in the composer, and a
- * `"declared" | "undeclared" | undefined` in the approvals pane — and the first two
- * disagreed about the same run, because only the pane resolved the binding through
- * the sole-report fallback while the rail was handed a driver name the session
- * projection had not supplied. One readout, one run, one moment, two answers, and
- * nothing derived from the other to report the split.
+ * The console's single answer to that question, so two views cannot disagree about
+ * the same run. A view that resolved the binding through the sole-report fallback and
+ * one handed a driver name the session projection had not supplied would otherwise
+ * give two answers for one readout, one run, one moment, with nothing derived from
+ * the other to report the split.
  */
 export function readingForDriver(
   readout: DriverCapabilityReadout | undefined,
@@ -123,11 +119,11 @@ export function readingForDriver(
 /**
  * The same question asked of a RUN rather than of a named driver.
  *
- * For a surface that holds a run and not a binding — the runs pane, which seats rows
- * it has only run ids for. A surface that already resolved the driver its agent is
+ * For a caller that holds a run and not a binding — the composer's run controls,
+ * which gate on a run id. A caller that already resolved the driver its agent is
  * attached to asks `readingForDriver` with the name it has: throwing that away and
- * re-deriving it from a map the readout may not carry is how the rail came to report
- * `unknown` for a run whose driver the session had named.
+ * re-deriving it from a map the readout may not carry reports `unknown` for a run
+ * whose driver the session had named.
  */
 export function readingForRun(
   readout: DriverCapabilityReadout | undefined,
@@ -152,56 +148,4 @@ function soleReportedDriverName(readout: DriverCapabilityReadout): string | unde
   }
   const [onlyReportedDriverName] = readout.flagsByDriverName.keys();
   return onlyReportedDriverName;
-}
-
-/**
- * Which reading survives when several runs answer the same question differently.
- *
- * Blunt precedence over the closed set, because the three are not equally strong
- * claims about a SESSION. `declared` is existential — one run whose driver hosts the
- * thing is enough for the session to be able to reach it — so it outranks both
- * others. `undeclared` is universal: it says NO addressed run can reach it, so a
- * single run nobody could answer for withdraws it, and `unknown` sits between them.
- *
- * A record over the union rather than an ordered array, so a sixth reading added to
- * `DRIVER_CAPABILITY_READINGS` is a compile error here instead of a silent zero.
- */
-const READING_PRECEDENCE: Readonly<Record<DriverCapabilityReading, number>> = {
-  declared: 2,
-  unknown: 1,
-  undeclared: 0,
-};
-
-/**
- * One flag's reading across every run a surface addresses, in any order.
- *
- * For a SESSION-scoped section whose subject is a set of runs rather than one — the
- * approvals pane's daemon-hosted tools, where the pending decisions may name runs
- * bound to different drivers. Reading the first of them and reporting its answer for
- * the rest made the section's claim depend on the order the records happened to
- * arrive in while the bindings stood still, so the fold is a maximum over the whole
- * set: order-independent by construction, and idempotent under a repeated run id.
- *
- * An EMPTY set is answered by the node's own reading rather than by the identity of
- * the fold. Two situations reach it — no run is addressed, and the read that would
- * have named the runs has not answered — and one answer is honest for both, because
- * `readingForDriver` with no driver name is decisive exactly where one driver filed a
- * report and says nobody has asked where two did.
- */
-export function readingAcrossRuns(
-  readout: DriverCapabilityReadout | undefined,
-  runIds: readonly string[],
-  flag: DriverCapabilityFlag,
-): DriverCapabilityReading {
-  if (runIds.length === 0) {
-    return readingForDriver(readout, undefined, flag);
-  }
-  let strongest: DriverCapabilityReading = "undeclared";
-  for (const runId of runIds) {
-    const reading = readingForRun(readout, runId, flag);
-    if (READING_PRECEDENCE[reading] > READING_PRECEDENCE[strongest]) {
-      strongest = reading;
-    }
-  }
-  return strongest;
 }

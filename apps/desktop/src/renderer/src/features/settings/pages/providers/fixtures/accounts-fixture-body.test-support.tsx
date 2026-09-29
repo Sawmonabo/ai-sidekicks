@@ -1,7 +1,7 @@
-// Mounting the accounts shell over a registry reading built here, and reading it back.
+// Mounting the accounts fixture body over a registry reading built here, and reading it back.
 //
 // Hoisted because three suites drive this page — what the registry reading renders, and
-// what the sign-in plane does while a flow is running or after it has ended — and all
+// what the sign-in tracker does while a flow is running or after it has ended — and all
 // three need the same registry, the same mount and the same readers over the rendered
 // list. The registry is built from the contract types, so every state a case reaches is
 // one the wire can carry.
@@ -26,12 +26,12 @@ import {
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
 
-/** A mounted shell, and the handles a case needs to change what it is handed. */
+/** A mounted fixture body, and the handles a case needs to change what it is handed. */
 export interface MountedAccountsPage {
   readonly container: HTMLElement;
   /** Re-render the same mount with another registry reading. */
   readonly showRegistry: (registry: AccountListReading) => void;
-  /** Called each time the shell asks for a fresh registry read. */
+  /** Called each time the fixture body asks for a fresh registry read. */
   readonly requestRegistryRead: ReturnType<typeof vi.fn<() => void>>;
 }
 
@@ -162,16 +162,16 @@ export function registryReportingCompleted(attemptId: string): AccountListReadin
 }
 
 /**
- * Mount the shell under the two providers every console surface renders inside.
+ * Mount the fixture body under the two providers every console screen renders inside.
  *
  * A verb the case does not supply never answers. The operations object is created once so
- * a re-render does not rebuild the sign-in plane.
+ * a re-render does not rebuild the sign-in tracker.
  */
 export function mountAccountsPage(options: {
   readonly registry: AccountListReading;
   readonly operations?: Partial<AccountOperations>;
 }): MountedAccountsPage {
-  const fixture = createFixtureBridge({ scenario: unscriptedScenario("accounts-shell") });
+  const fixture = createFixtureBridge({ scenario: unscriptedScenario("accounts-fixture-body") });
   const operations: AccountOperations = {
     login: () => NEVER_SETTLES,
     cancelLogin: () => NEVER_SETTLES,

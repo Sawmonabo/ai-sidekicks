@@ -1,10 +1,10 @@
-// The sentence a posture surface says in words rather than in figures.
+// The sentence a posture card says in words rather than in figures.
 
 /**
  * The enforcement caveat the corpus states, rendered wherever the facts are.
  *
  * It travels with the FACTS and not with the mode label, because it is a statement
- * about what the label does not promise — a surface that showed the facts without it
+ * about what the label does not promise — a card that showed the facts without it
  * would be presenting a mode as a uniform operating-system boundary, which on the
  * Claude leg it is not.
  */

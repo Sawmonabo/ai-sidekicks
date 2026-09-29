@@ -1,8 +1,8 @@
-// Ranked slots, and a row that names its own failure.
+// Ranked error entries, and a row that names its own failure.
 //
 // The ranking is the whole subject: the failure the design guards against is a
 // transient error arriving a frame after a durable one and taking its Retry off the
-// screen. So every case here holds TWO slots at once and asserts which one is the
+// screen. So every case here holds TWO entries at once and asserts which one is the
 // card.
 
 import { render, screen } from "@testing-library/react";
@@ -23,13 +23,13 @@ const GEOMETRY_FAILURE = refuse(
   "The viewport was not measurable.",
 );
 
-describe("the transcript's error slots", () => {
+describe("the transcript's error table", () => {
   it("ranks the durable failure above the transient one", () => {
-    const slots = new TranscriptErrorTable();
-    slots.record("geometry", GEOMETRY_FAILURE);
-    slots.record("row-projection", PROJECTION_FAILURE);
-    expect(slots.highest()?.kind).toBe("row-projection");
-    expect(slots.entries().map((entry) => entry.kind)).toStrictEqual([
+    const errorTable = new TranscriptErrorTable();
+    errorTable.record("geometry", GEOMETRY_FAILURE);
+    errorTable.record("row-projection", PROJECTION_FAILURE);
+    expect(errorTable.highest()?.kind).toBe("row-projection");
+    expect(errorTable.entries().map((entry) => entry.kind)).toStrictEqual([
       "row-projection",
       "geometry",
     ]);
@@ -37,10 +37,10 @@ describe("the transcript's error slots", () => {
 
   it("negative control: the rank is the declaration order, not the recording order", () => {
     // Recorded the other way round; the answer must not move.
-    const slots = new TranscriptErrorTable();
-    slots.record("row-projection", PROJECTION_FAILURE);
-    slots.record("geometry", GEOMETRY_FAILURE);
-    expect(slots.entries().map((entry) => entry.kind)).toStrictEqual([
+    const errorTable = new TranscriptErrorTable();
+    errorTable.record("row-projection", PROJECTION_FAILURE);
+    errorTable.record("geometry", GEOMETRY_FAILURE);
+    expect(errorTable.entries().map((entry) => entry.kind)).toStrictEqual([
       "row-projection",
       "geometry",
     ]);
@@ -52,20 +52,20 @@ describe("the transcript's error slots", () => {
     ]);
   });
 
-  it("clears one slot without touching the others", () => {
-    const slots = new TranscriptErrorTable();
-    slots.record("geometry", GEOMETRY_FAILURE);
-    slots.record("row-projection", PROJECTION_FAILURE);
-    slots.clear("geometry");
-    expect(slots.recordedKindCount).toBe(1);
-    expect(slots.highest()?.kind).toBe("row-projection");
+  it("clears one entry without touching the others", () => {
+    const errorTable = new TranscriptErrorTable();
+    errorTable.record("geometry", GEOMETRY_FAILURE);
+    errorTable.record("row-projection", PROJECTION_FAILURE);
+    errorTable.clear("geometry");
+    expect(errorTable.recordedKindCount).toBe(1);
+    expect(errorTable.highest()?.kind).toBe("row-projection");
   });
 
   it("renders the highest as a card and the rest inline, and renders nothing when empty", () => {
-    const slots = new TranscriptErrorTable();
-    slots.record("geometry", GEOMETRY_FAILURE);
-    slots.record("row-projection", PROJECTION_FAILURE);
-    const { container } = render(<TranscriptErrors entries={slots.entries()} />);
+    const errorTable = new TranscriptErrorTable();
+    errorTable.record("geometry", GEOMETRY_FAILURE);
+    errorTable.record("row-projection", PROJECTION_FAILURE);
+    const { container } = render(<TranscriptErrors entries={errorTable.entries()} />);
     expect(container.querySelectorAll(".meridian-refusal--card")).toHaveLength(1);
     expect(container.querySelectorAll(".meridian-refusal--inline")).toHaveLength(1);
     expect(screen.getByText("renderer.row_projection_failed")).toBeDefined();

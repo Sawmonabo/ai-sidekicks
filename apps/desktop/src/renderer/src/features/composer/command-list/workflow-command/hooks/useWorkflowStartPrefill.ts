@@ -13,7 +13,7 @@
 // command chosen by keyboard, one row away from another, with nothing between the
 // press and the loss. So the write happens only into a line with nothing in it, and a
 // line that holds something takes an EXPLICIT decision first: the text stands until
-// the person says otherwise, and the surface that asks names what would go.
+// the person says otherwise, and the question that asks names what would go.
 //
 // BLANKNESS IS DECIDED BY TRIMMING AND THE TEXT IS NEVER TRIMMED. Whitespace alone is
 // nothing a person would ask to keep, and the send router already decides emptiness
@@ -30,7 +30,7 @@ import {
   WORKFLOW_START_COMMAND_PREFILL,
 } from "../workflow-command-grammar.js";
 
-/** The owner this command is contributed under. One per family, one live at a time. */
+/** The owner this command is contributed under. One per feature, one live at a time. */
 const WORKFLOW_START_COMMAND_OWNER = "composer-workflow-start";
 
 /** What the palette entry's act resolves to for the line as it stands. */
@@ -65,7 +65,7 @@ export function decideWorkflowStartPrefill(currentText: string): WorkflowStartPr
  * Contribute the palette entry for one mounted composer, and hold its one decision.
  *
  * The composer's LINE is what this half acts on, which is why it lives beside the
- * surface that watches the line rather than beside the send path that spends the
+ * command list that watches the line rather than beside the send path that spends the
  * handler: the entry writes a draft and asks for the caret, and neither is something
  * the send bar does.
  *

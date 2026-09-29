@@ -1,9 +1,10 @@
 // The contract the send bar consumes, and the object the controller is built from.
 //
-// Split from `send-controller.ts` because it is a different job: that module holds
-// the hook that FULFILLS this, and this holds what the surface may ask of it. The
+// Split from `hooks/useSendController.ts` because it is a different job: that module
+// holds the hook that FULFILLS this, and this holds what the composer's views may ask
+// of it. The
 // split is what keeps either file readable, and it is what lets a component take the
-// controller's type without importing the hook — a seat that renders a controller
+// controller's type without importing the hook — a component that renders a controller
 // somebody else built has no reason to pull in a `useState` chain to do it.
 //
 // EVERY DEPENDENCY IS ONE OBJECT, so a new one is one edit rather than one at each
@@ -27,7 +28,7 @@ export interface SendControllerDependencies {
   /** The two daemon calls a send makes. */
   readonly calls: ComposerSendCalls;
   readonly target: ComposerTarget;
-  /** The window-lifetime draft store the composer seat is handed. */
+  /** The window-lifetime draft store the composer is handed. */
   readonly draftStore: DraftStore;
   /**
    * Whether a name is a registered client command.
@@ -49,7 +50,7 @@ export interface SendControllerDependencies {
   /**
    * Runs a recognized client command, when this composer has one to run with.
    *
-   * Optional because the command family is a separate zone that mounts its own
+   * Optional because the command list is a separate zone that mounts its own
    * recognizer and executor together. Absent, an intercepted line REFUSES: the
    * router only intercepts a name a recognizer claimed, so reaching this arm with
    * no executor means the two halves were wired apart, and clearing the line would

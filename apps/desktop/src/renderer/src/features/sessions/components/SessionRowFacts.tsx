@@ -7,7 +7,7 @@ import { type SessionListRow } from "../rows/session-rows.js";
  * THAT INSTANT CARRIES ITS DAY. The list has no day divider, so a clock-only reading
  * made a session touched an hour ago and one touched last week at the same minute the
  * same eight characters, and the sort order was the only thing left saying which was
- * which. `formatDateTime` exists for exactly the surface that has no other carrier of
+ * which. `formatDateTime` exists for exactly the view that has no other carrier of
  * the day, and says so in its own words.
  */
 export function SessionRowFacts(props: { readonly row: SessionListRow }): React.JSX.Element {

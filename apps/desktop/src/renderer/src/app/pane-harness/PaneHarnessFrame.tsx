@@ -1,16 +1,16 @@
 // The pane harness's region, its two controls, and its count line.
 //
 // Split out of `PaneHarnessScreen.tsx` so that module declares one component. It is
-// shared by every arm of the surface rather than repeated because the count line is
+// shared by every arm of the harness screen rather than repeated because the count line is
 // what a driver reads to know how many bodies are mounted, and an arm that rendered
 // an absence without it would leave a driver waiting on a line that never appears.
 //
-// Fixture-only, like the surface it frames: only the fixture composition registers
-// the surface, and a release bundle drops the composition and this module with it.
+// Fixture-only, like the screen it frames: only the fixture composition registers
+// the screen, and a release bundle drops the composition and this module with it.
 
 import type { ReactNode } from "react";
 
-/** The surface region's accessible name — how a driver finds this surface. */
+/** The harness region's accessible name — how a driver finds this screen. */
 export const PANE_HARNESS_LABEL = "Pane harness";
 
 /** The control that mounts one more instance of the addressed kind. */

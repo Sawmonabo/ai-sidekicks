@@ -25,7 +25,7 @@ import { WorkflowRunsReadState } from "./components/WorkflowRunsReadState.js";
 export interface WorkflowRunsProps {
   /** Where the session's run enumeration stands. */
   readonly directory: WorkflowRunDirectoryState;
-  /** Opens one run. Absent while the mounting surface cannot address one. */
+  /** Opens one run. Absent while whatever mounts the list cannot address one. */
   readonly onOpenRun?: ((row: WorkflowRunListRow) => void) | undefined;
 }
 

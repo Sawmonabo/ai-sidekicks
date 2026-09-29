@@ -16,7 +16,7 @@
 //
 // The host is reached through `globalThis` and typed here rather than imported,
 // because the renderer's test program deliberately carries no Node types — pulling
-// them in to reach one listener would put the whole Node surface into the typegraph of
+// them in to reach one listener would put the whole Node API into the typegraph of
 // every renderer test, which is what `src/renderer/tsconfig.test.json` exists to
 // prevent. No renderer MODULE reads this; it is a test looking at its own host.
 

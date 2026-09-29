@@ -1,24 +1,19 @@
-// The definition file's two sides as the door publishes them: the same two calls, with
-// the module that performs them fetched first.
+// The definition file's two sides as the definition detail's acts call them: the same
+// two calls, with the module that performs them fetched first.
 //
-// WHY THIS MODULE EXISTS AT ALL. The bridge door is on the console's initial import
-// graph — the renderer root reaches it — so every symbol the door names is charged to
-// every launch. The only surfaces that export or import a definition file are lazily
-// loaded workflow bodies, and the reading side pulls in a YAML parser, a body reader
-// and a tool-binding reader behind it. Publishing those directly would put the whole
-// sub-graph on a launch that never opens a definition, against the initial-bundle
-// budget the console's design language sets.
+// WHY THIS MODULE EXISTS AT ALL. The reading side pulls in a YAML parser, a body reader
+// and a tool-binding reader behind it. Importing the form module directly would put
+// that whole sub-graph in the chunk that draws a definition, charged to every view of
+// one whether or not anybody exports or imports it.
 //
-// SO THE DOOR NAMES THIS, AND THIS NAMES THE WORK THROUGH `import()`. What stays on the
-// graph is two function bodies and a type reference that erases; the codec, its parser
+// SO THE ACTS IMPORT THIS, AND THIS NAMES THE WORK THROUGH `import()`. What stays on the
+// graph is two function bodies and a type reference that erases; the form, its parser
 // and everything under it are emitted as their own chunk and fetched the first time
 // somebody presses export or import.
 //
-// AND THE DEFERRAL IS HERE RATHER THAN IN THE CALLER. A view family may not reach past
-// this family's door — `console-cross-family-deep-import` closes that — so a workflow
-// body cannot `import()` the form module itself. The wrapper belongs on this side of
-// the door, which is also where the reason for it is legible: the door's own eagerness
-// is what has to be paid for.
+// AND THE DEFERRAL IS HERE RATHER THAN IN EACH CALLER. The export act and the import
+// act both reach the form, and one wrapper beside it keeps the `import()` in one place
+// rather than one copy per act.
 //
 // NO MEMO IS KEPT BESIDE IT. The module map is already the memo, there is no render
 // state to observe, and a third copy of the loader class `terminal/emulator/
@@ -27,7 +22,8 @@
 //
 // THE ONLY WAY THESE REJECT is a chunk that did not load, which is a fact about the
 // install rather than about the definition — so it travels as a rejection to the
-// surface's own rejection seam rather than as a sentence about a file that is fine.
+// calling act, which reports a rejected call, rather than as a sentence about a file
+// that is fine.
 
 import type {
   WorkflowDefinitionFileReading,
