@@ -381,7 +381,7 @@ export function signRow(
  *
  * SCOPE — THIS IS AN INTRA-ROW CHECK, AND `valid: true` CLAIMS LESS THAN IT
  * READS. It proves one row's three integrity columns agree with its own
- * canonical bytes; it can prove nothing about the row's neighbours, because it
+ * canonical bytes; it can prove nothing about the row's neighbors, because it
  * is handed none. The gap is not theoretical: DELETE a middle row and every
  * surviving row still has mutually consistent columns and a signature that
  * verifies, because nothing was forged, so a per-row pass over the remainder
@@ -521,7 +521,7 @@ export function verifyRow(
   // a throw would fire on none of them, and go unreported).
   //
   // WITHOUT THIS CHECK THE REFUSAL IS INCIDENTAL, NOT GUARANTEED — AND IT IS
-  // MIS-LABELLED EITHER WAY. An all-zero 64-byte signature is SYNTACTICALLY
+  // MIS-LABELED EITHER WAY. An all-zero 64-byte signature is SYNTACTICALLY
   // WELL-FORMED: `R` = 32 zero bytes decodes to a valid curve point (y = 0,
   // x = sqrt(-1)) of order 4, and `S` = 0 is a canonical scalar below the group
   // order, so nothing refuses it on shape. What refuses it is the verification
@@ -531,7 +531,7 @@ export function verifyRow(
   // key rather than on any named rule: against a SMALL-ORDER key noble's
   // ZIP-215 default accepts the identical all-zero signature, and only this
   // module's `{ zip215: false }` refuses it there (see {@link verifyEd25519}).
-  // Contingent-and-mis-labelled is the whole argument for naming it here.
+  // Contingent-and-mis-labeled is the whole argument for naming it here.
   //
   // THE SIGNATURE CONJUNCT IS SCOPED TO EXACTLY 64 BYTES, WHICH IS NOT AN
   // OVERSIGHT. `CHECK(length(daemon_signature) = 64)` means a wrong-width

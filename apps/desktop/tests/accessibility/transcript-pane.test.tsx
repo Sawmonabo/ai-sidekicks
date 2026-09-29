@@ -133,7 +133,7 @@ beforeEach(() => {
   installMeridianTokens(document);
   // The row seat, filled with the same shell the console registers. Without it the
   // pane renders its reserved-not-built absence and this whole file would be
-  // measuring a grey line where the transcript is supposed to be.
+  // measuring a gray line where the transcript is supposed to be.
   registerTranscriptRows();
 });
 

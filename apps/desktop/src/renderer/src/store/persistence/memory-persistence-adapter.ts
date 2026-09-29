@@ -107,7 +107,7 @@ export class MemoryPersistenceAdapter implements PersistenceAdapter {
     return Promise.resolve();
   }
 
-  public summarisePartitions(): Promise<readonly PartitionSummary[]> {
+  public summarizePartitions(): Promise<readonly PartitionSummary[]> {
     this.#assertOpen();
     const summaries: PartitionSummary[] = [];
     for (const [partition, records] of this.#recordsByPartition) {

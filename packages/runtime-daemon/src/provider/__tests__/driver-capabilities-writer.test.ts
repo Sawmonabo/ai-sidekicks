@@ -1509,7 +1509,7 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
   });
 
   it("REFUSES to hydrate a cached `output_speed` for a driver that declares no vocabulary", async () => {
-    // A wiring fault rather than provider misbehaviour: either a driver was
+    // A wiring fault rather than provider misbehavior: either a driver was
     // registered without a vocabulary entry, or the row was written out-of-band.
     // Loud is the same discipline the row-set-invariant guard takes — the quiet
     // alternative publishes a report that violates its own required-when rule.

@@ -808,7 +808,7 @@ export function withEpochStamp<
  * sealed user partition to the row's signature without carrying the
  * plaintext into the signed bytes.
  *
- * SNAKE_CASE beside camelCase neighbours, deliberately: spells both members of
+ * SNAKE_CASE beside camelCase neighbors, deliberately: spells both members of
  * this pair that way, and rows have been signed under these exact literals
  * since the sealing codec shipped. A spelling "cleanup" here would not tidy
  * anything — it would break signature verification on every existing PII row.

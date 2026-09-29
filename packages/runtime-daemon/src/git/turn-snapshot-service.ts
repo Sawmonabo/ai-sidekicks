@@ -830,7 +830,7 @@ export interface TurnSnapshotFilesystem {
  * learns WHERE a capture stopped without this module echoing git's stderr.
  *
  * The sparse closure added exactly TWO members, slotted in execution order
- * rather than overloaded onto neighbours, because each is a distinct thing an
+ * rather than overloaded onto neighbors, because each is a distinct thing an
  * operator does about a failure:
  *
  *   * `detect-sparse-root` — the `core.sparseCheckout` read failed, which is a
@@ -1810,7 +1810,7 @@ export const runTurnSnapshotGitWithExecFile: TurnSnapshotGitRunner = (
     if (childStdin !== null) {
       // A child that exits before draining its stdin — `update-index` refusing
       // its arguments, say — makes this write EPIPE. That is the invocation's
-      // failure, already travelling on the exit status the callback rejects
+      // failure, already traveling on the exit status the callback rejects
       // with; an unhandled `error` event here would crash the daemon instead.
       childStdin.on("error", () => {
         /* see above */

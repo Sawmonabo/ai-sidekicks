@@ -152,7 +152,7 @@ export class LazyBodyIdleWarm<TKey> {
     // a pane nobody opened.
     void this.#board.preload(key).catch(() => undefined);
     // Armed immediately rather than after the load settles: the fetch is the browser's
-    // to schedule, and waiting for it would serialise the walk behind the slowest chunk.
+    // to schedule, and waiting for it would serialize the walk behind the slowest chunk.
     // What stops the next step re-selecting this key is the attempted set and not the
     // board's memo: the memo is written synchronously by `preload` and released again if
     // that load rejects, so it answers "in flight or loaded" and not "already asked for".

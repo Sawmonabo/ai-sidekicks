@@ -58,7 +58,7 @@ const registry = BudgetRegistry.load();
  * This file's collector and settling loop.
  *
  * One per test file, beside the harness it measures, rather than a module the tier
- * shares with every other: the resolution is memoised, and a memo any tier could
+ * shares with every other: the resolution is memoized, and a memo any tier could
  * poison would let one file's failure decide what a later one is allowed to
  * measure.
  */

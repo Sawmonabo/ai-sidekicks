@@ -25,7 +25,7 @@ import {
  * A scheduler whose timers fire only when a test says so.
  *
  * `fireAll` is what stands in for the declared bound elapsing. Cancellation is
- * RECORDED rather than merely honoured, because "the timer was canceled" is the
+ * RECORDED rather than merely honored, because "the timer was canceled" is the
  * observable difference between a wait that settled on evidence and one that was
  * left armed to fire into a settled promise later.
  */
@@ -221,9 +221,9 @@ describe("PendingCompactionRegistry — withdrawal", () => {
     await expect(raceAgainstMicrotask(withdrawn.settled)).resolves.toBe(NEVER_SETTLED);
   });
 
-  it("stays withdrawn even when the bound then fires through a canceller that does nothing", async () => {
+  it("stays withdrawn even when the bound then fires through a canceler that does nothing", async () => {
     // The `closed`-BEFORE-`cancelTimer` ordering, driven rather than asserted.
-    // This scheduler's canceller is a no-op — the shape of any host whose clear
+    // This scheduler's canceler is a no-op — the shape of any host whose clear
     // races the fire — so a withdrawal that relied on cancellation alone would
     // deliver `wait_expired` into a promise whose caller had already returned
     // `provider_error`, and the wait would settle after all.

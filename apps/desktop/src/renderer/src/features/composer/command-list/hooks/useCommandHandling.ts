@@ -67,7 +67,7 @@ export function useCommandHandling(options: {
       }).status === "recognized",
     [readCommands],
   );
-  // The executor is memoised and outlives every render, so it reads the handlers through
+  // The executor is memoized and outlives every render, so it reads the handlers through
   // the latest-ref at call time rather than closing over the ones it was built with.
   const handlersRef = useLatestRef(commandLineHandlers);
   const commandExecutor = useMemo(

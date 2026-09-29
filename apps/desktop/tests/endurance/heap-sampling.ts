@@ -30,7 +30,7 @@
 //
 // WHY THE MEMO IS OWNED BY AN OBJECT AND NOT BY THE MODULE
 //
-// The resolution has to be memoised — `setFlagsFromString` mutates process-wide
+// The resolution has to be memoized — `setFlagsFromString` mutates process-wide
 // state, and calling it per sample would flip the flag hundreds of times in a run.
 // Held in module-level variables that memo became process-global and
 // order-dependent: one early failed resolution permanently hid a `globalThis.gc`
@@ -68,7 +68,7 @@ function resolveExposedCollector(): (() => void) | undefined {
   } finally {
     // Left off for everything downstream of this call: the flag is needed to
     // COMPILE the accessor, not to hold it, and leaving it on changes how the
-    // rest of the run is optimised.
+    // rest of the run is optimized.
     v8.setFlagsFromString("--no-expose-gc");
   }
 }
@@ -152,7 +152,7 @@ export class HeapSampler {
   }
 
   /**
-   * Collect, let pending finalisation run, and read.
+   * Collect, let pending finalization run, and read.
    *
    * The rounds are what make the reading comparable: one collection reclaims what
    * is unreachable at that instant, and a disposed emulator's listeners are

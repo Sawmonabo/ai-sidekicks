@@ -130,7 +130,7 @@ export interface ArtifactEntityRef extends EntityRef {
  *
  * Carries an entity reference because `artifact` is already one of the console's
  * own entity kinds — the store partitions artifacts, and a second identity
- * vocabulary for the same rows would be the denormalised copy `store/entities/entities.ts`
+ * vocabulary for the same rows would be the denormalized copy `store/entities/entities.ts`
  * refuses. It carries the ARTIFACT-partitioned reference specifically, for the
  * reason on that type.
  */

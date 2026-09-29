@@ -151,7 +151,7 @@ describe("the session screen renders the refused resume position", () => {
     expect(screen.getByText(REFUSAL_CODE)).toBeTruthy();
   });
 
-  it("negative control: an honoured position renders no notice at all", async () => {
+  it("negative control: an honored position renders no notice at all", async () => {
     // Without this, a screen that rendered the sentence unconditionally would pass
     // both cases above — and would tell every session its position was lost.
     await renderSessionScreen({

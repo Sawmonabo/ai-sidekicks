@@ -1,6 +1,6 @@
 // A registered approvals row answers through the render that is ON SCREEN.
 //
-// The rows are memoised on what they SAY, so everything that moves underneath them —
+// The rows are memoized on what they SAY, so everything that moves underneath them —
 // the pending records and the two dispatchers — is read through a ref when a person
 // presses Enter. That makes WHERE the ref is written the whole safety property: a
 // pass React discards has already run this hook, and a pass discarded while the pane

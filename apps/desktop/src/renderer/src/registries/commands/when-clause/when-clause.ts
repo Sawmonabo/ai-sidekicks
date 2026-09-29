@@ -111,7 +111,7 @@ export function collectWhenClauseIdentifiers(node: WhenClauseNode): readonly str
 }
 
 /**
- * A canonical rendering of the clause, fully parenthesised at the operator
+ * A canonical rendering of the clause, fully parenthesized at the operator
  * boundaries that matter. Used for diagnostics and for naming a scope in a
  * conflict report, so two spellings of one clause read identically to a person.
  */

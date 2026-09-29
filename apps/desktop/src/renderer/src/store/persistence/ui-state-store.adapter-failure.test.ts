@@ -50,7 +50,7 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     // A one-byte ceiling puts the very first write over quota, so the store takes
     // its trim-and-retry arm immediately and the count that arm opens with fails.
     const store = new UiStateStore({
-      adapter: new BookkeepingFailureAdapter("summarise", connectionLost(), { capacityBytes: 1 }),
+      adapter: new BookkeepingFailureAdapter("summarize", connectionLost(), { capacityBytes: 1 }),
       clock: new ManualClock(1_000),
     });
 
@@ -113,8 +113,8 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
     // filed under a code that names storage.
     const store = new UiStateStore({
       adapter: new BookkeepingFailureAdapter(
-        "summarise",
-        new TypeError("summarisePartitions is not a function"),
+        "summarize",
+        new TypeError("summarizePartitions is not a function"),
         { capacityBytes: 1 },
       ),
       clock: new ManualClock(1_000),
@@ -135,11 +135,11 @@ describe("a store whose trim fails refuses the write rather than rejecting it", 
  * one operation misbehaves.
  */
 class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
-  readonly #failingOperation: "summarise" | "trim";
+  readonly #failingOperation: "summarize" | "trim";
   readonly #failure: Error;
 
   public constructor(
-    failingOperation: "summarise" | "trim",
+    failingOperation: "summarize" | "trim",
     failure: Error,
     options: MemoryPersistenceAdapterOptions = {},
   ) {
@@ -148,10 +148,10 @@ class BookkeepingFailureAdapter extends MemoryPersistenceAdapter {
     this.#failure = failure;
   }
 
-  public override summarisePartitions(): Promise<readonly PartitionSummary[]> {
-    return this.#failingOperation === "summarise"
+  public override summarizePartitions(): Promise<readonly PartitionSummary[]> {
+    return this.#failingOperation === "summarize"
       ? Promise.reject(this.#failure)
-      : super.summarisePartitions();
+      : super.summarizePartitions();
   }
 
   public override trimPartitions(keepSessionPartitions: number): Promise<number> {

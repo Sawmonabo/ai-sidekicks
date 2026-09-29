@@ -353,7 +353,7 @@ function unverifiedRootClaimants(
  * A non-zero exit is not automatically a failure — a tree already gone is one of
  * the things taskkill refuses — so this reports the STATUS and the arm above
  * decides, asking the operating system rather than reading taskkill's message,
- * which is localised and must not depend on the runner's display language.
+ * which is localized and must not depend on the runner's display language.
  *
  * Run through the one bounded door in `readers.ts` for the reason every other
  * host command here is: it is a `spawnSync`, so a `taskkill` that does not

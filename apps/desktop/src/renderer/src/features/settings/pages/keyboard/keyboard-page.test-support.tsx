@@ -33,7 +33,7 @@ export const TEST_COMMAND_IDS = [
 /**
  * A chord no platform reads differently.
  *
- * `$mod` resolves against the host, so a synthesised press naming it would be a
+ * `$mod` resolves against the host, so a synthesized press naming it would be a
  * second platform reading in a test file. `Alt` is the same key everywhere, which is
  * all these cases need — what is under test is the seam, not the modifier.
  */

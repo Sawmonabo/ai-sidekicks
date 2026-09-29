@@ -1,7 +1,7 @@
 // What a route renders while its screen's module is still arriving.
 //
 // THE SCREEN'S OWN ABSENCE FRAME, EMPTY. `primitives/ScreenNotice` is the console's
-// one answer to "the whole screen has nothing in it": a centred measure at the scale of
+// one answer to "the whole screen has nothing in it": a centered measure at the scale of
 // the window, which is what keeps a quiet line from reading as a page that failed to
 // finish painting. A route waiting on a chunk is exactly that scale of nothing, so it
 // takes the same frame rather than a second one, and takes it EMPTY.

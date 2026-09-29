@@ -38,7 +38,7 @@ describe("chord decoding — the comparator and the printer decode alike", () =>
   });
 
   it("does not call two different keys a conflict", () => {
-    // The negative half: a comparator that normalised too aggressively — folding
+    // The negative half: a comparator that normalized too aggressively — folding
     // `KeyK` to `K` and then `Keyboard` to `board`, say — would refuse bindings
     // that have nothing to do with each other.
     const registry = new CommandRegistry();

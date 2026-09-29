@@ -31,9 +31,9 @@ export interface SessionDestinationActs {
 /**
  * Bind the destination's acts to one surface context.
  *
- * NOT A HOOK AND NOT MEMOISED, on the rule `ScreenContext` itself states: the
+ * NOT A HOOK AND NOT MEMOIZED, on the rule `ScreenContext` itself states: the
  * context is composed fresh on every frame render, so a dependency array naming it
- * memoises nothing. Nothing here needs a stable identity either — every consumer is
+ * memoizes nothing. Nothing here needs a stable identity either — every consumer is
  * rendered by the surface on every pass regardless, and the one callback that IS read
  * outside a render is read through the commit-time ref its own control holds.
  *

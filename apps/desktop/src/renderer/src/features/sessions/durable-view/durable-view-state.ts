@@ -36,7 +36,7 @@
 // record, so two of them in flight at once are two whole records racing for the same
 // key: pinning a session and then pinning a second one before the first write
 // settles could leave the one-pin snapshot durable, and the adapter's own settlement
-// order is not the order the acts happened in. So the writes are SERIALISED — one at
+// order is not the order the acts happened in. So the writes are SERIALIZED — one at
 // the store at a time, the newest snapshot nothing has carried yet waiting behind it,
 // and a later act REPLACING that waiting snapshot rather than queueing after it,
 // because the value is a full record and writing the intermediate one first would

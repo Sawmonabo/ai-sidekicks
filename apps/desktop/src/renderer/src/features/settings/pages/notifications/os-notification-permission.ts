@@ -1,6 +1,6 @@
 // Whether this machine's operating system will let the main process raise a notification.
 //
-// Lives at the bridge because the notification centre and the notifications page both
+// Lives at the bridge because the notification center and the notifications page both
 // ask it, and a view family may not import its sibling. Every window trigger re-reads
 // it, since the person grants the permission outside this application; the scheduler
 // serializes probes and the latch drops a reply from a superseded round.

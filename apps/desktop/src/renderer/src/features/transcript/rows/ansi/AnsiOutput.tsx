@@ -7,7 +7,7 @@
 // file short enough to read.
 //
 // A `<pre>` and not a `<div>`: command output is preformatted by definition, and the
-// element that says so is the one screen readers and copy-paste both already honour.
+// element that says so is the one screen readers and copy-paste both already honor.
 // The mono face comes from `rows.css`, which reads the same type token every wire
 // figure in the console reads.
 //

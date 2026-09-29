@@ -11,7 +11,7 @@
 //   1. **`html` nodes render as literal text**, at block and inline level both. That is
 //      what "Model HTML is never rendered" means concretely, and it is why NO SANITIZER
 //      IS ON THIS PATH — nothing is ever parsed as markup, so there is nothing to
-//      sanitise. `<script>alert(1)</script>` in a message reaches the screen as the
+//      sanitize. `<script>alert(1)</script>` in a message reaches the screen as the
 //      characters an author typed.
 //   2. **No path links.** A link renders as its own text with no anchor and no href.
 //      `remend`'s sentinel for an unfinished link takes the same disposition for a

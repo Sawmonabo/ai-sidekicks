@@ -393,7 +393,7 @@ export {
 
 // The stamped execution boundary, and the disclosure of what a rewind did to the
 // working tree. Both are in this family for the same reason and it is the layering
-// rule rather than a judgement about where they read best: the runs pane and the
+// rule rather than a judgment about where they read best: the runs pane and the
 // approvals pane both render a posture, and the runs pane's intervention history
 // and the repos family's artifact record both render a restore — and in each pair
 // the two homes are VIEW families, which may not import one another. The lowest

@@ -126,7 +126,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
   // `render:` pages walks in one step and fetches nothing.
   useSettingsPageIdleWarm(pages);
 
-  // Memoised on the registry and the query: the registry is composed once by the
+  // Memoized on the registry and the query: the registry is composed once by the
   // registrar and does not change while a window is open, so re-ranking on every
   // unrelated render would be work with no input change to justify it.
   const matches = useMemo(

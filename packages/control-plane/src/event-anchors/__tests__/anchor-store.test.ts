@@ -1,4 +1,4 @@
-// `EventLogAnchorStore` behaviour.
+// `EventLogAnchorStore` behavior.
 //
 // The store is the control plane's only writer of `event_log_anchors`, so this
 // file covers the three properties the anchor write must hold:

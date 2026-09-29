@@ -113,7 +113,7 @@ describe("the composer command zone reads the committed render's handlers", () =
         executor={executor}
       />,
     );
-    // Re-addressed after the executor was built. The executor object is memoised on
+    // Re-addressed after the executor was built. The executor object is memoized on
     // the surface thunk and so does not change; only what its handlers close over does.
     const builtInFirstRender = executor.current;
     rerender(

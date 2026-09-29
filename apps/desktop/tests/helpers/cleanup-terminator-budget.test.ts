@@ -138,7 +138,7 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, 0)).toBe(true);
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(UNHELD_PROCESS_ID, 0)).toBe(false);
     // And the same answers with a real budget, so the exhausted arm above is the
-    // budget being honoured rather than the reading having changed meaning.
+    // budget being honored rather than the reading having changed meaning.
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(true);
     // The structural half the verdicts cannot show: both members DECLARE the
     // second parameter. A binding that dropped it would keep every answer above

@@ -26,7 +26,7 @@ describe("the reason bound is measured on the encoding", () => {
   // `utf8ByteLength`, commented as the console's first — `persistence/` had been
   // measuring the durable path's cap with `measureUtf8ByteLength` since before it —
   // and the two agreed on ASCII while each was free to grow a surrogate-pair or
-  // normalisation rule the other did not. The budget is what a caller consumes, so
+  // normalization rule the other did not. The budget is what a caller consumes, so
   // asserting on it checks the bound AND the fact that it is reached through the one
   // measurement the chokepoint rule in `apps/desktop/AGENTS.md` gives every cap.
   it("counts UTF-8 bytes and not code units", () => {

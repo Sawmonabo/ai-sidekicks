@@ -18,7 +18,7 @@
 // session-event binder — and, under the fixture, by the scenario's own scripted outages.
 // There is no timer, no probe, and no retry ladder: a renderer that polled to find out
 // whether the wire was back would be the interval polling the design forbids, and a
-// renderer that inferred it from a call that happened to succeed would be synthesising a
+// renderer that inferred it from a call that happened to succeed would be synthesizing a
 // connection state the supervisor owns.
 //
 // NO OBSERVER IS ALSO THE ONLY CONSUMER, which is a property rather than a coincidence.

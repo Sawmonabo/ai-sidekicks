@@ -162,7 +162,7 @@ export class OpenSessionRowProjection {
    * Bring the subscribed set in line with the open set: drop what closed, take what
    * opened, and leave what was already there alone.
    *
-   * Leaving the survivors alone is the point rather than an optimisation — tearing
+   * Leaving the survivors alone is the point rather than an optimization — tearing
    * every subscription down and re-taking it on each registry change would drop a
    * store's notification for the window between the two calls.
    */

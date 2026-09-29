@@ -27,7 +27,7 @@
 //
 //   * It never reads a provider message string. prohibits classifying a refusal
 //     by matching its text, and a classifier that accepted prose would make every
-//     provider wording change a silent behaviour change. The permanent arm is
+//     provider wording change a silent behavior change. The permanent arm is
 //     reachable only from a TYPED refusal shape the driver derived from the
 //     provider's own enumerated refusal vocabulary.
 //   * It never produces a `RecoveryCondition`. That taxonomy describes what a
@@ -178,7 +178,7 @@ export function classifyProviderRequestFailure(
     // disposes a binding and forces a reconstitution, so it is reached only on a
     // positive typed claim by the provider; a driver that cannot type its
     // provider's refusals lands on the declined arm, which changes nothing about
-    // today's behaviour. Fail-closed here means declining to escalate.
+    // today's behavior. Fail-closed here means declining to escalate.
     return observation.refusalShape === "history-structurally-invalid"
       ? { disposition: "permanent-structural-refusal" }
       : { disposition: "fail-consumed-and-declined" };

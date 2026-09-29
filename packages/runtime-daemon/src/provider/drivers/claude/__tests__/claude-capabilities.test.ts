@@ -140,7 +140,7 @@ describe("Claude capability declaration — explicit and total", () => {
     // REQUEST is `off` and `on`, because a cooldown is a state the provider
     // enters on its own and no caller can ask for. `outputSpeedLevels` bounds
     // the request side only — a driver that published `cooldown` here would be
-    // offering a level whose selection cannot be honoured, and one that narrowed
+    // offering a level whose selection cannot be honored, and one that narrowed
     // an OBSERVED `cooldown` into this set would fabricate a state the provider
     // is not in (see `ClaudeSessionLifecycle.observedOutputSpeedFor`).
     expect([...CLAUDE_OUTPUT_SPEED_LEVELS]).toStrictEqual(["off", "on"]);
@@ -433,7 +433,7 @@ describe("Claude composition is bound to the spawned build", () => {
   });
 
   it("refuses a reading taken from ANOTHER driver's build", async () => {
-    // A wiring fault, not provider misbehaviour — an internal-invariant Error
+    // A wiring fault, not provider misbehavior — an internal-invariant Error
     // rather than a typed provider refusal, and the sink never sees a call.
     const foreign: SpawnedProviderVersionReading = {
       driverName: "codex",

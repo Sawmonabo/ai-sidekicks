@@ -80,7 +80,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
     expect(target.path === "provider-bound" && target.targetRunId).toBe(RUN.id);
   });
 
-  it("passes over a settled run touched later in favour of the one still going", () => {
+  it("passes over a settled run touched later in favor of the one still going", () => {
     const settled: StoredEntity = {
       ...RUN,
       id: "run-02",

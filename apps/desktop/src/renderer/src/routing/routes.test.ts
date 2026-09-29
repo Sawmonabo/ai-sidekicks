@@ -40,7 +40,7 @@ describe("routes — the default", () => {
     expect(parseRoute("")).toStrictEqual(DEFAULT_ROUTE);
   });
 
-  it("normalises to an explicit hash rather than rendering back to nothing", () => {
+  it("normalizes to an explicit hash rather than rendering back to nothing", () => {
     // A window that reopened on "" would depend on the default staying what it is
     // today; the explicit hash survives a change of default.
     expect(formatRoute(DEFAULT_ROUTE)).toBe("#/sessions");

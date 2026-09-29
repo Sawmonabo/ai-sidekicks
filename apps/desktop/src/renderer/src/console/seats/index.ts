@@ -155,7 +155,7 @@ export {
 // THE LOADER MECHANISM, PUBLISHED FOR THE ONE BOARD THAT IS NOT IN THIS DIRECTORY.
 //
 // It was absent from this door while the pane layout's pane registry and the frame's surface
-// registry were the only boards that normalised a loader into a descriptor, and both sit
+// registry were the only boards that normalized a loader into a descriptor, and both sit
 // here. The settings family's page registry is a third: its rail mounts one page per
 // section, a page's body is a chunk like any other, and a settings page reachable from a
 // family door that another family imports EAGERLY is on every launch's initial graph

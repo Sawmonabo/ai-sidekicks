@@ -7,7 +7,7 @@
  * Announcements the live announcer holds in ONE politeness lane while an earlier
  * one is still standing in its region.
  *
- * A screen reader speaks one message at a time, so announcements are serialised
+ * A screen reader speaks one message at a time, so announcements are serialized
  * rather than overwritten — an overwrite inside the hold window below is a message
  * nobody heard. Past this bound the burst is one condition repeating rather than
  * this many separate things a person needs told, so the OLDEST is dropped: the

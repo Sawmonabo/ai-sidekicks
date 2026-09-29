@@ -143,7 +143,7 @@ export function OperatorControls(props: OperatorControlsProps): React.JSX.Elemen
   // has something to say about which region the operator should be looking at.
   const reasonDisclosure = useRef<HTMLDetailsElement>(null);
   const reasonField = useRef<HTMLTextAreaElement>(null);
-  // Memoised because the reason is bounded in KIBIBYTES, so the encode this runs is
+  // Memoized because the reason is bounded in KIBIBYTES, so the encode this runs is
   // over a genuinely large string on the last keystroke before the bound and would
   // otherwise repeat on every unrelated render of the pane around it.
   const budget = useMemo(() => cancelReasonBudget(reason), [reason]);

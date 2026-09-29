@@ -77,7 +77,7 @@ describe("classifyProviderRequestFailure", () => {
 
   it("produces every disposition the union declares", () => {
     // The table's own negative control. An arm deleted or retyped to a
-    // convenient neighbour would otherwise shrink the matrix silently, and the
+    // convenient neighbor would otherwise shrink the matrix silently, and the
     // two arms most worth losing — the permanent one and the declined one —
     // differ only in whether a binding is condemned.
     expect(new Set(CLASSIFICATION_ROWS.map((row) => row.expected))).toStrictEqual(

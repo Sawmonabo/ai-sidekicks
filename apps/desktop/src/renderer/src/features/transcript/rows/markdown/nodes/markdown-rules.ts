@@ -10,18 +10,18 @@
 //
 // THE FIVE RULES, EACH WITH ITS OWN CONSEQUENCE.
 //
-//   1. **A committed-and-volatile split.** The committed prefix is memoised and
+//   1. **A committed-and-volatile split.** The committed prefix is memoized and
 //      stable; the volatile tail is the reveal engine's, and an incomplete construct
 //      never mounts. `MARKDOWN_SETTLE_LAG_BLOCKS` is the lag; `remend` closes the
 //      tail's unterminated constructs so a half-open `**` renders as bold-in-progress
-//      rather than italicising the rest of the message.
+//      rather than italicizing the rest of the message.
 //   2. **Mermaid and math are deferred until the block settles.** Both are expensive
 //      and both are wrong when fed a prefix: half a formula is not a formula, and a
 //      diagram redrawn per token is a strobe. So a volatile math block renders as the
 //      source it currently is, in mono, and becomes a formula when it settles.
 //   3. **Model HTML is never rendered.** `mdast-util-gfm` delivers raw HTML as `html`
 //      nodes at block and inline level; the mapper renders their literal text. That is
-//      why NO SANITIZER IS ON THIS PATH — there is nothing to sanitise, because
+//      why NO SANITIZER IS ON THIS PATH — there is nothing to sanitize, because
 //      nothing is ever parsed as markup. A sanitizer here would be the console
 //      claiming it renders model HTML safely, which it does not do at all.
 //   4. **Path links come only from wire-validated path references.** Today there are

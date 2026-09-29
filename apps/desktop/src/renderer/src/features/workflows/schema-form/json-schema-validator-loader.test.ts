@@ -82,7 +82,7 @@ describe("the compiler chunk's memo", () => {
     });
 
     // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-    // transiently, and a memoised rejection would leave every later form for the life of
+    // transiently, and a memoized rejection would leave every later form for the life of
     // the window holding a failure a second request would not have reproduced.
     await expect(chunk.load()).rejects.toThrow("Failed to fetch");
 

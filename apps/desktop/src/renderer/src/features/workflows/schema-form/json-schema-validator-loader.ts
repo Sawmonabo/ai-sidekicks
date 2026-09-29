@@ -31,7 +31,7 @@
 // an ordinary eager door line; deferring it would have bought nothing and made a control's
 // React key wait on a chunk.
 //
-// THE PROMISE IS MEMOISED, AND "THE MODULE MAP IS ALREADY THE MEMO" IS WHY IT HAD TO BE.
+// THE PROMISE IS MEMOIZED, AND "THE MODULE MAP IS ALREADY THE MEMO" IS WHY IT HAD TO BE.
 // This module carried that sentence, borrowed from `workflow-definition-file-codec.ts`,
 // and it is true about the MODULE and false about the wait: an `import()` of a module the
 // map already holds still hands back a FRESH promise that settles on a later turn, and the
@@ -109,7 +109,7 @@ export class SchemaValidatorCompilerChunk {
       return await this.#fetchCompiler();
     } catch (loadError) {
       // A chunk that did not arrive is not a chunk that cannot: the fetch fails
-      // transiently. Memoising the rejection would leave every later form for the life of
+      // transiently. Memoizing the rejection would leave every later form for the life of
       // the window holding a failure a second request would not have reproduced — and the
       // hook's own arm for it is `checker-unavailable`, which is a settlement rather than
       // a retry, so a form opened again is the only thing that re-asks and this is what

@@ -1,7 +1,7 @@
 // The Meridian palette — the single source of truth for every console color.
 //
 // Design-language rule 2 (the user hue system), rule 3 (the two-hue rule and its
-// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realised here and
+// WCAG 2.2 AA contrast floors) and rule 4 (type and figures) are realized here and
 // nowhere else: `meridian.css` is GENERATED from this module by `generate-css.ts` and
 // byte-diffed against it by the console's assets tier, so a color edited in CSS alone
 // fails the build.

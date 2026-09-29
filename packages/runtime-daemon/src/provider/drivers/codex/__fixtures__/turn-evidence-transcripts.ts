@@ -8,7 +8,7 @@
 //                     `app-server` through initialize -> initialized ->
 //                     thread/start -> turn/start on a default connection on
 //                     2026-08-29, recording every inbound frame until the turn
-//                     settled. SYNTHESIZED for the third, and labelled so on
+//                     settled. SYNTHESIZED for the third, and labeled so on
 //                     the declaration itself.
 //   Trust: Verified at 0.150.1 for the recorded pair.
 //

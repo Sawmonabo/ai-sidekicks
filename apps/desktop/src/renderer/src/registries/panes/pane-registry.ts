@@ -95,8 +95,8 @@ export class PaneRegistry {
   /**
    * Claim a pane kind. A second claim by a different owner is an error, not a swap.
    *
-   * A loader-form registration is normalised here: the registry builds the one
-   * `LoaderBackedBody` for it — one memoised promise and one stable lazy component — and
+   * A loader-form registration is normalized here: the registry builds the one
+   * `LoaderBackedBody` for it — one memoized promise and one stable lazy component — and
    * stores the descriptor whose `render` mounts it. So `descriptorFor` answers the same
    * shape for both forms, and nothing downstream branches on how a body was registered.
    */
@@ -145,7 +145,7 @@ export class PaneRegistry {
    * before it is certain, which is exactly the moment a loader can be paid for off the
    * critical path.
    *
-   * Idempotent by construction: the promise is memoised on the registration, so calling
+   * Idempotent by construction: the promise is memoized on the registration, so calling
    * this on every arrow-key press costs one fetch. A component-form kind and an
    * unregistered kind both settle immediately with nothing to do — a caller preloading
    * an address it has not opened yet must not have to ask first whether the kind is

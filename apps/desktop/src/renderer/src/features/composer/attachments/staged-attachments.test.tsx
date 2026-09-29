@@ -278,7 +278,7 @@ function StagedAttachmentsProbe(props: {
 describe("useStagedAttachments — a disposed staged list is re-minted on the replayed setup", () => {
   it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
     // The bug, exercised: StrictMode runs the cleanup and then the setup again on the
-    // same component instance, and a memoised staged list survives that. The cleanup
+    // same component instance, and a memoized staged list survives that. The cleanup
     // terminally disposed the ingest client, so every file chosen afterwards reached a
     // client whose `attach` returns at once — the surface inert, and silently.
     const port = new ScriptedIngestPort();
