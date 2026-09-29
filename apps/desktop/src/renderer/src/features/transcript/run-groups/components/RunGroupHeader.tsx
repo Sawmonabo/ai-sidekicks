@@ -52,7 +52,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
   const hueStep = props.actorHue?.step ?? -1;
   return (
     <div
-      className="meridian-chapter-header"
+      className="meridian-run-group-header"
       style={
         hueStep < 0 || hueStep >= ACTOR_HUE_STEPS
           ? undefined
@@ -66,7 +66,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
     >
       <button
         type="button"
-        className="meridian-chapter-header__disclosure"
+        className="meridian-run-group-header__disclosure"
         aria-expanded={props.isOpen}
         onClick={() => {
           props.onToggle(chapter);
@@ -78,30 +78,30 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
       {chapter.actorId === undefined ? (
         <Nothing kind="empty" placement="inline" title="No row named an actor." />
       ) : (
-        <span className="meridian-chapter-header__actor">{chapter.actorId}</span>
+        <span className="meridian-run-group-header__actor">{chapter.actorId}</span>
       )}
       {/* The daemon's own word for what the run is doing, in mono and verbatim. The
           console never paraphrases it into a tense of its own, and says nothing at all
           where the log has reported no state since the last rewind. */}
       {chapter.runStateEventType === undefined ? null : (
-        <span className="meridian-chapter-header__state">{chapter.runStateEventType}</span>
+        <span className="meridian-run-group-header__state">{chapter.runStateEventType}</span>
       )}
       {/* The account the run was admitted under, where the log named one. No label at
           all otherwise: an absent account is a receipt that named none, not a figure
           this console is missing. */}
       {chapter.payingAccountId === undefined ? null : (
-        <span className="meridian-chapter-header__account">
+        <span className="meridian-run-group-header__account">
           {"billed to "}
-          <span className="meridian-chapter-header__figure">{chapter.payingAccountId}</span>
+          <span className="meridian-run-group-header__figure">{chapter.payingAccountId}</span>
         </span>
       )}
-      <span className="meridian-chapter-header__counts">
-        <span className="meridian-chapter-header__figure">{String(chapter.rowCount)}</span>
+      <span className="meridian-run-group-header__counts">
+        <span className="meridian-run-group-header__figure">{String(chapter.rowCount)}</span>
         {chapter.rowCount === 1 ? " entry" : " entries"}
         {chapter.clippedRowCount === 0 ? null : (
           <>
             {", "}
-            <span className="meridian-chapter-header__figure">
+            <span className="meridian-run-group-header__figure">
               {String(chapter.clippedRowCount)}
             </span>
             {" clipped"}

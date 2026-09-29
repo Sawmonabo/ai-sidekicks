@@ -54,12 +54,12 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
     return null;
   }
   return (
-    <div className="meridian-chapter-body">
+    <div className="meridian-run-group-body">
       {/* Never the scroll anchor: an overlay the engine picked as its anchor would
           hold the fade still and move the rows behind it. */}
-      {isClippedAbove ? <div className="meridian-chapter-body__fade" aria-hidden="true" /> : null}
+      {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
       <ol
-        className="meridian-chapter-body__scroller"
+        className="meridian-run-group-body__scroller"
         style={{ maxBlockSize }}
         aria-label="Earlier entries in this run"
         onScroll={(event) => {
@@ -70,20 +70,20 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
         }}
       >
         {contents.rows.map((row) => (
-          <li key={row.id} className="meridian-chapter-body__row">
-            <span className="meridian-chapter-body__time">{row.timestamp}</span>
-            <span className="meridian-chapter-body__type">{row.type}</span>
+          <li key={row.id} className="meridian-run-group-body__row">
+            <span className="meridian-run-group-body__time">{row.timestamp}</span>
+            <span className="meridian-run-group-body__type">{row.type}</span>
             {row.summary.length === 0 ? (
               <Nothing kind="empty" placement="inline" title="This entry carries no summary." />
             ) : (
-              <span className="meridian-chapter-body__summary">{row.summary}</span>
+              <span className="meridian-run-group-body__summary">{row.summary}</span>
             )}
           </li>
         ))}
       </ol>
       {contents.unheldRowCount === 0 ? null : (
-        <p className="meridian-chapter-body__unheld">
-          <span className="meridian-chapter-body__figure">{String(contents.unheldRowCount)}</span>
+        <p className="meridian-run-group-body__unheld">
+          <span className="meridian-run-group-body__figure">{String(contents.unheldRowCount)}</span>
           {contents.unheldRowCount === 1
             ? " earlier entry is outside this window."
             : " earlier entries are outside this window."}

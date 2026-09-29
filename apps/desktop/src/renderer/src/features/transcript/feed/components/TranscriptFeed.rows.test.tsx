@@ -30,8 +30,8 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
-const CHAPTER_HEADER = ".meridian-chapter-header";
-const CHAPTER_DISCLOSURE = ".meridian-chapter-header__disclosure";
+const CHAPTER_HEADER = ".meridian-run-group-header";
+const CHAPTER_DISCLOSURE = ".meridian-run-group-header__disclosure";
 const SEAT_ROW = ".meridian-ledger-viewport__row";
 
 /** A row seat mount with no ledger around it — the refusal case's input. */
@@ -146,7 +146,7 @@ describe("the ledger feed — a seam is the ledger's own row", () => {
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
       seatRowSummaries.push(mount.row.type);
     });
-    const seamLine = feed.querySelector(".meridian-seam-row");
+    const seamLine = feed.querySelector(".meridian-system-message");
     expect(seamLine).not.toBeNull();
     expect(seamLine?.textContent).toContain("Context compacted");
     // The boundary is the row's own run-scoped position, which the projection

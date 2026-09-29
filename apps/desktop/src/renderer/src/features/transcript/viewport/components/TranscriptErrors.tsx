@@ -23,7 +23,7 @@ export function TranscriptErrors(props: TranscriptErrorsProps): React.JSX.Elemen
     return null;
   }
   return (
-    <div className="meridian-ledger-errors">
+    <div className="meridian-transcript-errors">
       <RefusalCard
         code={highest.refusal.code}
         detail={highest.refusal.detail}

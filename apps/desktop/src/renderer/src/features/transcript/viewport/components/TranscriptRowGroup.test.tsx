@@ -35,7 +35,7 @@ describe("a row group that fails to project", () => {
         <UnreadableRow />
       </TranscriptRowGroup>,
     );
-    expect(container.querySelectorAll(".meridian-ledger-row-failure")).toHaveLength(1);
+    expect(container.querySelectorAll(".meridian-transcript-row-failure")).toHaveLength(1);
     expect(screen.getByRole("alert")).toBeDefined();
     expect(screen.getByText(/the projection had no body for this entry/)).toBeDefined();
     expect(screen.getByRole("button", { name: "Try again" })).toBeDefined();
@@ -47,7 +47,7 @@ describe("a row group that fails to project", () => {
         <p>the entry rendered</p>
       </TranscriptRowGroup>,
     );
-    expect(container.querySelectorAll(".meridian-ledger-row-failure")).toHaveLength(0);
+    expect(container.querySelectorAll(".meridian-transcript-row-failure")).toHaveLength(0);
     expect(screen.getByText("the entry rendered")).toBeDefined();
   });
 });

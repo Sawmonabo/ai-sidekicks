@@ -29,7 +29,7 @@ function seamOf(row: TimelineRow): SystemMessageReading {
 
 function renderSeam(seam: SystemMessageReading): HTMLElement {
   const { container } = render(<SystemMessage seam={seam} />);
-  const line = container.querySelector<HTMLElement>(".meridian-seam-row");
+  const line = container.querySelector<HTMLElement>(".meridian-system-message");
   if (line === null) {
     throw new Error("the seam row drew no line");
   }
@@ -108,7 +108,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
       ),
     );
     expect(line.textContent).toContain("output_speed_unavailable");
-    expect(line.classList.contains("meridian-seam-row--caution")).toBe(true);
+    expect(line.classList.contains("meridian-system-message--caution")).toBe(true);
   });
 
   it("negative control: an ordinary switch is not drawn as a caution", () => {
@@ -126,7 +126,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
         }),
       ),
     );
-    expect(line.classList.contains("meridian-seam-row--caution")).toBe(false);
+    expect(line.classList.contains("meridian-system-message--caution")).toBe(false);
   });
 });
 

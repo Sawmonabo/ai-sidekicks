@@ -63,11 +63,13 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
     >
       <p
         className={
-          binding.isCaution ? "meridian-seam-row meridian-seam-row--caution" : "meridian-seam-row"
+          binding.isCaution
+            ? "meridian-system-message meridian-system-message--caution"
+            : "meridian-system-message"
         }
       >
         <Glyph name={binding.glyph} title={binding.label} />
-        <span className="meridian-seam-row__label">{binding.label}</span>
+        <span className="meridian-system-message__label">{binding.label}</span>
         {seamBoundaryPosition(seam)}
         {seamContinuity(seam)}
         {seamReason(seam)}
@@ -95,8 +97,9 @@ function seamBoundaryPosition(seam: SystemMessageReading): React.JSX.Element | n
     );
   }
   return (
-    <span className="meridian-seam-row__boundary">
-      Boundary <span className="meridian-seam-row__figure">{String(seam.boundaryPosition)}</span>
+    <span className="meridian-system-message__boundary">
+      Boundary{" "}
+      <span className="meridian-system-message__figure">{String(seam.boundaryPosition)}</span>
     </span>
   );
 }
@@ -116,15 +119,15 @@ function seamContinuity(seam: SystemMessageReading): React.JSX.Element | null {
     return null;
   }
   return (
-    <span className="meridian-seam-row__continuity">
-      <span className="meridian-seam-row__figure">{seam.continuity}</span>
+    <span className="meridian-system-message__continuity">
+      <span className="meridian-system-message__figure">{seam.continuity}</span>
       {seam.continuity === SWITCH_CONTINUITY_MEMO ? (
-        <span className="meridian-seam-row__losses">
+        <span className="meridian-system-message__losses">
           {seam.declaredLosses.length === 0 ? (
             <Nothing kind="empty" placement="inline" title="No losses were declared." />
           ) : (
             seam.declaredLosses.map((loss) => (
-              <span className="meridian-seam-row__figure" key={loss}>
+              <span className="meridian-system-message__figure" key={loss}>
                 {loss}
               </span>
             ))
@@ -140,7 +143,7 @@ function seamReason(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.kind !== "provider-switch-failed" || seam.reason === undefined) {
     return null;
   }
-  return <span className="meridian-seam-row__figure">{seam.reason}</span>;
+  return <span className="meridian-system-message__figure">{seam.reason}</span>;
 }
 
 /** Which state a blocked run is waiting on, verbatim. */
@@ -149,8 +152,8 @@ function seamBlockedOn(seam: SystemMessageReading): React.JSX.Element | null {
     return null;
   }
   return (
-    <span className="meridian-seam-row__blocked-on">
-      Waiting on <span className="meridian-seam-row__figure">{seam.blockedOn}</span>
+    <span className="meridian-system-message__blocked-on">
+      Waiting on <span className="meridian-system-message__figure">{seam.blockedOn}</span>
     </span>
   );
 }

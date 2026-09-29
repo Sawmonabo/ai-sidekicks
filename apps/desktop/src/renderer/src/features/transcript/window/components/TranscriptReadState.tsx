@@ -73,27 +73,27 @@ export function TranscriptReadState(props: TranscriptReadStateProps): React.JSX.
   // the read that ended from the projection that is behind.
   if (degradedCause !== undefined) {
     return (
-      <div className="meridian-ledger-window-catch-up">
+      <div className="meridian-transcript-window-catch-up">
         <Nothing
           kind="computing"
           placement="surface"
           title="Catching up."
           detail="Entries this window was told about have not arrived. It re-reads from the last position it kept, and this clears when that read lands."
         />
-        <span className="meridian-ledger-window-catch-up__cause">{degradedCause}</span>
+        <span className="meridian-transcript-window-catch-up__cause">{degradedCause}</span>
       </div>
     );
   }
   if (!firstReadSettled) {
     return (
       <div
-        className="meridian-ledger-window-skeleton"
+        className="meridian-transcript-window-skeleton"
         role="status"
         aria-busy="true"
         aria-label="Reading this session's entries."
       >
         {LOADING_SHELL_KEYS.map((key) => (
-          <span key={key} className="meridian-ledger-window-skeleton__row" aria-hidden="true" />
+          <span key={key} className="meridian-transcript-window-skeleton__row" aria-hidden="true" />
         ))}
       </div>
     );

@@ -82,7 +82,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       TERMINAL_RUN_ID,
     );
 
-    expect(container.querySelector(".meridian-chapter-header")).not.toBeNull();
+    expect(container.querySelector(".meridian-run-group-header")).not.toBeNull();
     // The seat owns row BODIES and a chapter header is not one — asking it would
     // render a finished run as an ordinary receipt.
     expect(seatCalls).not.toHaveBeenCalled();
@@ -101,7 +101,7 @@ describe("the feed's row dispatch — which of the four a key is", () => {
       seamRowId,
     );
 
-    expect(container.querySelector(".meridian-seam-row__label")).not.toBeNull();
+    expect(container.querySelector(".meridian-system-message__label")).not.toBeNull();
     expect(seatCalls).not.toHaveBeenCalled();
   });
 

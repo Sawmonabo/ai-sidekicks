@@ -38,7 +38,7 @@ export function TranscriptRowGroup(props: LedgerRowGroupProps): React.JSX.Elemen
     <SurfaceErrorBoundary
       surfaceName={props.groupLabel}
       fallback={(error, retry) => (
-        <div className="meridian-ledger-row-failure" role="alert">
+        <div className="meridian-transcript-row-failure" role="alert">
           <RefusalCard
             {...rowProjectionRefusal(props.groupLabel, error)}
             action={

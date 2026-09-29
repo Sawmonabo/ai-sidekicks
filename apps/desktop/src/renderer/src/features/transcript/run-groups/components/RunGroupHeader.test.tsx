@@ -40,7 +40,7 @@ function renderHeader(rows: readonly TimelineRow[], isOpen = false): HTMLElement
       onToggle={() => undefined}
     />,
   );
-  const line = container.querySelector<HTMLElement>(".meridian-chapter-header");
+  const line = container.querySelector<HTMLElement>(".meridian-run-group-header");
   if (line === null) {
     throw new Error("the chapter drew no header");
   }
@@ -72,19 +72,19 @@ describe("the chapter header — what one run's line says", () => {
 describe("the header's body — mounted only where there is something folded open", () => {
   it("mounts no body while the chapter is folded", () => {
     expect(
-      renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2)).querySelector(".meridian-chapter-body"),
+      renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2)).querySelector(".meridian-run-group-body"),
     ).toBeNull();
   });
 
   it("mounts the clipped head once the chapter is open", () => {
     const body = renderHeader(oneRun(CHAPTER_VISIBLE_ROW_CAP + 2), true).querySelector(
-      ".meridian-chapter-body",
+      ".meridian-run-group-body",
     );
     expect(body).not.toBeNull();
     expect(body?.textContent).toContain("entry 1");
   });
 
   it("mounts no body for an open chapter that clips nothing", () => {
-    expect(renderHeader(oneRun(3), true).querySelector(".meridian-chapter-body")).toBeNull();
+    expect(renderHeader(oneRun(3), true).querySelector(".meridian-run-group-body")).toBeNull();
   });
 });

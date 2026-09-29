@@ -165,7 +165,7 @@
 }
 
 /* Ranked slots: the highest is a card, the rest sit under it as one quiet row. */
-.meridian-ledger-errors {
+.meridian-transcript-errors {
   display: flex;
   flex-direction: column;
   gap: var(--meridian-space-2);
@@ -178,7 +178,7 @@
  * Red and named, per the frame's error rule — a gap here would read as the session
  * having nothing at this point, which is the one thing it is not.
  */
-.meridian-ledger-row-failure {
+.meridian-transcript-row-failure {
   border-inline-start: var(--meridian-attribution-edge) solid var(--meridian-red-mark);
   padding: var(--meridian-space-2) var(--meridian-space-3);
   background: var(--meridian-red-ground);

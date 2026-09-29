@@ -22,11 +22,13 @@ function readStateOf(sessionStore: SessionStore): HTMLElement {
 describe("before the first read lands", () => {
   it("draws a window of row shells rather than an empty session", () => {
     const container = readStateOf(openStore());
-    expect(container.querySelectorAll(".meridian-ledger-window-skeleton__row")).toHaveLength(12);
+    expect(container.querySelectorAll(".meridian-transcript-window-skeleton__row")).toHaveLength(
+      12,
+    );
   });
 
   it("announces itself as a read in flight", () => {
-    const skeleton = readStateOf(openStore()).querySelector(".meridian-ledger-window-skeleton");
+    const skeleton = readStateOf(openStore()).querySelector(".meridian-transcript-window-skeleton");
     expect(skeleton?.getAttribute("role")).toBe("status");
     expect(skeleton?.getAttribute("aria-busy")).toBe("true");
   });
@@ -43,12 +45,12 @@ describe("when the first read itself failed", () => {
 
     const container = readStateOf(sessionStore);
 
-    expect(container.querySelectorAll(".meridian-ledger-window-skeleton__row")).toHaveLength(0);
+    expect(container.querySelectorAll(".meridian-transcript-window-skeleton__row")).toHaveLength(0);
     expect(container.querySelector("[aria-busy]")).toBeNull();
     expect(container.textContent).toContain("Catching up.");
-    expect(container.querySelector(".meridian-ledger-window-catch-up__cause")?.textContent).toBe(
-      "read-failed",
-    );
+    expect(
+      container.querySelector(".meridian-transcript-window-catch-up__cause")?.textContent,
+    ).toBe("read-failed");
   });
 });
 
@@ -65,9 +67,9 @@ describe("once the window has been read", () => {
     sessionStore.markDegraded("sequence-gap");
     const container = readStateOf(sessionStore);
     expect(container.textContent).toContain("Catching up.");
-    expect(container.querySelector(".meridian-ledger-window-catch-up__cause")?.textContent).toBe(
-      "sequence-gap",
-    );
+    expect(
+      container.querySelector(".meridian-transcript-window-catch-up__cause")?.textContent,
+    ).toBe("sequence-gap");
   });
 
   it("negative control: the shells are gone, so the two arms are never both drawn", () => {
@@ -75,7 +77,7 @@ describe("once the window has been read", () => {
     sessionStore.initialise({ cursor: 0, entities: [] });
     sessionStore.markDegraded("stream-diverged");
     expect(
-      readStateOf(sessionStore).querySelectorAll(".meridian-ledger-window-skeleton__row"),
+      readStateOf(sessionStore).querySelectorAll(".meridian-transcript-window-skeleton__row"),
     ).toHaveLength(0);
   });
 });

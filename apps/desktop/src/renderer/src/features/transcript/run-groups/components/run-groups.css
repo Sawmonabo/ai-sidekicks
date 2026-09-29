@@ -16,7 +16,7 @@
  * an unattributed chapter takes — never a user hue nobody was allocated.
  */
 
-.meridian-chapter-header {
+.meridian-run-group-header {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
@@ -28,7 +28,7 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-chapter-header__disclosure {
+.meridian-run-group-header__disclosure {
   display: inline-flex;
   align-items: center;
   gap: var(--meridian-space-1);
@@ -40,19 +40,19 @@
   cursor: pointer;
 }
 
-.meridian-chapter-header__actor {
+.meridian-run-group-header__actor {
   color: var(--meridian-text);
 }
 
-.meridian-chapter-header__state,
-.meridian-chapter-header__figure {
+.meridian-run-group-header__state,
+.meridian-run-group-header__figure {
   font-family: var(--meridian-font-mono);
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text);
 }
 
-.meridian-chapter-header__counts,
-.meridian-chapter-header__account {
+.meridian-run-group-header__counts,
+.meridian-run-group-header__account {
   font-size: var(--meridian-text-xs);
 }
 
@@ -63,7 +63,7 @@
  * rather than beside the counts it belongs to.
  */
 
-.meridian-chapter-body {
+.meridian-run-group-body {
   position: relative;
   flex: 1 0 100%;
   margin-block-start: var(--meridian-space-1);
@@ -82,7 +82,7 @@
  * second writer's.
  */
 
-.meridian-chapter-body__scroller {
+.meridian-run-group-body__scroller {
   overflow-y: auto;
   overscroll-behavior: contain;
   overflow-anchor: auto;
@@ -98,7 +98,7 @@
  * would hold the fade still and move the rows behind it.
  */
 
-.meridian-chapter-body__fade {
+.meridian-run-group-body__fade {
   position: absolute;
   z-index: 1;
   inset-block-start: 0;
@@ -109,7 +109,7 @@
   pointer-events: none;
 }
 
-.meridian-chapter-body__row {
+.meridian-run-group-body__row {
   display: flex;
   gap: var(--meridian-space-2);
   padding: 0 var(--meridian-space-3);
@@ -117,20 +117,20 @@
   font-size: var(--meridian-text-xs);
 }
 
-.meridian-chapter-body__time,
-.meridian-chapter-body__type {
+.meridian-run-group-body__time,
+.meridian-run-group-body__type {
   flex: 0 0 auto;
   font-family: var(--meridian-font-mono);
 }
 
-.meridian-chapter-body__summary {
+.meridian-run-group-body__summary {
   overflow: hidden;
   color: var(--meridian-text);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.meridian-chapter-body__unheld {
+.meridian-run-group-body__unheld {
   margin: 0;
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-text-muted);
