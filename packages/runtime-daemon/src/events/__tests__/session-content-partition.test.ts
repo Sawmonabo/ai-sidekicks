@@ -2456,8 +2456,18 @@ describe("appending a row that carries machine-authored prose", () => {
  * there; what this arm adds is the CATEGORY-level agreement with the codec,
  * and `audit_integrity` is decided here by its two non-union siblings. The
  * `undecided` assertion below is what guarantees that substitution exists.
+ *
+ * A category whose every registered variant is a union has no such sibling
+ * (`mcp_governance`, `artifact_publication`), so one variant of each is probed
+ * with its discriminator seeded: the probe then reaches an arm's strict check
+ * and learns what it does with the pair.
  */
 type PiiIndirectionVariantVerdict = "admits" | "refuses" | "inconclusive";
+
+const UNION_PAYLOAD_DISCRIMINATOR_SEED: Readonly<Record<string, Record<string, unknown>>> = {
+  "git.settled": { cause: "pushed" },
+  "mcp.server_trust_changed": { scope: "user" },
+};
 
 function probeVariant(
   eventType: string,
@@ -2496,7 +2506,9 @@ function readPiiIndirectionVerdict(
   eventType: string,
   category: string,
 ): PiiIndirectionVariantVerdict {
+  const seed = UNION_PAYLOAD_DISCRIMINATOR_SEED[eventType] ?? {};
   const withPair = probeVariant(eventType, category, {
+    ...seed,
     [PII_CIPHERTEXT_DIGEST_PAYLOAD_KEY]: "0".repeat(64),
     [PII_USER_ID_PAYLOAD_KEY]: USER,
   });
@@ -2513,7 +2525,7 @@ function readPiiIndirectionVerdict(
   if (namesPair) {
     return "refuses";
   }
-  const control = probeVariant(eventType, category, {});
+  const control = probeVariant(eventType, category, seed);
   if (!control.success && control.error.issues.every((issue) => issue.code === "invalid_union")) {
     return "inconclusive";
   }

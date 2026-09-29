@@ -649,7 +649,7 @@ type PayloadObjectView = {
     readonly catchall?: { readonly def: { readonly type: string } } | undefined;
   };
 };
-type PayloadUnionView = { readonly options: readonly PayloadObjectView[] };
+type PayloadUnionView = { readonly options: readonly PayloadView[] };
 type PayloadView = PayloadObjectView | PayloadUnionView;
 type BranchView = {
   readonly shape: {
@@ -662,11 +662,13 @@ type UnionView = { readonly options: readonly BranchView[] };
 
 // A branch's payload is either ONE object schema or a DISCRIMINATED UNION of
 // them — `audit_integrity_failed` is the first of the latter (the fifteen
-// verifier modes carry the Merkle triple, the registrar mode carries none).
-// Resolving to the arm list keeps every rule below arm-exact.
+// verifier modes carry the Merkle triple, the registrar mode carries none) —
+// and a union's option may itself be a union (`session.notice` discriminates
+// on `kind`, then its `settings_ignored` arms on `provider`). Resolving to the
+// flattened arm list keeps every rule below arm-exact.
 const payloadArms = (payload: PayloadView): readonly PayloadObjectView[] => {
   if (Array.isArray((payload as PayloadUnionView).options)) {
-    return (payload as PayloadUnionView).options;
+    return (payload as PayloadUnionView).options.flatMap(payloadArms);
   }
   if ((payload as PayloadObjectView).shape !== undefined) {
     return [payload as PayloadObjectView];
@@ -1006,14 +1008,14 @@ describe("PII-indirection admission ratchet over the live SessionEventSchema uni
     expect(piiAdmissionViolations(liveBranches)).toEqual([]);
   });
 
-  it("the admitted/refused split is 17/4 over the 21 registered variants", () => {
+  it("the admitted/refused split is 39/4 over the 43 registered variants", () => {
     // The set-quantifier pin. Both halves are asserted, so neither a variant
     // that quietly stops admitting nor a newly registered refused-category
     // variant can move the split without this line moving with it.
     const refused = liveBranches.filter((branch) =>
       PII_REFUSED_CATEGORIES.includes(branch.category as EventCategory),
     );
-    expect(liveBranches).toHaveLength(21);
+    expect(liveBranches).toHaveLength(43);
     expect(refused).toHaveLength(4);
     expect(refused.map((branch) => branch.type).sort()).toEqual([
       "audit_integrity_failed",

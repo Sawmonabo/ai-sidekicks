@@ -1186,12 +1186,14 @@ describe("run attribution is refused where it cannot be read, and pinned where i
     // the per-category payload shapes when it moves — do not simply re-pin
     // the number.
     //
-    // 34 = 13 `run_lifecycle` + 2 `assistant_output` + 7 `tool_activity`
-    //    + 10 `interactive_request` (6 `intervention.*` carrying required
-    //      `targetRunId`, 4 `driver_ask.*` carrying required `runId`)
+    // 36 = 13 `run_lifecycle` + 2 `assistant_output` + 8 `tool_activity`
+    //      (`command.ended` carrying required `runId` among them)
+    //    + 11 `interactive_request` (6 `intervention.*` carrying required
+    //      `targetRunId`, 4 `driver_ask.*` carrying required `runId`, and
+    //      `question.asked`, which the category default admits)
     //    + 2 `usage_telemetry` (`context_compacted`, `model_rerouted`, the two
     //      whose per-type shapes pin `runId` required).
-    expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.size).toBe(34);
+    expect(TIMELINE_RUN_SCOPED_EVENT_TYPES.size).toBe(36);
     // Membership spot-checks across all five contributing categories, so the
     // count is not carried by one category swelling while another emptied.
     for (const runScopedType of [

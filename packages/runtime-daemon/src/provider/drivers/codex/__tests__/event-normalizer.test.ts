@@ -771,8 +771,8 @@ describe("Codex event normalizer — purity and determinism", () => {
 // The one case these tests could not originally distinguish: hard-coding, at
 // the derivation site and behind an explicit `as` cast, the value that was then
 // correct for every row. That produced byte-identical output while all 11 Codex
-// targets were pending. THAT WINDOW IS NOW CLOSED — the census is MIXED: three
-// targets carry registered payload variants and eight do not, so a single
+// targets were pending. THAT WINDOW IS NOW CLOSED — the census is MIXED: six
+// targets carry registered payload variants and five do not, so a single
 // hard-coded value disagrees with the resolver on one side or the other and the
 // row-level assertion fails. The ratchet test at the end of this block pins the
 // exact partition, so the next registration is loud rather than silent.
@@ -838,19 +838,17 @@ describe("Codex event normalizer — emission readiness is derived, not stated",
   });
 
   it("pins which Codex targets are envelope-constructible at this tree state", () => {
-    // A ratchet, not an aspiration, and RE-DERIVED rather than relaxed: this
-    // read `toEqual([])` while no Codex target had a registered payload
-    // variant, and the durable home for machine-authored prose registered
-    // three of them. Payload variants are registered independently of this
-    // driver, so when the next one lands this fails and whoever landed it
-    // re-derives the partition here. Failure is GOOD NEWS.
+    // A ratchet, not an aspiration, and RE-DERIVED rather than relaxed.
+    // Payload variants are registered independently of this driver, so when
+    // the next one lands this fails and whoever landed it re-derives the
+    // partition here. Failure is GOOD NEWS.
     //
     // WHAT THIS DOES NOT MEAN. A constructible target is not a live emission.
     // `resolveCodexFrameEmissionRoute` — the only thing that turns readiness
     // into an `emit` route — has no production caller in this tree: the driver
     // core does not consume it yet, and no payload builder for these types
-    // exists anywhere. So these three moved from "forbidden" to "permitted",
-    // and nothing began emitting.
+    // exists anywhere. So these moved from "forbidden" to "permitted", and
+    // nothing began emitting.
     const normalized = [...CODEX_FRAME_NORMALIZATION_BY_METHOD.values()].filter(
       (normalization) => normalization.disposition === "normalized",
     );
@@ -865,16 +863,16 @@ describe("Codex event normalizer — emission readiness is derived, not stated",
 
     expect(distinctTargets("envelope-constructible")).toEqual([
       "assistant.message",
+      "moderation.review_flagged",
+      "session.goal_cleared",
+      "session.notice",
       "tool.invoked",
       "tool.result",
     ]);
     expect(distinctTargets("payload-variant-pending")).toEqual([
       "driver_ask.requested",
-      "moderation.review_flagged",
       "run.failed",
-      "session.goal_cleared",
       "session.goal_updated",
-      "session.notice",
       "usage.context_compacted",
       "usage.rate_limit_update",
     ]);

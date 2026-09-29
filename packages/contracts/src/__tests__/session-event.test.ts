@@ -117,11 +117,12 @@ const buildSessionCreated = () => ({
 
 describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
   it("registers exactly the payload-variant roster", () => {
-    // The SCHEMA-registered subset (21), not the 111-type census. Each
+    // The SCHEMA-registered subset (43), not the 117-type census. Each
     // group's round-trip and payload coverage lives in the suite that owns
     // its contract (repo.test.ts / worktree.test.ts for the payload shapes,
-    // and the audit-integrity / event-maintenance and body-bearing assistant
-    // / tool suites at the end of this file).
+    // the audit-integrity / event-maintenance and body-bearing assistant /
+    // tool suites at the end of this file, and each owning contract's own
+    // suite for the variants whose payload it declares).
     expect(SESSION_EVENT_TYPES).toEqual([
       "session.created",
       "repo.attached",
@@ -144,6 +145,28 @@ describe("SessionEventSchema (C3: discriminated-union JSON round-trip)", () => {
       "tool.invoked",
       "tool.result",
       "tool.error",
+      "approval.rejected",
+      "approval.canceled",
+      "approval.remembered",
+      "approval.rule_revoked",
+      "moderation.review_flagged",
+      "plan.proposed",
+      "plan.accepted",
+      "plan.handed_off",
+      "question.asked",
+      "mcp.server_status_changed",
+      "mcp.server_config_changed",
+      "mcp.server_trust_changed",
+      "mcp.tool_override_changed",
+      "mcp.server_oauth_completed",
+      "cloud.task_updated",
+      "session.restore_finished",
+      "session.goal_cleared",
+      "session.notice",
+      "session.side_question_answered",
+      "git.settled",
+      "relay.pin_refused",
+      "command.ended",
     ]);
   });
 
@@ -520,25 +543,25 @@ describe("compareEventEnvelopeVersion", () => {
 // SessionEventType census + category registry.
 // --------------------------------------------------------------------------
 //
-// Backstops the full census (111 types across 16 categories) plus the
+// Backstops the full census (117 types across 16 categories) plus the
 // category/type bijection: SESSION_EVENT_CATEGORY_BY_TYPE covers every
 // registered type exactly once, its values span exactly the 16 canonical
 // categories (every category non-empty), and the 16 per-category arrays
 // partition the census. Assertions are exact-set style wherever set equality
 // is feasible (the hardened idiom of the EventCategorySchema pin above), with
-// the exact size assertions (size === 111, 16 distinct categories) alongside.
+// the exact size assertions (size === 117, 16 distinct categories) alongside.
 
-// One row per category with its pinned count. Rows sum to 111 (asserted
+// One row per category with its pinned count. Rows sum to 117 (asserted
 // below), mirroring the census table's Total row.
 const CENSUS_BASELINE: ReadonlyArray<
   readonly [EventCategory, readonly SessionEventType[], number]
 > = [
   ["run_lifecycle", RUN_LIFECYCLE_EVENT_TYPES, 13],
   ["assistant_output", ASSISTANT_OUTPUT_EVENT_TYPES, 2],
-  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 7],
-  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 16],
-  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 6],
-  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 27],
+  ["tool_activity", TOOL_ACTIVITY_EVENT_TYPES, 8],
+  ["interactive_request", INTERACTIVE_REQUEST_EVENT_TYPES, 17],
+  ["artifact_publication", ARTIFACT_PUBLICATION_EVENT_TYPES, 7],
+  ["session_lifecycle", SESSION_LIFECYCLE_EVENT_TYPES, 30],
   ["approval_flow", APPROVAL_FLOW_EVENT_TYPES, 10],
   ["usage_telemetry", USAGE_TELEMETRY_EVENT_TYPES, 8],
   ["runtime_node_lifecycle", RUNTIME_NODE_LIFECYCLE_EVENT_TYPES, 2],
@@ -559,7 +582,7 @@ const CENSUS_BASELINE: ReadonlyArray<
 // later edit renames, which the immutability rule forbids — is a COMPILE
 // error under `tsc -p tsconfig.test.json` (the package's `typecheck` leg;
 // vitest strips types and would not catch it). The runtime assertions below
-// pin the category half and the 96 + 15 = 111 arithmetic.
+// pin the category half and the 102 + 15 = 117 arithmetic.
 const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory]> = [
   ["session.provider_status", "session_lifecycle"],
   ["session.notice", "session_lifecycle"],
@@ -579,8 +602,8 @@ const LATE_MINTED_TYPES: ReadonlyArray<readonly [SessionEventType, EventCategory
 ];
 
 describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", () => {
-  it("registers exactly 111 types across exactly 16 distinct categories", () => {
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(111);
+  it("registers exactly 117 types across exactly 16 distinct categories", () => {
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size).toBe(117);
     expect(new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values()).size).toBe(16);
   });
 
@@ -593,12 +616,12 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     expect(registryCategories).toEqual([...schemaInternals.options].sort());
   });
 
-  it("census table is complete: 16 rows, one per category, counts summing to 111", () => {
+  it("census table is complete: 16 rows, one per category, counts summing to 117", () => {
     const tableCategories = CENSUS_BASELINE.map(([category]) => category);
     expect(tableCategories).toHaveLength(16);
     expect(new Set(tableCategories).size).toBe(16);
     const total = CENSUS_BASELINE.reduce((sum, [, , expectedCount]) => sum + expectedCount, 0);
-    expect(total).toBe(111);
+    expect(total).toBe(117);
   });
 
   it.each(CENSUS_BASELINE)(
@@ -622,41 +645,18 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
 
   it("the 16 per-category arrays partition the registry key set exactly", () => {
     const aggregated = CENSUS_BASELINE.flatMap(([, categoryTypes]) => [...categoryTypes]);
-    expect(aggregated).toHaveLength(111);
-    expect(new Set(aggregated).size).toBe(111);
+    expect(aggregated).toHaveLength(117);
+    expect(new Set(aggregated).size).toBe(117);
     expect([...aggregated].sort()).toEqual([...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].sort());
   });
 
   it("keeps the founding wire literal unrenamed with an unchanged category", () => {
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.get("session.created")).toBe("session_lifecycle");
     // The SCHEMA-registered payload subset grows ONLY through the
-    // union-registration seam, and every one of those type strings is
-    // already a census member. The loop below is the bind that matters:
-    // every registered variant must be a census member, so a variant
-    // registered under an unregistered literal fails here.
-    expect(SESSION_EVENT_TYPES).toEqual([
-      "session.created",
-      "repo.attached",
-      "repo.detached",
-      "workspace.preparing",
-      "workspace.ready",
-      "workspace.stale",
-      "workspace.archived",
-      "worktree.created",
-      "worktree.ready",
-      "worktree.dirty",
-      "worktree.merged",
-      "worktree.retired",
-      "audit_integrity_verified",
-      "audit_integrity_failed",
-      "key_reuse_detected",
-      "event.compacted",
-      "assistant.message",
-      "assistant.thinking_update",
-      "tool.invoked",
-      "tool.result",
-      "tool.error",
-    ]);
+    // union-registration seam, and every one of those type strings must
+    // already be a census member: a variant registered under an unregistered
+    // literal fails here. The roster itself is pinned by the round-trip
+    // suite above.
     for (const registered of SESSION_EVENT_TYPES) {
       expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(registered)).toBe(true);
     }
@@ -689,25 +689,25 @@ describe("SessionEventType census + SESSION_EVENT_CATEGORY_BY_TYPE registry", ()
     },
   );
 
-  it("the census minus the fifteen late-minted literals is exactly 96 types", () => {
+  it("the census minus the fifteen late-minted literals is exactly 102 types", () => {
     // Completeness self-check for the LATE_MINTED_TYPES fixture (the same
-    // row-sum bind CENSUS_BASELINE gets above): `111 − 15 = 96`, pinning
+    // row-sum bind CENSUS_BASELINE gets above): `117 − 15 = 102`, pinning
     // the delta's SIZE so the widening cannot be over- or under-counted. A
     // dropped or duplicated fixture entry fails here instead of leaving 14
     // passing per-literal pins.
     expect(LATE_MINTED_TYPES).toHaveLength(15);
     expect(new Set(LATE_MINTED_TYPES.map(([eventType]) => eventType)).size).toBe(15);
-    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(96);
-    // Removing the fifteen leaves exactly 96 keys. This is a cardinality
+    expect(SESSION_EVENT_CATEGORY_BY_TYPE.size - LATE_MINTED_TYPES.length).toBe(102);
+    // Removing the fifteen leaves exactly 102 keys. This is a cardinality
     // bind, not an identity one: a rename edited in both the record and its
-    // per-category array would still land on 96. Names are pinned elsewhere —
+    // per-category array would still land on 102. Names are pinned elsewhere —
     // the founding literal and the prefix-mismatch rows above, plus
     // CENSUS_BASELINE's per-category counts.
     const minted = new Set<string>(LATE_MINTED_TYPES.map(([eventType]) => eventType));
     const remaining = [...SESSION_EVENT_CATEGORY_BY_TYPE.keys()].filter(
       (eventType) => !minted.has(eventType),
     );
-    expect(remaining).toHaveLength(96);
+    expect(remaining).toHaveLength(102);
   });
 
   it.each([...LATE_MINTED_TYPES])(
@@ -2260,4 +2260,270 @@ describe("SessionEventSchema — body-bearing assistant / tool variants", () => 
     expect(CONTENT_LENGTH_PAYLOAD_KEY).toBe("contentLength");
     expect(CONTENT_TRUNCATED_PAYLOAD_KEY).toBe("contentTruncated");
   });
+});
+
+// --------------------------------------------------------------------------
+// The variants whose payload a contract of its own declares.
+// --------------------------------------------------------------------------
+//
+// One row per owning contract. Each row's accepted event carries the PII
+// indirection pair, which the composition adds to every arm of the owner's
+// payload, and its refused event names the case that must still fail once the
+// payload is composed: a refinement the owner wrote, the strictness of an arm,
+// the category the registry files the type under, or half an epoch stamp.
+// Each owner's own suite covers the rest of its payload.
+
+const OWNER_RUN_ID = "6ba7b810-9dad-41d1-80b4-00c04fd430c8";
+const OWNER_AGENT_ID = "0190a2b4-7c3d-7e5f-8a1b-2c3d4e5f6a7b";
+const OWNER_REQUEST_ID = "0f2b4d5e-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+const OWNER_PLAN_ID = "1f2b4d5e-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
+const OWNER_QUESTION_ID = "2f2b4d5e-cccc-4ccc-8ccc-cccccccccccc";
+const OWNER_WAIT_ID = "3f2b4d5e-dddd-4ddd-8ddd-dddddddddddd";
+const OWNER_SIDE_QUESTION_ID = "4f2b4d5e-eeee-4eee-8eee-eeeeeeeeeeee";
+const PII_PAIR = { pii_ciphertext_digest: "9f2c".repeat(16), pii_user_id: USER_ID };
+
+const ownedVariantEvent = (
+  type: SessionEventType,
+  category: EventCategory,
+  payload: Record<string, unknown>,
+) => ({
+  id: `evt-${type}`,
+  sessionId: SESSION_ID,
+  sequence: 9,
+  occurredAt: "2026-09-29T19:30:00.000Z",
+  category,
+  type,
+  actor: null,
+  version: VERSION,
+  payload: { ...PII_PAIR, ...payload },
+});
+
+const APPROVAL_RESOLVED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  approvalRequestId: OWNER_REQUEST_ID,
+  category: "tool_execution",
+  scope: "pnpm test",
+  approver: USER_ID,
+  effectiveScope: "pnpm test",
+  clientResolutionId: OWNER_WAIT_ID,
+};
+const QUESTION = {
+  questionId: OWNER_QUESTION_ID,
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  pageCount: 1,
+  questions: [{ text: "Which branch?", options: [], severalAnswers: false, secret: false }],
+};
+const MCP_STATUS = {
+  provider: "claude",
+  scope: "project",
+  scopeRefDigest: "b3:9f2c",
+  serverName: "docs",
+  previousStatus: "starting",
+  status: "failed",
+  origin: "session_feed",
+  bindingId: "leg-1",
+};
+const SIDE_QUESTION = {
+  sessionId: SESSION_ID,
+  sideQuestionId: OWNER_SIDE_QUESTION_ID,
+  question: "Why is the build slow?",
+  answer: "The type check runs twice.",
+};
+const REVIEW_FLAGGED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  agentId: OWNER_AGENT_ID,
+  eventId: "item-7",
+  signal: "review_required",
+  text: "This request requires additional safety checks",
+};
+const COMMAND_ENDED = {
+  sessionId: SESSION_ID,
+  runId: OWNER_RUN_ID,
+  commandId: "cmd-1",
+  ending: "ended_by_person",
+  durationMs: 4200,
+  sourceEpoch: 1,
+  sourcePosition: 4,
+};
+const RELAY_PIN_REFUSED = {
+  relayHost: "relay.example.com",
+  pinnedSpkiPrefix: "3f3f3f3f3f3f3f3f",
+  presentedSpkiPrefix: "0123456789abcdef",
+};
+
+const OWNED_VARIANT_FAMILIES: ReadonlyArray<
+  readonly [
+    string,
+    string,
+    ReturnType<typeof ownedVariantEvent>,
+    ReturnType<typeof ownedVariantEvent>,
+  ]
+> = [
+  [
+    "approval",
+    "a member the answer does not declare",
+    ownedVariantEvent("approval.rejected", "approval_flow", APPROVAL_RESOLVED),
+    ownedVariantEvent("approval.rejected", "approval_flow", {
+      ...APPROVAL_RESOLVED,
+      editedAction: "pnpm test --filter contracts",
+    }),
+  ],
+  [
+    "plan",
+    "a hand-off that names no fresh session",
+    ownedVariantEvent("plan.handed_off", "approval_flow", {
+      planId: OWNER_PLAN_ID,
+      sessionId: SESSION_ID,
+      freshSessionId: USER_ID,
+    }),
+    ownedVariantEvent("plan.handed_off", "approval_flow", {
+      planId: OWNER_PLAN_ID,
+      sessionId: SESSION_ID,
+    }),
+  ],
+  [
+    "question",
+    "a question naming both a run and a workflow wait",
+    ownedVariantEvent("question.asked", "interactive_request", QUESTION),
+    ownedVariantEvent("question.asked", "interactive_request", {
+      ...QUESTION,
+      waitId: OWNER_WAIT_ID,
+    }),
+  ],
+  [
+    "MCP governance",
+    "a session observation that names no leg",
+    ownedVariantEvent("mcp.server_status_changed", "mcp_governance", MCP_STATUS),
+    ownedVariantEvent("mcp.server_status_changed", "mcp_governance", {
+      ...MCP_STATUS,
+      bindingId: undefined,
+    }),
+  ],
+  [
+    "cloud task",
+    "the type filed under another category",
+    ownedVariantEvent("cloud.task_updated", "session_lifecycle", {
+      task: {
+        taskId: "session_01ABCDEF",
+        sessionId: SESSION_ID,
+        provider: "claude",
+        state: "submitted",
+        url: "https://claude.ai/code/session_01ABCDEF",
+      },
+    }),
+    ownedVariantEvent("cloud.task_updated", "tool_activity", {
+      task: {
+        taskId: "session_01ABCDEF",
+        sessionId: SESSION_ID,
+        provider: "claude",
+        state: "submitted",
+        url: "https://claude.ai/code/session_01ABCDEF",
+      },
+    }),
+  ],
+  [
+    "undo",
+    "a record with no result",
+    ownedVariantEvent("session.restore_finished", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      target: { kind: "snapshot", snapshotId: "turn-7" },
+      result: { outcome: "restore-finished", requested: "files", restored: "files" },
+      files: { restoredFileCount: 3, restoredLineCount: 41, skipped: [] },
+    }),
+    ownedVariantEvent("session.restore_finished", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      target: { kind: "snapshot", snapshotId: "turn-7" },
+    }),
+  ],
+  [
+    "goal",
+    "a clear that names no agent",
+    ownedVariantEvent("session.goal_cleared", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      agentId: OWNER_AGENT_ID,
+    }),
+    ownedVariantEvent("session.goal_cleared", "session_lifecycle", { sessionId: SESSION_ID }),
+  ],
+  [
+    "notice",
+    "a lowered level looser than the one asked for",
+    ownedVariantEvent("session.notice", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      kind: "settings_ignored",
+      provider: "codex",
+      file: "/home/.codex/config.toml",
+      line: 4,
+    }),
+    ownedVariantEvent("session.notice", "session_lifecycle", {
+      sessionId: SESSION_ID,
+      kind: "permission_level_lowered",
+      requestedLevel: "reviewed",
+      level: "yolo",
+    }),
+  ],
+  [
+    "side question",
+    "an answer with no question",
+    ownedVariantEvent("session.side_question_answered", "session_lifecycle", SIDE_QUESTION),
+    ownedVariantEvent("session.side_question_answered", "session_lifecycle", {
+      ...SIDE_QUESTION,
+      question: undefined,
+    }),
+  ],
+  [
+    "reviewer flag",
+    "a reviewer signal outside the two",
+    ownedVariantEvent("moderation.review_flagged", "approval_flow", REVIEW_FLAGGED),
+    ownedVariantEvent("moderation.review_flagged", "approval_flow", {
+      ...REVIEW_FLAGGED,
+      signal: "review_blocked",
+    }),
+  ],
+  [
+    "command",
+    "half an epoch stamp",
+    ownedVariantEvent("command.ended", "tool_activity", COMMAND_ENDED),
+    ownedVariantEvent("command.ended", "tool_activity", {
+      ...COMMAND_ENDED,
+      sourcePosition: undefined,
+    }),
+  ],
+  [
+    "git settlement",
+    "a push that names a run",
+    ownedVariantEvent("git.settled", "artifact_publication", {
+      sessionId: SESSION_ID,
+      cause: "committed",
+      commitId: "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      runId: OWNER_RUN_ID,
+    }),
+    ownedVariantEvent("git.settled", "artifact_publication", {
+      sessionId: SESSION_ID,
+      cause: "pushed",
+      branch: "main",
+      runId: OWNER_RUN_ID,
+    }),
+  ],
+  [
+    "relay pin",
+    "a whole key hash where its prefix belongs",
+    ownedVariantEvent("relay.pin_refused", "security_events", RELAY_PIN_REFUSED),
+    ownedVariantEvent("relay.pin_refused", "security_events", {
+      ...RELAY_PIN_REFUSED,
+      presentedSpkiPrefix: "3f".repeat(32),
+    }),
+  ],
+];
+
+describe("SessionEventSchema — variants whose payload a contract of its own declares", () => {
+  it.each(OWNED_VARIANT_FAMILIES)(
+    "%s: accepts the design's shape with the PII pair, and refuses %s",
+    (_family, _refusedCase, accepted, refused) => {
+      expect(SessionEventSchema.safeParse(accepted).success).toBe(true);
+      expect(SessionEventSchema.safeParse(refused).success).toBe(false);
+    },
+  );
 });
