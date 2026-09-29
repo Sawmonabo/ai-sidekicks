@@ -67,7 +67,7 @@ export function AgentsPane(props: AgentsPaneProps): React.JSX.Element {
           kind="not-checked"
           placement="surface"
           title="This console was not handed a session to read agents from."
-          detail="The roster and the binding are scoped to one session, so nothing was asked of the daemon."
+          detail="The roster and the binding are scoped to one session, so nothing was asked of the background service."
         />
       ) : (
         <AgentBindingColumn models={models} agentId={props.agentId} />

@@ -2,7 +2,7 @@
 //
 // Split from `session-event-binder.test.ts` along the same seam the production code
 // is split on: that module owns WHICH sessions are bound and for how long, and
-// `bridge/daemon/session-event-payload.ts` owns WHAT a delivered payload has to look
+// `services/daemon/session-event-payload.ts` owns WHAT a delivered payload has to look
 // like. These cases drive the second question and nothing else.
 //
 // The wire hands the console an `unknown`. Each case below casts a deliberately wrong

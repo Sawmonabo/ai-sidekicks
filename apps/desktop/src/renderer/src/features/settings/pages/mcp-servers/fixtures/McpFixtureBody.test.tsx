@@ -309,7 +309,7 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
     const { container, rerender } = render(shellTree(supersededBridge, superseded.operations));
     await settleScheduledRead(supersededBridge);
     fireEvent.click(firstEnableButton(container));
-    expect(container.textContent).toContain("Asking the daemon to apply this.");
+    expect(container.textContent).toContain("Asking the background service to apply this.");
 
     const replacementBridge = fixtureBridge();
     rerender(shellTree(replacementBridge, operationsServing([FILESYSTEM, ISSUE_TRACKER])));
@@ -317,7 +317,7 @@ describe("McpShell — a bridge replaced under a mounted shell", () => {
     // The replacement answered its own inventory, and the superseded bridge's press
     // is not still reported as in flight against it.
     expect(container.querySelectorAll(".meridian-mcp__row")).toHaveLength(2);
-    expect(container.textContent).not.toContain("Asking the daemon to apply this.");
+    expect(container.textContent).not.toContain("Asking the background service to apply this.");
 
     await act(async () => {
       superseded.answerHeldMutation();

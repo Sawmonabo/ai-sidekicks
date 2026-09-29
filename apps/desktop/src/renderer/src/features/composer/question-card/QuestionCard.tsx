@@ -171,7 +171,7 @@ function renderCountdown(
       <Nothing
         kind="computing"
         placement="inline"
-        title="Waiting for the daemon."
+        title="Waiting for the background service."
         detail="The stamped deadline has passed and this ask has not been settled on the wire yet."
       />
     );
@@ -285,7 +285,7 @@ function renderTerminal(ask: QuestionReading): React.ReactNode {
         kind="empty"
         placement="surface"
         title="This ask was answered."
-        detail="The delivered answer is shown as the daemon recorded it."
+        detail="The delivered answer is shown as the background service recorded it."
         {...(ask.deliveredAnswer === undefined
           ? {}
           : { action: <WireFigure value={ask.deliveredAnswer} title="Delivered answer" /> })}

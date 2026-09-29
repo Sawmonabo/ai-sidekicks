@@ -290,7 +290,7 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
           kind="computing"
           placement="surface"
           title="Asking the runtime"
-          detail="The status the daemon reports about itself, which is a different question from what the supervisor observed."
+          detail="The status the background service reports about itself, which is a different question from what the supervisor observed."
         />
       );
     case "read":

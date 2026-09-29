@@ -55,8 +55,8 @@
 // session, and nothing on screen said why.
 //
 // So the observation moved DOWN, onto the door every daemon subscription in the window
-// goes through (`bridge/transport/observed-subscription.ts`, reported into by
-// `bridge/daemon/daemon-streams.ts` and `seats/read/wire-access.ts` as well as by the open
+// goes through (`services/transport/observed-subscription.ts`, reported into by
+// `services/daemon/daemon-streams.ts` and `services/daemon/subscribe-daemon-event.ts` as well as by the open
 // below). This class reports nothing and subscribes once, for its whole life, to a
 // signal other openers move: the node's provider-account tail coming back is a
 // returning edge, and it is one a window with no bindable session can still observe.
@@ -72,7 +72,7 @@
 // `session.subscribe` will need: when the wire grows a request shape, this call
 // gains an argument and nothing else about the lifecycle moves.
 //
-// Reading a delivered payload is a different job (`bridge/daemon/session-event-payload.ts`): this
+// Reading a delivered payload is a different job (`services/daemon/session-event-payload.ts`): this
 // module owns WHICH sessions are bound, that one owns WHAT a payload looks like. The four reads
 // the endurance tier makes (`session-diagnostics-handle.ts`) are composed here, three off this
 // class's own state and one from the floor's registry, and handed out as `diagnostics`; the
@@ -379,7 +379,7 @@ export class SessionEventSubscriber {
  * the daemon's event union lands. The event name is pinned to `string` (the
  * genuinely untypeable half) and the payload left `unknown`, which is honest: a
  * tighter payload type here would be a fiction, and `readProjectedSessionEvent`
- * (`bridge/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
+ * (`services/daemon/session-event-payload.ts`) is what turns the `unknown` into something the
  * store may hold. Same posture as the two shipped renderer families that already
  * subscribe this way.
  */

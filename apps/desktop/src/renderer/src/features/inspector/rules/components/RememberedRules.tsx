@@ -72,7 +72,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
         kind="error"
         placement="surface"
         title="Standing permissions could not be read."
-        detail={`The daemon answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
+        detail={`The background service answered, and all ${formatCount(props.unreadableCount)} of the rows it carried were shaped in a way this build cannot read. Whether any permission is in force is unknown from here — it is not known to be none.`}
       />
     ) : (
       <Nothing
@@ -89,7 +89,7 @@ export function RememberedRules(props: RememberedRulesProps): React.JSX.Element 
       {props.unreadableCount > 0 ? (
         <p className="meridian-remembered-rules__unreadable">
           The reply carried rows this build could not read, so this list is shorter than what the
-          daemon holds.
+          background service holds.
         </p>
       ) : null}
       <ul className="meridian-remembered-rules__list">

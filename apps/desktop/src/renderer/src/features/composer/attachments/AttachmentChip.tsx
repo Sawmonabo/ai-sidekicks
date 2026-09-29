@@ -70,7 +70,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         {chip.isPastByteAllowance ? (
           <span className="meridian-composer-attachment__note">
             Past this deployment&apos;s per-attachment size. The upload is still attempted — the
-            daemon decides.
+            background service decides.
           </span>
         ) : null}
         {chip.offersRetry ? (

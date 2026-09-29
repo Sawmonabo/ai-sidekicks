@@ -76,8 +76,8 @@ export function QueueContents(props: QueueContentsProps): React.JSX.Element {
       </ol>
       {withheld > 0 ? (
         <p className="meridian-queue__withheld">
-          <DerivedFigure text={formatCount(withheld)} /> further rows are held by the daemon and not
-          drawn here. The head of the queue is what is delivered next.
+          <DerivedFigure text={formatCount(withheld)} /> further rows are held by the background
+          service and not drawn here. The head of the queue is what is delivered next.
         </p>
       ) : null}
     </div>

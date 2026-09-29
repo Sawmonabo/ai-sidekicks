@@ -103,7 +103,7 @@ const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
   "run.not_found": {
     rendering: "card",
     nextMove:
-      "This run is gone from the daemon. What is shown is the last state the stream reported.",
+      "This run is gone from the background service. What is shown is the last state the stream reported.",
     settled: true,
   },
   // The session itself is gone, so every control in this window is answering about

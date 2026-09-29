@@ -26,7 +26,7 @@ export function sessionReadThroughDaemon(bridge: PlatformBridge): SessionSnapsho
         refuse(
           SESSION_READ_ORIGIN,
           "session-unreadable",
-          "This session's identifier is not one the daemon registers, so it was not read.",
+          "This session's identifier is not one the background service registers, so it was not read.",
         ),
       );
     }

@@ -152,7 +152,7 @@ describe("SessionEventSubscriber — the opens that failed, and what one returni
 
     // The wire comes back, driven straight into the signal so this case states what a
     // returning edge is worth without also depending on who observed it. Who reports
-    // one is `bridge/transport/observed-subscription.ts`, and the case below drives
+    // one is `services/transport/observed-subscription.ts`, and the case below drives
     // that path rather than this one.
     bridge.transportReconnect.observe("reachable");
 

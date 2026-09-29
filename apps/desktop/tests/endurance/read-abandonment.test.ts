@@ -9,7 +9,7 @@
 //
 // WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
 //
-// The subject is `seats/read/push-driven-read.ts` over `store/read/refresh-scheduler.ts` over
+// The subject is `store/reads/push-driven-read.ts` over `lib/reads/refresh-scheduler.ts` over
 // `store/read/read-cancellation.ts` and the daemon call door — a model, a scheduler, a
 // read line, and a parse. None of it touches the DOM, and `diff-endurance.test.ts`
 // beside this file is the same separation cashed the same way: the claims are

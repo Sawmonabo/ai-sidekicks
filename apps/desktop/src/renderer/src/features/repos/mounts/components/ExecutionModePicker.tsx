@@ -89,8 +89,8 @@ export function ExecutionModePicker(props: ExecutionModePickerProps): React.JSX.
         // `role="status"` rather than an alert: a switch that was sent is progress
         // rather than a problem, and it is announced once when it starts.
         <p className="meridian-mode-picker__pending" role="status">
-          Switching to <WireFigure value={pendingMode} />. The picker is held until the daemon
-          answers.
+          Switching to <WireFigure value={pendingMode} />. The picker is held until the background
+          service answers.
         </p>
       ) : null}
     </div>

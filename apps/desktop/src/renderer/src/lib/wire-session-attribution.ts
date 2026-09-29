@@ -4,7 +4,7 @@
 // the envelope was routed to, and `SessionStore` checks only the ENVELOPE's
 // `sessionId` before handing the event on. The payload is a second statement of the
 // same fact, and nothing above the fold compares the two: the console parses events
-// through the tolerant `EventEnvelopeSchema` on purpose (`bridge/daemon/session-event-payload.ts`),
+// through the tolerant `EventEnvelopeSchema` on purpose (`services/daemon/session-event-payload.ts`),
 // so a payload variant the strict union does not register — which is most of them —
 // arrives whole and unexamined. A frame whose payload names another session therefore
 // reaches a fold that keys a mutation off it, and lands that session's entity in this

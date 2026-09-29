@@ -17,7 +17,7 @@
 // the transport signal from the same open it retried, so it was both the only producer
 // of the returning edge and its only consumer: a window holding ONE session whose open
 // threw could never emit the edge that would retry it. The observation belongs to
-// `bridge/transport/observed-subscription.ts`, which every subscription in the window
+// `services/transport/observed-subscription.ts`, which every subscription in the window
 // passes through, and this class subscribes to the result rather than causing it.
 //
 // THE SET IS BOUNDED BY THE OPEN SET, not by a cap, which is what makes a plain `Set`

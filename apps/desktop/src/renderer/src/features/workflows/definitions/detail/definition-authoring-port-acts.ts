@@ -110,7 +110,7 @@ async function submitDefinition(
       refusal: detailRefusal(
         "act-in-flight",
         "A definition is already being submitted here. " +
-          "The first one is outstanding against the daemon and cannot be recalled.",
+          "The first one is outstanding against the background service and cannot be recalled.",
       ),
     });
     return;

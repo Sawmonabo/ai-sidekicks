@@ -40,7 +40,7 @@ export function SignInCard(props: {
       <Nothing
         kind="not-loaded"
         placement="inline"
-        title="Asking the daemon to start the provider’s sign-in."
+        title="Asking the background service to start the provider’s sign-in."
       />
     );
   }

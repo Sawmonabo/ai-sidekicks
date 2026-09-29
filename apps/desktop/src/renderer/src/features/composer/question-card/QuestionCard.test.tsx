@@ -145,7 +145,7 @@ describe("the countdown", () => {
     const container = renderCard(pendingAsk(), {
       nowEpochMilliseconds: PAST_THE_DEADLINE_MILLISECONDS,
     });
-    expect(container.textContent).toContain("Waiting for the daemon.");
+    expect(container.textContent).toContain("Waiting for the background service.");
     expect(container.textContent).not.toContain("expired");
   });
 

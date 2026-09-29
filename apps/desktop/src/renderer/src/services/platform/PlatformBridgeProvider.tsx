@@ -186,7 +186,7 @@ function resolveBridge(
       unavailable: {
         reason: "preload-did-not-run",
         detail:
-          "This window loaded without its preload bridge, so it cannot reach the daemon or the control plane. Reopening the window usually fixes it; if it does not, the app needs restarting.",
+          "This window loaded without its preload bridge, so it cannot reach the background service or the control plane. Reopening the window usually fixes it; if it does not, the app needs restarting.",
       },
     };
   }

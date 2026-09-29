@@ -89,7 +89,9 @@ function renderOutcome(outcome: ReturnType<typeof useHumanFormSubmit>["outcome"]
     case "submitting":
       // `not-loaded` and never `computing`: the answer is a round trip that has been put
       // and is still coming, rather than this console working something out.
-      return <Nothing kind="not-loaded" placement="inline" title="Waiting for the daemon." />;
+      return (
+        <Nothing kind="not-loaded" placement="inline" title="Waiting for the background service." />
+      );
     case "submitted":
       return (
         // `role="status"` for the reason the workflow-start receipt carries one: the
@@ -104,8 +106,8 @@ function renderOutcome(outcome: ReturnType<typeof useHumanFormSubmit>["outcome"]
           <WireFigure value={outcome.submittedAt} />
           <span>
             {outcome.outputCount === 1
-              ? "The daemon recorded this answer and one output came of it."
-              : `The daemon recorded this answer and ${String(outcome.outputCount)} outputs came of it.`}
+              ? "The background service recorded this answer and one output came of it."
+              : `The background service recorded this answer and ${String(outcome.outputCount)} outputs came of it.`}
           </span>
         </p>
       );

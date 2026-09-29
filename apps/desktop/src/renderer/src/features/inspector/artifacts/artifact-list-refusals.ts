@@ -103,7 +103,7 @@ export function payloadFetchInFlightRefusal(pendingArtifactId: string): Refusal 
   return refuse(
     ARTIFACT_READER_REFUSAL_ORIGIN,
     "payload-fetch-in-flight" satisfies ArtifactListRefusalCode,
-    `The payload of ${pendingArtifactId} has been asked for and the daemon has not answered yet. Nothing else is fetched until it settles.`,
+    `The payload of ${pendingArtifactId} has been asked for and the background service has not answered yet. Nothing else is fetched until it settles.`,
   );
 }
 
@@ -121,6 +121,6 @@ export function manifestReadInFlightRefusal(artifactId: string): Refusal {
   return refuse(
     ARTIFACT_READER_REFUSAL_ORIGIN,
     "manifest-read-in-flight" satisfies ArtifactListRefusalCode,
-    `The manifest of ${artifactId} has been asked for again and the daemon has not answered yet. That row is read once until it settles.`,
+    `The manifest of ${artifactId} has been asked for again and the background service has not answered yet. That row is read once until it settles.`,
   );
 }

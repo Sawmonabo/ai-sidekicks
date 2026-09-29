@@ -102,6 +102,6 @@ function unparseableAddress(): Refusal {
   return refuse(
     PROVIDER_COMMAND_READ_ORIGIN,
     code,
-    "The console is holding identifiers for this agent that the daemon would not accept, so it asked for no enumeration. Reopen the session so its identifiers are read again.",
+    "The console is holding identifiers for this agent that the background service would not accept, so it asked for no enumeration. Reopen the session so its identifiers are read again.",
   );
 }

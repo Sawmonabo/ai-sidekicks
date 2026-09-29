@@ -32,7 +32,7 @@ export const ARTIFACT_STATE_PRESENTATION: Readonly<Record<ArtifactState, Artifac
 };
 
 /** What an absent `createdBy` names. A producer, stated as one. */
-export const ARTIFACT_PRODUCER_ABSENT_LABEL = "the daemon";
+export const ARTIFACT_PRODUCER_ABSENT_LABEL = "the background service";
 
 /** Who produced a row. An absent producer is the daemon, named rather than blanked. */
 export function artifactProducerLabel(row: ArtifactManifestRow): string {

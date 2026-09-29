@@ -67,7 +67,8 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
           text={`${formatCount(fill.attached)} of ${formatCount(fill.allowance)} attached`}
         />
         <span className="meridian-composer-attachments__fill-source">
-          The default bound. An operator can raise it, and the daemon decides at acceptance.
+          The default bound. An operator can raise it, and the background service decides at
+          acceptance.
         </span>
       </p>
       {reference.disposition === "none" ? null : (

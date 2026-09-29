@@ -73,7 +73,9 @@ describe("an unread capability is not an empty registry", () => {
 describe("a registry read that has not settled is neither withheld nor empty", () => {
   it("says the read is in flight rather than showing a list", () => {
     render(<CallbackTools capability="declared" registry={undefined} />);
-    expect(screen.getByText("Reading the daemon-hosted tool registry.")).not.toBeNull();
+    expect(
+      screen.getByText("Reading the registry of tools the background service hosts."),
+    ).not.toBeNull();
     expect(screen.queryByText(/The registry is withheld/u)).toBeNull();
   });
 });
@@ -100,7 +102,7 @@ describe("withheld is not empty either", () => {
   it("distinguishes an exposed empty registry from a withheld one", () => {
     render(<CallbackTools capability="declared" registry={exposed([])} />);
     expect(screen.queryByText(/The registry is withheld/u)).toBeNull();
-    expect(screen.getByText(/constructed and trusted by the daemon/u)).not.toBeNull();
+    expect(screen.getByText(/constructed and trusted by the background service/u)).not.toBeNull();
   });
 });
 
@@ -109,7 +111,7 @@ describe("an exposed registry", () => {
     render(<CallbackTools capability="declared" registry={exposed([TOOL])} />);
     expect(screen.getByText("approval_request")).not.toBeNull();
     expect(screen.getByText("Ask a person to approve an action.")).not.toBeNull();
-    expect(screen.getByText("daemon-hosted")).not.toBeNull();
+    expect(screen.getByText("background service")).not.toBeNull();
     expect(screen.getByText(/none of them bypasses the approval pipeline/u)).not.toBeNull();
   });
 

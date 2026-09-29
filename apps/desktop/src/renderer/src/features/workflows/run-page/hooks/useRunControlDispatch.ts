@@ -300,7 +300,7 @@ function readCancelReply(value: WorkflowRunCancelReply): ServedActReading {
   return {
     runState: value.state,
     detail: value.alreadyCancelled
-      ? "This run was already cancelled; the daemon replayed the first cancellation rather than performing a second."
+      ? "This run was already cancelled; the background service replayed the first cancellation rather than performing a second."
       : "This run is cancelled.",
   };
 }

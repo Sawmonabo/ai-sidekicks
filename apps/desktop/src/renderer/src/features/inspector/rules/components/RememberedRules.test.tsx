@@ -131,11 +131,11 @@ describe("the empty and short reads", () => {
 
   it("says the list is short when the reply carried rows it could not read", () => {
     renderGrants([rule()], vi.fn(), 2);
-    expect(screen.getByText(/shorter than what the daemon holds/u)).not.toBeNull();
+    expect(screen.getByText(/shorter than what the background service holds/u)).not.toBeNull();
   });
 
   it("negative control: a fully readable list makes no such claim", () => {
     renderGrants([rule()]);
-    expect(screen.queryByText(/shorter than what the daemon holds/u)).toBeNull();
+    expect(screen.queryByText(/shorter than what the background service holds/u)).toBeNull();
   });
 });

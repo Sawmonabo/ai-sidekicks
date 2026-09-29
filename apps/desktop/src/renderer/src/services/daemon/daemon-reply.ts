@@ -142,7 +142,7 @@ export interface DaemonCallOptions {
  * EXPORTED FOR THE COMPOSED READ, which has `await` boundaries this door cannot see.
  * A read that calls the door, folds the answer, and calls it again has to stop
  * between its own calls, and it already stops this way on the first one:
- * `seats/read/push-driven-read.ts`'s `unwrapDaemonReply` raises exactly this refusal the
+ * `services/daemon/unwrap-daemon-reply.ts`'s `unwrapDaemonReply` raises exactly this refusal the
  * moment the door answers with it. A caller settling its later boundaries under a
  * code of its own would give one settlement two names, so it raises this one instead.
  */
@@ -203,7 +203,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "request-unsendable" satisfies DaemonReplyRefusalCode,
-        `The console could not build a ${method} request the daemon would accept${describeFailingPaths(sendable.error)}, so it sent none.`,
+        `The console could not build a ${method} request the background service would accept${describeFailingPaths(sendable.error)}, so it sent none.`,
       ),
     };
   }
@@ -263,7 +263,7 @@ export async function callDaemon<MethodName extends RegisteredDaemonMethod>(
       refusal: refuse(
         DAEMON_REPLY_REFUSAL_ORIGIN,
         "reply-unreadable" satisfies DaemonReplyRefusalCode,
-        `The daemon's reply to ${method} is not the shape this build registers for it${describeFailingPaths(readable.error)}, so the console read nothing from it.`,
+        `The background service's reply to ${method} is not the shape this build registers for it${describeFailingPaths(readable.error)}, so the console read nothing from it.`,
       ),
     };
   }

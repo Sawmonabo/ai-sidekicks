@@ -37,7 +37,9 @@ export function RunControlOutcome(props: {
       // `not-loaded` and never `computing`: the answer is a round trip that has been
       // put and is still coming, which is the kind that stands in for copy arriving a
       // beat later. `computing` would claim this console is working something out.
-      return <Nothing kind="not-loaded" placement="inline" title="Waiting for the daemon." />;
+      return (
+        <Nothing kind="not-loaded" placement="inline" title="Waiting for the background service." />
+      );
     case "settled":
       return (
         <p className="meridian-workflow-run-controls__outcome">

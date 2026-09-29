@@ -40,7 +40,7 @@ export function ContextRing(props: ContextRingProps): React.JSX.Element {
       <Nothing
         kind="not-checked"
         title="Conversation fullness has not been reported."
-        detail="The meter draws the daemon's own reading and never estimates one from the messages on screen."
+        detail="The meter draws the background service's own reading and never estimates one from the messages on screen."
       />
     );
   }

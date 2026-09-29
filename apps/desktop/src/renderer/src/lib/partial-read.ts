@@ -243,14 +243,14 @@ export function readingNoticeFor(state: ReadingState, subject: string): PartialR
     case "stale":
       return {
         shape: "sentence",
-        copy: `Some of what arrived could not be read, so ${subject} may be behind what the daemon has sent.`,
+        copy: `Some of what arrived could not be read, so ${subject} may be behind what the background service has sent.`,
         refusal: state.refusal,
       };
     case "partial":
       return {
         shape: "counted-sentence",
         figure: formatCount(state.unreadableCount),
-        copy: `${state.unreadableCount === 1 ? "delivery" : "deliveries"} could not be read, so ${subject} may be behind what the daemon has sent.`,
+        copy: `${state.unreadableCount === 1 ? "delivery" : "deliveries"} could not be read, so ${subject} may be behind what the background service has sent.`,
         refusal: state.newestRefusal,
       };
     case "cut":

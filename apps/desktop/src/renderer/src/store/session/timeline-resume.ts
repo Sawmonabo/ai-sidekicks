@@ -162,7 +162,7 @@ export function refuseUnresolvableResume(): TimelineResumeDecision {
     refusal: refuse(
       TIMELINE_RESUME_ORIGIN,
       "resume-cursor-unresolvable",
-      "the position this session was last read up to could not be resolved, so the log was re-read from the beginning of its window instead. Nothing was lost from the stream; the remembered position was. The next read takes whatever position the daemon acknowledges.",
+      "the position this session was last read up to could not be resolved, so the log was re-read from the beginning of its window instead. Nothing was lost from the stream; the remembered position was. The next read takes whatever position the background service acknowledges.",
     ),
   };
 }

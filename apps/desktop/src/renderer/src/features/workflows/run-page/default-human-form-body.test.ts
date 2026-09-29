@@ -144,7 +144,7 @@ describe("the press composes the registered submit", () => {
     });
     await settle();
 
-    expect(screen.getByText(/The daemon recorded this answer/u)).not.toBeNull();
+    expect(screen.getByText(/The background service recorded this answer/u)).not.toBeNull();
   });
 
   it("speaks the settlement through a status live region", async () => {
@@ -158,7 +158,7 @@ describe("the press composes the registered submit", () => {
     await settle();
 
     expect(screen.getByRole("status").textContent).toContain(
-      "The daemon recorded this answer and one output came of it.",
+      "The background service recorded this answer and one output came of it.",
     );
   });
 });
@@ -282,7 +282,9 @@ describe("a submit call that fails", () => {
       // A key held for the life of the form would have refused the second press as a
       // duplicate of a call that ended.
       expect(probe.requests).toHaveLength(2);
-      expect(container.textContent ?? "").not.toContain("This answer is already with the daemon.");
+      expect(container.textContent ?? "").not.toContain(
+        "This answer is already with the background service.",
+      );
     },
   );
 });

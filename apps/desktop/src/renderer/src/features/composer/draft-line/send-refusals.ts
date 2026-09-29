@@ -61,7 +61,7 @@ export function composerRefusal(code: ComposerRefusalCode, detail: string): Refu
 export function unparseableIdentifier(subject: string): Refusal {
   return composerRefusal(
     "identifier-unparseable",
-    `The console is holding an identifier for ${subject} that the daemon would not accept. Reopen the session so its identifiers are read again.`,
+    `The console is holding an identifier for ${subject} that the background service would not accept. Reopen the session so its identifiers are read again.`,
   );
 }
 

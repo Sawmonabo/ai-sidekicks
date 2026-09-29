@@ -88,7 +88,7 @@
 // readable state at all, which upserted the run while PRESERVING the state its last
 // transition established. Nothing above the fold catches either.
 //
-// The kind's announced state is `bridge/daemon/session-event-streams.ts`'s
+// The kind's announced state is `services/daemon/session-event-streams.ts`'s
 // `runStateForTransitionKind`, read rather than re-derived — that module is the
 // one authority on which kind announces which state, and a second copy here is
 // exactly the drift it was written to end. Its domain is the eight transitions the

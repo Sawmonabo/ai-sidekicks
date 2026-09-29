@@ -23,7 +23,7 @@
 // into the composer and give the fixture a second refusal vocabulary for a defect
 // the registered schema already names. The judges are those schemas, and both of
 // them run: `tests/helpers/scenario-contract-check/contract-check.ts` parses every beat of every scenario before it
-// ships, and `bridge/daemon/session-event-payload.ts` parses every delivery at the boundary.
+// ships, and `services/daemon/session-event-payload.ts` parses every delivery at the boundary.
 
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,

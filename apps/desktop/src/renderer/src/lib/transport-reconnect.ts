@@ -18,7 +18,7 @@
 //
 // `core/` is the floor both may reach, and what lives here is the half a consumer
 // needs: the subscribe view. It holds no state, decides nothing, and names no
-// transport. `bridge/transport/transport-reconnect.ts` is the implementation, and it
+// transport. `services/transport/transport-reconnect.ts` is the implementation, and it
 // is the only thing in the console allowed to decide that a reconnect happened.
 //
 // ONE FACT, NOT A CONNECTION STATE. Deliberately not `isConnected` or a three-arm
