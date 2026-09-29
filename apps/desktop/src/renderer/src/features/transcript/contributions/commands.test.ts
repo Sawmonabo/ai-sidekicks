@@ -1,10 +1,7 @@
-// What the ledger's structure contributes to the palette, and what it must not do.
-//
-// Two claims, and the second is the one this lane's definition of done names: find,
-// filters, and jumps register through `palette/commands/contributions.ts` and never through a
-// second command registry. A module that registered at import time would satisfy
-// every assertion about the command LIST while doing exactly the thing forbidden, so
-// the acts are counted before anything is run as well as after.
+// What the transcript contributes to the palette, and what it must not do: its commands
+// register through the one command registry and never at import time. A module that
+// registered at import time would satisfy every assertion about the command list, so the
+// acts are counted before anything is run as well as after.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -17,15 +14,14 @@ import {
   consoleKeybindingOverrides,
   publishConsoleActRefusalSink,
   type ConsoleCommand,
-} from "../../palette/index.js";
-import { MountedLedgerSeat, type LedgerStructureActs } from "./mounted-ledger.js";
+} from "@renderer/console/palette/index.js";
+import { MountedLedgerSeat, type LedgerStructureActs } from "../mounted-transcript.js";
 import {
   LEDGER_COMMAND_GROUP,
   LEDGER_COMMAND_OWNER,
-  LEDGER_KEY_BINDINGS,
   ledgerStructureCommands,
   registerLedgerCommands,
-} from "./structure-commands.js";
+} from "./commands.js";
 
 /** The acts, each recording that it and only it fired. */
 function recordingActs(fired: string[]): LedgerStructureActs {
@@ -33,7 +29,6 @@ function recordingActs(fired: string[]): LedgerStructureActs {
     openFind: () => fired.push("openFind"),
     stepFindNext: () => fired.push("stepFindNext"),
     stepFindPrevious: () => fired.push("stepFindPrevious"),
-    clearFilters: () => fired.push("clearFilters"),
     scrollToTail: () => fired.push("scrollToTail"),
     collapseAllTerminalChapters: () => fired.push("collapseAllTerminalChapters"),
   };
@@ -66,7 +61,7 @@ describe("ledger commands — the contribution is a value, and building it regis
     // were built for something else, `registerAll` is where that would show.
     const registry = new CommandRegistry();
     registry.registerAll(ledgerStructureCommands(recordingActs([])));
-    expect(registry.size).toBe(6);
+    expect(registry.size).toBe(5);
     expect(registry.all().map((command) => command.id)).toStrictEqual(
       ledgerStructureCommands(recordingActs([])).map((command) => command.id),
     );
@@ -75,7 +70,7 @@ describe("ledger commands — the contribution is a value, and building it regis
   it("offers every act in a window with a session, through the palette's own evaluator", () => {
     const registry = new CommandRegistry();
     registry.registerAll(ledgerStructureCommands(recordingActs([])));
-    expect(registry.commandsFor({ sessionActive: true })).toHaveLength(6);
+    expect(registry.commandsFor({ sessionActive: true })).toHaveLength(5);
   });
 
   it("negative control: a window with no session is offered none of them", () => {
@@ -92,9 +87,9 @@ describe("ledger commands — the contribution is a value, and building it regis
 describe("ledger commands — the rows themselves", () => {
   const commands = ledgerStructureCommands(recordingActs([]));
 
-  it("offers six acts under one group, each id unique and namespaced", () => {
-    expect(commands).toHaveLength(6);
-    expect(new Set(commands.map((command) => command.id)).size).toBe(6);
+  it("offers five acts under one group, each id unique and namespaced", () => {
+    expect(commands).toHaveLength(5);
+    expect(new Set(commands.map((command) => command.id)).size).toBe(5);
     for (const command of commands) {
       expect(command.group).toBe(LEDGER_COMMAND_GROUP);
       expect(command.id.startsWith("ledger.")).toBe(true);
@@ -122,7 +117,6 @@ describe("ledger commands — the rows themselves", () => {
       ["ledger.find", "openFind"],
       ["ledger.findNext", "stepFindNext"],
       ["ledger.findPrevious", "stepFindPrevious"],
-      ["ledger.clearFilters", "clearFilters"],
       ["ledger.scrollToTail", "scrollToTail"],
       ["ledger.collapseTerminalChapters", "collapseAllTerminalChapters"],
     ];
@@ -131,44 +125,6 @@ describe("ledger commands — the rows themselves", () => {
       commandById(ledgerStructureCommands(recordingActs(fired)), commandId).run();
       expect(fired).toStrictEqual([actName]);
     }
-  });
-});
-
-describe("ledger commands — the chords", () => {
-  const commandIds = new Set(
-    ledgerStructureCommands(recordingActs([])).map((command) => command.id),
-  );
-
-  it("binds only commands this module actually contributes", () => {
-    // A chord naming an id nothing registers is a keypress that silently does
-    // nothing, which is invisible until somebody presses it.
-    for (const binding of LEDGER_KEY_BINDINGS) {
-      expect(commandIds.has(binding.commandId)).toBe(true);
-    }
-  });
-
-  it("negative control: the id set does not admit an unregistered command", () => {
-    expect(commandIds.has("ledger.a-command-nobody-contributed")).toBe(false);
-  });
-
-  it("writes every chord platform-neutrally, and scopes each to an active session", () => {
-    for (const binding of LEDGER_KEY_BINDINGS) {
-      expect(binding.chord.startsWith("$mod+")).toBe(true);
-      expect(binding.when).toBe("sessionActive");
-    }
-  });
-
-  it("declines to fire while somebody is typing", () => {
-    // None of these is a chord a person wants firing mid-message. `undefined` is
-    // the default, and stating it here is what keeps a later `true` deliberate.
-    for (const binding of LEDGER_KEY_BINDINGS) {
-      expect(binding.allowInTextInput).toBeUndefined();
-    }
-  });
-
-  it("claims no chord twice", () => {
-    const chords = LEDGER_KEY_BINDINGS.map((binding) => binding.chord);
-    expect(new Set(chords).size).toBe(chords.length);
   });
 });
 

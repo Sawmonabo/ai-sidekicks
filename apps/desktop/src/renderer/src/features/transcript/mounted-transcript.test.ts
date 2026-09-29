@@ -3,7 +3,7 @@
 // Two questions decide whether a ledger command acts on the right thing: which
 // mount a press reaches when more than one is up, and what happens when none is.
 // Both are driven here against the seat itself, with no palette and no window —
-// the command side is `structure-commands.test.ts`'s.
+// the command side is `contributions/commands.test.ts`'.
 
 import { render } from "@testing-library/react";
 import { createElement } from "react";
@@ -12,9 +12,9 @@ import { describe, expect, it } from "vitest";
 import {
   LEDGER_NOT_MOUNTED_REFUSAL,
   MountedLedgerSeat,
-  useMountedLedger,
   type LedgerStructureActs,
-} from "@renderer/console/ledger/structure/mounted-ledger.js";
+} from "./mounted-transcript.js";
+import { useMountedLedger } from "./hooks/useMountedTranscript.js";
 
 /** An act set that records which of its members ran, tagged with the mount's name. */
 function namedActs(name: string, fired: string[]): LedgerStructureActs {
@@ -22,7 +22,6 @@ function namedActs(name: string, fired: string[]): LedgerStructureActs {
     openFind: () => fired.push(`${name}:openFind`),
     stepFindNext: () => fired.push(`${name}:stepFindNext`),
     stepFindPrevious: () => fired.push(`${name}:stepFindPrevious`),
-    clearFilters: () => fired.push(`${name}:clearFilters`),
     scrollToTail: () => fired.push(`${name}:scrollToTail`),
     collapseAllTerminalChapters: () => fired.push(`${name}:collapseAllTerminalChapters`),
   };
@@ -97,8 +96,8 @@ describe("mounted ledger — a component holds the seat for its lifetime", () =>
     const seat = new MountedLedgerSeat();
     const mounted = render(createElement(LedgerMountProbe, { name: "feed", fired, seat }));
     expect(seat.mountedCount).toBe(1);
-    seat.perform("clearFilters");
-    expect(fired).toStrictEqual(["feed:clearFilters"]);
+    seat.perform("scrollToTail");
+    expect(fired).toStrictEqual(["feed:scrollToTail"]);
     mounted.unmount();
     expect(seat.mountedCount).toBe(0);
   });

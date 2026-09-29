@@ -1,0 +1,28 @@
+// The chords the transcript claims in the keybinding table.
+
+import { type KeyBinding } from "@renderer/console/palette/index.js";
+
+/**
+ * The `when` clause every transcript command and chord carries.
+ *
+ * Fail-closed by construction: the palette's clause evaluator answers `false` for
+ * a key the context does not carry, so a window with no session offers none of
+ * these rather than offering acts with nothing to act on.
+ */
+export const WHEN_SESSION_ACTIVE = "sessionActive";
+
+/**
+ * The chords the transcript claims.
+ *
+ * `$mod` is Cmd on macOS and Ctrl elsewhere, which the palette's chord vocabulary
+ * fixes. `allowInTextInput` is left off everywhere: none of these is a chord a
+ * person wants firing while they are composing a message, and the asymmetry the
+ * binding type names — a wrongly-firing chord destroys text, a wrongly-declining
+ * one costs a menu — decides it.
+ */
+export const LEDGER_KEY_BINDINGS: readonly KeyBinding[] = [
+  { chord: "$mod+f", commandId: "ledger.find", when: WHEN_SESSION_ACTIVE },
+  { chord: "$mod+g", commandId: "ledger.findNext", when: WHEN_SESSION_ACTIVE },
+  { chord: "$mod+Shift+g", commandId: "ledger.findPrevious", when: WHEN_SESSION_ACTIVE },
+  { chord: "$mod+Shift+t", commandId: "ledger.scrollToTail", when: WHEN_SESSION_ACTIVE },
+];

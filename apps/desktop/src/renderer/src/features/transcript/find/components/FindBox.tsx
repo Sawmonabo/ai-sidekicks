@@ -3,18 +3,16 @@
 // `find-model.ts` owns the rule this field renders: find runs over the loaded rows with
 // a match count and next and previous.
 //
-// COUNTS ARE THE CONSOLE'S OWN READING, not wire figures: "3 of 17" is derived by
-// this console from rows it holds, so it renders proportionally through
-// `DerivedFigure` rather than in the mono the daemon's own figures wear (rule 4).
+// Counts are the renderer's own reading, not wire figures: "3 of 17" is derived from rows
+// it holds, so it renders proportionally through `DerivedFigure` rather than in the mono
+// the daemon's own figures wear.
 
-import { useEffect, useRef, type RefObject } from "react";
-
-import { DerivedFigure, Glyph } from "../../../primitives/index.js";
+import { DerivedFigure, Glyph } from "@renderer/console/primitives/index.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
-import {
-  type FindStepDirection,
-  type LedgerFindResult,
-} from "@renderer/features/transcript/find/find-model.js";
+import { type FindStepDirection, type LedgerFindResult } from "../find-model.js";
+import { useCaretOnOpen } from "../hooks/useCaretOnOpen.js";
+
+import "./find-box.css";
 
 /** The query, its result, and the acts the field offers. */
 export interface FindInLedgerProps {
@@ -113,26 +111,6 @@ export function FindInLedger(props: FindInLedgerProps): React.JSX.Element {
       </button>
     </div>
   );
-}
-
-/**
- * Take the caret every time the field is asked for, and select what is in it.
- *
- * Selecting rather than only focusing because the second press is the case that
- * needs it: somebody re-running the chord over a field holding an old query is
- * about to replace it, and a caret parked at one end makes them clear it by hand.
- */
-function useCaretOnOpen(openRequestCount: number): RefObject<HTMLInputElement | null> {
-  const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => {
-    const input = inputRef.current;
-    if (input === null) {
-      return;
-    }
-    input.focus();
-    input.select();
-  }, [openRequestCount]);
-  return inputRef;
 }
 
 /**

@@ -1,4 +1,4 @@
-// The chapter fold: which of a window's rows a run's disclosure lets through.
+// The run-group fold: which of a window's rows a run's disclosure lets through.
 //
 // A SECOND PASS OVER THE DERIVED WINDOW rather than a branch inside the derivation,
 // and its own module for the same reason it is its own pass: the two answer to
@@ -16,22 +16,19 @@
 //     decides both.
 //   • Which chapters a person has opened, which is this mount's and not the log's.
 
-import { useCallback, useMemo } from "react";
-
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { useConsoleBridge } from "@renderer/console/bridge/BridgeProvider.js";
-import { type LedgerViewportRow } from "@renderer/features/transcript/viewport/viewport-snapshot.js";
-import { CHAPTER_VISIBLE_ROW_CAP } from "@renderer/features/transcript/structure/structure-caps.js";
-import { ChapterCollapseState, type LedgerChapter } from "../../../structure/index.js";
-import { useSessionScopedState, type TimelineRowDensity } from "../../../../seats/index.js";
+import { type TimelineRowDensity } from "@renderer/console/seats/index.js";
+import { type LedgerChapter } from "../run-groups/run-groups.js";
+import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
+import { type LedgerViewportRow } from "../viewport/viewport-snapshot.js";
+import { LedgerRowRetention } from "../window/row-retention.js";
 import {
   NO_ROWS_REMOVED,
   chapterKeyFor,
   type LedgerPipelineStage,
   type LedgerWindowModel,
-} from "@renderer/features/transcript/window/transcript-window.js";
-import { LedgerRowRetention } from "@renderer/features/transcript/window/row-retention.js";
+} from "../window/transcript-window.js";
 
 /** What one mount remembers about which finished chapters a person opened. */
 export interface LedgerChapterDisclosure {
@@ -55,9 +52,8 @@ export interface LedgerChapterDisclosure {
  * key `chapterKeyFor` already hands every one of that chapter's rows as their
  * `parentKey`. So emitting it does two things in one act: it gives the chapter
  * something to draw, and it makes the chapter's rows CHILDREN of a row the window
- * holds, which is what the cap's top-level rule was written for. Before this, every
- * run row named its run and no row WAS its run, so a run-only log counted every row
- * against the cap; now a chapter counts once, folded or open.
+ * holds, which is what the cap's top-level rule was written for: a chapter counts once
+ * against the cap, folded or open.
  *
  * A FOLDED CHAPTER KEEPS ITS RECEIPT. "Header and receipt" is the whole of the
  * folded shape: the header says which run ended and how much it holds, and the
@@ -65,11 +61,10 @@ export interface LedgerChapterDisclosure {
  * from the viewport rows AND from the body lookup, so nothing can draw a row the
  * fold has hidden.
  *
- * AND AN OPENED CHAPTER KEEPS ONLY WHAT THE CHAPTER CAP ADMITS. Opening one used to
- * admit every member it had, while its header went on reporting the excess as
- * `clipped` — so the figure named rows that were on screen, and one very long run
- * could open into a virtual window the 120-row chapter ceiling did nothing to bound.
- * The permitted subset is selected HERE, by `chapterRowIdsWithinCap`, so the rows
+ * AND AN OPENED CHAPTER KEEPS ONLY WHAT THE CHAPTER CAP ADMITS, so one very long run
+ * cannot open into a virtual window the chapter ceiling does not bound, and the
+ * header's `clipped` figure names only rows that are not on screen. The permitted
+ * subset is selected HERE, by `chapterRowIdsWithinCap`, so the rows
  * outside it never reach the viewport and the header's `clipped` count is exactly
  * what is not rendered. The receipt is admitted whatever the cap says: a chapter
  * whose terminal fell outside the window would report how it ended in a header that
@@ -195,88 +190,6 @@ export function narrowChapterToAdmittedRows(
     rowCount: rowIds.length,
     clippedRowCount: rowIds.length - chapterRowIdsWithinCap(rowIds).length,
   };
-}
-
-/**
- * Fold the chapters of the window a narrowing left.
- *
- * Its own hook rather than a second half of the projection, so a disclosure toggle
- * re-folds over a projection and a narrowing it did not have to redo — and so the
- * narrowing has somewhere to sit between the two.
- */
-export function useFoldedChapters(
-  model: LedgerWindowModel,
-  openedTerminalRunIds: ReadonlySet<string>,
-  sessionId: string,
-): LedgerPipelineStage {
-  // One table per SESSION rather than per mount — the projection hook's own idiom,
-  // for its reason, and a second INSTANCE rather than a second class. The session is
-  // the subject because this pane follows a navigation that changes which log it is
-  // of without unmounting, and a table carried across that holds the rows of a
-  // session nobody is reading.
-  const bridge = useConsoleBridge();
-  const retention = useSessionScopedState(bridge, sessionId, () => new LedgerRowRetention());
-  const heldRetention = retention.value;
-  return useMemo(
-    () => foldChapterHeaders(model, openedTerminalRunIds, heldRetention),
-    [model, openedTerminalRunIds, heldRetention],
-  );
-}
-
-/**
- * Hold one session's chapter disclosure.
- *
- * `ChapterCollapseState` is the single owner of the rule — a live chapter answers
- * open before any stored state is read — so this hook does not restate it; it
- * publishes the instance's opened set so a toggle repaints. The set is derived from
- * the instance and written nowhere else, which is what keeps it one source of truth
- * mirrored rather than two states kept in step.
- *
- * SCOPED TO THE SESSION, NOT TO THE MOUNT, and the difference is not academic: the
- * shell opens session stores and never closes them, so moving from one open session
- * to another re-renders this pane at the same position rather than unmounting it. A
- * `useState` holder therefore carried session A's decisions into session B — its
- * opened run ids are A's, so a B chapter that happens to share a run id opens by
- * itself and every other terminal chapter in B is folded by a decision made in A.
- * BOTH halves are held per session, because the instance and its published mirror
- * are one fact: re-seeding the instance alone would leave the mirror standing.
- */
-export function useChapterDisclosure(sessionId: string): LedgerChapterDisclosure {
-  const bridge = useConsoleBridge();
-  const collapse = useSessionScopedState(bridge, sessionId, () => new ChapterCollapseState());
-  const opened = useSessionScopedState<ReadonlySet<string>>(
-    bridge,
-    sessionId,
-    () => new Set<string>(),
-  );
-  const collapseState = collapse.value;
-  const publishOpened = opened.publish;
-  const publish = useCallback(() => {
-    publishOpened(new Set(collapseState.openedTerminalRunIds));
-  }, [collapseState, publishOpened]);
-  const toggle = useCallback(
-    (chapter: LedgerChapter) => {
-      if (collapseState.isOpen(chapter)) {
-        collapseState.close(chapter);
-      } else {
-        collapseState.open(chapter);
-      }
-      publish();
-    },
-    [collapseState, publish],
-  );
-  const collapseAllTerminal = useCallback(
-    (chapters: readonly LedgerChapter[]) => {
-      collapseState.collapseAllTerminal(chapters);
-      publish();
-    },
-    [collapseState, publish],
-  );
-  const openedTerminalRunIds = opened.value;
-  return useMemo(
-    () => ({ openedTerminalRunIds, toggle, collapseAllTerminal }),
-    [openedTerminalRunIds, toggle, collapseAllTerminal],
-  );
 }
 
 /** One row's collapse state, from the list's own decision. */

@@ -53,7 +53,7 @@ import {
   type ConsoleSurfaceRegistry,
 } from "../seats/index.js";
 import { SessionResumeDegraded } from "@renderer/features/transcript/components/ResumeRefusalBanner.js";
-import { registerLedgerCommands } from "./structure/structure-commands.js";
+import { registerLedgerCommands } from "@renderer/features/transcript/contributions/commands.js";
 
 // THIS DOOR IMPORTS ITS OWN SHEET AND NO OTHER. A directory that carries a door has an
 // owner of its own, and reaching into one is the shape this package forbids. `frame/`,

@@ -1,7 +1,6 @@
-/* `ledger/structure/chapters/`'s styles — the chapter header: its disclosure, the actor
- * it names, its terminal figure, and the counts it carries.
- *
- * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else. The body
+/* The run group's header (its disclosure, the actor it names, its terminal figure and
+ * counts) and its body, shared by the two components here and imported by the
+ * transcript's chunk root. The body
  * block below is the chapter's nested scroller: the rows the outer list's ceiling left
  * out, bounded, faded at the top edge, and re-pinned by the engine's own anchoring.
  */

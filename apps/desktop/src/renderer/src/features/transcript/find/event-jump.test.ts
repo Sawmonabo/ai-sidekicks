@@ -1,7 +1,7 @@
 // The act each absence offers, and the jump that outlives the render it was asked in.
 //
 // TWO CLAIMS, AND NEITHER IS ABOUT CLASSIFICATION. Which narrowing is hiding a row
-// is `ledger/structure/narrowing/filters.test.ts`'. What is only true here is that
+// is `row-jump.test.ts`'. What is only true here is that
 // every absence the pipeline names has a DECIDED act — the table is driven from the
 // exported tuple, so a narrowing added to the pipeline and not to the table is
 // a red test rather than a row silently offered the chapter fold's button — and that
@@ -13,21 +13,16 @@ import { describe, expect, it, vi } from "vitest";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import {
-  type LedgerJumpAbsence,
-  type LedgerJumpOutcome,
-} from "@renderer/console/ledger/structure/index.js";
+import { type LedgerJumpAbsence, type LedgerJumpOutcome } from "./row-jump.js";
 // Deeply, and only here: the tuple's one consumer outside its own directory is this
 // suite's totality case, so a door line for it would be a door widened for testing.
-import { LEDGER_JUMP_ABSENCES } from "@renderer/console/ledger/structure/narrowing/filters.js";
-import { foldChapterHeaders } from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
+import { LEDGER_JUMP_ABSENCES } from "./row-jump.js";
+import { foldChapterHeaders } from "../feed/run-group-fold.js";
 import { TERMINAL_RUN_ID, projectedRowId } from "../transcript-logs.test-support.js";
 import { foldedMessageChapterLog } from "../run-group-logs.test-support.js";
-import {
-  jumpOutcomeRowId,
-  useDeferredRowJump,
-  useLedgerJumpReach,
-} from "@renderer/console/ledger/pane/find/ledger-jump.js";
+import { jumpOutcomeRowId } from "./event-jump.js";
+import { useDeferredRowJump } from "./hooks/useDeferredRowJump.js";
+import { useLedgerJumpReach } from "./hooks/useTranscriptJumpReach.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/transcript-window.js";
 
 /** The loaded projection of a finished chapter beside a live run. */
@@ -44,17 +39,15 @@ function rowOf(rowId: string): TimelineRow {
   return row;
 }
 
-/** The three acts, each recording that it was performed and nothing else. */
+/** The two acts, each recording that it was performed and nothing else. */
 function recordingActs(): {
   readonly performed: string[];
-  readonly clearFilter: () => void;
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
   readonly requestJump: (rowId: string) => void;
 } {
   const performed: string[] = [];
   return {
     performed,
-    clearFilter: () => performed.push("clear-filter"),
     openFoldsHoldingRow: () => performed.push("open-folds"),
     requestJump: (rowId: string) => performed.push(`request-jump:${rowId}`),
   };
@@ -71,7 +64,6 @@ function reachFor(
       outcome,
       foldedWindow: foldChapterHeaders(LOADED_WINDOW, openedTerminalRunIds).window,
       openedTerminalRunIds,
-      clearFilter: acts.clearFilter,
       openFoldsHoldingRow: acts.openFoldsHoldingRow,
       requestJump: acts.requestJump,
     }),
@@ -81,25 +73,15 @@ function reachFor(
 
 describe("the act an absence offers", () => {
   it("decides every absence the pipeline names", () => {
-    // TOTALITY, DRIVEN FROM THE TUPLE THE CLASSIFIER WALKS. The resolution used to
-    // be an `if`-chain whose last arm was the chapter fold, so a fourth narrowing
-    // compiled and fell through to "Open that chapter and go to it" — an act that
-    // cannot reach the row, which is the exact defect the module exists to remove.
+    // Totality, driven from the tuple the classifier walks: a narrowing that fell
+    // through to "Open that chapter and go to it" would offer an act that cannot reach
+    // the row.
     for (const absence of LEDGER_JUMP_ABSENCES) {
       const acts = recordingActs();
       const reach = reachFor({ status: absence, row: FOLDED_ROW }, acts);
       // Decided means answered, not answered YES: one arm is honestly actless.
       expect(reach === undefined || typeof reach.label === "string").toBe(true);
     }
-  });
-
-  it("clears the filter and holds the jump for a row the filter hid", () => {
-    const acts = recordingActs();
-    const reach = reachFor({ status: "hidden-by-filter", row: FOLDED_ROW }, acts);
-
-    expect(reach?.label).toBe("Clear the filter and go to it");
-    reach?.perform();
-    expect(acts.performed).toStrictEqual(["clear-filter", `request-jump:${FOLDED_ROW.id}`]);
   });
 
   it("opens the chapter and holds the jump for a row the fold dropped", () => {

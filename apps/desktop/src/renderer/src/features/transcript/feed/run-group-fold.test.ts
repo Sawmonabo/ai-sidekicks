@@ -14,18 +14,16 @@ import { DesktopBridgeProvider } from "@renderer/console/bridge/BridgeProvider.j
 import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane/bridge.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { CHAPTER_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
-import {
-  ChapterCollapseState,
-  type LedgerChapter,
-} from "@renderer/console/ledger/structure/index.js";
+import { ChapterCollapseState } from "../run-groups/run-group-fold-state.js";
+import { type LedgerChapter } from "../run-groups/run-groups.js";
 import { type ConsoleSessionEvent } from "@renderer/console/store/entities/entities.js";
 import {
   chapterRowIdsWithinCap,
   foldChapterHeaders,
   narrowChapterToAdmittedRows,
-  useChapterDisclosure,
   type LedgerChapterDisclosure,
-} from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
+} from "./run-group-fold.js";
+import { useChapterDisclosure } from "./hooks/useRunGroupDisclosure.js";
 import { ledgerFixtureStampAt } from "../transcript-logs.test-support.js";
 import { deriveLedgerWindow, type LedgerWindowModel } from "../window/transcript-window.js";
 

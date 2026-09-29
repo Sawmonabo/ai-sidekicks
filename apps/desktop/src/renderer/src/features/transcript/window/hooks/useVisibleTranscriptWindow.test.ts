@@ -26,15 +26,13 @@ import {
 /**
  * The find state over one visible window, with the upstream stages left unnarrowed.
  *
- * Every case in this file is about the cap, which is the narrowing BELOW the fold —
- * so neither upstream stage removed anything, both report the shared empty set, and
- * the filter and fold counts stay zero throughout. `ledger-find.test.ts` is where
- * those two are driven.
+ * Every case in this file is about the cap, which is the stage BELOW the fold — so
+ * the fold removed nothing, reports the shared empty set, and its count stays zero
+ * throughout. `useTranscriptFind.test.ts` is where that count is driven.
  */
 function findOverVisible(visible: VisibleLedgerWindow): ReturnType<typeof useLedgerFind> {
   return useLedgerFind({
     visible,
-    filteredAwayRows: NO_ROWS_REMOVED,
     foldedAwayRows: NO_ROWS_REMOVED,
   });
 }

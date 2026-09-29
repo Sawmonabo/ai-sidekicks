@@ -19,11 +19,11 @@ import { describe, expect, it, vi } from "vitest";
 import { type LedgerRowLease } from "../../viewport/retained-row-state-table.js";
 import { type LedgerViewportRow } from "../../viewport/viewport-snapshot.js";
 import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
-import { foldChapterHeaders } from "@renderer/console/ledger/pane/feed/model/ledger-chapter-fold.js";
+import { foldChapterHeaders } from "../run-group-fold.js";
 import {
   useLedgerRowRenderer,
   type LedgerRowRendererOptions,
-} from "@renderer/console/ledger/pane/feed/surface/LedgerFeedRow.js";
+} from "../hooks/useTranscriptRowRenderer.js";
 import { TERMINAL_RUN_ID } from "../../transcript-logs.test-support.js";
 import {
   openSessionStoreWithSeam,

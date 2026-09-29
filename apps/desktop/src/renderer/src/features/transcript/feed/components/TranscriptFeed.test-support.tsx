@@ -24,10 +24,7 @@ import { createFixtureBridge } from "@renderer/console/bridge/fixture/call-plane
 import { useLedgerRowLease } from "../../viewport/hooks/useRetainedRowState.js";
 import { LEDGER_QUIET_SCENARIO } from "../../../../../../../fixtures/scenarios/empty-session.js";
 import { consoleCommandSurface, consoleCommands } from "@renderer/console/palette/index.js";
-import {
-  LEDGER_COMMAND_OWNER,
-  registerLedgerCommands,
-} from "@renderer/console/ledger/structure/structure-commands.js";
+import { LEDGER_COMMAND_OWNER, registerLedgerCommands } from "../../contributions/commands.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type TimelineRowSlotProps } from "@renderer/console/seats/index.js";
 import { LedgerFeed } from "./TranscriptFeed.js";

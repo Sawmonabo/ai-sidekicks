@@ -6,7 +6,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { FindInLedger } from "@renderer/console/ledger/structure/narrowing/FindInLedger.js";
+import { FindInLedger } from "./FindBox.js";
 import { emptyFindResult, findInLedger, type LedgerFindResult } from "../find-model.js";
 import { runRow } from "../../timeline-rows.test-support.js";
 

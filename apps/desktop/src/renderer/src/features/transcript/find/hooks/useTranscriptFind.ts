@@ -3,16 +3,14 @@
 // It searches the VISIBLE window and not the log, because the walk offers to jump
 // and a jump is performed by the viewport: a result counting rows the viewport does
 // not hold would step to one and land nowhere, reporting success. What lies outside
-// that window is counted beside the field instead — in THREE figures, one per
-// narrowing, because each names a different state with a different exit.
+// that window is counted beside the field instead — in TWO figures, one per stage that
+// removed rows, because each names a different state with a different exit.
 //
-// THREE AND NOT ONE, AND THE TWO THAT WERE MISSING ARE THE COMMON ONES. The cap was
-// counted from the start; the filter and the terminal-run
-// fold were not, and rule 7 folds every finished run by default — so on a completed
-// session most of the log sits behind a chapter header, and a term in one of those
-// rows was reported as no match at all rather than as a match the reader could reach
-// by opening the chapter. A row either narrowing removed is still a LOADED row, and
-// a field that says it searched the loaded rows has to account for it.
+// THE FOLD'S FIGURE IS THE COMMON ONE. Every finished run is folded by default, so on a
+// completed session most of the log sits behind a run group header, and a term in one of
+// those rows is a match the reader can reach by opening the group. A row the fold
+// removed is still a LOADED row, and a field that says it searched the loaded rows has
+// to account for it.
 
 import { useCallback, useMemo, useState } from "react";
 
@@ -24,7 +22,7 @@ import {
   stepFindMatch,
   type FindStepDirection,
   type LedgerFindResult,
-} from "@renderer/console/ledger/structure/index.js";
+} from "../find-model.js";
 import { type VisibleLedgerWindow } from "../../window/hooks/useVisibleTranscriptWindow.js";
 
 /** The find field's state, and the walk over one window's matches. */
@@ -35,17 +33,10 @@ export interface LedgerFindState {
   /** Matches in rows the cap took out of this window. Named, never hidden. */
   readonly beyondWindowMatchCount: number;
   /**
-   * Matches in rows the facet bar is narrowing away.
+   * Matches inside terminal run chapters this transcript has folded.
    *
-   * Its own figure because clearing the narrowing brings every one of them back at
-   * once, which is a different move from a row the cap dropped for good.
-   */
-  readonly filteredAwayMatchCount: number;
-  /**
-   * Matches inside terminal run chapters this ledger has folded.
-   *
-   * Rule 7 folds finished runs by default, so this is the largest of the three on any
-   * session that has finished a run — and it was the one nothing counted.
+   * Finished runs fold by default, so this is the larger of the two on any session that
+   * has finished a run.
    */
   readonly foldedAwayMatchCount: number;
   /**
@@ -88,39 +79,33 @@ export interface LedgerFindInputs {
   /** The rows the walk searches — the only ones a step can land on. */
   readonly visible: VisibleLedgerWindow;
   /**
-   * The rows the facet bar took out, as the narrowing stage reported them.
+   * The rows the terminal-run fold withheld, as the fold reported them.
    *
    * TAKEN FROM THE STAGE RATHER THAN DERIVED HERE, because the stage is the pass that
-   * already separated them. Re-deriving it meant a `Set` over the narrowed rows and a
-   * filter over the whole unfurled projection, on every appended row, for as long as a
-   * query sat in the field — and the empty answer, which is the one nearly every
-   * ledger gives, cost exactly as much as a real one.
+   * already separated them: re-deriving it would walk the whole unfurled projection on
+   * every appended row for as long as a query sat in the field.
    */
-  readonly filteredAwayRows: readonly TimelineRow[];
-  /** The rows the terminal-run fold withheld, as the fold reported them. */
   readonly foldedAwayRows: readonly TimelineRow[];
 }
 
 /**
  * Search the window on screen, and count what lies outside it.
  *
- * Four passes over four DISJOINT sets rather than one pass over the log and a
+ * Three passes over three DISJOINT sets rather than one pass over the log and a
  * partition afterwards, which costs the same and keeps the walkable result honest:
  * every match in `result` is a row `jumpToRow` can reach, and every match that is
- * not is in one of the three counts beside it, under the name of the narrowing
- * holding it.
+ * not is in one of the two counts beside it, under the name of the stage holding it.
  *
- * THE STAGES ARE READ AS SETS, one difference per narrowing, so a row is counted
- * once and against the FIRST thing that removed it. A row the filter took never
- * reaches the fold, so it cannot be reported as folded away, and the three counts
- * plus the walk partition the loaded log exactly.
+ * THE STAGES ARE READ AS SETS, one difference per stage, so a row is counted once and
+ * against the FIRST thing that removed it: a row the fold took never reaches the
+ * viewport, so the two counts plus the walk partition the loaded log exactly.
  *
  * THE WALK IS HELD BY ROW, NOT BY ORDINAL. The result recomputes whenever the
  * window moves under a query somebody is still walking, and an ordinal into the
  * previous result is a position in a list that no longer exists.
  */
 export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
-  const { visible, filteredAwayRows, foldedAwayRows } = inputs;
+  const { visible, foldedAwayRows } = inputs;
   const [isOpen, setIsOpen] = useState(false);
   const [openRequestCount, setOpenRequestCount] = useState(0);
   const [query, setQueryValue] = useState("");
@@ -138,11 +123,6 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
     () =>
       query.trim().length === 0 ? 0 : findInLedger(visible.prunedAwayRows, query).totalMatchCount,
     [visible, query],
-  );
-
-  const filteredAwayMatchCount = useMemo(
-    () => matchesAmong(filteredAwayRows, query),
-    [filteredAwayRows, query],
   );
 
   const foldedAwayMatchCount = useMemo(
@@ -197,7 +177,6 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
     query,
     result,
     beyondWindowMatchCount,
-    filteredAwayMatchCount,
     foldedAwayMatchCount,
     currentMatchIndex,
     setQuery,
@@ -215,8 +194,8 @@ export function useLedgerFind(inputs: LedgerFindInputs): LedgerFindState {
  * that removed nothing hands back the one shared empty set, which the memo above keys
  * on, so an appended row does not even reach this function.
  *
- * The three counts stay a partition because the stages report DISJOINT removals: a row
- * the filter took never reaches the fold, so it cannot be reported as folded away.
+ * The counts stay a partition because the stages report DISJOINT removals: a row the
+ * fold took never reaches the viewport, so it cannot be reported as beyond the window.
  */
 function matchesAmong(rows: readonly TimelineRow[], query: string): number {
   if (rows.length === 0 || query.trim().length === 0) {

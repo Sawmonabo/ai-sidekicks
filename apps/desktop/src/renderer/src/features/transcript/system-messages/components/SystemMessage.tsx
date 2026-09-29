@@ -38,6 +38,8 @@ import { type ActorHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SEAM_WIRE_BINDINGS, SWITCH_CONTINUITY_MEMO } from "../system-message-kinds.js";
 import { type LedgerSeam } from "../system-message-classifier.js";
 
+import "./system-messages.css";
+
 export interface SeamRowProps {
   readonly seam: LedgerSeam;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */

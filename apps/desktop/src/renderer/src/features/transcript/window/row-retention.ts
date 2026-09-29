@@ -1,8 +1,8 @@
 // The row objects one ledger derivation publishes, held across its own passes.
 //
 // ITS OWN MODULE BECAUSE IT IS ONE JOB — structural sharing, one pass at a time —
-// and because it has two callers: the unfurled projection in `ledger-window.ts` and
-// the fold in `ledger-chapter-fold.ts`, each holding an instance of its own. Read
+// and because it has two callers: the unfurled projection in `transcript-window.ts` and
+// the fold in `run-group-fold.ts`, each holding an instance of its own. Read
 // inside the derivation it came from, a hundred and forty lines of identity rules sat
 // between the window's shape and the function that builds one, and the module that
 // owned the shape also owned the equality.

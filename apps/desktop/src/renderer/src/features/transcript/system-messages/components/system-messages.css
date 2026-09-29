@@ -1,7 +1,5 @@
-/* `ledger/structure/seams/`'s styles — the seam row: the line that says a run began,
- * ended, was blocked, or was retired by a later epoch.
- *
- * ONE SHEET PER DIRECTORY, imported from `ledger/index.ts` and nowhere else.
+/* The system message (`SystemMessage`): the line that says a run began, ended, was
+ * blocked, or was retired by a later epoch.
  */
 
 /* --- Structure: the seam row --------------------------------------------- */
