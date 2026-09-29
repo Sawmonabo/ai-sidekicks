@@ -10,11 +10,12 @@
 // resolves from the one on its surface context. A suite that registered into the
 // process-wide singleton instead would prove only that the host reads a global.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import { consolePaneRegistry } from "../seats/index.js";
 import {
   composeWindow,
+  loadRunPaneBody,
   mountWorkflowsSlot,
   pressFirst,
   pressOpenRun,
@@ -37,6 +38,8 @@ function renderComposed(composed: ComposedWindow): HTMLElement {
 function renderHost(): HTMLElement {
   return renderComposed(composeWindow());
 }
+
+beforeAll(loadRunPaneBody);
 
 describe("what the workflows slot mounts", () => {
   it("shows the destination until something is opened", async () => {

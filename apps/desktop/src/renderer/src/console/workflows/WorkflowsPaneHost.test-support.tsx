@@ -121,6 +121,15 @@ export function pressFirst(container: HTMLElement, selector: string): void {
   fireEvent.click(control);
 }
 
+/**
+ * Loads the run pane's lazy body ahead of the cases. A case that opens the pane would
+ * otherwise start that import and could end, and tear its environment down, before it
+ * finished.
+ */
+export async function loadRunPaneBody(): Promise<void> {
+  await import("./pane/workflow-run-pane-body.js");
+}
+
 /** Press the stand-in destination's button, which opens a run through the host's opener. */
 export function pressOpenRun(container: HTMLElement): void {
   pressFirst(container, ".probe-open-run");

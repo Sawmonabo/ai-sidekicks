@@ -7,10 +7,11 @@
 // The host holds one answer made from what a bridge served: which pane is open. An
 // address carried across a swap opens a pane on a run the new bridge has never heard of.
 
-import { describe, expect, it, vi } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   composeWindow,
+  loadRunPaneBody,
   mountWorkflowsSlot,
   pressOpenRun,
   remountWorkflowsSlot,
@@ -27,6 +28,8 @@ vi.mock("./destination/index.js", async () => {
 function isShowingOpenedPane(container: HTMLElement): boolean {
   return container.querySelector(".meridian-workflows-pane-host") !== null;
 }
+
+beforeAll(loadRunPaneBody);
 
 describe("a bridge replaced under an answered slot", () => {
   it("closes a pane opened from the previous bridge rather than addressing this one with it", async () => {
