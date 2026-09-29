@@ -329,8 +329,8 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
     });
   });
 
-  it("emitWorkspaceProvisioning appends one workspace.provisioning row in state provisioning", async () => {
-    await makeEmitter().emitWorkspaceProvisioning({
+  it("emitWorkspacePreparing appends one workspace.provisioning row in state provisioning", async () => {
+    await makeEmitter().emitWorkspacePreparing({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
     });
@@ -614,7 +614,7 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
 
   it("rejects a malformed sessionId and appends nothing", async () => {
     await expect(
-      makeEmitter().emitWorkspaceProvisioning({
+      makeEmitter().emitWorkspacePreparing({
         sessionId: "session-1",
         workspaceId: WORKSPACE_ID,
       }),

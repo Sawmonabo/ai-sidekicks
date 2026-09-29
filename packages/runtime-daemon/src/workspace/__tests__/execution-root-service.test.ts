@@ -107,7 +107,7 @@ const SEEDED_CONTEXT_ID: string = "0190fb16-7283-7495-8a01-1c2d3e4f5067";
 const UNKNOWN_WORKSPACE_ID: string = "0190fb17-8394-75a6-9b12-2d3e4f506178";
 
 const CANONICAL_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-mount";
-// A workspace's PREVIOUS root — the one `beginReprovision` releases.
+// A workspace's PREVIOUS root — the one `beginRootPreparation` releases.
 const PRIOR_ROOT: string = "/tmp/ai-sidekicks-fixture-exec-prior-root";
 const EXECUTION_ROOTS_DIRECTORY: string = "/tmp/ai-sidekicks-fixture-exec-roots";
 // Where the fake provisioner would have placed the seeded worktree.
@@ -399,11 +399,12 @@ afterEach(() => {
 function realPrimitives(): WorkspaceLifecyclePrimitives {
   return {
     assertWritable: (workspaceId) => ctx.workspaces.assertWritable(workspaceId),
-    beginReprovision: (workspaceId, targetMode) =>
-      ctx.workspaces.beginReprovision(workspaceId, targetMode),
-    completeReprovision: (workspaceId, fsRoot) =>
-      ctx.workspaces.completeReprovision(workspaceId, fsRoot),
-    failReprovision: (workspaceId, detail) => ctx.workspaces.failReprovision(workspaceId, detail),
+    beginRootPreparation: (workspaceId, targetMode) =>
+      ctx.workspaces.beginRootPreparation(workspaceId, targetMode),
+    completeRootPreparation: (workspaceId, fsRoot) =>
+      ctx.workspaces.completeRootPreparation(workspaceId, fsRoot),
+    failRootPreparation: (workspaceId, detail) =>
+      ctx.workspaces.failRootPreparation(workspaceId, detail),
   };
 }
 
@@ -1036,7 +1037,7 @@ describe("explicit worktree reuse", () => {
     expect(readBranchContexts()).toHaveLength(1);
 
     // A second prepare on the SAME workspace, naming the worktree it just made.
-    // No fixture surgery in between: the first prepare's `completeReprovision`
+    // No fixture surgery in between: the first prepare's `completeRootPreparation`
     // already left the row `ready` on that root, which is the state a real
     // re-bind starts from.
     const rebound = await service.prepare({
@@ -1114,7 +1115,7 @@ describe("explicit worktree reuse", () => {
     // busy IN that directory, and a second workspace asks to bind the same
     // working tree. The refusal must name the HOLDER and must fire
     // pre-bracket — routed through the materialization catch it would
-    // `failReprovision` the requester into `stale` repair for someone else's
+    // `failRootPreparation` the requester into `stale` repair for someone else's
     // live run.
     insertWorktreeRow({
       worktreeId: SEEDED_WORKTREE_ID,
@@ -1346,17 +1347,17 @@ describe("the reprovision bracket", () => {
     expect(readEventTypes()).toEqual(["workspace.ready"]);
   });
 
-  it("swallows a failReprovision throw and still reports the original cause", async () => {
+  it("swallows a failRootPreparation throw and still reports the original cause", async () => {
     insertWorkspace({ executionMode: "provisioned-worktree", state: "ready", fsRoot: PRIOR_ROOT });
     const failure = new WorktreeCreateFailedError("base_ref_unresolved");
     ctx.worktrees.createFailure = failure;
-    const bookkeepingFailure = new Error("failReprovision could not reach the database");
+    const bookkeepingFailure = new Error("failRootPreparation could not reach the database");
 
     const rejection = await captureRejection(() =>
       makeService({
         workspaces: {
           ...realPrimitives(),
-          failReprovision: (): Promise<void> => Promise.reject(bookkeepingFailure),
+          failRootPreparation: (): Promise<void> => Promise.reject(bookkeepingFailure),
         },
       }).prepare({ workspaceId: WORKSPACE_ID, branchName: FEATURE_BRANCH }),
     );
@@ -1379,11 +1380,11 @@ describe("compensation", () => {
   function primitivesFailingCompletion(failure: Error): WorkspaceLifecyclePrimitives {
     return {
       ...realPrimitives(),
-      completeReprovision: (): Promise<void> => Promise.reject(failure),
+      completeRootPreparation: (): Promise<void> => Promise.reject(failure),
     };
   }
 
-  const COMPLETION_FAILURE_MESSAGE = "completeReprovision could not reach the database";
+  const COMPLETION_FAILURE_MESSAGE = "completeRootPreparation could not reach the database";
 
   it("retires a worktree this call created, and first removes the row binding it", async () => {
     // Without compensation this leaks permanently: the sweep retires worktrees
@@ -1526,16 +1527,16 @@ describe("no raw workspaces write", () => {
         calls.push(`assertWritable:${workspaceId}`);
         return Promise.resolve();
       },
-      beginReprovision: (workspaceId) => {
-        calls.push(`beginReprovision:${workspaceId}`);
+      beginRootPreparation: (workspaceId) => {
+        calls.push(`beginRootPreparation:${workspaceId}`);
         return Promise.resolve();
       },
-      completeReprovision: (workspaceId, fsRoot) => {
-        calls.push(`completeReprovision:${workspaceId}:${fsRoot}`);
+      completeRootPreparation: (workspaceId, fsRoot) => {
+        calls.push(`completeRootPreparation:${workspaceId}:${fsRoot}`);
         return Promise.resolve();
       },
-      failReprovision: (workspaceId) => {
-        calls.push(`failReprovision:${workspaceId}`);
+      failRootPreparation: (workspaceId) => {
+        calls.push(`failRootPreparation:${workspaceId}`);
         return Promise.resolve();
       },
     };
@@ -1550,7 +1551,7 @@ describe("no raw workspaces write", () => {
     expect(prepared.executionRoot).toContain("/worktrees/");
     expect(readBranchContexts()).toHaveLength(1);
     // It asked the primitive to adopt the root, rather than writing it.
-    expect(calls).toEqual([`completeReprovision:${WORKSPACE_ID}:${prepared.executionRoot}`]);
+    expect(calls).toEqual([`completeRootPreparation:${WORKSPACE_ID}:${prepared.executionRoot}`]);
     expect(readWorkspaceRow()).toEqual(before);
     expect(readEventTypes()).toEqual([]);
   });

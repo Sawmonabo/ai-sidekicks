@@ -87,7 +87,7 @@ import {
   RespondToRequestParamsSchema,
 } from "@ai-sidekicks/contracts";
 
-import { JsonRpcSchemaError, type JsonRpcClient } from "./transport/jsonRpcClient.js";
+import { JsonRpcSchemaError, type JsonRpcClient } from "./transport/json-rpc-client.js";
 import type { LocalSubscriptionConsumer } from "./transport/types.js";
 
 // --------------------------------------------------------------------------

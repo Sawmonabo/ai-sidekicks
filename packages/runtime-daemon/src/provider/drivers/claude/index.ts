@@ -31,7 +31,7 @@ import type {
   ProviderCommandListResult,
   DriverInterventionResult,
   DriverResumeResult,
-  DriverRollbackResult,
+  ForkConversationResult,
   InterruptRunParams,
   DriverTranscriptReplayResult,
   ProviderDriver,
@@ -40,7 +40,7 @@ import type {
   ProviderOutputSpeedState,
   ProviderSessionHandle,
   ResumeSessionParams,
-  RollbackToParams,
+  ForkConversationParams,
   SessionId,
   StartRunParams,
 } from "@ai-sidekicks/contracts";
@@ -79,7 +79,7 @@ export type ClaudeDriverOperations = Pick<
   | "interruptRun"
   | "applyIntervention"
   | "closeSession"
-  | "rollbackTo"
+  | "forkConversation"
   | "probeAuth"
   | "listModels"
   | "compactContext"
@@ -150,8 +150,8 @@ export class ClaudeDriver implements ClaudeDriverOperations {
     await this.#lifecycle.closeSession(params);
   }
 
-  async rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
-    return await this.#lifecycle.rollbackTo(params);
+  async forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
+    return await this.#lifecycle.forkConversation(params);
   }
 
   async probeAuth(): Promise<DriverAuthProbeResult> {

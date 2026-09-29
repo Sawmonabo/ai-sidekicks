@@ -35,7 +35,7 @@ import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SessionEventSchema,
   WorkspaceArchivedEventSchema,
-  WorkspaceProvisioningEventSchema,
+  WorkspacePreparingEventSchema,
   WorkspaceReadyEventSchema,
   WorkspaceStaleEventSchema,
   type SessionEvent,
@@ -1765,7 +1765,7 @@ const STANDALONE_REPO_EVENT_SCHEMAS: ReadonlyArray<
 > = [
   ["repo.attached", "attached", contracts.RepoAttachedEventSchema],
   ["repo.detached", "detached", contracts.RepoDetachedEventSchema],
-  ["workspace.provisioning", "provisioning", contracts.WorkspaceProvisioningEventSchema],
+  ["workspace.provisioning", "provisioning", contracts.WorkspacePreparingEventSchema],
   ["workspace.ready", "ready", contracts.WorkspaceReadyEventSchema],
   ["workspace.stale", "stale", contracts.WorkspaceStaleEventSchema],
   ["workspace.archived", "archived", contracts.WorkspaceArchivedEventSchema],
@@ -1892,7 +1892,7 @@ describe("index.ts re-exports contract core", () => {
     // the declarations in event.ts rather than to a second instance.
     expect(contracts.RepoAttachedEventSchema).toBe(RepoAttachedEventSchema);
     expect(contracts.RepoDetachedEventSchema).toBe(RepoDetachedEventSchema);
-    expect(contracts.WorkspaceProvisioningEventSchema).toBe(WorkspaceProvisioningEventSchema);
+    expect(contracts.WorkspacePreparingEventSchema).toBe(WorkspacePreparingEventSchema);
     expect(contracts.WorkspaceReadyEventSchema).toBe(WorkspaceReadyEventSchema);
     expect(contracts.WorkspaceStaleEventSchema).toBe(WorkspaceStaleEventSchema);
     expect(contracts.WorkspaceArchivedEventSchema).toBe(WorkspaceArchivedEventSchema);

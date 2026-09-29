@@ -348,7 +348,7 @@ export class WorktreeNotFoundError extends DaemonDomainError {
 /**
  * `worktree.create_failed` — "Worktree creation failed (git error, filesystem
  * error, or dynamic worktree unavailability at provisioning time); the owning
- * workspace transitions to `stale` via `failReprovision` and the failure detail
+ * workspace transitions to `stale` via `failRootPreparation` and the failure detail
  * rides `workspace.stale` metadata" (notional HTTP 500).
  *
  * The closed {@link WorktreeCreateFailureReason} is the ONLY constructor

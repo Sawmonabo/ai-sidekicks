@@ -59,7 +59,7 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { JSONRPC_VERSION, SUBSCRIPTION_CANCEL_METHOD } from "@ai-sidekicks/contracts";
 
-import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../jsonRpcClient.js";
+import { JsonRpcClient, JsonRpcRemoteError, JsonRpcSchemaError } from "../json-rpc-client.js";
 import type { ClientTransport } from "../types.js";
 
 // ----------------------------------------------------------------------------

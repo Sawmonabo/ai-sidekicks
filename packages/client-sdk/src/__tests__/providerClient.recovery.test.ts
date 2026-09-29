@@ -36,7 +36,7 @@ import type {
 import { DriverResumeResultSchema, JSONRPC_VERSION } from "@ai-sidekicks/contracts";
 
 import { createDaemonProviderClient } from "../provider-client.js";
-import { JsonRpcClient } from "../transport/jsonRpcClient.js";
+import { JsonRpcClient } from "../transport/json-rpc-client.js";
 import type { ClientTransport } from "../transport/types.js";
 
 type OutboundEnvelope = JsonRpcRequest | JsonRpcNotification;

@@ -23,7 +23,7 @@
 // admitted mount, never user-supplied paths — so the containment rule governs
 // user-supplied bind paths only. Those roots sit outside the mount canonical
 // root, so applying this validator defensively at the
-// `completeReprovision(workspaceId, fsRoot)` seam would refuse every worktree
+// `completeRootPreparation(workspaceId, fsRoot)` seam would refuse every worktree
 // root it provisions.
 //
 // Two layers, because the containment invariant has two clauses

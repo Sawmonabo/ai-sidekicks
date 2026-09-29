@@ -1932,7 +1932,7 @@ describe("Claude driver provider-bound text path", () => {
     // thing that runs inside the driver's adoption window.
     harness.transport.onTurnTerminalFailure = new Error("the transport refused the terminal hook");
 
-    const rollback = await harness.lifecycle.rollbackTo({
+    const rollback = await harness.lifecycle.forkConversation({
       sessionId: TEST_SESSION_ID,
       bindingId: TEST_BINDING_ID,
       position: 4,

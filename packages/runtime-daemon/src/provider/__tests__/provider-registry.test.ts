@@ -31,7 +31,7 @@ import {
   type DriverCompactionResult,
   type DriverInterventionResult,
   type DriverResumeResult,
-  type DriverRollbackResult,
+  type ForkConversationResult,
   type DriverTranscriptExportResult,
   type DriverTranscriptReplayResult,
   type ExportTranscriptParams,
@@ -46,7 +46,7 @@ import {
   type RespondToRequestParams,
   type ReplayTranscriptParams,
   type ResumeSessionParams,
-  type RollbackToParams,
+  type ForkConversationParams,
   type SetSessionGoalParams,
   type StartRunParams,
 } from "@ai-sidekicks/contracts";
@@ -147,7 +147,7 @@ class FakeProviderDriver implements ProviderDriver {
   applyIntervention(_params: ApplyInterventionParams): Promise<DriverInterventionResult> {
     throw new Error("not implemented in test");
   }
-  rollbackTo(_params: RollbackToParams): Promise<DriverRollbackResult> {
+  forkConversation(_params: ForkConversationParams): Promise<ForkConversationResult> {
     throw new Error("not implemented in test");
   }
   respondToRequest(_params: RespondToRequestParams): Promise<void> {

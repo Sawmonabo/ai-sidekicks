@@ -5,7 +5,7 @@
 //
 //   * `CodexLifecycleManager` — `createSession`, `resumeSession`,
 //     `startRun`, `interruptRun`, `closeSession`.
-//   * `CodexLifecycleManager` — `rollbackTo`, `setSessionGoal`,
+//   * `CodexLifecycleManager` — `forkConversation`, `setSessionGoal`,
 //     `clearSessionGoal`, the three R8 parity operations whose Codex mechanism
 //     is a request on the session's own connection (`thread/fork`,
 //     `thread/goal/set`, `thread/goal/clear`).
@@ -65,7 +65,7 @@ import type {
   DriverCompactionResult,
   DriverInterventionResult,
   DriverResumeResult,
-  DriverRollbackResult,
+  ForkConversationResult,
   DriverTransportConfig,
   InterruptRunParams,
   ListProviderCommandsParams,
@@ -76,7 +76,7 @@ import type {
   ProviderModel,
   ProviderSessionHandle,
   ResumeSessionParams,
-  RollbackToParams,
+  ForkConversationParams,
   SetSessionGoalParams,
   StartRunParams,
 } from "@ai-sidekicks/contracts";
@@ -178,7 +178,7 @@ export class CodexDriver implements Pick<
   | "interruptRun"
   | "closeSession"
   | "applyIntervention"
-  | "rollbackTo"
+  | "forkConversation"
   | "setSessionGoal"
   | "clearSessionGoal"
   | "probeAuth"
@@ -251,8 +251,8 @@ export class CodexDriver implements Pick<
     return this.#interventions.applyIntervention(params);
   }
 
-  rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
-    return this.#lifecycle.rollbackTo(params);
+  forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
+    return this.#lifecycle.forkConversation(params);
   }
 
   setSessionGoal(params: SetSessionGoalParams): Promise<void> {

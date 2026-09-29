@@ -60,7 +60,7 @@ import {
   type RepoMountState,
   type RepoWorkspaceLifecyclePayload,
   type WorkspaceArchivedEvent,
-  type WorkspaceProvisioningEvent,
+  type WorkspacePreparingEvent,
   type WorkspaceReadyEvent,
   type WorkspaceStaleEvent,
   type WorkspaceState,
@@ -89,7 +89,7 @@ import { mintUuidV7 } from "../ids/uuid-v7.js";
 type RepoMountEventName = RepoAttachedEvent["type"] | RepoDetachedEvent["type"];
 
 type WorkspaceEventName =
-  | WorkspaceProvisioningEvent["type"]
+  | WorkspacePreparingEvent["type"]
   | WorkspaceReadyEvent["type"]
   | WorkspaceStaleEvent["type"]
   | WorkspaceArchivedEvent["type"];
@@ -323,7 +323,7 @@ export class WorkspaceEventEmitter {
   }
 
   /** Emit `workspace.provisioning` — the workspace's materialization began. */
-  async emitWorkspaceProvisioning(input: EmitWorkspaceEventInput): Promise<EventLogAppendReceipt> {
+  async emitWorkspacePreparing(input: EmitWorkspaceEventInput): Promise<EventLogAppendReceipt> {
     return this.#appendWorkspaceEvent("workspace.provisioning", input);
   }
 

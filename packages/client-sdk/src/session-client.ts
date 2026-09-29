@@ -29,7 +29,7 @@ import {
   SessionReadResponseSchema,
 } from "@ai-sidekicks/contracts";
 
-import type { JsonRpcClient } from "./transport/jsonRpcClient.js";
+import type { JsonRpcClient } from "./transport/json-rpc-client.js";
 
 /**
  * One delivered session event with the cursor the consumer retains for an

@@ -6310,9 +6310,9 @@ describe("Codex driver config read-shapes", () => {
 // --------------------------------------------------------------------------
 //
 // Spec coverage under test:
-//   `rollbackTo` / `setSessionGoal` /
-//     `clearSessionGoal` reach the pinned methods; `rollbackTo` answers its typed result;
-//     a `rollbackTo` that applies reports the `bindingId` the daemon rebinds on.
+//   `forkConversation` / `setSessionGoal` /
+//     `clearSessionGoal` reach the pinned methods; `forkConversation` answers its typed result;
+//     a `forkConversation` that applies reports the `bindingId` the daemon rebinds on.
 //   the Codex cells this leg
 //     realizes NATIVELY (`thread/fork`, `thread/goal/*`) versus the ones it
 //     withholds (the callback-tool registry, subagent definitions).
@@ -6359,7 +6359,7 @@ async function resumedSessionWithTurns(
   });
 }
 
-describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
+describe("CodexDriver forkConversation (leg 1, native `thread/fork`)", () => {
   it("reports the rebinding `bindingId` on the applied arm", async () => {
     const harness = createHarness();
     await resumedSessionWithTurns(harness, 2);
@@ -6373,7 +6373,7 @@ describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
     // string for both would let a driver that echoed the caller's `bindingId`
     // straight back — reporting the OLD binding for a rollback that just
     // repointed onto a new thread — pass this assertion.
-    const result = await harness.driver.rollbackTo({
+    const result = await harness.driver.forkConversation({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
@@ -6402,7 +6402,7 @@ describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
       },
     }));
 
-    await harness.driver.rollbackTo({
+    await harness.driver.forkConversation({
       sessionId: SESSION_ID,
       bindingId: "binding-abc",
       position: 1,
@@ -6423,7 +6423,7 @@ describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
     const harness = createHarness();
     await createdSession(harness);
 
-    const result = await harness.driver.rollbackTo({
+    const result = await harness.driver.forkConversation({
       sessionId: SESSION_ID,
       bindingId: "binding-abc",
       position: 0,
@@ -6466,7 +6466,7 @@ describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
       }));
 
       const refused = await harness.driver
-        .rollbackTo({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
+        .forkConversation({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
         .then(
           () => undefined,
           (cause: unknown) => cause,
@@ -6493,7 +6493,7 @@ describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
           thread: { id: "thread-forked", sessionId: "session-tree-1", turns: [{ id: "turn-0" }] },
         },
       }));
-      const retried = await harness.driver.rollbackTo({
+      const retried = await harness.driver.forkConversation({
         sessionId: SESSION_ID,
         bindingId: "binding-abc",
         position: 1,
@@ -6528,7 +6528,7 @@ describe("CodexDriver rollbackTo (leg 1, native `thread/fork`)", () => {
       }));
 
       const refused = await harness.driver
-        .rollbackTo({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
+        .forkConversation({ sessionId: SESSION_ID, bindingId: "binding-abc", position: 1 })
         .then(
           () => undefined,
           (cause: unknown) => cause,
@@ -7917,7 +7917,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
   ): Promise<{
     harness: ManagerHarness;
     readerCalls: { sessionId: SessionId; threadId: string }[];
-    rollbackResult: Awaited<ReturnType<CodexLifecycleManager["rollbackTo"]>>;
+    rollbackResult: Awaited<ReturnType<CodexLifecycleManager["forkConversation"]>>;
   }> {
     const readerAnswer = options.readerAnswer ?? "prior-sum";
     const readerCalls: { sessionId: SessionId; threadId: string }[] = [];
@@ -7964,7 +7964,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
         },
       },
     }));
-    const rollbackResult = await harness.manager.rollbackTo({
+    const rollbackResult = await harness.manager.forkConversation({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
@@ -8247,7 +8247,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
    */
   async function rewindSuspendedAtFork(): Promise<{
     harness: ManagerHarness;
-    rewind: ReturnType<CodexLifecycleManager["rollbackTo"]>;
+    rewind: ReturnType<CodexLifecycleManager["forkConversation"]>;
     answerFork: () => Promise<void>;
   }> {
     const harness = await managerWithSession({
@@ -8264,7 +8264,7 @@ describe("CodexLifecycleManager thread routing and usage metering", () => {
     harness.server.emitFrame(turnCompletedFrame(TURN_ID, "completed"));
     await drainMicrotasks();
 
-    const rewind = harness.manager.rollbackTo({
+    const rewind = harness.manager.forkConversation({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,
@@ -9039,7 +9039,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
   // ----------------------------------------------------------------------
   // The wait is keyed by the BINDING it was dispatched under, not by the
   // session. This driver's thread identity moves WITHIN a live session — a
-  // successful `rollbackTo` forks a replacement and a superseding
+  // successful `forkConversation` forks a replacement and a superseding
   // `resumeSession` installs a new record on the same session id — so a
   // session-keyed wait would outlive the binding it was armed against and lose
   // the second of its two terminals.
@@ -9077,7 +9077,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     await drainMicrotasks();
 
     await expect(
-      harness.manager.rollbackTo({
+      harness.manager.forkConversation({
         sessionId: SESSION_ID,
         bindingId: "binding-predecessor",
         position: 1,
@@ -9129,7 +9129,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
     expect(harness.scheduler.pendingDelays()).toContain(CODEX_COMPACTION_WAIT_MS);
 
     await expect(
-      harness.manager.rollbackTo({
+      harness.manager.forkConversation({
         sessionId: SESSION_ID,
         bindingId: "binding-predecessor",
         position: 1,
@@ -9160,7 +9160,7 @@ describe("CodexLifecycleManager.compactContext (native)", () => {
         },
       },
     }));
-    await harness.manager.rollbackTo({
+    await harness.manager.forkConversation({
       sessionId: SESSION_ID,
       bindingId: "binding-predecessor",
       position: 1,

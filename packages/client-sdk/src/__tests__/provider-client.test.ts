@@ -75,7 +75,7 @@ import {
   JsonRpcClient,
   JsonRpcRemoteError,
   JsonRpcSchemaError,
-} from "../transport/jsonRpcClient.js";
+} from "../transport/json-rpc-client.js";
 import type { ClientTransport } from "../transport/types.js";
 
 /**
@@ -495,14 +495,14 @@ describe("DriverClient — the ratified client-facing surface", () => {
   });
 
   it("exposes none of the four R8 parity operations either (the absence half)", () => {
-    // `rollbackTo`, `setSessionGoal`, `clearSessionGoal`, and `probeAuth` are
+    // `forkConversation`, `setSessionGoal`, `clearSessionGoal`, and `probeAuth` are
     // daemon-internal by the same principle: the daemon drives the conversation
     // fork on a resend, goals go through the surface and auth probes through the
     // account plane, so a second route here would fork one operation's
     // authority across two doors.
     const { client } = buildDriverClient({});
     for (const parityOperation of [
-      "rollbackTo",
+      "forkConversation",
       "setSessionGoal",
       "clearSessionGoal",
       "probeAuth",
@@ -510,9 +510,9 @@ describe("DriverClient — the ratified client-facing surface", () => {
       expect(parityOperation in client).toBe(false);
     }
 
-    // @ts-expect-error — `rollbackTo` is deliberately not on `DriverClient`;
+    // @ts-expect-error — `forkConversation` is deliberately not on `DriverClient`;
     // this line failing to error would mean the parity narrowing regressed.
-    expect(client.rollbackTo).toBeUndefined();
+    expect(client.forkConversation).toBeUndefined();
   });
 
   it("rejects a subscribeEvents call whose runId is not a canonical id, synchronously and before the wire", () => {

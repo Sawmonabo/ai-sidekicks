@@ -96,8 +96,8 @@
  *
  * Tool approvals are scoped against `fs_root`, so a non-canonical value written
  * here silently widens an approval envelope. A bind and
- * {@link WorkspaceService.beginReprovision} write NULL; the one site that
- * writes a path is {@link WorkspaceService.completeReprovision}, whose value
+ * {@link WorkspaceService.beginRootPreparation} write NULL; the one site that
+ * writes a path is {@link WorkspaceService.completeRootPreparation}, whose value
  * comes from the execution-root provisioner and which the trust-envelope header
  * forbids re-validating. It at minimum refuses a path that does not name one
  * complete location, since a relative one would be completed against the
@@ -750,7 +750,7 @@ export class WorkspaceService {
     // `workspace.provisioning` event with it.
     //
     // Every bind lands `provisioning` with no root: the provisioner supplies
-    // the root through `completeReprovision`.
+    // the root through `completeRootPreparation`.
     this.#bindWorkspaceStmt = database.prepare(
       `INSERT INTO workspaces (
          id, session_id, repo_mount_id, execution_mode, fs_root, state, metadata,
@@ -772,14 +772,14 @@ export class WorkspaceService {
     // approvals against a root this workspace no longer owns.
     //
     // `execution_mode = @execution_mode` here rather than at completion is
-    // forced, not chosen — `completeReprovision(workspaceId, fsRoot)` takes no
+    // forced, not chosen — `completeRootPreparation(workspaceId, fsRoot)` takes no
     // mode, so nothing downstream could persist it.
     //
     // `lastError` is cleared HERE as well as at completion, and the redundancy
     // is deliberate — do not delete either. `packages/contracts/src/repo.ts`
     // makes `lastError` "present iff the workspace went `stale` from a recorded
     // failure" an EMITTER obligation on this module, and the documented retry
-    // path is `failReprovision -> beginReprovision`: without this clause the
+    // path is `failRootPreparation -> beginRootPreparation`: without this clause the
     // `provisioning` row keeps advertising the PREVIOUS attempt's failure, and
     // a `markStale` from that state lands a `stale` row carrying a superseded
     // detail. Clearing only at completion fixes the success leg and leaves the
@@ -801,7 +801,7 @@ export class WorkspaceService {
 
     // The OTHER end of the deliberate pair described on `#beginReprovisionStmt`
     // — also redundant on the happy path, also load-bearing. A cycle can be
-    // completed by a caller that never re-entered through `beginReprovision`
+    // completed by a caller that never re-entered through `beginRootPreparation`
     // (drives these primitives independently), and a `ready` workspace still
     // advertising the error a later retry fixed reports a failure that is no
     // longer true.
@@ -879,7 +879,7 @@ export class WorkspaceService {
    * containment → write.
    *
    * The workspace lands `provisioning` with `fs_root` NULL; the provisioner
-   * supplies the real root through {@link completeReprovision}. The requested
+   * supplies the real root through {@link completeRootPreparation}. The requested
    * directory is still validated, because refusing an out-of-envelope request
    * before a provisioner is spawned is cheaper and safer than refusing after.
    *
@@ -966,7 +966,7 @@ export class WorkspaceService {
     // BIRTH: it is the only point at which a timeline reader can learn the
     // workspace/mount association without reading a row. Later transitions omit
     // it — the association is already on the timeline by then.
-    await this.#events.emitWorkspaceProvisioning({
+    await this.#events.emitWorkspacePreparing({
       sessionId: input.sessionId,
       workspaceId,
       repoMountId: mountRow.id,
@@ -1076,12 +1076,12 @@ export class WorkspaceService {
    *
    * Validates the TARGET mode against the mount's matrix, because a switch to a
    * mode the mount cannot offer must fail before a provisioner is spawned, and
-   * because {@link completeReprovision} takes no mode and so cannot re-check it.
+   * because {@link completeRootPreparation} takes no mode and so cannot re-check it.
    *
    * Does not call {@link assertWritable}: `stale` is a legal predecessor here
    * (the documented retry path) and the gate refuses it.
    */
-  async beginReprovision(
+  async beginRootPreparation(
     workspaceId: string,
     targetMode: ExecutionMode,
     options: { readonly actor?: string | null } = {},
@@ -1107,7 +1107,7 @@ export class WorkspaceService {
     this.#refuseIllegalPredecessor(row, ["ready", "stale"], "reprovision");
 
     const now = this.#now();
-    await this.#events.emitWorkspaceProvisioning({
+    await this.#events.emitWorkspacePreparing({
       sessionId: row.session_id,
       workspaceId,
       actor: options.actor ?? null,
@@ -1137,7 +1137,7 @@ export class WorkspaceService {
    * would be completed against whatever working directory the tool process
    * happens to have.
    */
-  async completeReprovision(
+  async completeRootPreparation(
     workspaceId: string,
     fsRoot: string,
     options: { readonly actor?: string | null } = {},
@@ -1174,7 +1174,7 @@ export class WorkspaceService {
    * records no `lastError` at all rather than an empty one the wire schema
    * would reject.
    */
-  async failReprovision(
+  async failRootPreparation(
     workspaceId: string,
     failureDetail: string,
     options: { readonly actor?: string | null } = {},

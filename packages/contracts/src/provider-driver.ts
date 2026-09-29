@@ -41,7 +41,7 @@
 //      the Phase-2 write seam, NOT at this layer.
 //   2. ZOD-VALIDATED HERE: the driver RESULT envelopes
 //      (`DriverInterventionResultSchema`, `DriverResumeResultSchema`,
-//      `DriverRollbackResultSchema`, `DriverAuthProbeResultSchema`, one per
+//      `ForkConversationResultSchema`, `DriverAuthProbeResultSchema`, one per
 //      RESULT TYPE — the goal operations return nothing and throw a provider
 //      refusal — and the two adds, `DriverTranscriptExportResultSchema` /
 //      `DriverTranscriptReplayResultSchema`, and add
@@ -172,11 +172,11 @@ export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
 // ProviderDriver — the 18-operation normalized contract
 // --------------------------------------------------------------------------
 //
-// Shipped ten operations added the four R8 parity operations (`rollbackTo`,
-// `setSessionGoal`, `clearSessionGoal`, `probeAuth`) the two transcript
-// operations (`exportTranscript`, `replayTranscript`), and the two
+// Beside the core operations the surface carries four parity operations
+// (`forkConversation`, `setSessionGoal`, `clearSessionGoal`, `probeAuth`), two
+// transcript operations (`exportTranscript`, `replayTranscript`) and two
 // console-parity operations (`compactContext`, `listProviderCommands`), each at
-// the position the canonical doc interleaves it, so this surface reads.
+// its place in the canonical operation order.
 //
 // The two daemon-injected callbacks (`onCallbackToolCall`, `onMcpServerStatus`)
 // are absent by design — they are `CreateSessionParams` MEMBERS, not operations,
@@ -184,7 +184,7 @@ export const ArtifactIdSchema: z.ZodType<ArtifactId, ArtifactId> =
 //
 // The type names referenced by the signatures below (`ApplyInterventionParams`,
 // `DriverInterventionResult`, `DriverResumeResult`, `GetCapabilitiesResult`,
-// `RollbackToParams`, `DriverRollbackResult`, `SetSessionGoalParams`,
+// `ForkConversationParams`, `ForkConversationResult`, `SetSessionGoalParams`,
 // `ClearSessionGoalParams`, `DriverAuthProbeResult`,
 // `ExportTranscriptParams`, `DriverTranscriptExportResult`,
 // `ReplayTranscriptParams`, `DriverTranscriptReplayResult`,
@@ -207,10 +207,10 @@ export interface ProviderDriver {
   // refuses statically with `driver.capability_unsupported` before dispatch.
   // `degraded` is the DYNAMIC outcome of a driver that WAS invoked and reported
   // its fallback — the two are not interchangeable.
-  rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult>;
+  forkConversation(params: ForkConversationParams): Promise<ForkConversationResult>;
   respondToRequest(params: RespondToRequestParams): Promise<void>;
   // Both goal operations are capability-gated on the `session_goals` flag, under
-  // the same static refusal as `rollbackTo` above. A provider that refuses the
+  // the same static refusal as `forkConversation` above. A provider that refuses the
   // goal throws; success returns nothing.
   setSessionGoal(params: SetSessionGoalParams): Promise<void>;
   clearSessionGoal(params: ClearSessionGoalParams): Promise<void>;
@@ -232,14 +232,14 @@ export interface ProviderDriver {
   // second record of the log, which is the divergence eliminates.
   exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult>;
   // Capability-GATED on the `transcript_replay` flag, under the same
-  // static-refusal / dynamic-degrade split as `rollbackTo` above. Reconstitutes a
+  // static-refusal / dynamic-degrade split as `forkConversation` above. Reconstitutes a
   // conversation into a FRESH provider session and never writes to the SOURCE
   // session. Returns only after the post-replay assertion passes, because the
   // injection surface is untyped at the wire: a returned success is validated
   // against nothing, so it is not evidence a replay worked.
   replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult>;
   // Capability-GATED on the `context_compaction` flag, under the same
-  // static-refusal split as `rollbackTo` above. Compacts the bound session's own
+  // static-refusal split as `forkConversation` above. Compacts the bound session's own
   // provider-side context ON USER REQUEST — never on a threshold, timer,
   // or heuristic. It SETTLES on the provider's TYPED COMPACTION EVIDENCE (the
   // frame that already produces `usage.context_compacted`) and NEVER on the
@@ -569,11 +569,11 @@ export type IdempotencyClass = "idempotent" | "compensable" | "manual_reconcile_
 //     still bounding pathological sizes.
 //   • DRIVER_FALLBACK_ACTION_MAX_LEN (128) — the `fallbackAction` hint on BOTH
 //     degradable result envelopes (`DriverInterventionResult`,
-//     `DriverRollbackResult`); a short hint token (e.g. `queue_and_interrupt`).
+//     `ForkConversationResult`); a short hint token (e.g. `queue_and_interrupt`).
 //     One cap because it is one category of value — a per-envelope cap would
 //     let the two drift apart for no reason.
 //   • DRIVER_BINDING_ID_MAX_LEN (256) — the `bindingId` on BOTH envelopes that
-//     report one (`DriverResumeResult`, `DriverRollbackResult.applied`); an
+//     report one (`DriverResumeResult`, `ForkConversationResult.applied`); an
 //     opaque store-minted session-binding surrogate persisted into
 //     `runtime_bindings`. Same-category reuse as above.
 //   • DRIVER_FAILURE_DETAIL_MAX_LEN (32768) — resume `providerFailureDetail`;
@@ -1072,7 +1072,7 @@ export const RecoverySpanClassificationSchema: z.ZodType<
 //
 // The `resumed` arm's REQUIRED `sessionPosition` is the driver's normalized
 // monotonic position (a turn/event ordinal — the same number-cursor convention
-// as `DriverRollbackResult`'s confirmed position), which the daemon compares against
+// as `ForkConversationResult`'s confirmed position), which the daemon compares against
 // its RECORDED position. That compare is load-bearing rather than decorative: it
 // is what catches a provider silently answering a resume with a FRESH session
 // (e.g. Claude on a working-directory mismatch), because a fresh session's
@@ -1102,7 +1102,7 @@ export const DriverResumeResultSchema: z.ZodType<DriverResumeResult, DriverResum
         // for a short session-binding handle.
         bindingId: wireFreeFormString(DRIVER_BINDING_ID_MAX_LEN, "DriverResumeResult.bindingId"),
         // SHAPE only (integer >= 0) — the same bound, and the same split, as
-        // `DriverRollbackResultSchema`'s `applied` position. The DOMAIN checks (that
+        // `ForkConversationResultSchema`'s `applied` position. The DOMAIN checks (that
         // this position matches the daemon's RECORDED position, and the
         // divergence reconciliation a mismatch triggers — halt-for-human) are
         // the daemon's, not this layer's: they
@@ -1253,13 +1253,13 @@ export interface ProviderUsageLimitSignal {
 // `ProviderDriver` above, or from the spawn/turn carriers those operations share.
 // The nominal-vs-Zod split follows the file header's rule mechanically, with no
 // new judgement: daemon-CONSTRUCTED params and daemon-CONSTRUCTED config stay
-// nominal; the two result envelopes (`DriverRollbackResult`,
+// nominal; the two result envelopes (`ForkConversationResult`,
 // `DriverAuthProbeResult`) and the two driver-normalized seam shapes
 // (`CallbackToolInvocation`, `McpServerStatusEmission`) are Zod-parsed because
 // they carry provider output across the trust boundary.
 
 // --------------------------------------------------------------------------
-// Conversation fork — `rollbackTo` (gated on the `rollback` flag)
+// Conversation fork — `forkConversation` (gated on the `rollback` flag)
 // --------------------------------------------------------------------------
 //
 // Forks the provider conversation at a recorded position into a new provider
@@ -1273,13 +1273,13 @@ export interface ProviderUsageLimitSignal {
 // a new binding for the same run), so `sessionId` alone cannot name the target
 // leg. The DAEMON resolves the run's live binding at dispatch — clients address
 // the run, not the leg.
-export interface RollbackToParams {
+export interface ForkConversationParams {
   sessionId: SessionId;
   position: number;
   bindingId: string;
 }
 
-// Return shape of `ProviderDriver.rollbackTo()`. Zod-validated — untrusted
+// Return shape of `ProviderDriver.forkConversation()`. Zod-validated — untrusted
 // provider output. Discriminated over `status` for the same structural reason as
 // `DriverResumeResult`: a SUCCESSFUL fork WITHOUT A CONFIRMED POSITION is
 // inexpressible, because `sessionPosition` is REQUIRED on `applied` and absent
@@ -1289,31 +1289,33 @@ export interface RollbackToParams {
 // `bindingId` is the binding the fork minted (Claude `--resume-session-at` +
 // `--fork-session`; Codex `thread/fork`). It is a store-minted binding
 // surrogate, never itself a resume handle.
-export type DriverRollbackResult =
+export type ForkConversationResult =
   | { status: "applied"; sessionPosition: number; bindingId?: string | undefined }
   | { status: "degraded"; fallbackAction?: string | undefined };
-export const DriverRollbackResultSchema: z.ZodType<DriverRollbackResult, DriverRollbackResult> =
-  z.discriminatedUnion("status", [
-    z
-      .object({
-        status: z.literal("applied"),
-        sessionPosition: z.number().int().min(0),
-        bindingId: wireFreeFormString(
-          DRIVER_BINDING_ID_MAX_LEN,
-          "DriverRollbackResult.bindingId",
-        ).optional(),
-      })
-      .strict(),
-    z
-      .object({
-        status: z.literal("degraded"),
-        fallbackAction: wireFreeFormString(
-          DRIVER_FALLBACK_ACTION_MAX_LEN,
-          "DriverRollbackResult.fallbackAction",
-        ).optional(),
-      })
-      .strict(),
-  ]);
+export const ForkConversationResultSchema: z.ZodType<
+  ForkConversationResult,
+  ForkConversationResult
+> = z.discriminatedUnion("status", [
+  z
+    .object({
+      status: z.literal("applied"),
+      sessionPosition: z.number().int().min(0),
+      bindingId: wireFreeFormString(
+        DRIVER_BINDING_ID_MAX_LEN,
+        "ForkConversationResult.bindingId",
+      ).optional(),
+    })
+    .strict(),
+  z
+    .object({
+      status: z.literal("degraded"),
+      fallbackAction: wireFreeFormString(
+        DRIVER_FALLBACK_ACTION_MAX_LEN,
+        "ForkConversationResult.fallbackAction",
+      ).optional(),
+    })
+    .strict(),
+]);
 
 // --------------------------------------------------------------------------
 // Session goals — `setSessionGoal` / `clearSessionGoal` (gated on `session_goals`)
@@ -1329,7 +1331,7 @@ export const DriverRollbackResultSchema: z.ZodType<DriverRollbackResult, DriverR
 // never the recovery source, which is why neither operation returns the goal it
 // applied.
 //
-// `bindingId` is the leg key for the same 1:many reason as `RollbackToParams`:
+// `bindingId` is the leg key for the same 1:many reason as `ForkConversationParams`:
 // goal delivery fans out PER LIVE BINDING, matching the durable intent's per-leg
 // map. `runId` rides along for run-scoped context and telemetry.
 export interface SetSessionGoalParams {
@@ -1631,7 +1633,7 @@ export interface ExportTranscriptParams {
   sessionId: SessionId;
   transcript: CanonicalTranscriptProjection;
   // Export up to and INCLUDING this normalized session position — the same
-  // position vocabulary `RollbackToParams.position` uses, and the same one
+  // position vocabulary `ForkConversationParams.position` uses, and the same one
   // `CanonicalTranscriptSegment.position` carries, which is what makes the filter
   // above expressible against the segments in hand rather than needing a lookup.
   boundary: number;
@@ -1667,7 +1669,7 @@ export interface ReplayTranscriptParams {
 
 // Return shape of `ProviderDriver.replayTranscript()`. Zod-validated.
 //
-// Flat rather than discriminated, unlike `DriverRollbackResult`, because
+// Flat rather than discriminated, unlike `ForkConversationResult`, because
 // `declaredLosses` is REQUIRED on BOTH arms: an `applied` replay that
 // stripped provider-private reasoning still lost something, and a union that
 // made the member arm-scoped would have let that loss go unnamed. What IS

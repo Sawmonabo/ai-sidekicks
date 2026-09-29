@@ -505,7 +505,7 @@ describe("registry stays closed", () => {
     // the missing type arm; with `state: "failed"` the full would-be shape
     // of the deliberately-unminted event is refused end-to-end. The `->
     // failed` transition emits no worktree event — the failure incident is
-    // evented as `workspace.stale` by the coupled `failReprovision`.
+    // evented as `workspace.stale` by the coupled `failRootPreparation`.
     expect(
       SessionEventSchema.safeParse(buildWorktreeEvent("worktree.failed", "ready")).success,
     ).toBe(false);

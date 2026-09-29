@@ -21,9 +21,9 @@
 //     canonical flags in canonical `transcript_replay` INSERTED at its canonical
 //     position rather than appended, and DELIBERATELY excludes `pause`, whose
 //     exclusion is permanent.
-//   • Parity ops — the four added operations (`rollbackTo`, `setSessionGoal`,
+//   • Parity ops — the four parity operations (`forkConversation`, `setSessionGoal`,
 //     `clearSessionGoal`, `probeAuth`); the two result envelopes among them
-//     (`DriverRollbackResultSchema`, `DriverAuthProbeResultSchema`) plus the
+//     (`ForkConversationResultSchema`, `DriverAuthProbeResultSchema`) plus the
 //     two driver-normalized seam schemas (`CallbackToolInvocationSchema`,
 //     `McpServerStatusEmissionSchema`) parse valid shapes, reject invalid ones,
 //     and reject unknown keys (`.strict()` on all four). The goal operations
@@ -114,7 +114,7 @@ import {
   DriverAuthProbeResultSchema,
   DriverInterventionResultSchema,
   DriverResumeResultSchema,
-  DriverRollbackResultSchema,
+  ForkConversationResultSchema,
   CompactContextRequestSchema,
   DriverCompactionResultSchema,
   ListProviderCommandsRequestSchema,
@@ -139,7 +139,7 @@ import {
   type DriverCompactionResult,
   type DriverInterventionResult,
   type DriverResumeResult,
-  type DriverRollbackResult,
+  type ForkConversationResult,
   type DriverTranscriptExportResult,
   type DriverTranscriptReplayResult,
   type DriverTransportConfig,
@@ -166,7 +166,7 @@ import {
   type ReplayTranscriptParams,
   type RespondToRequestParams,
   type ResumeSessionParams,
-  type RollbackToParams,
+  type ForkConversationParams,
   type RunId,
   type SessionCallbackTool,
   type SetSessionGoalParams,
@@ -239,11 +239,11 @@ class MockProviderDriver implements ProviderDriver {
     return Promise.resolve({ status: "applied" });
   }
 
-  // Parity ops, in the interface's own order. `rollbackTo` echoes the requested
+  // Parity ops, in the interface's own order. `forkConversation` echoes the requested
   // position back as the confirmed floor: the REQUIRED `sessionPosition` on the
   // `applied` arm is what makes "succeeded without a confirmed floor"
   // unrepresentable, so a mock that omitted it would not compile.
-  public rollbackTo(params: RollbackToParams): Promise<DriverRollbackResult> {
+  public forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     return Promise.resolve({ status: "applied", sessionPosition: params.position });
   }
 
@@ -389,7 +389,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
       "startRun",
       "interruptRun",
       "applyIntervention",
-      "rollbackTo",
+      "forkConversation",
       "respondToRequest",
       "setSessionGoal",
       "clearSessionGoal",
@@ -419,7 +419,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("resumeSession resolves the `resumed` arm carrying BOTH the binding and the confirmed position (runtime smoke)", async () => {
-    // Sits beside the `rollbackTo` smoke below for the same reason: the `resumed`
+    // Sits beside the `forkConversation` smoke below for the same reason: the `resumed`
     // arm's REQUIRED `sessionPosition` is what the daemon compares against its
     // RECORDED position, so without one a provider that silently answered with a
     // fresh session would be indistinguishable from a genuine resume. Asserting
@@ -483,8 +483,8 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
     expect(probe.status).toBe("authenticated");
   });
 
-  it("rollbackTo returns the confirmed post-rollback floor (runtime smoke)", async () => {
-    const rolled = await driver.rollbackTo({
+  it("forkConversation returns the confirmed post-rollback floor (runtime smoke)", async () => {
+    const rolled = await driver.forkConversation({
       sessionId: SESSION_ID,
       position: 12,
       bindingId: "binding-abc",
@@ -1452,7 +1452,7 @@ describe("DRIVER_CAPABILITY_FLAGS — sixteen-flag currency", () => {
 });
 
 // ===========================================================================
-// `DriverRollbackResultSchema` (the `rollback`-gated parity envelope).
+// `ForkConversationResultSchema` (the `rollback`-gated parity envelope).
 // ===========================================================================
 //
 // Same structural guarantee as `DriverResumeResult`, applied to a second
@@ -1461,9 +1461,9 @@ describe("DRIVER_CAPABILITY_FLAGS — sixteen-flag currency", () => {
 // optional (reserved for a future in-place mechanism, not for either shipped V1
 // leg), and both arms are `.strict()`.
 
-describe("DriverRollbackResultSchema — rollback envelope", () => {
+describe("ForkConversationResultSchema — rollback envelope", () => {
   it("parses an applied rollback carrying the confirmed floor", () => {
-    const parsed: DriverRollbackResult = DriverRollbackResultSchema.parse({
+    const parsed: ForkConversationResult = ForkConversationResultSchema.parse({
       status: "applied",
       sessionPosition: 41,
     });
@@ -1472,7 +1472,7 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
 
   it("parses an applied rollback that repointed the run's live binding", () => {
     expect(
-      DriverRollbackResultSchema.safeParse({
+      ForkConversationResultSchema.safeParse({
         status: "applied",
         sessionPosition: 0,
         bindingId: "binding-forked",
@@ -1481,7 +1481,7 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
   });
 
   it("rejects an applied rollback with NO sessionPosition (a success without a confirmed floor)", () => {
-    const result = DriverRollbackResultSchema.safeParse({ status: "applied" });
+    const result = ForkConversationResultSchema.safeParse({ status: "applied" });
     expect(result.success).toBe(false);
     if (!result.success) {
       const paths = result.error.issues.map((issue) => issue.path.join("."));
@@ -1497,14 +1497,14 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
     "rejects a sessionPosition that is %s (shape bound; the domain checks are the daemon's)",
     (_label, invalidValue) => {
       expect(
-        DriverRollbackResultSchema.safeParse({ status: "applied", sessionPosition: invalidValue })
+        ForkConversationResultSchema.safeParse({ status: "applied", sessionPosition: invalidValue })
           .success,
       ).toBe(false);
     },
   );
 
   it("forbids `sessionPosition` on the degraded arm after narrowing (compile-time)", () => {
-    const degraded: DriverRollbackResult = DriverRollbackResultSchema.parse({
+    const degraded: ForkConversationResult = ForkConversationResultSchema.parse({
       status: "degraded",
       fallbackAction: "manual_rewind",
     });
@@ -1519,7 +1519,7 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
   });
 
   it("rejects an unknown key on the applied arm (.strict())", () => {
-    const result = DriverRollbackResultSchema.safeParse({
+    const result = ForkConversationResultSchema.safeParse({
       status: "applied",
       sessionPosition: 3,
       forkedFrom: "turn-9",
@@ -1542,7 +1542,7 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
     "rejects a rollback `bindingId` that is %s (wireFreeFormString bound)",
     (_label, invalidValue) => {
       expect(
-        DriverRollbackResultSchema.safeParse({
+        ForkConversationResultSchema.safeParse({
           status: "applied",
           sessionPosition: 1,
           bindingId: invalidValue,
@@ -1553,7 +1553,7 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
 
   it("accepts a rollback `bindingId` at exactly DRIVER_BINDING_ID_MAX_LEN (inclusive boundary)", () => {
     expect(
-      DriverRollbackResultSchema.safeParse({
+      ForkConversationResultSchema.safeParse({
         status: "applied",
         sessionPosition: 1,
         bindingId: "a".repeat(DRIVER_BINDING_ID_MAX_LEN),
@@ -1570,7 +1570,7 @@ describe("DriverRollbackResultSchema — rollback envelope", () => {
     "rejects a rollback `fallbackAction` that is %s (wireFreeFormString bound)",
     (_label, invalidValue) => {
       expect(
-        DriverRollbackResultSchema.safeParse({ status: "degraded", fallbackAction: invalidValue })
+        ForkConversationResultSchema.safeParse({ status: "degraded", fallbackAction: invalidValue })
           .success,
       ).toBe(false);
     },

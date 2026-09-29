@@ -13,7 +13,7 @@
 // - the `bound-root` arm: an override on the EXISTING checkout, verified bind-only.
 // - no arm anywhere resolves the main checkout except `bound-root` mode, whose root
 //   IS the main checkout by ratified design; every other failure refuses.
-// - `#failReprovision` on the materialization catch: the workspace lands
+// - `#failRootPreparation` on the materialization catch: the workspace lands
 //   `stale` with the detail, which is what blocks the run in setup rather than
 //   degrading it.
 // - `assertWritable` runs whenever the bracket is closed — the open bracket's
@@ -43,7 +43,7 @@
 //
 // This module needs FOUR primitives, and the load-bearing fact about them is
 // not their individual signatures — it is that they must all be the SAME
-// workspace authority. `assertWritable`'s verdict and `beginReprovision`'s
+// workspace authority. `assertWritable`'s verdict and `beginRootPreparation`'s
 // compare-and-swap are only meaningful together if they read and write the same
 // rows on the same connection; four independently-passed functions let a
 // composition root satisfy the types while wiring two different services, and
@@ -62,7 +62,7 @@
 //
 // ## Ordering: what happens before the workspace is touched
 //
-// Every refusal that a caller could have avoided fires BEFORE `beginReprovision`,
+// Every refusal that a caller could have avoided fires BEFORE `beginRootPreparation`,
 // so a refused prepare leaves the workspace exactly where it was:
 //
 //   1. `assertWritable` (see the residual on
@@ -70,11 +70,11 @@
 //   4. `bound-root` bind verification (`workspace.branch_mismatch`)
 //   ---- the workspace is now committed to `provisioning` ----
 //   6. write `branch_contexts`
-//   7. `completeReprovision(workspaceId, root)`   |  `failReprovision(id, detail)`
+//   7. `completeRootPreparation(workspaceId, root)`   |  `failRootPreparation(id, detail)`
 //   8. only when step 7 itself fails: compensate the root nothing will adopt
 //      (`#compensateOrphanedRoot`)
 //
-// Steps 1-4 are deliberately outside the try/catch. `failReprovision`'s only
+// Steps 1-4 are deliberately outside the try/catch. `failRootPreparation`'s only
 // legal predecessor is `provisioning`, so calling it from a pre-bracket refusal
 // would trade a typed 4xx-shaped carrier for the anonymous invariant error —
 // the caller would learn that something went wrong instead of what.
@@ -114,7 +114,7 @@
 //   other row carries.
 //
 // - **The busy check reads a snapshot.** A workspace that becomes busy between the
-//   read and `beginReprovision` is not refused here; it is refused there, by
+//   read and `beginRootPreparation` is not refused here; it is refused there, by
 //   `#refuseIllegalPredecessor`, which raises the SAME `WorkspaceBusyError` this
 //   module raises and carries the same holding-run attribution. So the window costs
 //   an extra round trip, never answer quality. Nothing short of a row lock closes
@@ -279,11 +279,11 @@ export interface WorkspaceLifecyclePrimitives {
   /** the gate. Passes `ready` / `busy`; refuses `stale`; defect otherwise. */
   assertWritable(workspaceId: string): Promise<void>;
   /** `ready` | `stale` -> `provisioning`, releasing the old root. */
-  beginReprovision(workspaceId: string, targetMode: ExecutionMode): Promise<void>;
+  beginRootPreparation(workspaceId: string, targetMode: ExecutionMode): Promise<void>;
   /** `provisioning` -> `ready`, adopting `fsRoot`. */
-  completeReprovision(workspaceId: string, fsRoot: string): Promise<void>;
+  completeRootPreparation(workspaceId: string, fsRoot: string): Promise<void>;
   /** `provisioning` -> `stale`, recording `failureDetail` as `metadata.lastError`. */
-  failReprovision(workspaceId: string, failureDetail: string): Promise<void>;
+  failRootPreparation(workspaceId: string, failureDetail: string): Promise<void>;
 }
 
 export interface ExecutionRootServiceDeps {
@@ -725,8 +725,8 @@ export class ExecutionRootService {
 
     // Bracket is ALREADY OPEN — this prepare is its provisioner. Two producers
     // land a workspace here: `repo.workspaceBind` (every bind is born
-    // `provisioning`), and a prior prepare whose swallowed `failReprovision` left
-    // the bracket open (see `#failReprovision`).
+    // `provisioning`), and a prior prepare whose swallowed `failRootPreparation` left
+    // the bracket open (see `#failRootPreparation`).
     // `provisioning` is the one state that is both a lawful starting point and
     // outside `assertWritable`'s admitted set, so it drives BOTH the gate below
     // and the bracket further down — one predicate, because they are one fact.
@@ -762,7 +762,7 @@ export class ExecutionRootService {
     // `assertWritable` passes `busy` deliberately — it scopes the precise refusal
     // to `markBusy`, the call that actually contends for the hold — but a second
     // root HANDOFF while that run holds the workspace is what that bullet refuses.
-    // `beginReprovision` would refuse it too, through `#refuseIllegalPredecessor`,
+    // `beginRootPreparation` would refuse it too, through `#refuseIllegalPredecessor`,
     // and with the SAME carrier and the same holding- run attribution: raising
     // here is about ORDER, not about the answer. It keeps the refusal in the
     // pre-bracket group, so a busy bound-root prepare never spawns the git read
@@ -777,7 +777,7 @@ export class ExecutionRootService {
     // HANDOFF the bullet refuses. PRE-bracket like step (3), and for the same
     // reason busy refusals live in this group at all — busy is a wait-and-retry
     // answer, and routing it through the materialization catch would
-    // `failReprovision` the REQUESTER into `stale` repair for someone else's
+    // `failRootPreparation` the REQUESTER into `stale` repair for someone else's
     // live run. Root-keyed rather than workspace-keyed, which is also the shape
     // the run-setup gate must add beside the workspace-keyed `markBusy` —
     // `bound-root` mode shares the mount's checkout, the same hazard one arm over.
@@ -813,9 +813,9 @@ export class ExecutionRootService {
     // `provisioning`, and beginning again would fail that primitive's
     // `ready`/`stale` compare-and-swap — so the closed-bracket case is the one
     // that begins, not the open one. Either way the row is `provisioning`
-    // below, which is what makes `failReprovision` legal on the catch.
+    // below, which is what makes `failRootPreparation` legal on the catch.
     if (!bracketAlreadyOpen) {
-      await this.#workspaces.beginReprovision(workspace.id, executionMode);
+      await this.#workspaces.beginRootPreparation(workspace.id, executionMode);
     }
 
     let materialized: MaterializedRoot | undefined;
@@ -843,7 +843,7 @@ export class ExecutionRootService {
       if (materialized !== undefined) {
         await this.#compensateOrphanedRoot(materialized, null);
       }
-      await this.#failReprovision(workspace.id, preparationFailure);
+      await this.#failRootPreparation(workspace.id, preparationFailure);
       // The ORIGINAL cause, not a wrapper: makes wrapping the run-setup gate's
       // job, and it wraps by CODE. A cause replaced here would arrive there with
       // this module's identity instead of the failure's.
@@ -851,11 +851,11 @@ export class ExecutionRootService {
     }
 
     try {
-      await this.#workspaces.completeReprovision(workspace.id, materialized.executionRoot);
+      await this.#workspaces.completeRootPreparation(workspace.id, materialized.executionRoot);
     } catch (completionFailure) {
       // The root exists and nothing will ever adopt it. See
       // `#compensateOrphanedRoot` for why this is compensated rather than left to
-      // a sweep, and why `failReprovision` is NOT the answer here.
+      // a sweep, and why `failRootPreparation` is NOT the answer here.
       await this.#compensateOrphanedRoot(materialized, branchContextId);
       throw completionFailure;
     }
@@ -864,7 +864,7 @@ export class ExecutionRootService {
       workspaceId: workspace.id,
       executionMode,
       executionRoot: materialized.executionRoot,
-      // Not re-read from the row: `completeReprovision` resolving is what makes
+      // Not re-read from the row: `completeRootPreparation` resolving is what makes
       // this `ready`, and re-reading would report a state a concurrent writer had
       // already moved on from as if this call had produced it.
       state: "ready",
@@ -930,7 +930,7 @@ export class ExecutionRootService {
    * it.
    *
    * It could not come from `workspaces.fs_root` even if it were preferable:
-   * `beginReprovision` releases that column on the way into `provisioning`.
+   * `beginRootPreparation` releases that column on the way into `provisioning`.
    *
    * `baseBranch` self-anchors — see the header's residual. Bound-root mode cuts
    * nothing, so there is no base to record that this module could observe.
@@ -1174,15 +1174,15 @@ export class ExecutionRootService {
    * error CLASS so that only values held to sanitization discipline contribute a
    * message at all.
    *
-   * A throw from `failReprovision` is SWALLOWED. What the caller needs is the
+   * A throw from `failRootPreparation` is SWALLOWED. What the caller needs is the
    * original cause, and replacing it with a bookkeeping failure would hide the
    * thing that actually went wrong. The workspace is left in `provisioning` —
    * which is precisely the no-double-begin arm a later prepare handles, so the
    * next attempt still works.
    */
-  async #failReprovision(workspaceId: string, cause: unknown): Promise<void> {
+  async #failRootPreparation(workspaceId: string, cause: unknown): Promise<void> {
     try {
-      await this.#workspaces.failReprovision(workspaceId, describeFailure(cause));
+      await this.#workspaces.failRootPreparation(workspaceId, describeFailure(cause));
     } catch {
       // Deliberate. See the docblock.
     }
@@ -1191,20 +1191,20 @@ export class ExecutionRootService {
   /**
    * Undo a root this call materialized but could not hand over.
    *
-   * `completeReprovision` is the last step, and a throw from it leaves the row
+   * `completeRootPreparation` is the last step, and a throw from it leaves the row
    * `provisioning` with no `fs_root` while the worktree sits on disk.
    * Nothing reclaims that on its own: the sweep retires worktrees whose MOUNT
    * detached and cleans rows already `retired`, and an orphan on an attached mount
    * is in neither set — so the leak is permanent rather than eventual. That is why
    * it is compensated here instead of recorded as a residual.
    *
-   * TWO callers, one leak. The `completeReprovision` catch passes the context
+   * TWO callers, one leak. The `completeRootPreparation` catch passes the context
    * row id it just wrote; the preparation catch passes `null`, because there
    * the `branch_contexts` write is what failed — the root exists, no pair row
    * does, and the delete leg is skipped for want of a target rather than by
    * policy.
    *
-   * `failReprovision` is deliberately NOT the answer: the preparation SUCCEEDED, and
+   * `failRootPreparation` is deliberately NOT the answer: the preparation SUCCEEDED, and
    * labelling it a preparation failure would misreport which step broke.
    *
    * The `branch_contexts` row is deleted, then the worktree retires. The row
@@ -1398,7 +1398,7 @@ export class ExecutionRootService {
  *      one value that names the condition rather than describing it;
  *   4. everything else reports its CLASS NAME and nothing else.
  *
- * `normalizeWorkspaceLastError` is NOT applied here: `failReprovision` applies it
+ * `normalizeWorkspaceLastError` is NOT applied here: `failRootPreparation` applies it
  * itself, and scrubbing twice would truncate an already-truncated detail.
  */
 function describeFailure(cause: unknown): string {
