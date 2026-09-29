@@ -32,8 +32,7 @@
 // that answers it, and none is registered without one: a placeholder handler
 // would put a method on the wire that answers nothing, which is worse than a
 // method that is not on the wire.
-import type { ZodType } from "zod";
-
+import type { MethodDescriptor, SubscriptionMethodDescriptor } from "../method-descriptor.js";
 import {
   ChildRunExpandRequestSchema,
   ChildRunExpandResponseSchema,
@@ -110,37 +109,24 @@ export interface TimelineMethodBinding<
   MethodName extends TimelineMethodName,
   RequestType,
   ResponseType,
-> {
-  readonly method: MethodName;
+> extends MethodDescriptor<MethodName, RequestType, ResponseType> {
   readonly procedureType: "query" | "subscription";
   readonly mutating: false;
-  readonly requestSchema: ZodType<RequestType>;
-  /**
-   * What the daemon registry validates the handler's RESOLVED value against.
-   * For `timeline.subscribe` that is the init ack, not the stream payload —
-   * see {@link TimelineSubscriptionMethodBinding.emissionSchema}.
-   */
-  readonly responseSchema: ZodType<ResponseType>;
 }
 
 /**
  * A `subscription` binding additionally names its PER-EMISSION payload — the
  * `TimelineRow` union the canonical registry table's response column reports
- * for `timeline.subscribe`.
- *
- * The two schemas answer different questions and both are needed: the daemon's
- * `register()` validates the handler's resolved ack (`responseSchema`), while
- * every value pushed over the streaming primitive is a row (`emissionSchema`).
- * Collapsing them would force one of the two validations to be skipped.
+ * for `timeline.subscribe`. For `timeline.subscribe` the response schema is the
+ * init ack, not the stream payload.
  */
 export interface TimelineSubscriptionMethodBinding<
   MethodName extends TimelineMethodName,
   RequestType,
   ResponseType,
   EmissionType,
-> extends TimelineMethodBinding<MethodName, RequestType, ResponseType> {
-  readonly procedureType: "subscription";
-  readonly emissionSchema: ZodType<EmissionType>;
+> extends SubscriptionMethodDescriptor<MethodName, RequestType, ResponseType, EmissionType> {
+  readonly mutating: false;
 }
 
 /** The four descriptors, keyed by method string. */
