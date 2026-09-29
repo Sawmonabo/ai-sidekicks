@@ -1,51 +1,51 @@
-// Retiring a worktree: one act, one call, and one settlement.
+// Removing a worktree: one act, one call, and one settlement.
 
 import { describe, expect, it } from "vitest";
 
 import {
-  RootDisposalController,
-  type DisposalOperations,
-  type DisposalReading,
-  type RootDisposalHost,
-} from "./disposal-controller.js";
-import { disposalSubjectFor } from "./disposal-subject.js";
+  RootRemovalController,
+  type RootRemovalOperations,
+  type RootRemovalReading,
+  type RootRemovalHost,
+} from "./root-removal-controller";
+import { rootRemovalSubjectFor } from "./root-removal-subject";
 
 /** The roots the scripted daemon answers for. */
 const WORKTREE_ID = "worktree-reviewer";
 
 /** The daemon: the call records the transition and answers `retired`. */
-const SCRIPTED_DAEMON: DisposalOperations = {
+const SCRIPTED_DAEMON: RootRemovalOperations = {
   retireWorktree: (worktreeId) => Promise.resolve({ worktreeId, state: "retired" }),
 };
 
 /** A host that keeps every reading it was given, in order. */
-class RecordingHost implements RootDisposalHost {
-  public readonly readings: DisposalReading[] = [];
+class RecordingHost implements RootRemovalHost {
+  public readonly readings: RootRemovalReading[] = [];
 
-  public recordDisposal(reading: DisposalReading): void {
+  public recordRemoval(reading: RootRemovalReading): void {
     this.readings.push(reading);
   }
 
-  public get last(): DisposalReading | undefined {
+  public get last(): RootRemovalReading | undefined {
     return this.readings.at(-1);
   }
 }
 
 function open(
   rootId: string,
-  operations: DisposalOperations = SCRIPTED_DAEMON,
-): { readonly controller: RootDisposalController; readonly host: RecordingHost } {
+  operations: RootRemovalOperations = SCRIPTED_DAEMON,
+): { readonly controller: RootRemovalController; readonly host: RecordingHost } {
   const host = new RecordingHost();
-  const controller = new RootDisposalController({
+  const controller = new RootRemovalController({
     operations,
-    subject: disposalSubjectFor(rootId),
+    subject: rootRemovalSubjectFor(rootId),
     host,
   });
   return { controller, host };
 }
 
-describe("RootDisposalController — the retirement", () => {
-  it("records the retirement the daemon performed", async () => {
+describe("RootRemovalController — the removal", () => {
+  it("records the removal the daemon performed", async () => {
     const { controller, host } = open(WORKTREE_ID);
     await controller.send();
     expect(host.last?.status).toBe("settled");
@@ -61,8 +61,8 @@ describe("RootDisposalController — the retirement", () => {
   });
 });
 
-describe("RootDisposalController — the guards", () => {
-  it("refuses to put a second disposal on the wire for one press", async () => {
+describe("RootRemovalController — the guards", () => {
+  it("refuses to put a second removal on the wire for one press", async () => {
     const { controller, host } = open(WORKTREE_ID);
     const first = controller.send();
     await controller.send();

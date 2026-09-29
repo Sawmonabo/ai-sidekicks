@@ -1,13 +1,13 @@
 /*
- * Preparing an execution root, and retiring one.
+ * Preparing an execution root, and removing one.
  *
  * The trigger, dialog and field shape these two surfaces share with the attach and bind
  * surfaces is in `../mount-controls.css`, imported ahead of this sheet; what is here is
  * what only a root's own surfaces wear — the reuse verdict's two toned readings and the
- * settled line a retirement leaves behind.
+ * settled line a removal leaves behind.
  *
  * Imported by both surfaces it dresses, `PrepareExecutionRoot.tsx` and
- * `RootDisposalConfirmation.tsx`.
+ * `RootRemovalConfirmation.tsx`.
  */
 
 .meridian-prepare-root {
@@ -82,7 +82,7 @@
 }
 
 .meridian-prepare-root__prepared,
-.meridian-root-disposal__settled {
+.meridian-root-removal__settled {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -94,11 +94,11 @@
 }
 
 .meridian-prepare-root__state,
-.meridian-root-disposal__state {
+.meridian-root-removal__state {
   font-family: var(--meridian-font-mono);
 }
 
-.meridian-root-disposal {
+.meridian-root-removal {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -106,7 +106,7 @@
 }
 
 .meridian-prepare-root :focus-visible,
-.meridian-root-disposal :focus-visible {
+.meridian-root-removal :focus-visible {
   outline: 2px solid var(--meridian-focus-ring);
   outline-offset: 2px;
 }

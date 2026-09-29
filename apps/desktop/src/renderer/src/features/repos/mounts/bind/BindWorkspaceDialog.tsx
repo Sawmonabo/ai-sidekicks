@@ -5,7 +5,7 @@
 //
 // IT IS `Dialog` AND NOT `AlertDialog`. This is data entry a person may abandon at no
 // cost; the alert variant is for a consequence being consented to, which is what the
-// re-attach and the root disposals use.
+// re-attach and the root removal use.
 //
 // IT IS OFFERED ONLY WHERE THE CARD OFFERS BIND CONTROLS AT ALL, which the card decides
 // from the mount's lifecycle and health axes — so a detached, unreachable, or drifted
