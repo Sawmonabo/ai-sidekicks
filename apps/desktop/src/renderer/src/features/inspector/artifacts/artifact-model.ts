@@ -4,6 +4,9 @@
 // `ArtifactManifestRow` is a console view model that copies the contract's `ArtifactManifest`.
 // The state and type vocabularies are the contract's own unions, so a member the wire drops
 // fails the row type, the filter and the copy tables in the same compile.
+//
+// Models no payload preview and never nulls a derivative's `subject`: payloads are explicit-fetch
+// downloads, and nothing in the product executes one.
 
 import type {
   ArtifactId,

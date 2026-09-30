@@ -39,7 +39,9 @@ export function MessageComposer(props: ComposerProps): React.JSX.Element {
   const regionRef = useRef<HTMLElement | null>(null);
   // One holder per addressed composer, never shared across sessions (the enumeration is not
   // cached). It survives a bridge swap under the same session: the holder's key compares the
-  // bridge by identity, so a replaced bridge re-reads instead of serving the old catalog.
+  // bridge by identity, so a replaced bridge re-reads instead of serving the old catalog. Held as
+  // a resource, not a `useMemo`: React may discard a memoized value and re-run the factory, which
+  // would leave a holder with an open read that nothing ever closes.
   const { value: commandEnumeration } = useSubjectScopedResource<ProviderCommandEnumeration>(
     props.sessionStore,
     props.sessionStore.sessionId,

@@ -1,7 +1,8 @@
 // The agent library: the agents a person has tuned, so a configuration outlives the session it
 // was typed into. Renders one snapshot from `library-view.ts`, which owns the read, the delete
 // in flight and the editor subject; this file makes no call and holds no state. The list is
-// read on mount and again only after a delete the daemon applied.
+// read on mount and again only after a delete the daemon applied. Delete asks in the row, not a
+// dialog: the row is the subject, so a person can still read what they are about to delete.
 
 import type { ReactNode } from "react";
 
