@@ -304,8 +304,8 @@ export const EventEnvelopeSchema: z.ZodType<EventEnvelope> = z
 // A branch that should take the stamp must be wrapped: a strict payload without it rejects a
 // stamped row at the strict layer. The tolerant `EventEnvelopeSchema` accepts a stamped row
 // either way, so an unwrapped branch costs interpretation, not transport or the canonical bytes.
-// `__tests__/event-source-epoch.test.ts` walks the live union and fails a run-scoped branch of an
-// admitting family that is unwrapped, and any other branch that is wrapped.
+// No check walks the union for this: a branch is wrapped, or left bare, by this rule when it is
+// registered.
 //
 // This file owns the typed shape only. What an epoch means (`0` is before any rollback; each
 // accepted `run.rolled_back` advances it) belongs to the run state machine, and stamping and
@@ -346,8 +346,7 @@ export const SOURCE_POSITION_PAYLOAD_KEY = "sourcePosition" as const;
  *   either key, so a registrant cannot hand-roll the pair or wrap twice.
  * - `.extend()` keeps the payload's strictness. The `$strict` parameter states the precondition
  *   but Zod's config type parameters are interchangeable, so wrapping a non-strict payload
- *   returns a non-strict schema; the admission test in `event-source-epoch.test.ts` refuses a
- *   wrapped branch that is not strict.
+ *   returns a non-strict schema. Only a `.strict()` payload is wrapped.
  * - The stamp is optional and absence means the current epoch; a required key would force
  *   producers to fabricate an attribution.
  * - Either key requires both, and a non-null `runId`: epochs and positions are run-local and the
@@ -373,7 +372,7 @@ export function withEpochStamp<
   //
   // A JS caller that bypasses the constraint gets a throw from `util.extend` if the colliding base
   // schema has refinements; a check-free one is silently overridden, since the stamp schemas are
-  // spread last. Runtime behavior is pinned in `__tests__/event-source-epoch.test.ts`.
+  // spread last.
   return (
     payloadSchema
       // Keyed off the exported consts so the schema keys and the wire names cannot drift apart.

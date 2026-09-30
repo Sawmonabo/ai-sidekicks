@@ -7,9 +7,9 @@ import type { SessionEvent } from "./event-variant-types.js";
 // Every wire `type` string. Each type belongs to exactly one category and
 // `SESSION_EVENT_CATEGORY_BY_TYPE` (in `event.ts`) covers every type: its `satisfies
 // Record<SessionEventType, EventCategory>` check makes a missing, unknown or duplicate key a
-// compile error, and `__tests__/session-event.test.ts` checks the per-category partition. Type
-// strings are immutable wire identifiers (MINOR bumps only add), so a registered literal is never
-// renamed. Blocks follow `EventCategory` order, which is not load-bearing.
+// compile error. Type strings are immutable wire identifiers (MINOR bumps only add), so a
+// registered literal is never renamed. Blocks follow `EventCategory` order, which is not
+// load-bearing.
 //
 // A type's category is its registry entry, not its prefix: `session.clock_unsynced` and
 // `session.clock_corrected` are `runtime_node_lifecycle` (they keep the `session.` prefix because
@@ -198,9 +198,8 @@ export type SessionEventType =
 /**
  * The event types with a payload variant registered in `SessionEventSchema`: a subset of the
  * census (`SESSION_EVENT_CATEGORY_BY_TYPE`). The `SessionEvent["type"]` annotation refuses a
- * literal that has no variant. The list is hand-written, so registering a union arm means adding
- * its type here in the same change; `__tests__/event-source-epoch.test.ts` checks that it equals
- * the union's arms. Order follows the union arms.
+ * literal that has no variant, but not a missing one: the list is hand-written, so registering a
+ * union arm means adding its type here in the same change. Order follows the union arms.
  */
 export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "session.created",
@@ -283,9 +282,9 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
 
 // One exported const per `EventCategory`, named `<CATEGORY_IN_SCREAMING_SNAKE>_EVENT_TYPES`, so
 // the `*_events` categories read `..._EVENTS_EVENT_TYPES`. Each array holds exactly the registry
-// types of its category, and together the arrays partition the census; both are asserted in
-// `__tests__/session-event.test.ts`. The explicit `readonly SessionEventType[]` annotations keep
-// the exports `isolatedDeclarations`-clean.
+// types of its category, and together the arrays partition the census. No type check enforces
+// either, so a type added to the census is added to its category's array in the same change. The
+// explicit `readonly SessionEventType[]` annotations keep the exports `isolatedDeclarations`-clean.
 
 /** The event types of the `run_lifecycle` category. */
 export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
