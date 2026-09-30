@@ -126,7 +126,6 @@ describe("reflow — the console at 320 CSS px", () => {
           state: "active",
           touchedAtIso: undefined,
           userIds: [],
-          attentionSeverity: undefined,
         }}
         onOpen={() => undefined}
       />,

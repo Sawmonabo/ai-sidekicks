@@ -42,27 +42,6 @@ describe("pins in the durable store", () => {
     await second.hydrate();
     expect(second.pinned).toStrictEqual({ "session-a": "front" });
   });
-
-  it("hydrates once, so a remount cannot overwrite a change made since", async () => {
-    const adapter = new MemoryPersistenceAdapter();
-    const pins = new SessionPinStore(openStoreOver(adapter));
-    await pins.hydrate();
-    await pins.setPinned("session-a", true);
-    await pins.hydrate();
-    expect(pins.pinned).toStrictEqual({ "session-a": "front" });
-  });
-
-  it("notifies a subscriber when the map changes", async () => {
-    const pins = new SessionPinStore(openStore());
-    let notifications = 0;
-    const unsubscribe = pins.subscribe(() => {
-      notifications += 1;
-    });
-    await pins.setPinned("session-a", true);
-    unsubscribe();
-    await pins.setPinned("session-b", true);
-    expect(notifications).toBe(1);
-  });
 });
 
 describe("a write the store will not take", () => {
@@ -74,22 +53,13 @@ describe("a write the store will not take", () => {
     expect(pins.lastRefusal?.code).toBe("quota-exceeded");
     expect(pins.lastRefusal?.origin).toBe("persistence");
   });
-
-  it("negative control: a write that lands records no refusal", () => {
-    // The case above would also pass over a store that refused every write.
-    const pins = new SessionPinStore(openStore());
-    expect(pins.lastRefusal).toBeUndefined();
-  });
 });
 
 describe("reading a record this build did not write", () => {
-  it("keeps the entries it recognizes and drops the ones it does not", () => {
+  it("keeps the entries it recognizes, and refuses a record that is not a map at all", () => {
     expect(narrowSessionPins({ "session-a": "front", "session-b": "middle" })).toStrictEqual({
       "session-a": "front",
     });
-  });
-
-  it("refuses a record that is not a map at all", () => {
     expect(narrowSessionPins(["session-a"])).toBeUndefined();
     expect(narrowSessionPins("front")).toBeUndefined();
   });

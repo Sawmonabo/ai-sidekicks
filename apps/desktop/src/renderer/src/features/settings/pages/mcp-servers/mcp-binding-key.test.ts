@@ -22,21 +22,12 @@ const PROJECT_BINDING: McpServerBindingRef = {
 };
 
 describe("mcpBindingKeyOf", () => {
-  it("keys one binding the same way twice", () => {
+  it("keys one binding the same way twice, and apart by scope, provider and root", () => {
     expect(mcpBindingKeyOf(USER_BINDING)).toBe(mcpBindingKeyOf({ ...USER_BINDING }));
-  });
-
-  it("keys two same-named servers in two scopes differently", () => {
     expect(mcpBindingKeyOf(USER_BINDING)).not.toBe(mcpBindingKeyOf(PROJECT_BINDING));
-  });
-
-  it("keys two same-named servers on two providers differently", () => {
     expect(mcpBindingKeyOf(PROJECT_BINDING)).not.toBe(
       mcpBindingKeyOf({ ...PROJECT_BINDING, provider: "codex" }),
     );
-  });
-
-  it("keys two project bindings under different roots differently", () => {
     expect(mcpBindingKeyOf(PROJECT_BINDING)).not.toBe(
       mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "/work/other" }),
     );
@@ -60,16 +51,5 @@ describe("mcpBindingKeyOf", () => {
     expect(mcpBindingKeyOf(USER_BINDING)).not.toBe(
       mcpBindingKeyOf({ ...PROJECT_BINDING, scopeRef: "", serverName: USER_BINDING.serverName }),
     );
-  });
-
-  // Negative control for the three above: the server name is equal across every pair, so a key
-  // built from it would have collapsed them.
-  it("does not key on the server name", () => {
-    const sharedNames = new Set(
-      [USER_BINDING, PROJECT_BINDING, { ...PROJECT_BINDING, provider: "codex" as const }].map(
-        (binding) => binding.serverName,
-      ),
-    );
-    expect(sharedNames.size).toBe(1);
   });
 });

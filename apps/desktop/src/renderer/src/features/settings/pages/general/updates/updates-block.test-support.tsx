@@ -1,13 +1,10 @@
-// The updater doubles and the settled render both updates-block suites drive.
+// The updater double and the settled render the updates-block suite drives.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
-import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
+import type { UpdateState } from "@shared/preload-api.js";
 
-import { ManualClock } from "@renderer/lib/clock.js";
-import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { politeText } from "@test/helpers/live-region.js";
 import { MACHINE_SETTINGS_DEFAULTS } from "@ai-sidekicks/contracts";
 import { UpdatesBlock, type UpdatesBlockProps } from "./UpdatesBlock.js";
 import type { UpdaterCalls } from "./updater-reading.js";
@@ -27,69 +24,6 @@ export function updaterReporting(
     requestCheck: controls.requestCheck ?? (() => Promise.resolve()),
     requestDownload: controls.requestDownload ?? (() => Promise.resolve()),
     requestRestart: controls.requestRestart ?? (() => Promise.resolve()),
-  };
-}
-
-/**
- * An updater that pushes on demand, so a case can drive a transition after the first read
- * settled; the handler is captured, not replayed from a script.
- */
-export function updaterPushing(initial: UpdateState): {
-  readonly updater: UpdaterCalls;
-  readonly push: (state: UpdateState) => void;
-} {
-  let deliver: ((state: UpdateState) => void) | undefined;
-  const updater: UpdaterCalls = {
-    getState: () => Promise.resolve(initial),
-    subscribe: (handler): Unsubscribe => {
-      deliver = handler;
-      return () => undefined;
-    },
-    requestCheck: () => Promise.resolve(),
-    requestDownload: () => Promise.resolve(),
-    requestRestart: () => Promise.resolve(),
-  };
-  return {
-    updater,
-    push: (state) => {
-      deliver?.(state);
-    },
-  };
-}
-
-/**
- * An updater whose opening read is settled by hand, so a push can land ahead of it.
- *
- * Separate from {@link updaterPushing}, whose read resolves immediately.
- */
-export function updaterHoldingItsRead(): {
-  readonly updater: UpdaterCalls;
-  readonly push: (state: UpdateState) => void;
-  readonly settleRead: (state: UpdateState) => void;
-} {
-  let deliver: ((state: UpdateState) => void) | undefined;
-  let settle: ((state: UpdateState) => void) | undefined;
-  const updater: UpdaterCalls = {
-    getState: () =>
-      new Promise<UpdateState>((resolve) => {
-        settle = resolve;
-      }),
-    subscribe: (handler): Unsubscribe => {
-      deliver = handler;
-      return () => undefined;
-    },
-    requestCheck: () => Promise.resolve(),
-    requestDownload: () => Promise.resolve(),
-    requestRestart: () => Promise.resolve(),
-  };
-  return {
-    updater,
-    push: (state) => {
-      deliver?.(state);
-    },
-    settleRead: (state) => {
-      settle?.(state);
-    },
   };
 }
 
@@ -119,24 +53,17 @@ export async function pressControl(block: HTMLElement, label: string): Promise<v
 /**
  * Mount the block under the console's real announcer and let its read settle.
  *
- * The announcer runs on a `ManualClock` so its hold window is frozen. The block is returned,
- * not the render container, because the provider's live regions sit beside it and one carries
- * `role="alert"`.
+ * The block is returned, not the render container, because the provider's live regions sit
+ * beside it and one carries `role="alert"`.
  */
 export async function renderSettled(
   updater: UpdaterCalls,
   preferences: UpdatesBlockProps["preferences"] = preferencesAtDefaults(),
-): Promise<{
-  readonly block: HTMLElement;
-  readonly clock: ManualClock;
-  readonly politeText: () => string;
-}> {
-  const clock = new ManualClock();
-  const announcer = new LiveAnnouncer({ clock });
+): Promise<{ readonly block: HTMLElement }> {
   let rendered: ReturnType<typeof render> | undefined;
   await act(async () => {
     rendered = render(
-      <LiveAnnouncerProvider announcer={announcer}>
+      <LiveAnnouncerProvider>
         <UpdatesBlock updater={updater} preferences={preferences} />
       </LiveAnnouncerProvider>,
     );
@@ -144,11 +71,7 @@ export async function renderSettled(
     await crossMacrotaskBoundary();
   });
   const mounted = rendered as ReturnType<typeof render>;
-  return {
-    block: updatesBlockOf(mounted.container),
-    clock,
-    politeText: () => politeText(mounted.container),
-  };
+  return { block: updatesBlockOf(mounted.container) };
 }
 
 /** The block's own element, so a case never reads the announcer's regions by accident. */

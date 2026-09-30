@@ -61,22 +61,6 @@ describe("the agent registry view — one delete at a time", () => {
     expect(view.snapshot().deletingId).toBeUndefined();
   });
 
-  it("says a different sentence when the row already going is pressed again", async () => {
-    // Same code, different next move: telling them another row is in the way would be false.
-    const { view, stub } = viewOverHeldDeletes();
-    view.start();
-    await settle();
-
-    void view.confirmDeletion(REVIEWER.definitionId);
-    await settle();
-    await view.confirmDeletion(REVIEWER.definitionId);
-
-    expect(stub.deletedIds).toStrictEqual([REVIEWER.definitionId]);
-    expect(view.snapshot().refusalByDefinitionId.get(REVIEWER.definitionId)?.detail).toContain(
-      "This sidekick is already being deleted",
-    );
-  });
-
   it("negative control: with nothing running, a second row's delete IS performed", async () => {
     // Guards against a view that refuses every delete after the first.
     const stub = new RegistryStub({

@@ -37,7 +37,11 @@ export const CHILD_RUN_SUMMARIZED: ChildRunExpansion = {
   refusal: undefined,
 };
 
-/** What one mounted transcript offers for a child-run summary row. */
+/**
+ * What one mounted transcript offers for a child-run summary row.
+ *
+ * @consumedBy opening a child in the Sidekicks pane
+ */
 export interface ChildRunDisclosure {
   readonly expansionFor: (childRunId: RunId) => ChildRunExpansion;
   /** Expand a summarized child run, or fold an expanded one back. */

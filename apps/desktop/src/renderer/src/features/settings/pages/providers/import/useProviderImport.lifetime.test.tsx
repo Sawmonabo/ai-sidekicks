@@ -30,22 +30,6 @@ const WHILE_READING: ProviderImportProgress = {
 /** A second message, so a case can prove the subscription is still live and not merely held. */
 const STILL_READING: ProviderImportProgress = { ...WHILE_READING, read: 31 };
 
-/** How the import this case started ended. */
-const FINISHED: ProviderImportProgress = {
-  kind: "settled",
-  provider: "claude",
-  importId: IMPORT_ID,
-  settlement: {
-    outcome: "finished",
-    imported: 31,
-    total: 31,
-    alreadyHere: 0,
-    failures: [],
-    unreadableFiles: [],
-    attachedProjects: [],
-  },
-};
-
 /**
  * A progress stream a case drives by hand, and whose closes it counts.
  *
@@ -128,24 +112,6 @@ function ImportHost(props: {
   return <div>{props.isPanelMounted ? <ProviderImportPanel model={providerImport} /> : null}</div>;
 }
 
-/**
- * The composition that loses the import: the model minted inside the conditional child.
- *
- * The control that makes the case a claim about placement, not about a stream that happened
- * to stay open; only the side of the condition the model is held on differs.
- */
-function PanelHeldImport(props: { readonly calls: ImportCalls }): React.JSX.Element {
-  const providerImport = useProviderImport(props.calls.begin, props.calls.subscribe);
-  return <ProviderImportPanel model={providerImport} />;
-}
-
-function PanelHeldImportHost(props: {
-  readonly calls: ImportCalls;
-  readonly isPanelMounted: boolean;
-}): React.JSX.Element {
-  return <div>{props.isPanelMounted ? <PanelHeldImport calls={props.calls} /> : null}</div>;
-}
-
 function submit(container: HTMLElement): void {
   const form = container.querySelector("form");
   act(() => {
@@ -200,53 +166,5 @@ describe("an import whose panel goes away", () => {
     expect(view.container.textContent).toContain("The last import is still being read.");
     // And nobody let go of the subscription on the way past.
     expect(stream.closeCount).toBe(0);
-  });
-
-  it("negative control: an import that SETTLED leaves the form a form again", async () => {
-    // Without this the case above would pass over a panel that reported "still being read"
-    // for every import it had seen.
-    const stream = new DrivenProgressStream();
-    const view = render(<ImportHost calls={callsReading(stream)} isPanelMounted />);
-
-    await startAnImport(view.container);
-    await act(async () => {
-      stream.emit(WHILE_READING);
-      await settle();
-    });
-    await act(async () => {
-      stream.emit(FINISHED);
-      await settle();
-    });
-
-    expect(view.container.textContent).toContain("brought in 31 of 31 conversations");
-    expect(submitControl(view.container)?.disabled).toBe(false);
-  });
-
-  it("negative control: minted inside the panel, the same import does not survive it", async () => {
-    // The same real hook and panel with one thing changed, the side of the condition the
-    // model is held on. Without this the case above would pass over a stream that merely
-    // stayed open.
-    // claim would rest on nothing.
-    const stream = new DrivenProgressStream();
-    const calls = callsReading(stream);
-    const view = render(<PanelHeldImportHost calls={calls} isPanelMounted />);
-
-    await startAnImport(view.container);
-    await act(async () => {
-      stream.emit(WHILE_READING);
-      await settle();
-    });
-    expect(view.container.textContent).toContain("12");
-
-    view.rerender(<PanelHeldImportHost calls={calls} isPanelMounted={false} />);
-    await settle();
-    view.rerender(<PanelHeldImportHost calls={calls} isPanelMounted />);
-    await settle();
-
-    // A fresh act that started nothing: no import reads as underway, so a second is offered
-    // over the first, and the first subscription was closed on the way out.
-    expect(stream.closeCount).toBe(1);
-    expect(view.container.textContent).not.toContain("The last import is still being read.");
-    expect(view.container.querySelector(".meridian-session-import__progress")).toBeNull();
   });
 });

@@ -5,7 +5,7 @@
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { withDaemonCall, type BridgeUnderTest } from "@test/helpers/fixture-bridge.js";
+import { withDaemonCall } from "@test/helpers/fixture-bridge.js";
 import type { Scenario } from "../../../../../../../fixtures/scenario.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import type { FirstTurnQueueCall } from "../new-session-control-contract.js";
@@ -209,7 +209,7 @@ export function politeText(container: HTMLElement): string {
  * Open a draft and type its first message, the shortest composition that can be sent. The
  * first message is the only axis this control offers, so `first-turn-missing` is unreachable
  * here and the partial arm comes from the rejecting first-turn call; the missing-turn refusal
- * is exercised in `new-session-send.test.ts`.
+ * is exercised in `new-session-draft.test.ts`.
  */
 export async function openDraftWithFirstTurn(): Promise<void> {
   await press("+ New");
@@ -237,16 +237,4 @@ export async function typeFirstTurn(firstTurn: string): Promise<void> {
 export async function composeAndCompleteASend(): Promise<void> {
   await openDraftWithFirstTurn();
   await press("Send");
-}
-
-/**
- * The fixture with its create scripted and every request body recorded. A pass-through arm,
- * so a case reads what the control asked for through the same `callDaemon` path production
- * uses, via `withDaemonCall`.
- */
-export function bridgeRecordingASend(): BridgeUnderTest {
-  return withDaemonCall(
-    bridgeFor({ scriptsCreate: true }),
-    async (_call, passThrough) => await passThrough(),
-  );
 }

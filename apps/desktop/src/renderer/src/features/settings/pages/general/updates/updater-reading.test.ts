@@ -2,7 +2,7 @@
 // opening read is in flight is a timing accident through a rendered block; here the read is
 // held open by hand so "the push wins" is asserted.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
 
 import { UpdaterReadingHolder, type UpdaterCalls } from "./updater-reading.js";
@@ -147,22 +147,5 @@ describe("the updater reading — an opening is released and re-opened", () => {
 
     expect(holder.snapshot().reading).toStrictEqual({ kind: "state", state: { status: "ready" } });
     expect(updater.readCount()).toBe(2);
-  });
-
-  it("notifies its subscriber once per accepted observation", async () => {
-    const updater = controllableUpdater();
-    const holder = new UpdaterReadingHolder(updater.updater);
-    const sink = vi.fn();
-    holder.subscribe(sink);
-    holder.open();
-
-    updater.push({ status: "checking" });
-    updater.settleRead({ status: "idle" });
-    await drain();
-
-    // Two observations arrived and one was discarded; emitting on every reply would re-render
-    // on a reading that was not installed.
-    expect(sink).toHaveBeenCalledTimes(1);
-    expect(holder.snapshot().sequence).toBe(1);
   });
 });

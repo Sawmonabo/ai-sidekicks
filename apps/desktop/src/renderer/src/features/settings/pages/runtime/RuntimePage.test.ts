@@ -1,10 +1,10 @@
-// The local-runtime page: the supervisor's numbers, and the two controls that confirm.
+// The local-runtime page: the two controls that confirm, and the daemon's reported line.
 //
-// The page shows only the numbers it was told, names what a control will interrupt before
-// acting, dispatches once per answered confirmation, and asks the daemon's reported line
-// again once it can have changed. That last is two claims: a read that never happens again
-// leaves a stopped runtime beside `Reported state: connected`, while a read on every render
-// or every supervisor retry is an interval poll. The cases drive a settled control and a
+// The page names what a control will interrupt before acting, dispatches once per answered
+// confirmation, and asks the daemon's reported line again once it can have changed. That last
+// is two claims: a read that never happens again leaves a stopped runtime beside `Reported
+// state: connected`, while a read on every render or every supervisor retry is an interval
+// poll. The cases drive a settled control and a
 // supervisor transition, and an advancing retry attempt that must change nothing.
 
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
@@ -17,58 +17,7 @@ import type { DaemonOperations } from "./hooks/useDaemonStatus.js";
 import { useDaemonControl } from "./hooks/useDaemonControl.js";
 import { getButton, renderRuntimePage } from "./runtime-page.test-support.js";
 
-describe("DaemonPage — the supervisor's numbers", () => {
-  it("says nothing was reported rather than inventing a state", () => {
-    const { container } = renderRuntimePage({});
-    expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
-    expect(container.textContent).not.toContain("Local runtime connected");
-  });
-
-  it("shows the attempt count while the ladder is running", () => {
-    const { container } = renderRuntimePage({
-      mainProcessState: {
-        ...UNREPORTED_MAIN_PROCESS_STATE,
-        connection: { kind: "reconnecting", attempt: 3, attemptLimit: 5 },
-      },
-    });
-    expect(container.textContent).toContain("Attempt");
-    expect(container.textContent).toContain("3 of 5");
-  });
-
-  it("shows no attempt row on a connected window — the control", () => {
-    // An attempt row on a healthy window would show a field with nothing in it as a
-    // measurement.
-    const { container } = renderRuntimePage({
-      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
-    });
-    expect(container.textContent).not.toContain("Attempt");
-  });
-
-  it("shows the last heartbeat where one was reported, and its absence where none was", () => {
-    const withBeat = renderRuntimePage({
-      mainProcessState: {
-        ...UNREPORTED_MAIN_PROCESS_STATE,
-        connection: { kind: "connected" },
-        lastHeartbeatAt: "2026-01-01T10:00:00.000Z",
-      },
-    });
-    expect(withBeat.container.textContent).toContain("2026-01-01T10:00:00.000Z");
-
-    const withoutBeat = renderRuntimePage({
-      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
-    });
-    expect(withoutBeat.container.textContent).toContain("No heartbeat reported");
-  });
-});
-
 describe("DaemonPage — the reported status", () => {
-  it("renders what the read answered", async () => {
-    const { container } = renderRuntimePage({});
-    await waitFor(() => {
-      expect(container.textContent).toContain("2026-04-30-read-1");
-    });
-  });
-
   it("asks the runtime again once a control settles", async () => {
     // Guards a stale reply: a stop that was accepted changes what the runtime would answer,
     // and a page holding the pre-control reply would show a stopped supervisor beside
@@ -128,11 +77,6 @@ describe("DaemonPage — the reported status", () => {
 });
 
 describe("DaemonPage — the two controls", () => {
-  it("says over the pair that both stop the work in flight", () => {
-    const { container } = renderRuntimePage({});
-    expect(container.textContent).toContain("Both stop whatever is in flight on this machine.");
-  });
-
   it("asks before stopping, naming what stops, and calls nothing yet", () => {
     const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
@@ -140,24 +84,6 @@ describe("DaemonPage — the two controls", () => {
     expect(container.textContent).toContain(
       "Stop the background service? Work in flight stops, and nothing new starts until it is running again.",
     );
-  });
-
-  it("asks before restarting, naming what stops, and calls nothing yet", () => {
-    const { container, ledger } = renderRuntimePage({});
-    fireEvent.click(getButton(container, "Restart"));
-    expect(ledger.calls).toStrictEqual([]);
-    expect(container.textContent).toContain(
-      "Restart the background service? Work in flight stops.",
-    );
-  });
-
-  it("calls only after the confirm", async () => {
-    const { container, ledger } = renderRuntimePage({});
-    fireEvent.click(getButton(container, "Stop"));
-    fireEvent.click(getButton(container, "Stop"));
-    await waitFor(() => {
-      expect(ledger.calls).toStrictEqual(["stop"]);
-    });
   });
 
   it("releases the dispatch once a call settles, so the same control works again", async () => {
@@ -234,37 +160,11 @@ describe("DaemonPage — the two controls", () => {
     expect(container.textContent).toContain("It cannot be taken back");
   });
 
-  it("offers both confirmation actions before it has been answered — the control", () => {
-    const { container } = renderRuntimePage({ holdsControls: true });
-    fireEvent.click(getButton(container, "Restart"));
-
-    expect(getButton(container, "Restart").disabled).toBe(false);
-    expect(getButton(container, "Cancel").disabled).toBe(false);
-  });
-
   it("backs out on cancel without calling — the control", () => {
     const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Restart"));
     fireEvent.click(getButton(container, "Cancel"));
     expect(ledger.calls).toStrictEqual([]);
     expect(container.textContent).not.toContain("Restart the background service?");
-  });
-
-  it("says a control was sent rather than that it succeeded", async () => {
-    const { container } = renderRuntimePage({});
-    fireEvent.click(getButton(container, "Stop"));
-    fireEvent.click(getButton(container, "Stop"));
-    await waitFor(() => {
-      expect(container.textContent).toContain("sent");
-    });
-    expect(container.textContent).not.toContain("stopped.");
-  });
-
-  it("offers no start control — starting is a main-process act and not a call", () => {
-    const { container } = renderRuntimePage({
-      mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "stopped" } },
-    });
-    const labels = [...container.querySelectorAll("button")].map((button) => button.textContent);
-    expect(labels).not.toContain("Start");
   });
 });

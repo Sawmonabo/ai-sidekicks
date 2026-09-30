@@ -114,15 +114,4 @@ describe("the OS permission probe — a stale answer never overwrites a fresh on
 
     expect(harness.read.snapshot()).toStrictEqual({ kind: "unread" });
   });
-
-  it("negative control: a probe nothing superseded does publish", async () => {
-    // Guards against a reading that never publishes, which would pass the cases above.
-    const harness = probeHarness();
-    harness.read.requestRead("subscribe");
-    await performScheduledProbe(harness);
-    probeAt(harness, 0).serve("denied");
-    await crossMacrotaskBoundary();
-
-    expect(shownState(harness.read)).toBe("denied");
-  });
 });

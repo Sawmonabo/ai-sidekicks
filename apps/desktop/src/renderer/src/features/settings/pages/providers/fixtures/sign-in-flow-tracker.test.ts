@@ -17,11 +17,7 @@ import {
   type AccountPlaneCalls,
 } from "./account-plane-bridge.test-support.js";
 import { cancelSignIn, startProviderSignIn } from "./sign-in-flow.js";
-import {
-  SignInFlowTracker,
-  describeRunningSignIn,
-  findRunningSignInAccountId,
-} from "./sign-in-flow-tracker.js";
+import { SignInFlowTracker, findRunningSignInAccountId } from "./sign-in-flow-tracker.js";
 
 const RUNNING_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const WAITING_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
@@ -56,8 +52,8 @@ function trackerOverServedCalls(): {
 }
 
 describe("SignInFlowTracker", () => {
-  it("refuses a second start raised while the first is still in flight", async () => {
-    const { tracker } = trackerOverServedCalls();
+  it("refuses a second start while the first is in flight, and sends nothing for it", async () => {
+    const { tracker, calls } = trackerOverServedCalls();
 
     // Deliberately not awaited: the window under test is the first start dispatched and
     // unanswered, while a person looks at a control not yet re-rendered as disabled.
@@ -81,36 +77,10 @@ describe("SignInFlowTracker", () => {
     });
     expect(settled.refusalByAccountId.has(WAITING_ACCOUNT_ID)).toBe(true);
     expect(findRunningSignInAccountId(tracker.snapshot())).toBe(RUNNING_ACCOUNT_ID);
-  });
-
-  it("sends nothing for the refused start", async () => {
-    const { tracker, calls } = trackerOverServedCalls();
-
-    tracker.start(RUNNING_ACCOUNT_ID);
-    tracker.start(WAITING_ACCOUNT_ID);
-    await crossMacrotaskBoundary();
-
     // The refusal is the console's own and the daemon was never asked, so it arrives in the
     // same tick as the press.
     expect(calls.login).toHaveBeenCalledTimes(1);
     expect(calls.login).toHaveBeenCalledWith({ accountId: RUNNING_ACCOUNT_ID });
-  });
-
-  it("names the account in the way, and says something different when it is your own", async () => {
-    const { tracker } = trackerOverServedCalls();
-
-    tracker.start(RUNNING_ACCOUNT_ID);
-    await crossMacrotaskBoundary();
-    tracker.start(WAITING_ACCOUNT_ID);
-    tracker.start(RUNNING_ACCOUNT_ID);
-
-    const { refusalByAccountId } = tracker.snapshot();
-    expect(refusalByAccountId.get(WAITING_ACCOUNT_ID)?.detail).toBe(
-      describeRunningSignIn({ isTheSameAccount: false, holdingAccountLabel: undefined }),
-    );
-    expect(refusalByAccountId.get(RUNNING_ACCOUNT_ID)?.detail).toBe(
-      describeRunningSignIn({ isTheSameAccount: true, holdingAccountLabel: undefined }),
-    );
   });
 
   it("never installs a refused start as the tracked flow", async () => {

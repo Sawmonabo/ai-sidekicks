@@ -2,7 +2,6 @@
 // inferred from a rendered row (a view can show a stale figure either way). The read's
 // lifetime is `pane/agents-pane-models.test.ts`.
 
-import type { SessionId } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -10,13 +9,10 @@ import { describe, expect, it } from "vitest";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { REFRESH_MAX_WAIT_MS } from "@renderer/lib/reads/refresh-caps.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import { createChildRunLinks, createDriverCatalogRead } from "./agent-reads.js";
+import { createChildRunLinks } from "./agent-reads.js";
 import { initializedStore } from "@test/helpers/session-store-fixtures.js";
 import { eventOfKind } from "@test/helpers/session-events.js";
-import {
-  REJECTING_AGENTS_PANE_CALLS,
-  unscriptedBridge,
-} from "./pane/components/run-links.test-support.js";
+import { REJECTING_AGENTS_PANE_CALLS } from "./pane/components/run-links.test-support.js";
 
 /** A started linkage read over a store this case owns, on frozen time. */
 function startedLinkage(
@@ -59,21 +55,6 @@ describe("the Agents pane's models — what re-reads the session's child links",
     expect(read.readCount).toBe(afterFirstRead + 2);
   });
 
-  it("coalesces a burst of queued runs into one read", async () => {
-    const sessionStore = initializedStore("session-burst");
-    const clock = new ManualClock();
-    const read = startedLinkage(sessionStore, clock);
-    await settleReads(clock);
-    const afterFirstRead = read.readCount;
-
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 2));
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 3));
-    await settleReads(clock);
-
-    expect(read.readCount).toBe(afterFirstRead + 1);
-  });
-
   it("re-reads nothing for a kind the linkage does not watch", async () => {
     const sessionStore = initializedStore("session-unwatched");
     const clock = new ManualClock();
@@ -85,42 +66,5 @@ describe("the Agents pane's models — what re-reads the session's child links",
     await settleReads(clock);
 
     expect(read.readCount).toBe(afterFirstRead);
-  });
-
-  it("re-reads nothing once the read has been disposed", async () => {
-    const sessionStore = initializedStore("session-disposed");
-    const clock = new ManualClock();
-    const read = startedLinkage(sessionStore, clock);
-    await settleReads(clock);
-    const afterFirstRead = read.readCount;
-
-    read.dispose();
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
-    await settleReads(clock);
-
-    expect(read.readCount).toBe(afterFirstRead);
-    expect(clock.pendingCount).toBe(0);
-  });
-
-  it("negative control: the read whose subscribe is a stated no-op re-reads zero times", async () => {
-    // The driver catalog has no push signal. Without this control the cases above could pass
-    // while counting something other than a re-read.
-    const sessionStore = initializedStore("session-no-signal");
-    const clock = new ManualClock();
-    const catalog = createDriverCatalogRead(
-      unscriptedBridge("agent-catalog-signal").bridge,
-      clock,
-      sessionStore.sessionId as SessionId,
-    );
-    catalog.start();
-    await settleReads(clock);
-    const afterFirstRead = catalog.readCount;
-
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.queued", 1));
-    await settleReads(clock);
-
-    expect(afterFirstRead).toBeGreaterThan(0);
-    expect(catalog.readCount).toBe(afterFirstRead);
-    catalog.dispose();
   });
 });

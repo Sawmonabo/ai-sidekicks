@@ -101,6 +101,12 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
   it("moves a pane one position and stops at the ends", () => {
     const layout = twoPaneLayout();
     const [first] = layout.snapshot().panes;
+    // Counted, because a move past the end reorders into the same order: only the change it
+    // announces, which the persistence hook writes to disk, tells it apart from staying put.
+    let changes = 0;
+    layout.subscribe(() => {
+      changes += 1;
+    });
     layout.movePane(first?.paneId ?? "", 1);
     expect(layout.snapshot().panes.map((pane) => pane.kind)).toStrictEqual([
       "inspector",
@@ -111,6 +117,7 @@ describe("PaneLayoutStore — order, focus, and the ephemeral cascade", () => {
       "inspector",
       "transcript",
     ]);
+    expect(changes).toBe(1);
   });
 });
 

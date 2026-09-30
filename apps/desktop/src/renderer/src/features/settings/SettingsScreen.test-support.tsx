@@ -1,7 +1,6 @@
-// How a case drives the settings screen: the window it is parked in, the mount, and a
-// keystroke into its search field. Shared by two suites that need the same window and mount.
+// How a case drives the settings screen: the window it is parked in, and the mount.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
 import { settle } from "@test/helpers/settle.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -78,7 +77,7 @@ export interface SettingsWindow {
  * Open the sessions named, then park on a settings address.
  *
  * The frame store is the real one: a stub could assert a contract the shipped store lacks,
- * and the negative control reads a getter on it.
+ * and a case reads a getter on it.
  */
 export function windowAt(
   page: string | undefined,
@@ -125,20 +124,4 @@ export async function renderSettingsScreen(
   // The lazy component suspends on its first render, so the body lands one boundary later.
   await settle();
   return rendered;
-}
-
-/**
- * Type into the search field the way a person does.
- *
- * Uses the native value setter because React reads the input value through its own
- * descriptor. Runs inside `act` so the state write is committed before the next assertion.
- */
-export function searchFor(container: HTMLElement, query: string): void {
-  const field = container.querySelector(".meridian-settings__search-input");
-  const input = field as HTMLInputElement;
-  const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set;
-  act(() => {
-    setter?.call(input, query);
-    input.dispatchEvent(new Event("input", { bubbles: true }));
-  });
 }

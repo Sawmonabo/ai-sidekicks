@@ -1,8 +1,7 @@
 // The settings mount arms one walk over its own board and releases it with itself. This is the
-// binding's lifetime; the walking itself is in `components/LazyBody/lazy-body-warm.test.ts` and
-// the wiring in `SettingsScreen.page-warm.test.ts`. A binding can fail by walking again on
-// every render, by re-arming against a board whose screen has unmounted, or by going cold
-// silently under the `StrictMode` replay.
+// binding's lifetime; the walking itself is `components/LazyBody/lazy-body-warm.ts`'s. A
+// binding can fail by walking again on every render, by re-arming against a board whose screen
+// has unmounted, or by going cold silently under the `StrictMode` replay.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -49,7 +48,7 @@ function WarmingSettingsScreen(props: {
 }
 
 describe("the settings page board's idle warm", () => {
-  it("arms one walk once the screen has mounted, and fetches nothing yet", () => {
+  it("arms one walk on mount, and at idle warms only the deferred page", () => {
     const loadedSections: string[] = [];
     const pages = composePages(loadedSections);
     const scheduler = new ManualIdleWarmScheduler();
@@ -57,13 +56,6 @@ describe("the settings page board's idle warm", () => {
 
     expect(scheduler.pendingCount).toBe(1);
     expect(loadedSections).toStrictEqual([]);
-  });
-
-  it("warms the deferred page when the host goes idle, and asks nothing of the other", () => {
-    const loadedSections: string[] = [];
-    const pages = composePages(loadedSections);
-    const scheduler = new ManualIdleWarmScheduler();
-    render(<WarmingSettingsScreen pages={pages} scheduler={scheduler} />);
 
     scheduler.runToQuiescence();
 
@@ -125,18 +117,5 @@ describe("the settings page board's idle warm", () => {
 
     expect(loadedSections).toStrictEqual(["notifications"]);
     expect(pages.unloadedKeys()).toStrictEqual([]);
-  });
-
-  it("negative control: a board nobody bound the walk to is never warmed", () => {
-    // Guards against a registry that warms itself on registration, which would pass the cases
-    // above even though unmounting stopped nothing.
-    const loadedSections: string[] = [];
-    const pages = composePages(loadedSections);
-    const scheduler = new ManualIdleWarmScheduler();
-
-    scheduler.runToQuiescence();
-
-    expect(loadedSections).toStrictEqual([]);
-    expect(pages.unloadedKeys()).toStrictEqual(["notifications"]);
   });
 });

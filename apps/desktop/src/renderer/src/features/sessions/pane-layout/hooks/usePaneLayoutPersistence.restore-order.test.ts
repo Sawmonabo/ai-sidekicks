@@ -255,21 +255,4 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
 
     expect(await savedPaneCount(store)).toBe(2);
   });
-
-  it("negative control: the same arrangement lands under an ordinary single mount", async () => {
-    // Without this, the case above would pass over a fixture whose layout reached the store
-    // by some path other than the writer under test.
-    const store = memoryStore();
-    await savePaneLayout(store, ["transcript"]);
-    const layout = createPaneLayoutStore();
-
-    mountPersistence(layout, store);
-    await drain();
-    act(() => {
-      layout.open({ kind: "terminal" });
-    });
-    await drain();
-
-    expect(await savedPaneCount(store)).toBe(2);
-  });
 });

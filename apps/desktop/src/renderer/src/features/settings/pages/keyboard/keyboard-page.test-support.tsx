@@ -19,7 +19,7 @@ import { KeyboardPage } from "./KeyboardPage.js";
  *
  * Registered on the real registry, which the page reads by name.
  */
-export const TEST_COMMAND_IDS = [
+const TEST_COMMAND_IDS = [
   "frame.goToSessions",
   "frame.goToWorkflows",
   "app.checkForUpdates",

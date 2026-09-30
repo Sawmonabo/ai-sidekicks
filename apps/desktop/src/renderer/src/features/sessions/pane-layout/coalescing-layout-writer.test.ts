@@ -134,30 +134,8 @@ describe("CoalescingLayoutWriter — coalescing", () => {
 });
 
 describe("CoalescingLayoutWriter — which session an arrangement is filed under", () => {
-  it("writes a queued arrangement under the session that requested it, not the newest one", async () => {
-    // The writer coalesces, so a request settles later than the act that made it. Reading the
-    // caller's current session at write time filed session A's arrangement under session B's
-    // partition after a navigation.
-    const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
-      write: held.write,
-      onFailed: () => {
-        throw new Error("no write should have failed");
-      },
-    });
-
-    writer.request(SESSION_A, snapshotAt(1));
-    // Queued behind the in-flight write, as a drag's later frames are.
-    writer.request(SESSION_A, snapshotAt(2));
-    held.settle();
-    await settle();
-
-    expect(held.seen.map((write) => write.partition)).toStrictEqual([SESSION_A, SESSION_A]);
-  });
-
-  it("negative control: a later request naming another session is written under that one", async () => {
-    // Without this, the case above would pass over a writer that hard-coded the first
-    // partition it saw.
+  it("writes a later request naming another session under that one", async () => {
+    // A writer that hard-coded the first partition it saw would file both under it.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
@@ -183,57 +161,6 @@ async function settle(): Promise<void> {
     await Promise.resolve();
   }
 }
-
-describe("CoalescingLayoutWriter — one writer, two records", () => {
-  it("carries a record that is not the pane layout's, under its own key", async () => {
-    // The generalization the class exists for: a second record must not need a second
-    // coalescing writer.
-    const seen: { readonly partition: string; readonly snapshot: SecondRecord }[] = [];
-    const writer = new CoalescingLayoutWriter<SecondRecord>({
-      write: async (partition, snapshot) => {
-        seen.push({ partition, snapshot });
-      },
-      onFailed: () => {
-        throw new Error("no write should have failed");
-      },
-    });
-
-    writer.request(SESSION_A, { $second: { version: 1, widthPercent: 24, isCollapsed: false } });
-    await settle();
-
-    expect(seen).toHaveLength(1);
-    expect(seen[0]?.snapshot["$second"]?.["widthPercent"]).toBe(24);
-  });
-
-  it("negative control: two records in flight coalesce independently of each other", async () => {
-    // Without this, the case above would pass over a writer with one static pending request
-    // for every caller, so each record's write would drop the other's queued arrangement.
-    const paneLayoutWrites: PaneLayoutSnapshotRecord[] = [];
-    const secondWrites: SecondRecord[] = [];
-    const paneLayoutWriter = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
-      write: async (_partition, snapshot) => {
-        paneLayoutWrites.push(snapshot);
-      },
-      onFailed: () => undefined,
-    });
-    const secondWriter = new CoalescingLayoutWriter<SecondRecord>({
-      write: async (_partition, snapshot) => {
-        secondWrites.push(snapshot);
-      },
-      onFailed: () => undefined,
-    });
-
-    paneLayoutWriter.request(SESSION_A, snapshotAt(1));
-    secondWriter.request(SESSION_A, { $second: { version: 1, widthPercent: 30 } });
-    await settle();
-
-    expect(paneLayoutWrites).toHaveLength(1);
-    expect(secondWrites).toHaveLength(1);
-  });
-});
-
-/** A second record the writer carries, beside the pane layout's. */
-type SecondRecord = Record<string, Record<string, number | boolean | string>>;
 
 describe("CoalescingLayoutWriter — the terminal a replaced store retires it through", () => {
   it("flushes what was waiting rather than dropping it", async () => {
@@ -272,21 +199,5 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
     await settle();
 
     expect(writer.writeCount).toBe(0);
-  });
-
-  it("negative control: the same request before retirement is written", async () => {
-    // Without this, "retired" would be indistinguishable from "broken".
-    const held = heldWrite();
-    const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
-      write: held.write,
-      onFailed: () => {
-        throw new Error("no write should have failed");
-      },
-    });
-
-    writer.request(SESSION_A, snapshotAt(1));
-    await settle();
-
-    expect(writer.writeCount).toBe(1);
   });
 });

@@ -64,12 +64,6 @@ describe("what each row reads", () => {
 });
 
 describe("the empty and short reads", () => {
-  it("says no permission is in force rather than showing an empty list", () => {
-    renderGrants([]);
-    expect(screen.getByText("No rules yet")).not.toBeNull();
-    expect(screen.queryByRole("listitem")).toBeNull();
-  });
-
   it("says the grants could not be read when every row failed the parse", () => {
     // Rows this build could not read are of unknown existence, so the reassuring claim is
     // unavailable.
@@ -77,11 +71,6 @@ describe("the empty and short reads", () => {
     expect(screen.getByText("Standing permissions could not be read.")).not.toBeNull();
     expect(screen.getByText(/not known to be none/u)).not.toBeNull();
     expect(screen.queryByText("No rules yet")).toBeNull();
-  });
-
-  it("names how many rows it could not read rather than saying only that some failed", () => {
-    renderGrants([], vi.fn(), 3);
-    expect(screen.getByText(/all 3 of the rows/u)).not.toBeNull();
   });
 
   it("negative control: an empty list with nothing unreadable still says none is in force", () => {

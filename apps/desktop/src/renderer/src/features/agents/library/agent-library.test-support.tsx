@@ -14,7 +14,6 @@ import type {
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
-import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
@@ -124,33 +123,16 @@ export function definition(overrides: DefinitionOverrides = {}): AgentDefinition
   };
 }
 
-/**
- * Mounts inside the announcer the page speaks through, on a clock that never runs unless a
- * test runs it. The clock is handed back because the announcer holds one message and queues
- * the rest behind a deadline; advancing past the hold is what makes a second announcement
- * visible.
- */
-export function renderAgentLibrary(stub: RegistryStub): {
-  readonly container: HTMLElement;
-  readonly clock: ManualClock;
-} {
-  const clock = new ManualClock();
+/** Mounts inside the announcer the page speaks through, on a clock that never runs. */
+export function renderAgentLibrary(stub: RegistryStub): { readonly container: HTMLElement } {
   const { container } = render(
     <PlatformBridgeProvider bridge={stub.bridge} clock={stub.clock}>
-      <LiveAnnouncerProvider clock={clock}>
+      <LiveAnnouncerProvider clock={new ManualClock()}>
         <AgentLibrary bridge={stub.bridge} calls={stub.calls} />
       </LiveAnnouncerProvider>
     </PlatformBridgeProvider>,
   );
-  return { container, clock };
-}
-
-/** Run the announcer's hold out, so anything queued behind the standing message shows. */
-export async function releaseAnnouncementHold(clock: ManualClock): Promise<void> {
-  await act(async () => {
-    clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
-    await crossMacrotaskBoundary();
-  });
+  return { container };
 }
 
 /**
@@ -200,18 +182,11 @@ export function buttonNamed(container: HTMLElement, label: string): HTMLButtonEl
 
 /** Presses a control and lets the page settle. */
 export async function press(control: HTMLButtonElement | null | undefined): Promise<void> {
-  await pressWithoutSettling(control);
-  await settle();
-}
-
-/** Press and stop, so the frame while a call is in flight can be looked at. */
-export async function pressWithoutSettling(
-  control: HTMLButtonElement | null | undefined,
-): Promise<void> {
   await act(async () => {
     control?.click();
     await crossMacrotaskBoundary();
   });
+  await settle();
 }
 
 /** The row's own confirm — the `Delete` that is not one of the per-row openers. */

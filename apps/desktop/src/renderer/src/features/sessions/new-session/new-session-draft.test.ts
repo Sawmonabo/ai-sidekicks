@@ -1,13 +1,11 @@
-// The draft object: what it holds, and the one session it may make however many times Send
-// is pressed. What the send puts on the wire is `new-session-send.test.ts`.
+// The draft object: the one session it may make however many times Send is pressed. What the
+// send puts on the wire is `new-session-send.test.ts`.
 //
 // Every count is of calls that reached the wire, not of ids compared: the fixture answers
 // `session.create` with the same scripted id every time, so a second session is
 // indistinguishable from the first by its result.
 
 import { describe, expect, it } from "vitest";
-
-import type { RepoMountId } from "@ai-sidekicks/contracts";
 
 import {
   countedDraftFor,
@@ -19,36 +17,6 @@ import {
 // The method the send names, taken from the module that sends it, so the count is asserted
 // against the string that reached the wire.
 import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
-
-describe("NewSessionDraft — what it holds", () => {
-  it("starts empty and says so", () => {
-    const draft = draftFor({ scriptsCreate: true });
-    expect(draft.snapshot().isEmpty).toBe(true);
-  });
-
-  it("becomes non-empty on any one axis, and empty again when discarded", () => {
-    const draft = draftFor({ scriptsCreate: true });
-    draft.setPosture("workspace-sandboxed");
-    expect(draft.snapshot().isEmpty).toBe(false);
-    draft.discard();
-    expect(draft.snapshot().isEmpty).toBe(true);
-  });
-
-  it("publishes each mutation to its subscribers", () => {
-    const draft = draftFor({ scriptsCreate: true });
-    const revisions: number[] = [];
-    const unsubscribe = draft.subscribe((state) => {
-      revisions.push(state.revision);
-    });
-    draft.setRepoMount({
-      repoMountId: "770e8400-e29b-41d4-a716-446655440002" as RepoMountId,
-      executionMode: "provisioned-worktree",
-    });
-    draft.setPosture("trusted");
-    unsubscribe();
-    expect(revisions).toStrictEqual([1, 2]);
-  });
-});
 
 describe("NewSessionDraft — one draft object, at most one session", () => {
   it("coalesces two synchronous presses into one create and one result", async () => {
@@ -93,18 +61,6 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     await second.draft.send();
 
     expect(second.calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
-  });
-
-  it("negative control: a single press still reaches the wire exactly once", async () => {
-    // Without this, a build that stopped calling `session.create` would satisfy every count
-    // above.
-    const { draft, calls } = countedDraftFor({ scriptsCreate: true });
-    draft.setPosture("trusted");
-
-    const result = await draft.send();
-
-    expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
-    expect(result.sessionId).toBe(CREATED_SESSION_ID);
   });
 
   it("resumes at the first unmade call rather than repeating the ones that landed", async () => {

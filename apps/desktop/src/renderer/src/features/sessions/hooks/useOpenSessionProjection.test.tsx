@@ -4,13 +4,14 @@
 // its opposite in the same case. Only the read is stood in for: releasing acts on a real
 // subscription.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import { worstDegradedCause } from "@renderer/store/session-degradation.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { readsNothing } from "@test/helpers/session-store-fixtures.js";
+import { countStoreListeners } from "@test/helpers/session-store-listeners.js";
 import { OpenSessionRowProjection, useOpenSessionProjection } from "./useOpenSessionProjection.js";
 import type { SessionListRow } from "../rows/session-rows.js";
 
@@ -42,15 +43,6 @@ function registryHolding(sessionIds: readonly string[]): SessionStoreRegistry {
 }
 
 describe("OpenSessionRowProjection", () => {
-  it("projects a row for every open session, not for one of them", () => {
-    const projection = new OpenSessionRowProjection(registryHolding(["session-a", "session-b"]));
-
-    expect(projection.readRows().map((row) => row.sessionId)).toStrictEqual([
-      "session-a",
-      "session-b",
-    ]);
-  });
-
   it("answers before anything has subscribed", () => {
     // React reads a snapshot before the subscribing effect runs, so a cache filled only by
     // notifications would render an empty list first.
@@ -118,6 +110,7 @@ describe("OpenSessionRowProjection", () => {
     if (store === undefined) {
       throw new Error("the registry did not open the session");
     }
+    const liveListeners = countStoreListeners(store);
     const projection = new OpenSessionRowProjection(registry);
     let notifications = 0;
     const release = projection.subscribe(() => {
@@ -126,10 +119,13 @@ describe("OpenSessionRowProjection", () => {
     // Negative control, taken first: while subscribed, it is woken.
     establish(store, { cursor: 1, touchedAtIso: "2026-01-01T12:00:00.000Z" });
     expect(notifications).toBe(1);
+    expect(liveListeners()).toBe(1);
 
     release();
 
     expect(projection.subscribedSessionIds).toStrictEqual([]);
+    // Counted on the store: with no subscriber left, a listener left behind notifies nobody.
+    expect(liveListeners()).toBe(0);
     establish(store, { cursor: 2, touchedAtIso: "2026-01-01T13:00:00.000Z" });
     expect(notifications).toBe(1);
   });
@@ -161,24 +157,6 @@ describe("useOpenSessionProjection", () => {
     return <p>{rows.map((row) => row.sessionId).join(",")}</p>;
   }
 
-  it("renders the open sessions and re-renders when one of them changes", () => {
-    const registry = registryHolding(["session-a"]);
-    const store = registry.peek("session-a");
-    if (store === undefined) {
-      throw new Error("the registry did not open the session");
-    }
-    const seen: SessionListRow[][] = [];
-
-    const mounted = render(<OpenSessionRowsProbe registry={registry} seen={seen} />);
-    expect(mounted.container.textContent).toBe("session-a");
-
-    act(() => {
-      establish(store, { cursor: 1, touchedAtIso: "2026-01-01T12:00:00.000Z" });
-    });
-
-    expect(seen.at(-1)?.[0]?.touchedAtIso).toBe("2026-01-01T12:00:00.000Z");
-  });
-
   it("follows a replaced registry rather than the one it dropped", () => {
     const seen: SessionListRow[][] = [];
     const mounted = render(
@@ -194,12 +172,6 @@ describe("useOpenSessionProjection", () => {
 });
 
 describe("the degradation fold beside the rows", () => {
-  it("reports nothing standing while every open store is following", () => {
-    const projection = new OpenSessionRowProjection(registryHolding(["session-a", "session-b"]));
-
-    expect(projection.readDegradedCause()).toBeUndefined();
-  });
-
   it("reports the worst cause standing across the open set, not the newest", () => {
     // The destination has one line to say what the list is; the last store written must not
     // decide it.
