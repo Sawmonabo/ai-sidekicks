@@ -1,6 +1,6 @@
-// What every `LeaseLine` suite needs before it asserts anything. The lease state and the device
-// identity are values built directly, since `lease-model.test.ts` holds the fold to the wire;
-// every case renders under a read identity unless it is about the other arm.
+// What the lease suites need before they assert anything: the line rendered over a lease state
+// built directly (`lease-model.test.ts` holds the fold to the wire) under a read identity, and
+// take calls held until a case settles them.
 
 import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -82,13 +82,13 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
  * The identity every case renders under unless it is about the other arms: read, as this
  * device. Any other default would make every case about the withheld state.
  */
-export const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
+const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   status: "read",
   userId: THIS_DEVICE_ID,
 };
 
 /** A take that has dispatched nothing. */
-export const IDLE_TAKE: UseTakeShellResult = {
+const IDLE_TAKE: UseTakeShellResult = {
   isInFlight: false,
   take: () => undefined,
 };

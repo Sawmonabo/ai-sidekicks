@@ -1,41 +1,15 @@
 // One live-emulator registry and the builders every suite here mounts through. The suites drive
-// the real `@xterm/xterm`, because what they check (scrollback eviction, `disableStdin` gating,
-// an addon that throws without WebGL2) is library behavior a fake would only mirror. The DOM
-// shim has no WebGL2, so instances settle on the DOM renderer; `webgl-fallback.test-support.ts`
-// stands in an activating one.
+// the real `@xterm/xterm`, because what they check (scrollback eviction, `disableStdin` gating)
+// is library behavior a fake would only mirror. The DOM shim has no WebGL2, so instances settle
+// on the DOM renderer; `webgl-fallback.test-support.ts` stands in an activating one.
 
 import { vi } from "vitest";
 
-import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool.js";
+import { TerminalRendererPool } from "./renderer-pool.js";
 import { XtermTerminalAdapter } from "./xterm-adapter.js";
 
 const liveAdapters: XtermTerminalAdapter[] = [];
 const liveMountElements: HTMLElement[] = [];
-
-/**
- * The real ledger, recording which call each adapter arm made, so the churn case cannot pass
- * against an adapter that never asked for a context.
- */
-export class RecordingRendererPool extends TerminalRendererPool {
-  public readonly acquiredTerminalIds: string[] = [];
-  public readonly releasedTerminalIds: string[] = [];
-  public readonly reclaimedTerminalIds: string[] = [];
-
-  public override acquire(terminalId: string): TerminalContextLease | undefined {
-    this.acquiredTerminalIds.push(terminalId);
-    return super.acquire(terminalId);
-  }
-
-  public override release(lease: TerminalContextLease): void {
-    this.releasedTerminalIds.push(lease.terminalId);
-    super.release(lease);
-  }
-
-  public override reclaim(lease: TerminalContextLease): void {
-    this.reclaimedTerminalIds.push(lease.terminalId);
-    super.reclaim(lease);
-  }
-}
 
 /** Hold an adapter for the teardown below. Returned, so a case reads as one line. */
 export function trackAdapter(adapter: XtermTerminalAdapter): XtermTerminalAdapter {
@@ -54,17 +28,6 @@ export function attachedMountElement(): HTMLElement {
 /** Every emulator element inside one mount element. The library's own root class. */
 export function emulatorElementsIn(mountElement: HTMLElement): NodeListOf<Element> {
   return mountElement.querySelectorAll(".xterm");
-}
-
-/** An adapter attached to nothing, for what a wrapper reports before it has a mount element. */
-export function unattachedAdapter(options: AdapterOptions = {}): XtermTerminalAdapter {
-  return trackAdapter(
-    new XtermTerminalAdapter({
-      terminalId: "session-terminal",
-      pool: new TerminalRendererPool(),
-      ...options,
-    }),
-  );
 }
 
 /** An adapter attached to a fresh mount element in the document. */
@@ -103,6 +66,17 @@ export function disposeLiveEmulators(): void {
     mountElement.remove();
   }
   vi.unstubAllGlobals();
+}
+
+/** An adapter attached to nothing yet. */
+function unattachedAdapter(options: AdapterOptions = {}): XtermTerminalAdapter {
+  return trackAdapter(
+    new XtermTerminalAdapter({
+      terminalId: "session-terminal",
+      pool: new TerminalRendererPool(),
+      ...options,
+    }),
+  );
 }
 
 type AdapterOptions = Partial<ConstructorParameters<typeof XtermTerminalAdapter>[0]>;

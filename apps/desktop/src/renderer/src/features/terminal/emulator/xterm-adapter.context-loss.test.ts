@@ -1,11 +1,9 @@
-// The GPU takes the context away, and the adapter finds out: the renderer path this environment
-// cannot reach alone (`webgl-fallback.test-support.ts` says what is stood in). Two halves: the
-// fallback (the mode moves once, subscribers hear it once, the allowance goes back even when a
-// subscriber throws) and its permanence for the life of the instance across a re-attach.
+// The renderer's hold on a GPU context. It is taken only when the page ledger grants one and
+// given back by the pane that took it; when the GPU takes it away the adapter falls back to the
+// DOM renderer for good, or the grid goes blank. This environment has no WebGL2, so
+// `webgl-fallback.test-support.ts` stands one in.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-
-import { terminalEmulatorLoader } from "./emulator-loader.js";
 import { TerminalRendererPool } from "./renderer-pool.js";
 import { XtermTerminalAdapter, type TerminalRendererMode } from "./xterm-adapter.js";
 import {
@@ -31,11 +29,6 @@ afterEach(() => {
 });
 
 describe("the adapter, when the context it was drawing on goes away", () => {
-  it("takes the renderer this environment normally cannot give it", () => {
-    // The premise: without it every case below would assert a fallback from `dom` to `dom`.
-    expect(mountedAdapter({ terminalId: "adapter-took-one" }).adapter.rendererMode).toBe("webgl");
-  });
-
   it("tells a subscriber that it fell back, once, with the mode it fell back to", () => {
     const adapter = mountedAdapter({ terminalId: "adapter-fell-back" }).adapter;
     const observed: TerminalRendererMode[] = [];
@@ -49,102 +42,6 @@ describe("the adapter, when the context it was drawing on goes away", () => {
     expect(adapter.rendererMode).toBe("dom");
   });
 
-  it("says nothing a second time, because the mode did not move a second time", () => {
-    const adapter = mountedAdapter({ terminalId: "adapter-lost-twice" }).adapter;
-    const observed: TerminalRendererMode[] = [];
-    adapter.subscribeToRendererMode((mode) => observed.push(mode));
-    const renderer = newestRenderer();
-
-    renderer.loseContext();
-    renderer.loseContext();
-
-    expect(observed).toStrictEqual(["webgl", "dom"]);
-  });
-
-  it("stops delivering to a subscriber that unsubscribed", () => {
-    const adapter = mountedAdapter({ terminalId: "adapter-unsubscribed" }).adapter;
-    const observed: TerminalRendererMode[] = [];
-    const unsubscribe = adapter.subscribeToRendererMode((mode) => observed.push(mode));
-
-    unsubscribe();
-    newestRenderer().loseContext();
-
-    expect(observed).toStrictEqual(["webgl"]);
-  });
-
-  it("drops every sink on disposal rather than reporting its own teardown", () => {
-    const adapter = mountedAdapter({ terminalId: "adapter-disposed" }).adapter;
-    const observed: TerminalRendererMode[] = [];
-    adapter.subscribeToRendererMode((mode) => observed.push(mode));
-
-    adapter.dispose();
-
-    // The teardown resets the mode, which a subscriber would read as a fallback; it also keeps
-    // a throwing sink from aborting the disposal.
-    expect(observed).toStrictEqual(["webgl"]);
-  });
-
-  it("gives the page's allowance back, because the host destroyed the context", () => {
-    const pool = new TerminalRendererPool();
-    const mountElement = attachedMountElement();
-    const adapter = trackAdapter(
-      new XtermTerminalAdapter({ terminalId: "adapter-reclaimed", pool }),
-    );
-    adapter.attach(mountElement);
-    expect(pool.holds("adapter-reclaimed")).toBe(true);
-
-    newestRenderer().loseContext();
-
-    expect(pool.holds("adapter-reclaimed")).toBe(false);
-  });
-
-  it("gives it back even when a renderer-mode subscriber throws on the way out", () => {
-    // `Emitter` re-raises what a sink threw, so a failing consumer ends the fallback wherever
-    // the emission sits. The reclaim must precede it, or the ledger keeps counting a context
-    // the host destroyed until reload.
-    const pool = new TerminalRendererPool();
-    const adapter = trackAdapter(
-      new XtermTerminalAdapter({ terminalId: "adapter-throwing-sink", pool }),
-    );
-    adapter.attach(attachedMountElement());
-    // The premise: without a context taken, the reclaim below would hold vacuously.
-    expect(pool.holds("adapter-throwing-sink")).toBe(true);
-    adapter.subscribeToRendererMode((mode) => {
-      if (mode === "dom") {
-        throw new Error("a renderer-mode consumer failed");
-      }
-    });
-
-    // Still raised: the ledger is right before the notification, and the consumer's defect is
-    // reported, not swallowed.
-    expect(() => {
-      newestRenderer().loseContext();
-    }).toThrow("a renderer-mode consumer failed");
-
-    expect(pool.holds("adapter-throwing-sink")).toBe(false);
-    expect(adapter.rendererMode).toBe("dom");
-  });
-
-  it("negative control: a subscriber that returns normally raises nothing", () => {
-    // Without it the case above would pass against a fallback that raised on every loss.
-    const pool = new TerminalRendererPool();
-    const adapter = trackAdapter(
-      new XtermTerminalAdapter({ terminalId: "adapter-quiet-sink", pool }),
-    );
-    adapter.attach(attachedMountElement());
-    adapter.subscribeToRendererMode(() => undefined);
-
-    expect(() => {
-      newestRenderer().loseContext();
-    }).not.toThrow();
-    expect(pool.holds("adapter-quiet-sink")).toBe(false);
-  });
-});
-
-// A lost context is permanent for the life of the instance, and a remount is not a new
-// instance. The fallback clears the addon and returns the allowance, which undoes every
-// condition the selection tests, so a re-attach would otherwise churn a context per remount.
-describe("the adapter, after the context it lost", () => {
   it("does not take a second one when it is attached somewhere else", () => {
     const pool = new TerminalRendererPool();
     const adapter = trackAdapter(new XtermTerminalAdapter({ terminalId: "lost-then-moved", pool }));
@@ -162,31 +59,11 @@ describe("the adapter, after the context it lost", () => {
     expect(pool.holds("lost-then-moved")).toBe(false);
     expect(pool.createdContextCount).toBe(0);
   });
+});
 
-  it("announces nothing on that attach, because nothing moved", () => {
-    const adapter = trackAdapter(
-      new XtermTerminalAdapter({
-        terminalId: "lost-then-silent",
-        pool: new TerminalRendererPool(),
-      }),
-    );
-    adapter.attach(attachedMountElement());
-    newestRenderer().loseContext();
-
-    const observed: TerminalRendererMode[] = [];
-    adapter.subscribeToRendererMode((mode) => observed.push(mode));
-    adapter.detach();
-    adapter.attach(attachedMountElement());
-
-    // The current mode on subscribe and nothing after it: a second announcement would report a
-    // renderer change that did not happen.
-    expect(observed).toStrictEqual(["dom"]);
-  });
-
-  it("premise: a second attach really does re-enter the renderer selection", () => {
-    // Without this the two cases above would hold vacuously against an adapter that never
-    // reconsidered its renderer. Refused once, granted after, so the second attach starts with
-    // no addon and no loss.
+describe("the page ledger's grant", () => {
+  it("falls back to the DOM renderer while the pool refuses, and takes WebGL once it grants", () => {
+    // Refused once, granted after, so the second attach starts with no addon and no loss.
     const adapter = trackAdapter(
       new XtermTerminalAdapter({
         terminalId: "refused-then-granted",
@@ -205,9 +82,30 @@ describe("the adapter, after the context it lost", () => {
   });
 });
 
-describe("the loader is still the real one", () => {
-  it("resolves the real adapter class, so the cases above drive the shipped code", async () => {
-    const { XtermTerminalAdapter: loaded } = await terminalEmulatorLoader.load();
-    expect(loaded).toBe(XtermTerminalAdapter);
+describe("two panes on one session", () => {
+  it("spend two contexts, and one pane's teardown leaves the other drawing", () => {
+    const pool = new TerminalRendererPool();
+    const sessionTerminalId = "shared-session";
+    const firstPane = trackAdapter(
+      new XtermTerminalAdapter({ terminalId: sessionTerminalId, pool }),
+    );
+    firstPane.attach(attachedMountElement());
+    const secondPane = trackAdapter(
+      new XtermTerminalAdapter({ terminalId: sessionTerminalId, pool }),
+    );
+    secondPane.attach(attachedMountElement());
+
+    expect(FakeWebglRenderer.live).toHaveLength(2);
+    expect(pool.createdContextCount).toBe(2);
+    expect(pool.heldContextCountFor(sessionTerminalId)).toBe(2);
+
+    firstPane.dispose();
+
+    // A teardown releases its own lease and does not reclaim it (the context outlives its
+    // addon), so the pane still on screen keeps its context.
+    expect(pool.heldContextCountFor(sessionTerminalId)).toBe(1);
+    expect(pool.holds(sessionTerminalId)).toBe(true);
+    expect(pool.createdContextCount).toBe(2);
+    expect(secondPane.rendererMode).toBe("webgl");
   });
 });

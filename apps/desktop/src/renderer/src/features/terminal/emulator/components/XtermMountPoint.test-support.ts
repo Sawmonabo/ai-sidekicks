@@ -1,8 +1,8 @@
-// The emulator readings the mount point's suites take, and the ledger sweep they share. Claims
-// about the component are asserted through observable consequences: the ledger's readings, the
-// emulator's first child, the absence primitive's class, the region's accessible name. The
-// loader is the real one, since a stub that resolved the adapter synchronously would erase the
-// commit gap the component exists to handle.
+// The emulator readings the mount point's suite takes, and the ledger sweep after each case.
+// Claims about the component are asserted through observable consequences: the ledger's
+// readings, the emulator's first child, the hidden textarea's gate. The loader is the real one,
+// since a stub that resolved the adapter synchronously would erase the commit gap the component
+// exists to handle.
 
 import { act, render, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
@@ -10,17 +10,8 @@ import { expect } from "vitest";
 import { terminalEmulatorLoader } from "../emulator-loader.js";
 import { terminalRendererPool } from "../renderer-pool.js";
 
-/** The hidden textarea xterm.js listens on: the emulator's one input element. */
-export function emulatorInputOf(mountElement: HTMLElement): HTMLTextAreaElement {
-  const textarea = mountElement.querySelector("textarea");
-  if (!(textarea instanceof HTMLTextAreaElement)) {
-    throw new Error("the emulator rendered no input");
-  }
-  return textarea;
-}
-
 /**
- * Type one character the way the library's listener sees it: a keydown on that textarea
+ * Type one character the way the library's listener sees it: a keydown on the hidden textarea
  * becomes the data event, the only path a keystroke takes to `onKeystroke`.
  */
 export function typeOneCharacter(mountElement: HTMLElement): void {
@@ -36,26 +27,6 @@ export function emulatorElementOf(container: HTMLElement): HTMLElement {
     throw new Error("XtermMountPoint rendered no mount element");
   }
   return mountElement;
-}
-
-/** The mount point's outer box, or a throw. */
-export function mountPointBoxOf(container: HTMLElement): HTMLElement {
-  const box = container.querySelector(".meridian-terminal-mount-point");
-  if (!(box instanceof HTMLElement)) {
-    throw new Error("XtermMountPoint rendered no box");
-  }
-  return box;
-}
-
-/**
- * Wait for the emulator's chunk to be fetched and every callback registered on it to run.
- * Awaiting the loader's own promise is exact: the component registered its continuation on
- * that promise first, and `act` flushes the state it set.
- */
-export async function settleEmulatorLoad(): Promise<void> {
-  await act(async () => {
-    await terminalEmulatorLoader.load();
-  });
 }
 
 /**
@@ -82,6 +53,17 @@ export async function renderSettledMountPoint(element: React.JSX.Element): Promi
 }
 
 /**
+ * Wait for the emulator's chunk to be fetched and every callback registered on it to run.
+ * Awaiting the loader's own promise is exact: the component registered its continuation on
+ * that promise first, and `act` flushes the state it set.
+ */
+export async function settleEmulatorLoad(): Promise<void> {
+  await act(async () => {
+    await terminalEmulatorLoader.load();
+  });
+}
+
+/**
  * Give back every page-ledger hold these components took. The ledger is module state reached
  * through the adapter's default pool, so the sweep is unconditional. It reclaims rather than
  * releases because this environment has no WebGL2 and never made a context.
@@ -92,5 +74,23 @@ export function reclaimComponentHolds(terminalIds: readonly string[]): void {
   }
 }
 
-/** The terminal ids this component's suites mount under. */
+/** The hidden textarea xterm.js listens on: the emulator's one input element. */
+function emulatorInputOf(mountElement: HTMLElement): HTMLTextAreaElement {
+  const textarea = mountElement.querySelector("textarea");
+  if (!(textarea instanceof HTMLTextAreaElement)) {
+    throw new Error("the emulator rendered no input");
+  }
+  return textarea;
+}
+
+/** The mount point's outer box, or a throw. */
+function mountPointBoxOf(container: HTMLElement): HTMLElement {
+  const box = container.querySelector(".meridian-terminal-mount-point");
+  if (!(box instanceof HTMLElement)) {
+    throw new Error("XtermMountPoint rendered no box");
+  }
+  return box;
+}
+
+/** The terminal ids this component's suite mounts under. */
 export const COMPONENT_TERMINAL_IDS: readonly string[] = ["terminal-1", "terminal-2"];
