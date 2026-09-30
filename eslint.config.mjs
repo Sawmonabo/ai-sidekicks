@@ -286,10 +286,10 @@ export default tseslint.config(
     },
   },
   // The memo projection floor makes the same purity claim as the projectors above.
-  // `memo-projection.ts` folds an already-read canonical projection into the memo turn and hands it
-  // to a writer; it persists nothing. The allow-list enumerates specifiers rather than admitting a
-  // shape: a relative-path shape was rejected because `../../db/` reaches the database layer and is
-  // spelled like the sibling this module legitimately imports.
+  // `memo-projection.ts` folds an already-read canonical projection into the memo turn and persists
+  // nothing; delivering the memo is `memo-delivery.ts`'s job. The allow-list enumerates specifiers
+  // rather than admitting a shape: a relative-path shape would admit `../../db/`, which reaches the
+  // database layer and is spelled like the sibling this module legitimately imports.
   //
   // The projectors' replace-not-merge trade and dynamic-`import()` gap apply here unchanged.
   {
@@ -301,9 +301,9 @@ export default tseslint.config(
           patterns: [
             {
               regex:
-                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js|\\.\\./drivers/outbound-frame\\.js)$).*$",
+                "^(?!(?:@ai-sidekicks/contracts|@noble/hashes/blake3\\.js|@noble/hashes/utils\\.js|\\./transform-pipeline\\.js)$).*$",
               message:
-                "The memo projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the five this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
+                "The memo projection floor is pure: it folds an already-read canonical projection into a turn and persists nothing, so its imports are the four this allow-list names and nothing else — a sibling that reaches the database or the filesystem pulls I/O into the fold behind it. Widen this allow-list in eslint.config.mjs in the same diff that adds a genuinely pure import.",
             },
           ],
         },
