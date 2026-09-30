@@ -309,8 +309,9 @@ Every pending kind below has its Spec-005 literal; rows tagged "minted" name it.
 | 33 | `command_output` | Heavy, persisted | adopt | `tool_activity` (payload persisted; light meta to client) — type `tool.result` |
 | 34 | `thinking` | Heavy, persisted | adopt | `assistant_output` (`assistant.thinking_update`; payload persisted) — type `assistant.thinking_update` |
 | 35 | `proposed_plan` | Heavy, persisted | adopt | `assistant_output` (plan proposal; payload persisted) — type `assistant.message` |
+| 36 | `refusal_choice_request` | Inline timeline | adopt | `run_lifecycle` (Claude Code's `request_user_dialog` of kind `refusal_fallback_prompt`, its retry-or-edit choice on a refused turn that names a fallback model, [Spec-005 §Run Lifecycle](../specs/005-session-event-taxonomy-and-audit-log.md#run-lifecycle-run_lifecycle); its answer, `run.refusal_choice_resolved`, is appended by the daemon when it answers and is no normalized kind) — type `run.refusal_choice_requested` |
 
-Count: 15 + 3 + 1 + 5 + 4 + 2 + 1 + 4 = **35**.
+Count: 16 + 3 + 1 + 5 + 4 + 2 + 1 + 4 = **36**.
 
 **Explicitly-discarded boundary subtypes (nine, each reasoned).** These are Claude system-channel wire strings the surveyed parser discards; each is reasoned here under the no-silent-capability-loss default.
 
