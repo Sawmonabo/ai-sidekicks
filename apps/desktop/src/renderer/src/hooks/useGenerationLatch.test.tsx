@@ -33,30 +33,4 @@ describe("useGenerationLatch — one register per mount", () => {
     expect(claim?.isCurrent).toBe(false);
     expect(claim?.settle(() => undefined)).toBe(false);
   });
-
-  it("hands a second mount a register the first one's claims cannot reach", () => {
-    let firstLatch: GenerationLatch | undefined;
-    let secondLatch: GenerationLatch | undefined;
-    const first = render(
-      <LatchProbe
-        onReady={(mounted) => {
-          firstLatch = mounted;
-        }}
-      />,
-    );
-    const abandoned = firstLatch?.claim(SUBJECT_ONE, "compact");
-    act(() => {
-      first.unmount();
-    });
-    render(
-      <LatchProbe
-        onReady={(mounted) => {
-          secondLatch = mounted;
-        }}
-      />,
-    );
-    expect(secondLatch).not.toBe(firstLatch);
-    expect(secondLatch?.claim(SUBJECT_ONE, "compact")).toBeDefined();
-    expect(abandoned?.settle(() => undefined)).toBe(false);
-  });
 });

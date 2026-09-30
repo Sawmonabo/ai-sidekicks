@@ -1,14 +1,8 @@
 // What the two discarded-render probes share: the key both visits are addressed at, and the
 // props each probe takes. The probes are `DiscardedRenderValueProbe.test-support.tsx` and
-// `DiscardedRenderResourceProbe.test-support.tsx`, one component per module.
-//
-// `useSubjectScopedState.dropped-pass.test.tsx` and
-// `useSubjectScopedState.abandoned-pass.test.tsx` ask different questions (whether a
-// publisher survives a pass React retried, and whether the visit on screen survives one
-// React parked and superseded) of the same two components, so they live once here.
-//
-// Every negative control stays in its own suite: a control is the arrangement one claim
-// replaced, driven through the real holder, and the two suites replaced different ones.
+// `DiscardedRenderResourceProbe.test-support.tsx`, one component per module, driven by
+// `useSubjectScopedState.test.tsx` and `useSubjectScopedResource.test.tsx` through a pass React
+// parked and superseded.
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
 import type {

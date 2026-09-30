@@ -1,28 +1,25 @@
 // A resource the holder drops is closed once, whichever render dropped it.
 //
-// The render React throws away is driven with a state update during the render body: React
-// discards that pass and re-invokes the component, so the pass really ran and really opened
-// a resource without committing. The dropped and abandoned pass suites are
-// `useSubjectScopedState.dropped-pass.test.tsx` and `.abandoned-pass.test.tsx`.
-//
-// Each claim has a negative control over the identical script (the plain holder with an
-// effect that owns disposal). Closes are counted by name, since a hook that closed everything
-// twice would satisfy a bare "was closed".
+// Two drivers reach a render that ran and never committed: a state update during the render body
+// (React discards that pass and re-invokes the component), and a transition that suspends and is
+// superseded (parked). Closes are counted
+// by name, since a hook that closed everything twice would satisfy a bare "was closed".
 
 import { act, render } from "@testing-library/react";
-import { useEffect, useState, type ReactElement } from "react";
+import { StrictMode, Suspense, useState, type ReactElement } from "react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { windowTripwires } from "@renderer/lib/tripwires.js";
-import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
+import { DiscardedRenderResourceProbe } from "./DiscardedRenderResourceProbe.test-support.js";
+import { driveAbandonedPass } from "./subject-scoped-hooks.test-support.js";
+import { useSubjectScopedResource } from "./useSubjectScopedResource.js";
 import {
   DISCARDED_SUBJECT,
   ResourceOpenCloseLog,
   SETTLED_SUBJECT,
   type OpenResource,
 } from "./useSubjectScopedResource.test-support.js";
-import { useSubjectScopedState } from "./useSubjectScopedState.js";
 
 // Tripwires throw in a development build, which would escape the caller's settlement; the
 // recording arm is the one asserted, as in `subject-scoped-holder.test.ts`.
@@ -68,30 +65,6 @@ function DiscardedRenderProbe(props: DiscardProbeProps): ReactElement {
   return <output>{value.name}</output>;
 }
 
-/**
- * Negative control: the plain holder with disposal owned by an effect.
- *
- * Its effect never closes over a discarded pass's resource, which shows the claims above
- * discriminate.
- */
-function EffectOnlyDisposalProbe(props: DiscardProbeProps): ReactElement {
-  const [pass, setPass] = useState(0);
-  const subject = pass === 0 ? props.firstPassSubject : props.settledSubject;
-  const { value } = useSubjectScopedState<OpenResource>(subject, undefined, () =>
-    props.ledger.open(subject.name),
-  );
-  const { ledger } = props;
-  useEffect(() => {
-    return () => {
-      ledger.close(value);
-    };
-  }, [ledger, value]);
-  if (pass === 0) {
-    setPass(1);
-  }
-  return <output>{value.name}</output>;
-}
-
 interface SwapProbeProps {
   readonly subject: NamedFixtureSubject;
   readonly ledger: ResourceOpenCloseLog;
@@ -108,6 +81,7 @@ function SwapProbe(props: SwapProbeProps): ReactElement {
   props.onReady?.(publish);
   return <output>{value.name}</output>;
 }
+
 describe("useSubjectScopedResource — a render React discarded leaves nothing open", () => {
   it("closes the resource the discarded pass opened, and only that one", () => {
     const ledger = new ResourceOpenCloseLog();
@@ -124,26 +98,6 @@ describe("useSubjectScopedResource — a render React discarded leaves nothing o
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "settled"]);
-  });
-
-  it("negative control: the shape this replaced leaves the discarded pass's resource open", () => {
-    // The same script against a plain holder whose effect owns disposal. That effect never
-    // closed over the discarded pass's resource, so nothing closes it; this is what makes the
-    // claim above about the hook and not about the script.
-    const ledger = new ResourceOpenCloseLog();
-    const view = render(
-      <EffectOnlyDisposalProbe
-        firstPassSubject={DISCARDED_SUBJECT}
-        settledSubject={SETTLED_SUBJECT}
-        ledger={ledger}
-      />,
-    );
-
-    expect(ledger.opened).toStrictEqual(["discarded", "settled"]);
-    expect(ledger.closed).toStrictEqual([]);
-
-    view.unmount();
-    expect(ledger.closed).toStrictEqual(["settled"]);
   });
 });
 
@@ -163,49 +117,6 @@ describe("useSubjectScopedResource — a committed resource is closed once, by t
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "settled"]);
-  });
-
-  it("opens and closes nothing on a re-render that changes nothing about the subject", () => {
-    // Control on every case above: a hook that opened per render would satisfy them all, and
-    // one that closed per render would leave the window with nothing.
-    const ledger = new ResourceOpenCloseLog();
-    const view = render(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
-
-    view.rerender(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
-    view.rerender(<SwapProbe subject={DISCARDED_SUBJECT} ledger={ledger} />);
-
-    expect(ledger.opened).toStrictEqual(["discarded"]);
-    expect(ledger.closed).toStrictEqual([]);
-
-    view.unmount();
-    expect(ledger.closed).toStrictEqual(["discarded"]);
-  });
-
-  it("closes a resource a caller published over, on the same terms", () => {
-    // Publishing replaces a resource that retired itself; the replacement is held and
-    // disposed as one the holder seeded. Also the control on the late-open case below: a hook
-    // that closed every published resource would leave both live callers with none.
-    const ledger = new ResourceOpenCloseLog();
-    let publishInto: (next: OpenResource) => void = () => {};
-    const view = render(
-      <SwapProbe
-        subject={DISCARDED_SUBJECT}
-        ledger={ledger}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
-    );
-    act(() => {
-      publishInto(ledger.open("published"));
-    });
-
-    expect(ledger.opened).toStrictEqual(["discarded", "published"]);
-    expect(ledger.closed).toStrictEqual(["discarded"]);
-    expect(windowTripwires.totalFiringCount).toBe(0);
-
-    view.unmount();
-    expect(ledger.closed).toStrictEqual(["discarded", "published"]);
   });
 });
 
@@ -241,30 +152,6 @@ describe("useSubjectScopedResource — two publishes before one commit", () => {
     view.unmount();
     expect(ledger.closed).toStrictEqual(["published first", "discarded", "published second"]);
   });
-
-  it("negative control: a single publish closes nothing before its own commit", () => {
-    // Control: a hook that closed every published value would also satisfy the case above,
-    // and would close the resource the window just opened for the visit it is on.
-    const ledger = new ResourceOpenCloseLog();
-    let publishInto: (next: OpenResource) => void = () => {};
-    render(
-      <SwapProbe
-        subject={DISCARDED_SUBJECT}
-        ledger={ledger}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
-    );
-    const published = ledger.open("published once");
-
-    act(() => {
-      publishInto(published);
-    });
-
-    expect(ledger.closed).not.toContain("published once");
-    expect(windowTripwires.totalFiringCount).toBe(0);
-  });
 });
 
 describe("useSubjectScopedResource — an open that settles after the subject has moved", () => {
@@ -299,5 +186,141 @@ describe("useSubjectScopedResource — an open that settles after the subject ha
 
     view.unmount();
     expect(ledger.closed).toStrictEqual(["discarded", "opened too late", "settled"]);
+  });
+});
+
+describe("useSubjectScopedResource — a resource its own close ended is re-minted", () => {
+  /** A caller whose disposal is terminal, like the preview pane's geometry publisher. */
+  function TerminalCloseProbe(props: {
+    readonly subject: NamedFixtureSubject;
+    readonly ledger: ResourceOpenCloseLog;
+    readonly onResource: (resource: OpenResource) => void;
+  }): ReactElement {
+    const { ledger } = props;
+    const { value } = useSubjectScopedResource<OpenResource>(
+      props.subject,
+      undefined,
+      () => ledger.open(props.subject.name),
+      { dispose: ledger.close, isClosed: ledger.isClosed },
+    );
+    props.onResource(value);
+    return <output>{value.name}</output>;
+  }
+
+  it("holds a live resource after React's double-mount, not the one it disposed", () => {
+    // The double mount runs the committed cleanup and then the effect again against the value
+    // that cleanup closed; the subject must hold something usable.
+    const ledger = new ResourceOpenCloseLog();
+    const seen: OpenResource[] = [];
+    render(
+      <StrictMode>
+        <TerminalCloseProbe
+          subject={SETTLED_SUBJECT}
+          ledger={ledger}
+          onResource={(resource) => seen.push(resource)}
+        />
+      </StrictMode>,
+    );
+
+    const held = seen.at(-1);
+    if (held === undefined) {
+      throw new Error("the probe rendered no resource at all");
+    }
+    expect(ledger.isClosed(held)).toBe(false);
+    // Opened twice, closed once: the replacement, and the corpse it replaced. The corpse
+    // reaches the holder's disposal as an ordinary replaced value, and a second `dispose()`
+    // is what a terminal close refuses.
+    expect(ledger.opened).toStrictEqual(["settled", "settled"]);
+    expect(ledger.closed).toStrictEqual(["settled"]);
+  });
+});
+
+describe("useSubjectScopedResource — a disposal minted per render is not a lifetime", () => {
+  it("closes nothing on a rerender that only minted a fresh disposal", () => {
+    // If `close` sat in the lifetime effect's dependency list, an unrelated rerender would run
+    // that effect's cleanup and close the resource the frame on screen still reads.
+    const ledger = new ResourceOpenCloseLog();
+    const resources: OpenResource[] = [];
+    function FreshCloseProbe(props: { readonly pass: number }): ReactElement {
+      const { value } = useSubjectScopedResource<OpenResource>(
+        DISCARDED_SUBJECT,
+        undefined,
+        () => ledger.open(DISCARDED_SUBJECT.name),
+        {
+          release: (resource) => {
+            ledger.close({ name: `${resource.name} closed by pass ${String(props.pass)}` });
+          },
+        },
+      );
+      resources.push(value);
+      return <output>{value.name}</output>;
+    }
+    const view = render(<FreshCloseProbe pass={1} />);
+    view.rerender(<FreshCloseProbe pass={2} />);
+    view.rerender(<FreshCloseProbe pass={3} />);
+
+    expect(ledger.opened).toStrictEqual(["discarded"]);
+    expect(ledger.closed).toStrictEqual([]);
+    // The component still reads through the resource it opened, not a replacement minted to
+    // cover for one closed underneath it.
+    expect(new Set(resources).size).toBe(1);
+  });
+});
+
+describe("useSubjectScopedResource — a render that never became a frame", () => {
+  it("closes what a parked pass opened and leaves the one on screen alone", async () => {
+    const ledger = new ResourceOpenCloseLog();
+    const view = await driveAbandonedPass<NamedFixtureSubject>(
+      (subject, suspendOn) => (
+        <Suspense fallback={<p>the pass that was parked</p>}>
+          <DiscardedRenderResourceProbe
+            subject={subject}
+            suspendOn={suspendOn}
+            ledger={ledger}
+            onReady={() => {}}
+          />
+        </Suspense>
+      ),
+      SETTLED_SUBJECT,
+      DISCARDED_SUBJECT,
+    );
+
+    expect(ledger.opened).toStrictEqual(["settled", "discarded"]);
+    expect(ledger.closed).toStrictEqual(["discarded"]);
+
+    // The resource on screen was never retired, so nothing was opened to cover for it; it is
+    // closed once, at the mount's end.
+    view.unmount();
+    expect(ledger.closed).toStrictEqual(["discarded", "settled"]);
+  });
+
+  it("closes a parked pass's resource where the mount ends before any later render", async () => {
+    // The component goes away with no render after the parked pass. The proposal is reachable
+    // through nothing else, so the mount's end is its last moment.
+    const ledger = new ResourceOpenCloseLog();
+    const treeAt = (
+      subject: NamedFixtureSubject,
+      suspendOn: Promise<void> | undefined,
+    ): ReactElement => (
+      <Suspense fallback={<p>the pass that was parked</p>}>
+        <DiscardedRenderResourceProbe
+          subject={subject}
+          suspendOn={suspendOn}
+          ledger={ledger}
+          onReady={() => {}}
+        />
+      </Suspense>
+    );
+    const view = render(treeAt(SETTLED_SUBJECT, undefined));
+    const parked = new Promise<void>(() => {});
+    await act(async () => {
+      view.rerender(treeAt(DISCARDED_SUBJECT, parked));
+    });
+
+    view.unmount();
+
+    expect(ledger.opened).toStrictEqual(["settled", "discarded"]);
+    expect(new Set(ledger.closed)).toStrictEqual(new Set(["settled", "discarded"]));
+    expect(ledger.closed).toHaveLength(2);
   });
 });

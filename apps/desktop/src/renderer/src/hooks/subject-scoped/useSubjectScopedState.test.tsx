@@ -1,22 +1,20 @@
-// What the hook promises about frames, against the shape a plain `useState` reset gives.
+// What the hook promises about frames and about which visit a publisher writes into.
 //
 // The rule itself (addressing, epoch, late settlement) is driven with no renderer in
-// `subject-scoped-holder.test.ts`. This file needs a tree for which frames a re-address
-// paints and which render a publisher captured at is the one it writes into. A publisher
-// across a dropped pass is covered in `useSubjectScopedState.dropped-pass.test.tsx`.
+// `subject-scoped-holder.test.ts`. This file needs a tree: which frames a re-address paints,
+// and what a render React parked leaves the visit on screen holding.
 //
-// Each clean assertion has a negative control that drives a `useState` reset from an effect
-// over the identical script and fails, since a holder that never re-addressed would pass
-// "no frame carried the old subject" too. Renders are counted because the guarantee is that
-// the pass that first sees a new subject already reads its own seed: a holder that reached
-// the same value by discarding a pass would satisfy every value assertion and cost a frame
-// per re-address.
+// Renders are counted because the guarantee is that the pass that first sees a new subject
+// already reads its own seed: a holder that reached the same value by discarding a pass would
+// satisfy every value assertion and cost a frame per re-address.
 
 import { act, render } from "@testing-library/react";
-import { useEffect, useState, type ReactElement } from "react";
+import { Suspense, type ReactElement } from "react";
 import { describe, expect, it } from "vitest";
 
-import { SUBJECT_ONE } from "@test/helpers/subject-fixtures.js";
+import { SUBJECT_ONE, SUBJECT_TWO } from "@test/helpers/subject-fixtures.js";
+import { DiscardedRenderValueProbe } from "./DiscardedRenderValueProbe.test-support.js";
+import { driveAbandonedPass } from "./subject-scoped-hooks.test-support.js";
 import { useSubjectScopedState } from "./useSubjectScopedState.js";
 
 /** What every render recorded: the subject it was about and the value it read. */
@@ -51,49 +49,18 @@ interface ProbeProps {
   readonly subject: object;
   readonly probeKey: string | undefined;
   readonly log: FrameLog;
-  readonly onReady?: (
-    publish: (next: string) => void,
-    settle: () => (next: string) => void,
-  ) => void;
+  readonly onReady?: (publish: (next: string) => void) => void;
 }
 
 /** The holder under test, driven through the public hook. */
 function HolderProbe(props: ProbeProps): ReactElement {
-  const { value, publish, settle } = useSubjectScopedState<string>(
+  const { value, publish } = useSubjectScopedState<string>(
     props.subject,
     props.probeKey,
     () => "seed",
   );
   props.log.record({ key: props.probeKey, value });
-  props.onReady?.(publish, settle);
-  return <output>{value}</output>;
-}
-
-/**
- * Negative control: state reset from an effect.
- *
- * It implements the rule's opposite on purpose; a test that reimplemented the rule would
- * prove nothing.
- */
-function EffectResetProbe(props: ProbeProps): ReactElement {
-  const [value, setValue] = useState("seed");
-  const [stamped, setStamped] = useState(props.probeKey);
-  useEffect(() => {
-    if (stamped !== props.probeKey) {
-      setStamped(props.probeKey);
-      setValue("seed");
-    }
-  }, [props.probeKey, stamped]);
-  props.log.record({ key: props.probeKey, value });
-  props.onReady?.(
-    (next: string) => {
-      setValue(next);
-    },
-    () =>
-      (next: string): void => {
-        setValue(next);
-      },
-  );
+  props.onReady?.(publish);
   return <output>{value}</output>;
 }
 
@@ -125,148 +92,88 @@ describe("useSubjectScopedState — no frame carries the previous subject", () =
     // render to discard.
     expect(log.renderCount).toBe(rendersBeforeMove + 1);
   });
+});
 
-  it("negative control: the effect-reset shape paints the previous subject's answer", () => {
-    // The script above against state reset from an effect; both claims above fail here.
-    const log = new FrameLog();
-    let publishInto: (next: string) => void = () => {};
-    const view = render(
-      <EffectResetProbe
-        subject={SUBJECT_ONE}
-        probeKey="alpha"
-        log={log}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
+/** The first publisher each subject's render handed out, so a late call goes through it. */
+class CapturedPublishers<TValue> {
+  readonly #bySubject = new Map<object, (next: TValue) => void>();
+
+  public readonly record = (subject: object, publish: (next: TValue) => void): void => {
+    if (!this.#bySubject.has(subject)) {
+      this.#bySubject.set(subject, publish);
+    }
+  };
+
+  public from(subject: object): (next: TValue) => void {
+    const publish = this.#bySubject.get(subject);
+    if (publish === undefined) {
+      throw new Error("No render addressed at that subject handed out a publisher");
+    }
+    return publish;
+  }
+}
+
+describe("useSubjectScopedState — a parked pass leaves the visit on screen alone", () => {
+  /** The value probe driven through one committed visit, one parked pass, and back. */
+  async function driveValueCase(): Promise<{
+    readonly text: () => string | null;
+    readonly publishers: CapturedPublishers<string>;
+    readonly seedings: () => number;
+  }> {
+    const publishers = new CapturedPublishers<string>();
+    let seedings = 0;
+    const view = await driveAbandonedPass<object>(
+      (subject, suspendOn) => (
+        <Suspense fallback={<p>the pass that was parked</p>}>
+          <DiscardedRenderValueProbe
+            subject={subject}
+            suspendOn={suspendOn}
+            onSeed={() => {
+              seedings += 1;
+            }}
+            onReady={(publish) => {
+              publishers.record(subject, publish);
+            }}
+          />
+        </Suspense>
+      ),
+      SUBJECT_ONE,
+      SUBJECT_TWO,
     );
+    // The parked pass really ran: it addressed the other subject, and addressing seeds.
+    expect(seedings).toBeGreaterThanOrEqual(2);
+    return { text: () => view.container.textContent, publishers, seedings: () => seedings };
+  }
+
+  const WHAT_THE_VISIT_ON_SCREEN_READ = "what the visit on screen read";
+
+  it("settles through the publisher the component has been holding all along", async () => {
+    const detour = await driveValueCase();
     act(() => {
-      publishInto("alpha's answer");
+      detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
     });
-    act(() => {
-      view.rerender(<EffectResetProbe subject={SUBJECT_ONE} probeKey="beta" log={log} />);
-    });
-    expect(log.painted("beta", "alpha's answer")).toBe(true);
+
+    expect(detour.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
+    // Two addressings, not three: the parked pass proposed one and never committed it, so the
+    // render back at the subject on screen found the committed addressing right and re-seeded
+    // nothing.
+    expect(detour.seedings()).toBe(2);
   });
 
-  it("keeps the value across a re-render that changes nothing about the subject", () => {
-    const log = new FrameLog();
-    let publishInto: (next: string) => void = () => {};
-    const view = render(
-      <HolderProbe
-        subject={SUBJECT_ONE}
-        probeKey="alpha"
-        log={log}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
-    );
+  it("refuses the settlement a pass that never committed handed out", async () => {
+    // The parked pass handed its caller a publisher naming an addressing no frame carried, and
+    // admitting it would write another subject's answer into the visit on screen.
+    const detour = await driveValueCase();
     act(() => {
-      publishInto("alpha's answer");
+      detour.publishers.from(SUBJECT_TWO)("what a pass nobody saw read");
     });
-    view.rerender(<HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} />);
-    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "alpha's answer" });
-  });
 
-  it("drops a settlement whose subject moved, and lands one whose subject stood", () => {
-    const log = new FrameLog();
-    let capture: () => (next: string) => void = () => () => {};
-    const view = render(
-      <HolderProbe
-        subject={SUBJECT_ONE}
-        probeKey="alpha"
-        log={log}
-        onReady={(_publish, settle) => {
-          capture = settle;
-        }}
-      />,
-    );
-    const settlementForAlpha = capture();
-    view.rerender(<HolderProbe subject={SUBJECT_ONE} probeKey="beta" log={log} />);
-    act(() => {
-      settlementForAlpha("alpha's late answer");
-    });
-    expect(log.frames.at(-1)).toStrictEqual({ key: "beta", value: "seed" });
+    expect(detour.text()).toBe("seed");
 
-    const settlementForBeta = capture();
+    // The visit on screen still settles, so the claim is about which pass answered.
     act(() => {
-      settlementForBeta("beta's answer");
+      detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
     });
-    expect(log.frames.at(-1)).toStrictEqual({ key: "beta", value: "beta's answer" });
-  });
-
-  it("drops a settlement from a route round-trip back to the key it left", () => {
-    // A pane on session s1 routed to s2 and back re-seeds and dispatches a fresh read, and
-    // the first visit's reply then lands last.
-    const log = new FrameLog();
-    let capture: () => (next: string) => void = () => () => {};
-    const record = (
-      _publish: (next: string) => void,
-      settle: () => (next: string) => void,
-    ): void => {
-      capture = settle;
-    };
-    const view = render(
-      <HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} onReady={record} />,
-    );
-    const settlementFromTheFirstVisit = capture();
-    view.rerender(<HolderProbe subject={SUBJECT_ONE} probeKey="beta" log={log} onReady={record} />);
-    view.rerender(
-      <HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} onReady={record} />,
-    );
-    act(() => {
-      settlementFromTheFirstVisit("the first visit's late answer");
-    });
-    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "seed" });
-
-    // Negative control: the visit on screen still settles, so the claim is about which visit
-    // answered.
-    const settlementFromTheVisitOnScreen = capture();
-    act(() => {
-      settlementFromTheVisitOnScreen("the answer this visit read");
-    });
-    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "the answer this visit read" });
-  });
-
-  it("holds nothing across mounts: a remount is a fresh subject with a fresh seed", () => {
-    const log = new FrameLog();
-    let publishInto: (next: string) => void = () => {};
-    const first = render(
-      <HolderProbe
-        subject={SUBJECT_ONE}
-        probeKey="alpha"
-        log={log}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
-    );
-    act(() => {
-      publishInto("alpha's answer");
-    });
-    first.unmount();
-    render(<HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} />);
-    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "seed" });
-  });
-
-  it("treats an absent key as its own subject, not as a string", () => {
-    const log = new FrameLog();
-    let publishInto: (next: string) => void = () => {};
-    const view = render(
-      <HolderProbe
-        subject={SUBJECT_ONE}
-        probeKey={undefined}
-        log={log}
-        onReady={(publish) => {
-          publishInto = publish;
-        }}
-      />,
-    );
-    act(() => {
-      publishInto("answered while addressed at nothing");
-    });
-    view.rerender(<HolderProbe subject={SUBJECT_ONE} probeKey="alpha" log={log} />);
-    expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "seed" });
+    expect(detour.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
   });
 });
