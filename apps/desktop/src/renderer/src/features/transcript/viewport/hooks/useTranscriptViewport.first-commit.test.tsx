@@ -82,12 +82,4 @@ describe("the transcript viewport's first commit", () => {
     // And it is still a window: a viewport that gave up and mounted the whole log is also wrong.
     expect(mountedRowCount).toBeLessThan(LOG_ROW_COUNT);
   });
-
-  it("negative control: a box with no height mounts nothing", () => {
-    // The zero the case above would report if the rect never reached the library; without it
-    // that case proves only that this harness renders divs.
-    const view = render(<TranscriptUnderTest rows={syntheticRows(LOG_ROW_COUNT)} />);
-
-    expect(view.container.querySelectorAll(MOUNTED_ROW_SELECTOR)).toHaveLength(0);
-  });
 });

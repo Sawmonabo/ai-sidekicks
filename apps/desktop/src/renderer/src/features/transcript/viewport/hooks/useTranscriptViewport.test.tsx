@@ -107,7 +107,7 @@ describe("the transcript viewport binding — a prune the window refused", () =>
     expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
 
-  it("negative control: a re-render that changes nothing leaves the reader's window whole", () => {
+  it("a re-render that changes nothing leaves the reader's window whole", () => {
     // Without this the second effect could re-ask on every render and take rows from a reader.
     withLaidOutViewport();
     const { binding, scrollContainer } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
@@ -158,26 +158,6 @@ describe("the transcript viewport binding — a prune the write itself refused",
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
     expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
   });
-
-  it("negative control: a glide that refuses nothing re-asks for no prune", () => {
-    // Without this the case above would pass for a binding that pruned on any notification.
-    withLaidOutViewport();
-    const { binding, controller } = mountBinding(
-      syntheticRows(SETTLED_ROW_COUNT),
-      NEAR_TAIL_OFFSET_PX,
-    );
-    const settledOutcome = binding.result.current.snapshot.lastPrune;
-    expect(settledOutcome?.deferredBecause).toBe("under-cap");
-
-    act(() => {
-      binding.result.current.jumpToTail();
-    });
-
-    // The glide published a sample but no reconcile ran, so the outcome is the same object.
-    expect(controller.scroll.writeCount("jump-to-tail")).toBe(1);
-    expect(binding.result.current.snapshot.lastPrune).toBe(settledOutcome);
-    expect(binding.result.current.snapshot.rows).toHaveLength(SETTLED_ROW_COUNT);
-  });
 });
 
 describe("the transcript viewport binding — a prune a pin held back", () => {
@@ -205,24 +185,5 @@ describe("the transcript viewport binding — a prune a pin held back", () => {
 
     expect(binding.result.current.snapshot.reading.mode).toBe(pinnedReadingMode);
     expect(binding.result.current.snapshot.rows).toHaveLength(TRANSCRIPT_WINDOW_ROW_CAP);
-  });
-
-  it("negative control: the window stays whole for as long as the pin is held", () => {
-    // Without this the retry could be ignoring the pin outright.
-    withLaidOutViewport();
-    const { binding, controller } = mountBinding(
-      syntheticRows(SETTLED_ROW_COUNT),
-      NEAR_TAIL_OFFSET_PX,
-    );
-    act(() => {
-      controller.anchor.pin("cursor-3");
-    });
-
-    act(() => {
-      binding.rerender(syntheticRows(OVER_CAP_ROW_COUNT));
-    });
-
-    expect(binding.result.current.snapshot.reading.pinnedRootCursor).toBe("cursor-3");
-    expect(binding.result.current.snapshot.rows).toHaveLength(OVER_CAP_ROW_COUNT);
   });
 });

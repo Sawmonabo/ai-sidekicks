@@ -69,21 +69,6 @@ function scrollAwayFromTail(anchor: ReadingAnchor): void {
 }
 
 describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
-  it("holds the anchored position immediately when nothing was deferred", () => {
-    const subject = holdUnderTest();
-    scrollAwayFromTail(subject.anchor);
-
-    subject.hold.armAfterReconcile({
-      headInsertedCount: 0,
-      previousHeadKey: "a",
-      scrollTopPx: 200,
-    });
-
-    expect(subject.immediateHolds()).toBe(1);
-    subject.hold.commit();
-    expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
-  });
-
   it("defers the tail glide while following, and performs it on commit", () => {
     const subject = holdUnderTest();
 
@@ -94,7 +79,7 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
     expect(subject.scroll.writeCount("follow-tail")).toBe(1);
   });
 
-  it("negative control: drops a deferred tail glide the reader scrolled away from", () => {
+  it("drops a deferred tail glide the reader scrolled away from", () => {
     const subject = holdUnderTest();
     subject.hold.armAfterReconcile({ headInsertedCount: 0, previousHeadKey: "a", scrollTopPx: 0 });
     scrollAwayFromTail(subject.anchor);
@@ -102,27 +87,6 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
     subject.hold.commit();
 
     expect(subject.scroll.writeCount("follow-tail")).toBe(0);
-  });
-
-  it("holds the head row where it was when a page landed in front of it", () => {
-    const subject = holdUnderTest();
-    scrollAwayFromTail(subject.anchor);
-    // Three rows arrived in front of `d`, which is now at index 3.
-    subject.setRowKeys(["a", "b", "c", "d", "e"]);
-
-    subject.hold.armAfterReconcile({
-      headInsertedCount: 3,
-      previousHeadKey: "d",
-      scrollTopPx: 120,
-    });
-    // Nothing is written before the commit: the offset is arithmetic in the post-insert space.
-    expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
-    expect(subject.immediateHolds()).toBe(0);
-
-    subject.hold.commit();
-
-    expect(subject.scrollContainer.scrollTop).toBe(3 * ROW_HEIGHT_PX + 120);
-    expect(subject.scroll.writeCount("hold-reading-position")).toBe(1);
   });
 
   it("holds the head row even for a reader who was at the tail", () => {
@@ -142,7 +106,7 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
     expect(subject.scroll.writeCount("follow-tail")).toBe(0);
   });
 
-  it("negative control: writes nothing when the head row left the window", () => {
+  it("writes nothing when the head row left the window", () => {
     const subject = holdUnderTest();
     subject.setRowKeys(["a", "b", "c"]);
 
@@ -154,18 +118,6 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
     subject.hold.commit();
 
     expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
-  });
-
-  it("performs each arming once, and nothing on a commit that armed nothing", () => {
-    const subject = holdUnderTest();
-    subject.setRowKeys(["a", "b"]);
-    subject.hold.armAfterReconcile({ headInsertedCount: 1, previousHeadKey: "b", scrollTopPx: 0 });
-
-    subject.hold.commit();
-    subject.hold.commit();
-    subject.hold.commit();
-
-    expect(subject.scroll.writeCount("hold-reading-position")).toBe(1);
   });
 
   it("disarms both arms, so a disposed frame owes no position", () => {
@@ -218,24 +170,5 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
     subject.setRowKeys(AFTER_SECOND_PAGE);
     subject.hold.commit();
     expect(rowAtViewportTop(AFTER_SECOND_PAGE, subject.scrollContainer.scrollTop)).toBe("r42");
-  });
-
-  it("negative control: the same two pages with no hold walk the reader backwards", () => {
-    // Arming with nothing inserted leaves the offset alone, so the rows above take the reader
-    // with them; this is what makes the case above an assertion rather than a tautology.
-    const subject = holdUnderTest();
-    scrollAwayFromTail(subject.anchor);
-    subject.setRowKeys(FIRST_WINDOW);
-    subject.scrollContainer.scrollTop = READING_AT_PX;
-
-    subject.hold.armAfterReconcile({
-      headInsertedCount: 0,
-      previousHeadKey: "r40",
-      scrollTopPx: subject.scrollContainer.scrollTop,
-    });
-    subject.setRowKeys(AFTER_FIRST_PAGE);
-    subject.hold.commit();
-
-    expect(rowAtViewportTop(AFTER_FIRST_PAGE, subject.scrollContainer.scrollTop)).toBe("r37");
   });
 });

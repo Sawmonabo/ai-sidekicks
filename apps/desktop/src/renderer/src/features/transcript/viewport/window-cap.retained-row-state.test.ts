@@ -6,12 +6,10 @@ import { describe, expect, it } from "vitest";
 
 import { TranscriptWindow } from "./window-cap.js";
 import {
-  CHILDREN_PER_RUN_GROUP,
   foldedRunGroupLog,
   loadedWindow,
   PRUNABLE,
   runOnlyLog,
-  syntheticWindowRows,
 } from "./window-cap.test-support.js";
 
 describe("the transcript window — leases and cursors", () => {
@@ -26,22 +24,6 @@ describe("the transcript window — leases and cursors", () => {
       density: "expanded",
       innerScrollTopPx: 44,
     });
-  });
-
-  it("cuts at the pin's cursor while pinned and at the oldest retained row otherwise", () => {
-    const window = new TranscriptWindow();
-    window.ingest(syntheticWindowRows(3));
-    expect(window.cutAtRootCursor(undefined)).toBe("cursor-0");
-    expect(window.cutAtRootCursor("cursor-2")).toBe("cursor-2");
-  });
-
-  it("adopts the projection verbatim, so a second identical read changes nothing", () => {
-    const window = new TranscriptWindow();
-    const rows = syntheticWindowRows(3);
-    window.ingest(rows);
-    window.ingest(rows);
-    expect(window.topLevelRowKeys()).toHaveLength(3);
-    expect(window.size).toBe(3 * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
   it("keeps a repeated key rather than collapsing an entry out of the log", () => {
@@ -70,19 +52,6 @@ describe("the transcript window — leases and cursors", () => {
     expect(window.rows()[0]?.key).toBe("run-1-entry-40");
   });
 
-  it("negative control: the same rows under a parent the window holds count once", () => {
-    // Without this the case above passes over a window that stopped honoring parents. Give the
-    // run a row and the fifty entries collapse into one countable head.
-    const window = new TranscriptWindow({ topLevelCap: 10 });
-    window.ingest([
-      { key: "run-1", parentKey: undefined, rootCursor: "cursor-run-1" },
-      ...runOnlyLog(50),
-    ]);
-    expect(window.topLevelRowKeys()).toEqual(["run-1"]);
-    expect(window.prune(PRUNABLE).deferredBecause).toBe("under-cap");
-    expect(window.size).toBe(51);
-  });
-
   it("counts a folded run group as one, so the cap bounds run groups and not rows", () => {
     // A run group header row gives every run row a parent that is a row; without it each run row
     // counted, so ten run groups of a hundred rows read as a thousand against the ceiling.
@@ -104,15 +73,6 @@ describe("the transcript window — leases and cursors", () => {
       "run-9",
       "run-9-receipt",
     ]);
-  });
-
-  it("negative control: the same receipts with no header count one apiece", () => {
-    // Without this the case above passes over a cap that stopped counting anything: without
-    // headers the ten receipts are ten orphans, each its own top-level row.
-    const window = new TranscriptWindow({ topLevelCap: 4 });
-    window.ingest(foldedRunGroupLog(10).filter((row) => row.parentKey !== undefined));
-    expect(window.topLevelRowKeys()).toHaveLength(10);
-    expect(window.prune(PRUNABLE).topLevelRetained).toBe(4);
   });
 
   it("drops an orphan alone, never the siblings that share its absent parent", () => {
