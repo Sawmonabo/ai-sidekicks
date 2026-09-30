@@ -30,12 +30,6 @@ import {
   FILE_PATH_MAX_LEN,
 } from "./session.js";
 
-// Re-exported so this module's surface carries the execution-mode taxonomy that `repo.ts` owns.
-// The type and the schema value are separate statements because `verbatimModuleSyntax` forbids
-// an erased re-export on the value form; the select request and response need the schema.
-export type { ExecutionMode } from "./repo.js";
-export { ExecutionModeSchema } from "./repo.js";
-
 // Each id is a daemon-minted UUID (`worktrees.id`, `branch_contexts.id`) built with
 // `brandedUuidIdSchema`, which supplies the double-T annotation tRPC v11 needs for input inference.
 
