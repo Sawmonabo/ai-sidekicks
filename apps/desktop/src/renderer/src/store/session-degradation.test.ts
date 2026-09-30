@@ -73,7 +73,7 @@ describe("an external degradation reaching an already-degraded store", () => {
     const store = divergedStore();
     expect(store.snapshot().degradedCause).toBe("stream-diverged");
 
-    store.markDegraded("read-failed");
+    store.markReadFailed();
 
     expect(store.snapshot().degradedCause).toBe("stream-diverged");
   });
@@ -98,7 +98,7 @@ describe("an external degradation reaching an already-degraded store", () => {
     const store = gappedStore();
     const before = store.snapshot();
 
-    store.markDegraded("read-failed");
+    store.markDegraded("subscription-closed");
     store.markDegraded("sequence-gap");
 
     expect(store.snapshot()).toBe(before);
@@ -109,7 +109,7 @@ describe("an external degradation reaching an already-degraded store", () => {
     // Without this the cases above would pass over a `markDegraded` that had simply
     // stopped writing anything once a cause was set.
     const store = healthyStore();
-    store.markDegraded("read-failed");
+    store.markReadFailed();
     const afterFirst = store.snapshot();
     expect(afterFirst.degradedCause).toBe("read-failed");
 

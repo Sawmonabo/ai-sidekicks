@@ -307,6 +307,25 @@ export class SessionStore {
   }
 
   /**
+   * Record that a read of this session failed: `read-failed` merged through the ladder
+   * like any cause, and the failure itself kept beside it, so a store already behind for
+   * a worse cause still says its repair read failed. The next read that lands clears both.
+   */
+  public markReadFailed(): void {
+    const current = this.#store.getState();
+    const merged = worstDegradedCause(current.degradedCause, "read-failed");
+    if (merged === current.degradedCause && current.lastReadFailed) {
+      return;
+    }
+    this.#store.setState({
+      ...current,
+      degradedCause: merged,
+      lastReadFailed: true,
+      revision: current.revision + 1,
+    });
+  }
+
+  /**
    * The apply chokepoint. The only writer of this store's state.
    *
    * Takes a BATCH so a frame's worth of events is one transition; `apply` below is

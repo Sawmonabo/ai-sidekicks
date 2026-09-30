@@ -216,7 +216,7 @@ describe("the degradation fold beside the rows", () => {
     // the list is. Reporting the last one written would make the sentence depend on
     // which store happened to fail second.
     const registry = registryHolding(["session-a", "session-b"]);
-    registry.peek("session-a")?.markDegraded("read-failed");
+    registry.peek("session-a")?.markReadFailed();
     registry.peek("session-b")?.markDegraded("stream-diverged");
     const projection = new OpenSessionRowProjection(registry);
 

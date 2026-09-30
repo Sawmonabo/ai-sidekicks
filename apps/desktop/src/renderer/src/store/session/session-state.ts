@@ -51,6 +51,13 @@ export interface SessionStoreState {
   /** Sticky while the projection is known-incomplete; cleared only by a re-pull. */
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
+   * Whether the newest read of this session failed. Set beside the worst cause rather
+   * than folded into it, because the ladder keeps a worse cause standing over
+   * `read-failed`, and a person still has to be told the repair read failed. Cleared by
+   * the next read that lands.
+   */
+  readonly lastReadFailed: boolean;
+  /**
    * Runs of sequences observed as missing, oldest first. Rendered by the degraded
    * banner, not guessed at — and bounded, because the accumulated width they
    * describe is what `MAX_REPAIRABLE_SEQUENCE_GAP` caps.
@@ -159,6 +166,7 @@ export function uninitializedState(input: {
     cursor: UNINITIALIZED_CURSOR,
     windowHeadCursor: undefined,
     degradedCause: input.degradedCause,
+    lastReadFailed: false,
     gaps: [],
     revision: input.revision,
   };
@@ -195,6 +203,7 @@ export function establishedState(input: {
     cursor: input.snapshot.cursor,
     windowHeadCursor: input.snapshot.readFromCursor,
     degradedCause: undefined,
+    lastReadFailed: false,
     gaps: [],
     revision: input.revision,
   };

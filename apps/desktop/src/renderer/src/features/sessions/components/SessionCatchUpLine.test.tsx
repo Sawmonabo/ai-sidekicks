@@ -81,10 +81,52 @@ describe("SessionCatchUpLine", () => {
     expect(container.textContent).toBe("Catching up…");
   });
 
+  it("says it couldn't catch up when the repair read of a gap fails", async () => {
+    const clock = new ManualClock(0);
+    let readRejects = false;
+    // Its own session, so the capture case below reads only its own records from the
+    // window's one capture.
+    const entry = new OpenSessionEntry("session-gap-repair", {
+      read: () =>
+        readRejects
+          ? Promise.reject(new Error("the daemon refused the read"))
+          : Promise.resolve({ cursor: 0, entities: [] }),
+      clock,
+      applyCoalesceMs: 0,
+      refreshDebounceMs: 20,
+    });
+    const container = renderLine(entry.store, clock);
+    async function readOnce(): Promise<void> {
+      await act(async () => {
+        entry.refreshScheduler.request("subscribe");
+        clock.advance(21);
+        for (let turn = 0; turn < 4; turn += 1) {
+          await Promise.resolve();
+        }
+      });
+    }
+
+    await readOnce();
+    act(() => {
+      entry.store.markDegraded("sequence-gap");
+    });
+    readRejects = true;
+    await readOnce();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    const afterTheRepairFailed = container.textContent;
+    readRejects = false;
+    await readOnce();
+    advance(clock, CATCH_UP_LINE_DWELL_MS);
+    entry.dispose();
+
+    expect(afterTheRepairFailed).toBe("Couldn't catch up · Try again");
+    expect(container.textContent).toBe("");
+  });
+
   it("asks for exactly one re-read of this session when Try again is pressed", () => {
     const clock = new ManualClock(0);
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });
-    sessionStore.markDegraded("read-failed");
+    sessionStore.markReadFailed();
     const rereads: string[] = [];
     const container = renderLine(sessionStore, clock, (sessionId) => {
       rereads.push(sessionId);

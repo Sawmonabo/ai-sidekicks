@@ -211,10 +211,10 @@ export class OpenSessionEntry {
         await this.#performRead(options.read, sessionId, reasons);
       },
       // A failed read is a real degradation with a named cause, not an unhandled
-      // rejection: the view renders "could not re-read" instead of stale rows
-      // that look current.
+      // rejection. The store also records that this read failed, whatever worse cause
+      // already stands, so the line under the session header says it couldn't catch up.
       onError: () => {
-        this.store.markDegraded("read-failed");
+        this.store.markReadFailed();
       },
       ...(options.refreshDebounceMs === undefined ? {} : { debounceMs: options.refreshDebounceMs }),
       ...(options.refreshMaxWaitMs === undefined ? {} : { maxWaitMs: options.refreshMaxWaitMs }),

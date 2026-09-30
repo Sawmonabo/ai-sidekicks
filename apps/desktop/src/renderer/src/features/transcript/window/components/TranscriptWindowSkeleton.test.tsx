@@ -40,7 +40,7 @@ describe("when the first read itself failed", () => {
     // "initialized?" alone drew twelve `aria-busy` skeleton rows for as long as the
     // failure stood.
     const sessionStore = openStore();
-    sessionStore.markDegraded("read-failed");
+    sessionStore.markReadFailed();
 
     const container = skeletonOf(sessionStore);
 

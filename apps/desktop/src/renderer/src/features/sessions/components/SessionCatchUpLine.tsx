@@ -8,7 +8,9 @@
 // the screen never polls.
 
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { useSessionDegradedCause } from "@renderer/store/session/hooks/useSessionInitialized.js";
+import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
+import { useSessionDegraded } from "@renderer/store/session/hooks/useSessionInitialized.js";
+import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useCatchUpLineShown } from "../hooks/useCatchUpLineShown.js";
 
@@ -21,14 +23,15 @@ export interface SessionCatchUpLineProps {
 /** `Catching up…` or `Couldn't catch up · Try again`, or nothing while the window is whole. */
 export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.Element | null {
   const clock = useClock();
-  const cause = useSessionDegradedCause(props.sessionStore);
-  const isShown = useCatchUpLineShown(cause !== undefined, clock);
+  const isBehind = useSessionDegraded(props.sessionStore);
+  const lastReadFailed = useSessionStore(props.sessionStore, readLastReadFailed);
+  const isShown = useCatchUpLineShown(isBehind, clock);
   if (!isShown) {
     return null;
   }
   return (
     <div className="meridian-session-screen__catch-up" role="status">
-      {cause === "read-failed" ? (
+      {lastReadFailed ? (
         <>
           {"Couldn't catch up · "}
           <button
@@ -46,4 +49,9 @@ export function SessionCatchUpLine(props: SessionCatchUpLineProps): React.JSX.El
       )}
     </div>
   );
+}
+
+/** Whether the newest read of this session failed, whatever cause stands beside it. */
+function readLastReadFailed(state: SessionStoreState): boolean {
+  return state.lastReadFailed;
 }
