@@ -1,10 +1,5 @@
-// What the mapper draws: which control each declared shape resolves to, and what the
-// descriptor carries once it has. The other half — what the mapper declines to draw, and
-// under which cause — is `schema-form-fallback.test.ts`, split because the two claims are
-// different ones and one suite holding both grew past what a reader can hold at once.
-//
-// The cases are written against the field set the corpus fixes for a human phase, so a
-// kind that stopped resolving would fail by name rather than by a count.
+// What the mapper draws: which control each declared shape resolves to and what the descriptor
+// carries. What it declines to draw is `schema-form-fallback.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,8 +24,7 @@ describe("the schema field mapper", () => {
     );
 
     expect(kinds).toEqual(["text", "long-text", "number", "checkbox", "choice"]);
-    // Every declared kind is reachable from a schema, which is what makes the tuple a
-    // render set rather than a list with an arm nothing can produce.
+    // Every kind is reachable from a schema, so the tuple has no arm nothing can produce.
     expect([...SCHEMA_FIELD_KINDS].sort()).toEqual([...new Set(kinds)].sort());
   });
 
@@ -80,8 +74,7 @@ describe("the schema field mapper", () => {
   });
 
   it("carries no step for a multipleOf the schema could not mean", () => {
-    // Zero and a negative are schemas the validator refuses on its own terms; a control
-    // handed either as a step would refuse every answer before the verdict could say why.
+    // A control handed zero or a negative step would refuse every answer before the verdict.
     for (const declared of [0, -1, Number.NaN, "2"]) {
       const [entry] = drawnEntries(
         planSchemaForm(objectSchema({ ratio: { type: "number", multipleOf: declared } })),
@@ -129,8 +122,7 @@ describe("the schema field mapper", () => {
   });
 
   it("carries a group's own requiredness from the level that declared it", () => {
-    // The same read the scalar and list branches make of the enclosing `required` set.
-    // Dropped, a group the schema demands had no requiredness for its legend to render.
+    // Dropped, a group the schema demands would have no requiredness for its legend to render.
     const entries = drawnEntries(
       planSchemaForm(
         objectSchema(

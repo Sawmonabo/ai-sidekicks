@@ -1,22 +1,8 @@
-// The terminal pane: the session's one shared shell, its lease, and the emulator
-// that shows it.
+// The terminal pane's registered body: the session's shared shell inside the pane frame.
 //
-// This module is the pane's BOUNDARY — the registered body the pane layout mounts, and the
-// one decision it makes: whether a session was addressed at all. Everything that
-// needs a session is `SessionTerminalPane.tsx` beside it, because the store hooks it
-// calls may only run when there IS a store and a hook behind a condition is the one
-// React rule a component cannot bend.
-//
-// THE FRAME AROUND IT IS `components/PaneFrame`, which draws the section, the kind
-// glyph, the address trail, the control strip, and the body box for every pane kind in
-// the console. So this module names no region and sets no tab stop: the pane is named
-// by its whole trail — the session it holds the shell of, then "Terminal" — and the
-// emulator's own name inside it is the one accessible name this feature still spells.
-//
-// The lease is wire-true: `pty.control_changed` carries the holder, the holder it replaced
-// and a closed reason, so the holding line comes from the session log through
-// `lease-model.ts`. The output stream is not built, so the emulator mounts with nothing
-// to show.
+// Its one decision is whether a session was addressed; everything that needs a store is in
+// `SessionTerminalPane.tsx`, because store hooks may only run when there is a store. The frame
+// names the region, so this module sets no label and no tab stop.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { SessionTerminalPane } from "./SessionTerminalPane.js";
@@ -25,7 +11,7 @@ import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kin
 
 /** The registered terminal body: the bound pane, or a sentence that no session was addressed. */
 export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {
-  // The shell this pane shows is keyed by the SESSION, so the pane's own id is not read.
+  // The shell is keyed by the session, so the pane's own id is not read.
   const { sessionStore } = context;
   return (
     <PaneFrame kind="terminal" sessionId={sessionStore?.sessionId}>

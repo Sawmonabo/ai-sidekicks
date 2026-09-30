@@ -1,9 +1,4 @@
 // The section's own refusals: the code each constructor mints, and the set they close.
-//
-// Every case is about a claim a refusal would otherwise make falsely — that a
-// rejection off the wire said nothing machine-readable when it did, that the section
-// authored a refusal its port raised, or that "the codes this section mints" is a number
-// in a sentence rather than a list something can fail against.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,9 +11,8 @@ import {
 
 describe("artifact list refusals — a read that threw", () => {
   it("names this reader as the origin and never quotes the rejected value", () => {
-    // The sentence names the leg and stops there: a rejection off the wire can carry
-    // user content as readily as a schema failure can. The copy this replaces
-    // interpolated `error.message` into it.
+    // The sentence names the leg and stops there: a rejection off the wire can carry user
+    // content.
     const refusal = readFailureRefusal(new Error("/Users/someone/secret-branch"));
     expect(refusal.code).toBe("read-threw");
     expect(refusal.origin).toBe("artifact-list-reader");
@@ -26,9 +20,8 @@ describe("artifact list refusals — a read that threw", () => {
   });
 
   it("keeps a daemon envelope's dotted code, its own words, and its retry hint", () => {
-    // The arm the three-arm copy did not have: everything arrived as `read-threw`
-    // with the daemon's code and sentence discarded, so a 403 and a rate limit read
-    // the same and neither said what to do next.
+    // A 403 and a rate limit must not both collapse to `read-threw` with the daemon's words
+    // discarded.
     const refusal = readFailureRefusal({
       message: "This artifact is not available.",
       data: { type: "artifact.not_found", fields: { retryAfter: 30 } },
@@ -39,9 +32,8 @@ describe("artifact list refusals — a read that threw", () => {
   });
 
   it("keeps the origin a refusal thrown across the bridge already named", () => {
-    // Structural rather than `instanceof`: the value crossed a realm, so its
-    // prototype chain is gone and an `instanceof` reading would silently replace the
-    // author's origin with this section's.
+    // Structural rather than `instanceof`: the value crossed a realm, so its prototype chain
+    // is gone and `instanceof` would replace the author's origin with this section's.
     const refusal = readFailureRefusal({
       refusal: { origin: "daemon", code: "artifact.not_found", detail: "No such artifact." },
     });
@@ -50,9 +42,8 @@ describe("artifact list refusals — a read that threw", () => {
   });
 
   it("negative control: a value whose `message` getter throws does not escape", () => {
-    // This function runs inside the scheduler's `onError`, which is the one handler
-    // that exists so a failure is never swallowed. A throw from here would be a
-    // second failure raised while reporting the first, outside every `catch`.
+    // This runs inside an error handler; a throw from here would be a second failure raised
+    // while reporting the first, outside every `catch`.
     const hostile = {
       get message(): string {
         throw new Error("read me and see");
@@ -66,10 +57,8 @@ describe("artifact list refusals — a read that threw", () => {
 
 describe("artifact list refusals — the closed vocabulary", () => {
   it("is exactly the codes the module's own constructors mint, each named once", () => {
-    // A count in prose ("the three codes this section mints") is not something a
-    // fourth code can fail against. Every constructor in this module is driven and
-    // its code checked into the set, so a code minted without being enumerated —
-    // and a member enumerated that nothing mints — both fail here.
+    // Every constructor is driven, so a code minted but not enumerated, or enumerated but
+    // never minted, fails here.
     const minted = [
       readFailureRefusal(new Error("boom")).code,
       payloadFetchInFlightRefusal("artifact-1").code,
@@ -81,9 +70,8 @@ describe("artifact list refusals — the closed vocabulary", () => {
   });
 
   it("negative control: a code another author owns is not a member of this section's set", () => {
-    // The daemon's own vocabulary reaches this section on every refused read and is
-    // rendered unchanged. A set that admitted one of its codes would be claiming
-    // authorship of a refusal this module never mints.
+    // The daemon's own codes reach this section and render unchanged; the set must not claim
+    // them.
     expect([...ARTIFACT_LIST_REFUSAL_CODES]).not.toContain("artifact.not_found");
   });
 });

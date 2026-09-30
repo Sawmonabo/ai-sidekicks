@@ -1,14 +1,6 @@
-// The drop-position translation, exercised in the direction that is easy to get wrong.
-//
-// The rightward case is the whole reason `pageMoveIndex` exists, so the cases below
-// walk a four-tab strip rather than asserting one number: a subtraction applied in
-// both directions, or in neither, passes a single-case test and reorders wrongly on
-// every drag one way.
-//
-// THE ORACLE IS A REAL SPLICE. Each case moves the page in a copy of the list using
-// the index the function returned and compares the resulting ORDER, so a case says
-// what a person would see rather than restating the arithmetic the module performs —
-// which is the reimplementation `apps/desktop/AGENTS.md` rejects.
+// Cases walk a four-tab strip in both directions, since a subtraction applied both ways or
+// neither passes a single case. The oracle is a real splice: each case compares the resulting
+// order, not the arithmetic the module performs.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,21 +25,18 @@ function reorderPages(fromIndex: number, moveIndex: number): readonly string[] {
   return remaining;
 }
 
-/** A `DataTransfer` a jsdom drag event would carry. */
 function dragTransfer(): DataTransfer {
   return new DataTransfer();
 }
 
 describe("the tab drop-position translation", () => {
   it("moves a tab rightward to the place it was dropped", () => {
-    // `alpha` (index 0) dropped between `gamma` and `delta` (drop position 3).
     const moveIndex = pageMoveIndex(0, 3);
     expect(moveIndex).toBe(2);
     expect(reorderPages(0, 2)).toStrictEqual(["beta", "gamma", "alpha", "delta"]);
   });
 
   it("moves a tab leftward without subtracting", () => {
-    // `delta` (index 3) dropped between `alpha` and `beta` (drop position 1).
     const moveIndex = pageMoveIndex(3, 1);
     expect(moveIndex).toBe(1);
     expect(reorderPages(3, 1)).toStrictEqual(["alpha", "delta", "beta", "gamma"]);
@@ -64,8 +53,7 @@ describe("the tab drop-position translation", () => {
   });
 
   it("answers nothing for a drop at the position immediately after the tab", () => {
-    // Drop position 3 for the tab at index 2 names the position it already occupies, and the
-    // subtraction is what reveals that — the negative control for the case above.
+    // Drop position 3 for the tab at index 2 is the position it already occupies.
     expect(pageMoveIndex(2, 3)).toBeUndefined();
   });
 });

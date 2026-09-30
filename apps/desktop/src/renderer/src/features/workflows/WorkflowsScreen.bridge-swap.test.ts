@@ -1,11 +1,6 @@
-// The bridge is replaced under a screen that has already been answered.
-//
-// SEPARATE FROM `WorkflowsScreen.test.tsx` BECAUSE THE SUBJECT IS THE SWAP. That file
-// varies what a person opens against one bridge; every case here opens the same thing
-// and then replaces the bridge under the mounted console.
-//
-// The screen holds one answer made from what a bridge served: which pane is open. An
-// address carried across a swap opens a pane on a run the new bridge has never heard of.
+// Replacing the bridge under a mounted screen. An open pane's address names a run the old
+// bridge listed, so carrying it across the swap would open a pane on a run the new bridge has
+// never heard of.
 
 import { beforeAll, describe, expect, it } from "vitest";
 
@@ -33,7 +28,6 @@ describe("a bridge replaced under an answered screen", () => {
     await settle();
     pressOpenRun(rendered.container);
     await settle();
-    // The premise: a pane really was open, addressed by a run the previous bridge listed.
     expect(isShowingOpenedPane(rendered.container)).toBe(true);
 
     remountWorkflowsScreen(rendered, withReplacedBridge(composed));
@@ -43,8 +37,7 @@ describe("a bridge replaced under an answered screen", () => {
   });
 
   it("negative control: a re-render at the SAME bridge keeps the open pane", async () => {
-    // Without this, the case above would pass over a screen that discarded the open pane
-    // on every render, which would make no pane openable at all.
+    // Guards against a screen that drops the open pane on every render.
     const composed = composeWindow();
     const rendered = mountWorkflowsScreen(composed);
     await settle();
@@ -58,9 +51,7 @@ describe("a bridge replaced under an answered screen", () => {
   });
 
   it("negative control: the replacement really is a different bridge", () => {
-    // The premise of both cases above, asserted rather than assumed: identity is the
-    // whole of what separates two fixture bridges, and identity is what the holder
-    // re-mints on.
+    // Identity is all that separates two fixture bridges, and the screen keys its state on it.
     const composed = composeWindow();
     const replaced = withReplacedBridge(composed);
 

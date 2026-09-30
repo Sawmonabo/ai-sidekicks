@@ -1,12 +1,6 @@
-// One queued item in the queue list.
-//
-// Split from `QueueContents.tsx`, which owns the read and the empty case,
-// while this owns one row.
-//
-// CANCELABILITY IS THE WIRE'S ANSWER, NOT A LOOK. The state a row may be
-// canceled from is a closed set kept here beside the control it gates, so the
-// control and the rule that admits it cannot drift apart; the tone table sits with
-// it for the same reason.
+// One queued item in the queue list, split from `QueueContents.tsx`, which owns the read and
+// the empty case. The states a row may be canceled from are a closed set kept beside the
+// control they gate, so the two cannot drift; the tone table sits with it for the same reason.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

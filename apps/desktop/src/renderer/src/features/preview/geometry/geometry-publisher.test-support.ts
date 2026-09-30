@@ -1,22 +1,6 @@
-// The four fixtures every geometry-publisher suite needs before it can ask anything.
-//
-// One home rather than a copy per suite, on this package's rule that shared
-// scaffolding lives once: every suite beside this file that publishes geometry needs a
-// page host that records what it was handed, a box the test decides, and a way to move that
-// box — and a fixture copied per suite is a fixture that drifts, with the copy that
-// drifted being the one whose suite then passes for the wrong reason. The number of
-// suites is deliberately not stated: it moves with every case file the preview adds,
-// and a count in prose is a claim nothing checks.
-//
-// A `.test-support.ts` and not a `.fixtures.ts`, which is what the package's own
-// conventions call this role: the layering gate exempts that suffix from its orphan
-// rule (a module whose only dependents are the test files the cruise excludes reads
-// as disconnected), and every other shared test role in this tree already carries it.
-//
-// NOTHING HERE DRIVES THE MODULE UNDER TEST. The publisher is constructed by each
-// suite, because how it is constructed is part of what each of them is about — one
-// arms nothing, one runs a frame before it asserts, one installs a size observer
-// first. What is shared is the world the publisher is pointed at.
+// The fixtures every geometry-publisher suite shares: a page host that records what it was
+// handed, a box the test decides, and a way to move it. The publisher itself is constructed by
+// each suite, because how it is constructed is part of what each suite is about.
 
 import type { PaneGeometrySample, PaneRect } from "./pane-geometry.js";
 import type { PageHost } from "./page-host.js";
@@ -40,6 +24,7 @@ export class RecordingPageHost implements PageHost {
   }
 }
 
+/** A pane rectangle from its four numbers. */
 export function rect(x: number, y: number, width: number, height: number): PaneRect {
   return { x, y, width, height };
 }

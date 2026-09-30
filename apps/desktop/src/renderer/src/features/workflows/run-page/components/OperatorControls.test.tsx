@@ -1,13 +1,6 @@
-// What the FORMS must never do, asserted as things they cannot do.
-//
-// Three rules, three groups. Each one is checked on the shape rather than on the copy
-// — a `disabled` attribute, an option list, the argument a call received — because
-// the copy is the workflows feature's to reword and the shape is the rule.
-//
-// What the component does with an OUTCOME is a different subject and lives beside this
-// suite in `OperatorControls.outcome.test.tsx`: these cases are about what an operator can
-// compose and submit, those are about what comes back. What the CHAIN does when it
-// moves under a held selection is a third, in `OperatorControls.chain-move.test.tsx`.
+// What the forms must never do, asserted on shape (a `disabled` attribute, an option list, the
+// argument a call received) rather than copy. Outcomes are in `OperatorControls.outcome.test.tsx`
+// and the chain moving under a held selection in `OperatorControls.chain-move.test.tsx`.
 
 import { WORKFLOW_CANCEL_REASON_BYTE_CAP } from "@ai-sidekicks/contracts";
 
@@ -25,12 +18,8 @@ import {
 const RUN_A_ADDRESS = { workflowRunId: "run-a" } as const;
 
 /**
- * The picker's own value for "resume without re-pinning".
- *
- * The component's `NO_REPIN` is module-private and stays that way — it is the empty
- * string because that is what an unselected `<option>` carries, and publishing it would
- * be publishing a fact about HTML. Restated here as what the DOM shows, which is the
- * only thing these cases read.
+ * The picker's own value for "resume without re-pinning". The component's `NO_REPIN` is
+ * module-private, so this restates what the DOM shows.
  */
 const NO_REPIN_VALUE = "";
 
@@ -96,17 +85,15 @@ describe("cancel is never gated, queued or disabled", () => {
     });
     expect(screen.getByText("reason-past-bound")).toBeDefined();
     const button = screen.getByRole("button", { name: /cancel this run/iu });
-    // The refused act does not travel AND the control stays pressable — a refusal sits
-    // beside its control rather than removing it, and cancel is never disabled on any
-    // path.
+    // The refused act does not travel and the control stays pressable; cancel is never disabled.
     expect(button.hasAttribute("disabled")).toBe(false);
     fireEvent.click(button);
     expect(cancel).not.toHaveBeenCalled();
   });
 
   it("says so where the operator is looking, even with the disclosure closed", () => {
-    // An operator who typed a long reason, collapsed the region and pressed Cancel must
-    // still be told why nothing was sent.
+    // An operator who collapsed the region and pressed Cancel must still be told why nothing was
+    // sent.
     const cancel = vi.fn();
     const { container } = render(
       <OperatorControls
@@ -123,24 +110,22 @@ describe("cancel is never gated, queued or disabled", () => {
     fireEvent.change(screen.getByLabelText("Reason"), {
       target: { value: "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP + 1) },
     });
-    // The state the defect needed: the operator never opened it, or closed it again.
+    // The operator never opened it, or closed it again.
     expect(disclosure.open).toBe(false);
-    // The claim is about WHERE the refusal is, not whether it exists: it stands outside
-    // the collapsed region.
+    // The claim is where the refusal is: outside the collapsed region.
     expect(disclosure.contains(screen.getByText("reason-past-bound"))).toBe(false);
 
     fireEvent.click(screen.getByRole("button", { name: /cancel this run/iu }));
 
     expect(cancel).not.toHaveBeenCalled();
-    // And the press points at the field to shorten rather than only refusing.
+    // The press points at the field to shorten.
     expect(disclosure.open).toBe(true);
     expect(document.activeElement).toBe(screen.getByLabelText("Reason"));
   });
 
   it("negative control: an accepted press leaves the disclosure as the operator left it", () => {
-    // Without this, the case above would pass over a control that yanked the
-    // disclosure open on every submission, which would be the console overriding the
-    // operator's own arrangement rather than answering a refusal.
+    // Without this, the case above would pass over a control that opened the disclosure on every
+    // submission, overriding the operator's arrangement.
     const cancel = vi.fn();
     const { container } = render(
       <OperatorControls
@@ -159,8 +144,7 @@ describe("cancel is never gated, queued or disabled", () => {
   });
 
   it("negative control: a reason exactly at the bound travels", () => {
-    // Without this, the case above would pass over a component that refused every
-    // reason, or that never called through at all.
+    // Without this, the case above would pass over a component that refused every reason.
     const cancel = vi.fn();
     const atBound = "a".repeat(WORKFLOW_CANCEL_REASON_BYTE_CAP);
     render(
@@ -224,17 +208,15 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
         resume={{ resume: vi.fn(), versionChain: VERSION_CHAIN, outcome: IDLE_RUN_CONTROL_OUTCOME }}
       />,
     );
-    // The value list is the assertion, not the labels: a "latest" option would have
-    // to carry SOME value, and any value here that is not a version the caller read
-    // is the server-resolved latest this control exists to refuse.
+    // The value list is the assertion: a "latest" option would carry some value that is not a
+    // version the caller read.
     expect(
       screen.getAllByRole("option").map((option) => (option as HTMLOptionElement).value),
     ).toStrictEqual(["", "wfv-03", "wfv-02"]);
   });
 
   it("negative control: an empty chain renders no options at all", () => {
-    // Without this, the option-list case would pass over a component that rendered
-    // its options from a source other than the chain it was handed.
+    // Without this, the option-list case would pass over options drawn from another source.
     render(
       <OperatorControls
         {...RUN_A_ADDRESS}
@@ -247,16 +229,10 @@ describe("the re-pin is explicit or absent, and never resolves a latest", () => 
 });
 
 /*
- * THE PANE HOLDING THESE CONTROLS IS RETARGETED IN PLACE. The pane layout rewrites a pane's
- * address and hands the same component instance another run, so the two fields here —
- * a typed cancellation reason and a chosen re-pin target — have to be answers about
- * the run the controls are now addressed at.
- *
- * The re-pin is the sharper half. A version chain is per run, so run A's chosen id is
- * in run B's chain nowhere: a `<select>` whose value matches no option falls back to
- * DISPLAYING its first one while the state it is bound to still holds run A's id. The
- * operator sees "Keep the pinned version", presses Resume, and the call carries a
- * target they never chose for a run they had not looked at.
+ * The pane is retargeted in place: the layout rewrites its address and hands the same instance
+ * another run. A chain is per run, so run A's chosen id is in run B's chain nowhere, and a
+ * `<select>` matching no option displays its first one while the state still holds run A's id,
+ * so Resume would send a target the operator never chose.
  */
 describe("the two fields are answers about one run", () => {
   const RUN_B_CHAIN: readonly WorkflowVersionChoice[] = [
@@ -298,7 +274,6 @@ describe("the two fields are answers about one run", () => {
     );
     fireEvent.change(screen.getByLabelText("Reason"), { target: { value: "superseded" } });
     fireEvent.change(screen.getByRole("combobox"), { target: { value: "wfv-02" } });
-    // The premise: both fields really did take the operator's answers about run A.
     expect(typedReason()).toBe("superseded");
     expect(chosenRepin()).toBe("wfv-02");
     rendered.rerender(admitted({ workflowRunId: "run-b", versionChain: RUN_B_CHAIN, resume }));
@@ -309,8 +284,7 @@ describe("the two fields are answers about one run", () => {
     fillRunAThenRetarget(vi.fn());
     expect(typedReason()).toBe("");
     expect(chosenRepin()).toBe(NO_REPIN_VALUE);
-    // And the line that quotes the target is gone with it, rather than printing run
-    // A's version id under run B's address.
+    // The line quoting the target is gone with it.
     expect(screen.queryByText(/resuming onto/iu)).toBeNull();
   });
 
@@ -323,15 +297,13 @@ describe("the two fields are answers about one run", () => {
   });
 
   it("negative control: run A's chosen version is in run B's chain nowhere", () => {
-    // The premise of the case above, asserted rather than assumed: an id the new chain
-    // happened to contain would be a legal choice there, and the defect would be a
-    // silent one rather than a wrong call.
+    // The premise of the case above, asserted: an id the new chain contained would be a legal
+    // choice there.
     expect(RUN_B_CHAIN.map((choice) => choice.workflowVersionId)).not.toContain("wfv-02");
   });
 
   it("negative control: a re-render at the SAME run keeps both answers", () => {
-    // Without this, the cases above would be satisfied by fields that cleared on every
-    // render — which would make the reason untypeable and the picker unusable.
+    // Without this, the cases above pass for fields that cleared on every render.
     const resume = vi.fn();
     const rendered = render(
       admitted({ workflowRunId: "run-a", versionChain: VERSION_CHAIN, resume }),

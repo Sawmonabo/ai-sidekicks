@@ -1,80 +1,12 @@
-// The producer half of the diff viewer: unified patch text in, `DiffModel`
-// out, plus the intraline word diff one changed line pair is segmented by.
-//
-// The diff viewer splits in two and this file is the ADOPTED half: `diff` 9.0.0
-// (jsdiff, BSD-3-Clause) for parse and intraline compute, against an OWN-BUILT
-// virtualized row renderer for
-// the pane and the inline card. So `parsePatch` and `diffWordsWithSpace` are called
-// here and nowhere else in the console, and `DiffRowView` / `diff-row-index.ts`
-// stay first-party — the row renderer is the half the row says to own, because no
-// candidate was both headless and virtualized.
-//
-// PARSING COMPUTES NO INTRALINE SEGMENTATION, AND THAT IS A BOUND AND NOT AN OMISSION.
-// This module used to walk every hunk and run `diffWordsWithSpace` over every
-// delete/insert pair before it returned, unbounded — so a forty-file change set paid
-// for five thousand word diffs before the virtualizer placed a row, and one long line
-// paid more than the whole rest of the patch (a single 18,889-character pair inside a
-// 5,000-line patch measured 831 ms on its own, 2026-09-02). A parsed line therefore
-// carries ONE whole-line segment, which is its text; `intraline-segment-cache.ts` derives
-// the split when a row is materialized, memoized and size-bounded. `intralineSegments`
-// below is still this module's, because it is the adopted library's seam and parse
-// and intraline compute sit on one side of it.
-//
-// WHY A PARSER EXISTS BEFORE ITS WIRE DOES. `diff-model.ts`'s header records the
-// obligation this file discharges: the module that turns a unified patch into the
-// model "lands with the first caller that has patch bytes to give it, in the PR that
-// adds that dependency". The dependency is added here. No daemon method returns patch
-// bytes, so the callers are `tests/helpers/diff-fixture.ts`, which builds the diff views'
-// and the endurance tier's subjects THROUGH this module rather than beside it, and this
-// module's own tests. That ordering is the point: when a wire lands it calls a parser
-// the tiers have already been exercising, rather than a second one written to match
-// them.
-//
-// WHAT A PATCH CANNOT SAY, AND WHICH THIS FILE THEREFORE DOES NOT INVENT.
-//
-//   • `DiffHunk.precedingContext` — the hidden context a gap row reveals — has no
-//     representation in a unified patch at all: a patch's context lines are INSIDE
-//     its hunks. A parsed hunk therefore carries an empty `precedingContext`, and a
-//     caller that has the surrounding file supplies it. Synthesizing one from the
-//     hunk's own leading context would move lines a reader can already see into a
-//     collapsed gap and claim the gap had revealed them.
-//   • The compared refs are the caller's own answer, so they are parameters here rather
-//     than anything scraped out of the patch's headers.
-//
-// AND ONE THING THE LIBRARY KEEPS, WHICH THIS FILE KEEPS TOO. A git patch
-// states a rename, a copy, a mode change, and a binary change in the extended headers
-// ABOVE the hunks, so a change that is only one of those parses into a file with no
-// textual hunks at all. A mapping that kept only the selected path and `hunks` would
-// show such a file in both diff views as `+0 −0` under a bare path — the
-// console reporting that nothing happened to a file something happened to, and, for a
-// rename, losing the name a reader is looking for. `parsePatch` retains all four
-// facts on `StructuredPatch` (`isRename`, `isCopy`, `oldMode` / `newMode`,
-// `isBinary`, with `oldFileName` / `newFileName` overwritten from the `rename from` /
-// `copy from` lines) — measured against `diff` 9.0.0, not assumed — so this needs no
-// second pass over the raw text the way the `@@` headers below do. They are carried
-// onto `DiffFile` and rendered; nothing here infers one from `hunks.length === 0`,
-// which cannot say which of the four it was.
-//
-// AND ONE THING THE LIBRARY DROPS, WHICH THIS FILE THEREFORE READS ITSELF.
-// `StructuredPatchHunk` carries four numbers and the body lines — and nothing else.
-// The `@@` line a patch actually declares carries more than those four numbers: git
-// appends the enclosing function or section after the closing `@@`, and a one-line
-// range is spelled `-10` rather than `-10,1`. A header rebuilt from the numbers
-// therefore lost the section context a reader navigates by and restated the range in
-// a spelling the patch never used, which is not the wire-verbatim header the row kind
-// promises. So the raw `@@` lines are read off the patch text in order and handed to
-// the hunks in that order, and nothing here composes a header out of parts.
+// Unified patch text in, `DiffModel` out, plus the intraline word diff for one line pair
+// (`diff` 9.0.0; `parsePatch` and `diffWordsWithSpace` are called only here). A parsed line
+// carries one whole-line segment; the split is derived per row by `intraline-segment-cache.ts`.
+// The compared refs are the caller's, and rename, copy, mode and binary facts are carried
+// from `StructuredPatch` rather than inferred from an empty hunk list.
 
-// THE LIBRARY IS REACHED BY SUBPATH AND NEVER BY ITS ROOT, and that is a bundle fact
-// rather than a style. This module is on the console's initial import graph — the
-// always-on inline diff card renders through it — and the package declares no
-// side-effect-free flag, so a bundler may not drop what its root module re-exports.
-// That root names every algorithm the package ships, so importing two symbols from it
-// put the character, line, sentence, css, json and array differs on every launch beside
-// the one word differ that is actually called. The `./lib/*.js` subpaths are the
-// package's own published export map and not a reach into its internals; taking them
-// leaves exactly the two implementations this module uses. `StructuredPatch` is a type
-// and erases, so it costs nothing wherever it is taken from.
+// Subpath imports, not the package root: this module is on the initial import graph and the
+// package declares no side-effect flag, so the root would pull every differ (character,
+// line, sentence, css, json, array) into every launch beside the one word differ used.
 import { diffWordsWithSpace } from "diff/lib/diff/word.js";
 import { parsePatch } from "diff/lib/patch/parse.js";
 import type { StructuredPatch } from "diff/lib/types.js";
@@ -89,44 +21,30 @@ export interface ComparedStates {
   readonly headRef: string;
 }
 
-/**
- * What a unified patch's own headers name a side of a file when there is no file
- * on that side. Both `diff` and `git` spell it this way.
- */
+/** The name a unified patch's headers give a side of a file when there is no file there. */
 const ABSENT_FILE_NAME = "/dev/null";
 
 /** The git prefixes `diff --git` puts on a path, which are the tool's and not the path's. */
 const GIT_PATH_PREFIXES = ["a/", "b/"] as const;
 
 /**
- * Turn unified patch text into the model both diff views render.
- *
- * `parsePatch` handles the multi-file case, the git extended headers v9 added
- * (create / delete / rename / mode), and the malformed-input rejection this console
- * would otherwise have had to write and get wrong — which is the row's whole point.
- * Everything after it is mapping, and the mapping is the part that has to be exact:
- * a line's two numbers advance on DIFFERENT sides, and a renderer handed a base
- * number on an inserted line would display a line that does not exist in the base.
+ * Turn unified patch text into the model both diff views render. `parsePatch` handles the
+ * multi-file case, git extended headers and malformed-input rejection; the mapping after it
+ * must be exact because a line's two numbers advance on different sides.
  */
 export function parseUnifiedPatch(patchText: string, comparedStates: ComparedStates): DiffModel {
   const files: DiffFile[] = [];
-  // Read once for the whole patch, and consumed in the order `parsePatch` hands the
-  // hunks back — both walks read the same text top to bottom, so the nth declared
-  // header belongs to the nth parsed hunk across every file.
+  // Consumed in the order `parsePatch` returns hunks: the nth declared header belongs to the
+  // nth parsed hunk across every file.
   const declaredHeaders = declaredHunkHeaders(patchText);
   const structuredPatches = parsePatch(patchText);
   const parsedHunkCount = structuredPatches.reduce(
     (total, structuredPatch) => total + structuredPatch.hunks.length,
     0,
   );
-  // BOTH DIRECTIONS, BEFORE THE FIRST PAIRING. The pairing is by ordinal across two
-  // independent walks of one text, so it is only sound while the two walks agree on
-  // how many hunks there are. A guard on the SHORT side alone — which is what the
-  // per-hunk lookup below can see — leaves the other direction silent: one extra `@@`
-  // line found by this module's own scanner shifts every later hunk onto the previous
-  // one's declared header, and every header still resolves, so nothing anywhere says
-  // the rendering is wrong. The two counts are compared once, up front, and a
-  // disagreement refuses the patch rather than rendering a mispaired one.
+  // Compare both directions before pairing. Pairing is by ordinal across two walks of one
+  // text; one extra `@@` found by this module's scanner would shift every later hunk onto
+  // the previous header while every lookup still resolved, so a disagreement refuses the patch.
   if (declaredHeaders.length !== parsedHunkCount) {
     throw new Error(
       `the patch declares ${String(declaredHeaders.length)} \`@@\` headers and parsed into ${String(parsedHunkCount)} hunks, so no header can be paired with the hunk it declares`,
@@ -141,18 +59,15 @@ export function parseUnifiedPatch(patchText: string, comparedStates: ComparedSta
         const header = declaredHeaders[hunkOrdinal];
         hunkOrdinal += 1;
         if (header === undefined) {
-          // Unreachable, because the counts were compared before the walk began. A
-          // throw rather than a fallback because the only fallback is the
-          // reconstruction this function exists to stop making: a header composed
-          // from the numbers would be indistinguishable on screen from one the patch
-          // declared.
+          // Unreachable, because the counts were compared before the walk began. A throw, not
+          // a fallback: a header composed from the numbers would look like a declared one.
           throw new Error(
             `the patch declares fewer \`@@\` headers (${String(declaredHeaders.length)}) than it parsed hunks`,
           );
         }
         return {
           header,
-          // Empty by construction, not by omission — see the header.
+          // Empty: a unified patch has no representation for hidden context.
           precedingContext: [],
           lines: hunkLines(hunk.lines, hunk.oldStart, hunk.newStart),
         };
@@ -167,33 +82,17 @@ export function parseUnifiedPatch(patchText: string, comparedStates: ComparedSta
 }
 
 /**
- * How a unified patch spells a hunk header, and where its verbatim part ends.
- *
- * The two ranges are matched so a body line can never be mistaken for a header —
- * every body line carries a ` `, `+`, or `-` prefix, so a deleted line reading
- * `-@@ -1 +1 @@` starts with the prefix and not with `@@`. Both line counts are
- * optional because a one-line range omits them, which is precisely the spelling a
- * reconstruction from the numbers used to overwrite. Nothing after the closing `@@`
- * is described here: it is the section context, it is free text, and it is kept.
+ * How a unified patch spells a hunk header. Anchored at the line start, so a body line such
+ * as `-@@ -1 +1 @@` (which starts with its prefix) never matches. Both line counts are
+ * optional, since a one-line range omits them; the section context after `@@` is not matched.
  */
 const HUNK_HEADER_PATTERN = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/;
 
 /**
- * Where a patch's lines end, split EXACTLY as the adopted parser splits them.
- *
- * `parsePatch` splits on `/\n/` and on nothing else — measured against `diff` 9.0.0's
- * `libesm/patch/parse.js`, not assumed — so this scanner must too, and the reason is
- * the pairing below. Two walks of one text pair by ordinal, and that is sound only
- * while both walks agree line for line. This used to split on `\r\n` and on a bare
- * `\v`, `\f`, `\r`, or `\u0085`, which is strictly more separators than the library
- * recognizes: a hunk body line carrying a lone carriage return — an ordinary line in a
- * file with old-Mac endings — was ONE line to the parser and TWO to this scanner, so a
- * `@@` header inside such a line was counted as declared with no hunk to pair it with,
- * and every later hunk took the previous one's header.
- *
- * The carriage return a Windows patch leaves on the end of a line is a different
- * question from where the line ends, and it is answered where the header is KEPT
- * rather than here.
+ * Where a patch's lines end, split exactly as the adopted parser splits them (`/\n/` only,
+ * checked against `diff` 9.0.0's `patch/parse.js`). Headers are paired with hunks by ordinal
+ * across two walks of one text, which is sound only if both walks agree line for line: a
+ * lone `\r` inside a body line must not become a line break here that the parser lacks.
  */
 const PATCH_LINE_BREAK_PATTERN = /\n/;
 
@@ -204,15 +103,9 @@ export interface IntralineSegmentPair {
 }
 
 /**
- * Segment one changed line pair at its word boundaries, for both sides at once.
- *
- * Both sides from ONE comparison rather than two, because the two sides of an
- * intraline diff are two readings of the same alignment: computing them separately
- * would let the deleted line's highlight disagree with the inserted line's about
- * which words survived, which is exactly the misreading the highlight exists to
- * prevent. `diffWordsWithSpace` rather than `diffWords` because it keeps whitespace
- * as part of the tokens, so a change in indentation stays visible instead of being
- * silently treated as no change.
+ * Segment one changed line pair at its word boundaries, for both sides from one comparison,
+ * so the two highlights cannot disagree about which words survived. `diffWordsWithSpace`
+ * keeps whitespace in the tokens, so an indentation change stays visible.
  */
 export function intralineSegments(previousText: string, nextText: string): IntralineSegmentPair {
   const changes = diffWordsWithSpace(previousText, nextText);
@@ -231,26 +124,17 @@ export function intralineSegments(previousText: string, nextText: string): Intra
 }
 
 /**
- * One line's text without the carriage return a Windows patch leaves on it.
- *
- * The split above is the parser's, which leaves a `\r` at the end of every line of a
- * CRLF patch. A header carrying a stray carriage return is not the header the patch
- * declared, so it is trimmed from what is kept — one character, from the end, and only
- * where it is there.
+ * One line's text without the carriage return a CRLF patch leaves on it, since the parser's
+ * split leaves `\r` on every line and a header carrying one is not the declared header.
  */
 function withoutTrailingCarriageReturn(line: string): string {
   return line.endsWith("\r") ? line.slice(0, -1) : line;
 }
 
 /**
- * Every `@@` header the patch text declares, in the order it declares them.
- *
- * Read off the RAW TEXT rather than off the parsed structure because the parsed
- * structure does not have them: `diff`'s `StructuredPatchHunk` is four numbers and
- * the body lines, and the section context git appends after the closing `@@` is
- * discarded before a caller ever sees the hunk. The header is carried verbatim,
- * trailing context included, which is what `DiffHunkHeaderRow` means by
- * wire-verbatim.
+ * Every `@@` header the patch text declares, in order, verbatim including the section
+ * context after the closing `@@`. Read from the raw text because `StructuredPatchHunk` keeps
+ * only four numbers and the body lines.
  */
 function declaredHunkHeaders(patchText: string): readonly string[] {
   const headers: string[] = [];
@@ -263,14 +147,9 @@ function declaredHunkHeaders(patchText: string): readonly string[] {
 }
 
 /**
- * The path a parsed file is rendered under.
- *
- * The new side wins, because a rename's new name is where the file now is and a
- * reader looking for it will look there; the old side is taken only where there is
- * no new side, which is a deletion. The `a/` and `b/` prefixes are stripped ONLY on
- * a patch that declared itself git-style, because on such a patch they are the
- * tool's own decoration — and on any other patch a leading `b/` is part of the path
- * and stripping it would re-root a file, which `diff-model.ts` forbids outright.
+ * The path a parsed file is rendered under. The new side wins (a rename's new name is where
+ * the file is); the old side is used only for a deletion. The `a/` and `b/` prefixes are
+ * stripped only on a git-style patch, since elsewhere `b/` is part of the path.
  */
 function patchFilePath(structuredPatch: StructuredPatch): string {
   const newFileName = structuredPatch.newFileName ?? ABSENT_FILE_NAME;
@@ -279,11 +158,8 @@ function patchFilePath(structuredPatch: StructuredPatch): string {
 }
 
 /**
- * One side's path as a diff view draws it.
- *
- * The prefix strip lives here rather than inside `patchFilePath` because the OLD side
- * is rendered too — a rename names where the file came from — and two copies of this
- * rule would be two chances to re-root one of the two paths a reader compares.
+ * One side's path as a diff view draws it. Shared by both sides because a rename renders the
+ * old path too, and two copies of the strip rule could re-root one of them.
  */
 function renderedPath(structuredPatch: StructuredPatch, path: string): string {
   if (structuredPatch.isGit !== true) {
@@ -301,17 +177,12 @@ function renderedPath(structuredPatch: StructuredPatch, path: string): string {
 type ExtendedHeaderChange = Pick<DiffFile, "renamedFrom" | "copiedFrom" | "modeChange" | "binary">;
 
 /**
- * What a file's extended headers declared, read off the parsed structure.
+ * What a file's extended headers declared, read off the parsed structure. Members are spread
+ * in rather than assigned `undefined`: under `exactOptionalPropertyTypes` that is a different
+ * type from absent, and presence is the claim.
  *
- * SPREAD-IN RATHER THAN `: undefined`, on `hunkLines`' reason: under
- * `exactOptionalPropertyTypes` an optional member assigned `undefined` is a different
- * type from an absent one, and the model means the second — presence is the claim.
- *
- * A MODE CHANGE NEEDS BOTH SIDES AND A DIFFERENCE. `parsePatch` also fills one of the
- * two modes for a created or deleted file (`new file mode`, `deleted file mode`), and
- * a file that appeared did not have its mode changed — it did not have one before.
- * Requiring both, and requiring them to differ, is what keeps this member meaning
- * what it says.
+ * A mode change needs both sides and a difference: `parsePatch` also fills one mode for a
+ * created or deleted file, which did not change mode.
  */
 function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderChange {
   const { oldFileName, oldMode, newMode } = structuredPatch;
@@ -330,13 +201,9 @@ function extendedHeaderChange(structuredPatch: StructuredPatch): ExtendedHeaderC
 }
 
 /**
- * Fold neighboring segments that carry the same verdict into one.
- *
- * Filtering one side out of a word diff leaves runs that were separated only by the
- * other side's tokens, and a model that carried them separately would make an
- * unchanged line a list of segments rather than the single one `diff-model.ts` says
- * every consumer may rely on. Empty values are dropped for the same reason: a
- * zero-length segment is a span a renderer would open and close around nothing.
+ * Fold neighboring segments with the same verdict into one, and drop empty values. Filtering
+ * one side out of a word diff leaves runs separated only by the other side's tokens, and an
+ * unchanged line must stay the single segment `diff-model.ts` promises.
  */
 function mergeAdjacent(segments: readonly DiffIntralineSegment[]): readonly DiffIntralineSegment[] {
   const merged: DiffIntralineSegment[] = [];

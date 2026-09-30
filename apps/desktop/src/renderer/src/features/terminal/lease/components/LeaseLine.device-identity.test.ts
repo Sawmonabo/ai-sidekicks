@@ -1,13 +1,8 @@
-// The take control is gated on knowing which device this is.
-//
-// The last of the line's prohibitions, and its own file because it is the one that
-// withholds the control entirely: the control acts on this device's behalf and the fold
-// names the holder by user id, so until that identity has been READ there is no
-// control here at all, and no sentence standing where it would be. A control offered
-// without it is one the daemon will honor and this line will then report as a hold
-// from somewhere else.
-//
-// Nothing else gates it. The shell belongs to the one person using this machine.
+// The take control is gated on knowing which device this is. The control acts on this device's
+// behalf and the fold names holders by user id, so until the identity has been read there is no
+// control and no sentence where it would be: offered without it, the daemon would honor a take
+// that the line then reports as a hold from elsewhere. Nothing else gates it, because the
+// shell belongs to one person.
 
 import { describe, expect, it } from "vitest";
 

@@ -1,8 +1,5 @@
-// The child-run and handoff derivations, over rows the contract could actually send.
-//
-// Every case reads the DERIVATION rather than a rendered line, because these are the
-// two questions the feed asks per row and the rows are the only input: which rows
-// carry a child run, which rows are handoffs, and which of them draws the card.
+// The child-run and handoff derivations, read directly rather than through a rendered line:
+// which rows carry a child run, which are handoffs, and which of them draws the card.
 
 import { describe, expect, it } from "vitest";
 
@@ -67,8 +64,7 @@ describe("child-run entries — one card per child, at the row that first named 
       }),
     ]);
     expect(entries).toHaveLength(1);
-    // The anchor is the first row's — the card stays where a reader left it — and
-    // every figure on it is the second row's.
+    // The anchor is the first row's; every figure on the card is the second row's.
     expect(entries[0]?.rowId).toBe("r1");
     expect(entries[0]?.summary.eventCount).toBe(9);
     expect(entries[0]?.summary.state).toBe("completed");
@@ -80,8 +76,8 @@ describe("child-run entries — one card per child, at the row that first named 
   });
 
   it("negative control: a child summarized once keeps the only summary it has", () => {
-    // Without this, a fold that took the LAST row's summary unconditionally would pass
-    // the case above while dropping the summary of a child nothing re-summarized.
+    // A fold that took the last row's summary unconditionally would pass the case above while
+    // dropping a child nothing re-summarized.
     const entries = deriveChildRunEntries([
       rowCarryingChildRun("r1", 1, completeSummary("run-child", 4)),
       rowCarryingChildRun("r2", 2, completeSummary("run-other", 2)),

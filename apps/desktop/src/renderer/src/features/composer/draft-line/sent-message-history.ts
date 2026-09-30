@@ -1,23 +1,12 @@
 // The sent-message history: ArrowUp and ArrowDown at the line's edge offsets recall this
-// user's sent messages, guarded so that a walk never destroys an unsent draft.
-//
-// The recall is stateful, so it is a class with private fields.
+// window's sent messages without destroying an unsent draft.
 
 import { COMPOSER_HISTORY_RECALL_CAP, COMPOSER_RETAINED_ADDRESS_CAP } from "../composer-bounds.js";
 
 /**
- * This user's sent messages, walkable, draft-guarded.
- *
- * The guard is the whole design: the text a person had typed before they started
- * walking is STASHED on the first recall and restored when they walk back past the
- * newest entry. Without it, one ArrowUp on a half-written message destroys it and
- * there is nowhere to get it back from — the transcript holds what was sent, and this
- * was not sent.
- *
- * The list is bounded at `COMPOSER_HISTORY_RECALL_CAP` and holds only what this
- * window has seen this session. It is renderer-local and never persisted:
- * `store/draft-store.ts` states why user-authored text does not
- * reach durable storage, and a recall list is the same class of content.
+ * This user's sent messages, walkable and draft-guarded: the text typed before a walk is
+ * stashed on the first recall and restored past the newest entry. Bounded at
+ * `COMPOSER_HISTORY_RECALL_CAP`, renderer-local and never persisted, like drafts.
  */
 export class SentMessageHistory {
   /** Newest first, so index 0 is the message most recently sent. */
@@ -37,16 +26,8 @@ export class SentMessageHistory {
   }
 
   /**
-   * Record one sent message and end any walk in progress.
-   *
-   * Recording ends the walk because the walk's anchor — the stashed draft — has just
-   * been sent. Keeping the index would leave a later ArrowDown restoring text that is
-   * now in the transcript, which reads as the composer duplicating a message.
-   *
-   * What is recorded is the message VERBATIM. Trimming here would be a transform in
-   * the one place it looks harmless: a recalled message is text a person sends
-   * again, so a list that stored a trimmed copy would quietly reintroduce, one
-   * ArrowUp later, exactly the loss of indentation the router refuses to perform.
+   * Record one sent message and end any walk, since the walk's stashed draft was just sent.
+   * Stored verbatim: a trimmed copy would drop the indentation the router preserves.
    */
   public recordSent(text: string): void {
     if (text.trim().length === 0) {
@@ -60,11 +41,8 @@ export class SentMessageHistory {
   }
 
   /**
-   * Walk one message older, or `undefined` when there is nothing older to reach.
-   *
-   * `currentText` is stashed on the FIRST step only, so walking three messages back
-   * and forward again returns the person's own unsent text rather than the message
-   * they passed through on the way.
+   * Walk one message older, or `undefined` when there is none. `currentText` is stashed on
+   * the first step only, so walking back and forward returns the person's own text.
    */
   public recallOlder(currentText: string): string | undefined {
     if (this.#recallIndex + 1 >= this.#sentNewestFirst.length) {
@@ -77,12 +55,7 @@ export class SentMessageHistory {
     return this.#sentNewestFirst[this.#recallIndex];
   }
 
-  /**
-   * Walk one message newer, or back to the stashed draft.
-   *
-   * `undefined` means the walk was not in progress, so the arrow belongs to the
-   * caret and not to this class.
-   */
+  /** Walk one message newer, or back to the stashed draft; `undefined` when no walk is on. */
   public recallNewer(): string | undefined {
     if (this.#recallIndex < 0) {
       return undefined;
@@ -104,23 +77,10 @@ export class SentMessageHistory {
 }
 
 /**
- * One recall history per composer address, so a walk never crosses a rebinding.
- *
- * The composer is rebound rather than remounted when a person moves between agents
- * and sessions, and a single history for the life of the mounted bar carried the
- * whole of one address's sent messages — and any walk in progress — into the next.
- * ArrowUp under the new target copied user-authored text written for the old
- * one into the line, and ArrowDown restored a draft stashed before the switch.
- *
- * A MAP RATHER THAN A RESET. Coming back to an address and finding its own history
- * intact is what a person expects; a reset on every rebinding would have destroyed
- * it to fix a leak between addresses. What a map costs is growth, so the retained
- * addresses are bounded and the least recently addressed is evicted — the histories
- * are per window and never persisted, and unbounded growth is a budget failure.
- *
- * THE CURSOR IS AT REST FOR AN ADDRESS THAT HAS JUST BECOME CURRENT. Walking is a
- * gesture within one line; a switch away and back cannot land mid-walk, so becoming
- * current resets the walk without touching what the address has sent.
+ * One recall history per composer address, so a walk never crosses a rebinding (the composer
+ * is rebound, not remounted, between agents and sessions). A map rather than a reset keeps an
+ * address's history when the person returns; retained addresses are capped and the least
+ * recently addressed is evicted. Becoming current resets the walk, not the history.
  */
 export class SentMessageHistories {
   /** Insertion order is the recency order the eviction reads. */
@@ -132,18 +92,12 @@ export class SentMessageHistories {
     return this.#byAddress.size;
   }
 
-  /**
-   * The history for this address, made current.
-   *
-   * Idempotent for an address that is already current, so a caller free to ask on
-   * every render neither re-orders the map nor disturbs a walk in progress.
-   */
+  /** The history for this address, made current. Idempotent for the current address. */
   public forAddress(address: string): SentMessageHistory {
     const existing = this.#byAddress.get(address);
     const history = existing ?? new SentMessageHistory();
     if (existing !== undefined) {
-      // Re-inserted so the map's own iteration order stays the recency order the
-      // eviction below reads, rather than a separate list that could disagree.
+      // Re-inserted so the map's iteration order is the recency order eviction reads.
       this.#byAddress.delete(address);
     }
     this.#byAddress.set(address, history);

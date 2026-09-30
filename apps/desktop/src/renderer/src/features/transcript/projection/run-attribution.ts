@@ -1,13 +1,6 @@
-// Which run a wire payload names, and which of its members is allowed to say so.
-//
-// WHY IT IS ITS OWN MODULE. `transcript-row-projection.ts` is a projection: it folds
-// this window's log into rows, deriving position, epoch, and identity. Deciding
-// whether a payload member names the row's OWN run is a different job, and its
-// subject is not the projection at all — it is the contracts package's registered payload
-// shapes. Nothing here reads an event, a store, or a row; it reads an open record
-// and answers with a run id or nothing, which is the whole of it.
-//
-// Its consumers are the projection modules beside it; nothing here leaves `projection/`.
+// Which run a wire payload names, and which of its members may say so. Its subject is the
+// contracts package's registered payload shapes, not the projection: it reads an open record
+// and answers with a run id or nothing.
 
 import {
   type InterventionRequestPayload,
@@ -18,80 +11,39 @@ import {
 } from "@ai-sidekicks/contracts";
 
 /**
- * The payload members that attribute a row to a run — THE CONTRACT'S OWN LIST.
- *
- * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` is `["runId", "targetRunId"]`, and the
- * second one matters: the event contract spells run identity `runId` on every
- * run-attributed event kind except interventions, whose registered shape names the run
- * `targetRunId`. Reading only the first member would project every `intervention.*`
- * event as a session-level `general` row outside the run group it belongs to — on a
- * transcript whose whole shape is runs.
- *
- * CONSUMED RATHER THAN RE-DERIVED, because the contracts package already declares
- * this set once, with its reasoning, in the package that owns the wire. A second
- * list here would be the drift a closed set is declared once to prevent.
+ * The payload members that attribute a row to a run: the contract's own list, `runId` and
+ * `targetRunId`. Interventions name the run `targetRunId`; reading only `runId` would project
+ * every `intervention.*` event as a session-level `general` row outside its run group.
+ * Consumed, not re-derived, so there is one list.
  */
 const RUN_ATTRIBUTION_PAYLOAD_MEMBERS: readonly string[] = TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS;
 
+/** Every run-naming payload member across the registered payload shapes. */
 export type RunNamingPayloadKey = RunNamingMemberOf<
   SessionEvent["payload"] | RunStateChangeEvent | RunRolledBackEvent | InterventionRequestPayload
 >;
 
-/** Whether a member names the run the event is ABOUT, or some other run. */
+/** Whether a member names the run the event is about, or some other run. */
 export type RunAttributionRole = "this-run" | "another-run";
 
 /**
- * Every payload member in the registered shapes that NAMES a run, decided.
+ * Every payload member in the registered shapes that names a run.
  *
- * THE COMPLETENESS PROOF FOR THE LIST ABOVE, and it catches what a shared runtime
- * constant cannot: a run-naming member added to a payload type that nobody adds to
- * that constant either. The union takes every member of every arm called `runId`
- * or ending in `RunId` — matched per arm, because a naked `keyof` over a union
- * yields only the members all its arms share — and the table is total over it, so
- * such a member fails to compile here until somebody says which run it names.
- *
- * Deciding every member rather than listing the attributing ones is what states
- * `parentRunId`'s case at all: `run.queued` carries it beside its own `runId`, and
- * reading whichever run-naming member turned up first would file a child run's rows
- * in its parent's run group — the same defect pointing the other way. What KEEPS it
- * out at runtime is the contract's own list, which does not carry it; what this
- * table adds is that nobody can add a member to a payload and leave that question
- * unanswered.
- *
- * HOW FAR THE COMPLETENESS CLAIM REACHES, which is a fact about what the contracts
- * package publishes. `SessionEvent` is that package's own registered discriminated
- * union, so `SessionEvent["payload"]` is EVERY payload shape it registers under it:
- * an arm added there carrying a run-naming member arrives at this table with nobody
- * having to widen a list here. The three shapes named beside it are `run-control.ts`',
- * which that union does not carry — they are the payloads of the run and
- * intervention kinds the row projection also reads, and the package publishes no union over
- * them — so those three are enumerated and the claim is bounded to exactly them: a
- * FOURTH run-control shape has to be added here by hand.
+ * The completeness proof for the list above, matched per arm because a naked `keyof` over a
+ * union yields only the members all arms share. `SessionEvent["payload"]` covers every arm
+ * the contracts package registers; the three run-control shapes beside it are not in that
+ * union, so a fourth has to be added by hand.
  */
 type RunNamingMemberOf<TPayload> = TPayload extends unknown
   ? Extract<keyof TPayload, "runId" | `${string}RunId`>
   : never;
 
 /**
- * The decision, one row per run-naming member. A COMPILE GATE, and stated as one.
- *
- * WHAT IT IS LOAD-BEARING FOR, exactly: the annotation is a total record over the
- * derived member union, so a payload the row projection reads that grows a run-naming member
- * does not compile until this table says which run that member names — and a member
- * the union does not carry is refused as an excess property, so the table cannot
- * drift ahead of the wire either. That is the whole of its live effect, and
- * `run-attribution.test.ts` drives it with a table the compiler rejects rather than
- * asserting it in prose.
- *
- * WHAT IT IS NOT. It is not a second filter over the contract's attributing list.
- * `TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS` names exactly the two spellings a row uses
- * to name its own run, and `timeline/row.ts` says so where it declares them —
- * `parentRunId` is absent there deliberately, not accidentally — so every key that
- * list carries is decided `this-run` here and the intersection below removes nothing
- * at today's contract. It is kept, and kept honest: it is the fail-closed arm for a
- * contract that grows an attributing key this file has not reviewed, DECLARED AND
- * DORMANT, and the test pins the dormancy by checking each listed key's decision
- * rather than leaving "removes nothing" as a claim.
+ * The decision, one row per run-naming member. A compile gate: the record is total over the
+ * derived member union, so a payload that grows a run-naming member fails to compile until
+ * this says which run it names. `parentRunId` is `another-run`, so a child's rows are never
+ * filed in its parent's group. The contract's list holds only `this-run` keys, so the filter
+ * below drops nothing today; it fails closed for a key added there but not reviewed here.
  */
 export const RUN_ATTRIBUTION_BY_PAYLOAD_KEY: Readonly<
   Record<RunNamingPayloadKey, RunAttributionRole>
@@ -113,12 +65,10 @@ const ATTRIBUTING_PAYLOAD_MEMBERS: ReadonlySet<string> = new Set(
 );
 
 /**
- * Read the run a payload belongs to, or `undefined` where it belongs to none.
+ * Reads the run a payload belongs to, or `undefined` where it belongs to none.
  *
- * Taken as the open record rather than as an event, because that is all the answer
- * depends on and it keeps this module free of the store's projection contract.
- * Narrowed on the way out: a payload member is `unknown` by that contract — the
- * projector that claims a kind is what narrows it, and the row projection claims every kind.
+ * Takes the open record, not an event, so this module stays free of the store's projection
+ * contract; members are `unknown` there, so the string is checked.
  */
 export function attributedRunIdOf(
   payload: Readonly<Record<string, unknown>> | undefined,

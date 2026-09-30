@@ -1,7 +1,4 @@
-// What the steer form refuses before the wire, and what it sends once it does.
-//
-// A refusal raised here is one the daemon would have raised anyway; it neither invents
-// an outcome nor sends a body the user did not write.
+// The refusals the steer form raises before the wire.
 
 import { describe, expect, it } from "vitest";
 import { renderSteerBox, submit, typeInto } from "./steer-box.test-support.js";
@@ -15,9 +12,8 @@ describe("the refusals raised before the wire", () => {
   });
 
   it("negative control: a typed steer is dispatched byte-identical", async () => {
-    // Proves the refusal above is about the empty body rather than a composer that
-    // never sends anything. A trim on the way to the wire would cost a pasted block
-    // the shape that was the reason for pasting it.
+    // Proves the refusal above is about the empty body. A trim before the wire would cost a
+    // pasted block the shape that was the reason for pasting it.
     const indented = "  if (ready) {\n    ship();\n  }\n\n";
     const { container, calls } = renderSteerBox();
     typeInto(container.querySelector(".meridian-run-composer__body"), indented);

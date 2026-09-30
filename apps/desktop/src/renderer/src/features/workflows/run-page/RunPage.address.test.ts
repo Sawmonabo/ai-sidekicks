@@ -1,9 +1,4 @@
-// The address guard: which subjects this pane will open, and what it does with the
-// rest.
-//
-// The pane layout hands a pane whichever entity its layout carried, and the run pane can be
-// pointed at a workflow definition, so "will not open" has to be a refusal the pane
-// states.
+// The address guard: a run pane pointed at a workflow definition refuses instead of opening it.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,8 +14,7 @@ describe("workflow run pane — with an address that names no run", () => {
   });
 
   it("negative control: the same pane opens the kind it does show", () => {
-    // Without this, the case above passes over a pane that refused every address. An
-    // addressed run draws the strip's summary line and no absence of any kind.
+    // Without this, the case above passes over a pane that refused every address.
     const section = renderRunPage(paneContext(ADDRESSED_RUN));
 
     expect(section.querySelector(".meridian-refusal--banner")).toBeNull();

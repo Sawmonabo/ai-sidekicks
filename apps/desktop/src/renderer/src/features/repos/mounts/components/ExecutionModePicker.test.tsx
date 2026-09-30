@@ -1,10 +1,5 @@
-// The picker renders the reply and never re-derives it.
-//
-// Two of `ExecutionModePicker.tsx`'s three Nevers are testable as
-// negative controls, and both are here: `availableModes` is never computed as
-// "everything not in `restrictions`", and `defaultMode` is never treated as the
-// current mode. The first is what the unlisted-mode case below fails on; the second is
-// what the two-tag case fails on.
+// The picker renders the reply and never re-derives it: `availableModes` is not computed as
+// everything outside `restrictions`, and `defaultMode` is not treated as the current mode.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { render, within } from "@testing-library/react";
@@ -86,9 +81,8 @@ describe("ExecutionModePicker — the rows come from the reply", () => {
   });
 
   it("negative control: a mode named in neither half of the reply gets no row", () => {
-    // The guard against "everything not in `restrictions`". A picker that started from
-    // a hardcoded list of modes would still draw `provisioned-worktree` here — with no
-    // reason beside it, which is the silent substitution the picker forbids.
+    // A hardcoded mode list would still draw `provisioned-worktree` here, with no reason
+    // beside it.
     const { container } = renderPicker({
       availableModes: ["bound-root"],
       defaultMode: "bound-root",
@@ -113,9 +107,8 @@ describe("ExecutionModePicker — default is not current", () => {
   });
 
   it("negative control: the bound row does not also claim to be the default", () => {
-    // `defaultMode` here is `provisioned-worktree` while the workspace is bound
-    // `bound-root`. A renderer that read one field for both would put both tags on one
-    // row, which is how a reader comes to believe the default is already in force.
+    // `defaultMode` is `provisioned-worktree` while the workspace is bound `bound-root`; one
+    // field read for both would put both tags on one row.
     const { container } = renderPicker(GIT_CAPABILITIES);
     const boundRootRow = container.querySelectorAll(".meridian-mode-picker__row")[0];
     expect(
@@ -148,49 +141,32 @@ describe("ExecutionModePicker — absences and holds", () => {
       posture: CONTROLS_HELD_BY_THE_MOUNT,
     });
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
-    // AND SAYS WHY. A disabled `fieldset` paints nothing that explains itself, so a
-    // group that only asserted `disabled` here would pass against the picker that
-    // shipped before this line existed: every row grayed and no sentence anywhere.
+    // A disabled `fieldset` paints nothing that explains itself, so the reason must be text.
     expect(getByRole("status").textContent).toBe("This mount is no longer reachable.");
   });
 });
 
 describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   it("holds every row and names the mode it is holding for", () => {
-    // Two selects issued before the first settles both run, and the LAST to reach the
-    // daemon decides — so a corrected choice can silently lose to the one it corrected
-    // away from. The group holds until the answer arrives.
-    //
-    // BOTH MEMBERS, because the card supplies both from one derivation: the posture
-    // holds the group and `pendingMode` names the mode. Passing only one here would be
-    // a state the card cannot produce.
+    // Two selects issued before the first settles both run and the last to reach the daemon
+    // decides, so the group holds until the answer arrives. The card supplies the posture and
+    // `pendingMode` from one derivation, so both are passed.
     const { container, getByRole } = renderPicker(GIT_CAPABILITIES, {
       pendingMode: "provisioned-worktree",
       posture: CONTROLS_HELD_BY_A_SWITCH,
     });
 
-    // THE FIELDSET AND NOT THE INPUTS. A disabled `<fieldset>` disables every control
-    // it wraps, which is the whole reason the group is one — and asserting the
-    // inputs' own `disabled` property here would assert the opposite of what ships,
-    // since that property reflects each input's own attribute and never the group's.
+    // The fieldset, not the inputs: an input's own `disabled` never reflects the group's.
     expect(container.querySelector("fieldset")?.disabled).toBe(true);
-    // NAMED, not merely grayed: the rows go on showing the mode the workspace is bound
-    // as now, so a group that only disabled itself would report nothing about what was
-    // pressed.
+    // Named, not merely grayed: the rows keep showing the mode the workspace is bound as.
     expect(getByRole("status").textContent).toContain("Switching to");
     expect(getByRole("status").textContent).toContain("provisioned-worktree");
   });
 
   it("announces the mount's own reason and not the switch when both hold the group", () => {
-    // THE PRECEDENCE, AND THE COUNT, IN ONE CASE. A mount can go unreachable while a
-    // switch is still on the wire, and the two facts are not equal: "wait for the
-    // daemon to answer" is a lie about a root nobody can reach. `readWorkspaceControlAvailability`
-    // puts the mount first, and the picker renders whichever sentence it chose.
-    //
-    // `getByRole` IS THE COUNT ASSERTION. It throws on two matches, so a picker that
-    // rendered the general line beside the pending one — one fact, two wordings, two
-    // announcements a screen reader reads in sequence — fails here rather than passing
-    // with the first match.
+    // A mount can go unreachable while a switch is on the wire; "wait for the daemon" would be
+    // false about a root nobody can reach, so the mount's reason wins. `getByRole` throws on two
+    // matches, so rendering both lines fails here.
     const { getByRole } = renderPicker(GIT_CAPABILITIES, {
       pendingMode: "provisioned-worktree",
       posture: CONTROLS_HELD_BY_THE_MOUNT,
@@ -201,8 +177,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   });
 
   it("negative control: with nothing pending the rows are live and nothing is announced", () => {
-    // Without this the case above would pass against a picker that was always held,
-    // which would make every mode switch unreachable.
+    // Without this the case above would pass against a picker that was always held.
     const { container, queryByRole } = renderPicker(GIT_CAPABILITIES);
 
     expect(container.querySelector("fieldset")?.disabled).toBe(false);
@@ -210,9 +185,7 @@ describe("ExecutionModePicker — a switch the daemon has not answered", () => {
   });
 
   it("keeps the bound row checked rather than moving the selection to the pending mode", () => {
-    // The switch has not happened yet. Moving the radio would report a binding the
-    // daemon has not confirmed — and if it refuses, the row would have to move back,
-    // which is the silent re-pick the picker forbids.
+    // Moving the radio would report a binding the daemon has not confirmed.
     const { container } = renderPicker(GIT_CAPABILITIES, {
       currentMode: "bound-root",
       pendingMode: "provisioned-worktree",

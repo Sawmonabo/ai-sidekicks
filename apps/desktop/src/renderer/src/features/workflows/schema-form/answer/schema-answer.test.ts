@@ -1,11 +1,7 @@
-// What a drawn form opens holding, at the one seam the hook's own suite cannot reach
-// through a mounted form: a plan that drew no controls at all, a collection nobody asked
-// about, a `default` whose shape is not the one its member's control renders, and the
-// value one added entry of a list starts at.
-//
-// Driven through the real mapper rather than a hand-built plan, because a fabricated
-// descriptor would pass with `planSchemaForm` deleted — and because the shapes under test
-// are exactly the ones the mapper is what decides.
+// What a drawn form opens holding, at the seam the hook's suite cannot reach through a mounted
+// form: a plan with no controls, a collection nobody asked about, a `default` whose shape the
+// control does not render, and an added list entry's starting value. Driven through the real
+// mapper, since a fabricated descriptor would pass with `planSchemaForm` deleted.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,11 +12,8 @@ import { projectAnswer } from "./schema-projection.js";
 import type { SchemaFormPlan } from "../plan/schema-fields.js";
 
 /**
- * The answer a form opens holding: the seeded draft, through the one projection.
- *
- * Composed rather than read off a seed, because the seed is now a TREE and the answer is
- * a projection of it — so what a form opens holding is exactly what its first press would
- * send, asserted through the same two functions the mounted form runs.
+ * The answer a form opens holding: the seeded draft through the one projection, so it is exactly
+ * what the first press would send.
  */
 function openingAnswer(plan: SchemaFormPlan): unknown {
   return projectAnswer(plan, seedDraftFromPlan(plan));
@@ -28,8 +21,7 @@ function openingAnswer(plan: SchemaFormPlan): unknown {
 
 describe("what a drawn form opens holding", () => {
   it("seeds nothing at all for a schema answered as raw JSON", () => {
-    // The raw arm has no controls, so there is nothing for a seed to be visible in —
-    // and its document is the person's, which nothing here writes into.
+    // The raw arm has no controls, and its document is the person's.
     expect(openingAnswer(planSchemaForm({ type: "string" }))).toEqual({});
   });
 
@@ -40,9 +32,8 @@ describe("what a drawn form opens holding", () => {
       required: ["reviewers"],
     });
 
-    // The collection must exist, and an empty list is what its fieldset is already
-    // drawing. Omitted, a required array that legally accepts zero entries opened invalid
-    // and could not be submitted until somebody added an entry and removed it again.
+    // An empty list is what the fieldset already draws. Omitted, a required array accepting zero
+    // entries opened invalid until an entry was added and removed.
     expect(openingAnswer(plan)).toEqual({ reviewers: [] });
   });
 
@@ -52,9 +43,7 @@ describe("what a drawn form opens holding", () => {
       properties: { reviewers: { type: "array", items: { type: "string" }, minItems: 1 } },
     });
 
-    // A collection the answer may leave out, which this schema then refuses to accept
-    // EMPTY. Seeded `[]`, the form opened invalid on a collection nobody had added to, and
-    // the only state that cleared it was answering a question the schema had not asked.
+    // Seeded `[]`, the form opened invalid on a collection nobody had added to.
     expect(openingAnswer(plan)).toEqual({});
   });
 
@@ -67,10 +56,9 @@ describe("what a drawn form opens holding", () => {
       required: ["release"],
     });
 
-    // Every member of the group is optional, so no leaf contributes a value — and the
-    // group is still required. Left to its leaves, the answer held no `release` at all,
-    // the form offered no way to create the empty object the schema accepts, and typing
-    // and clearing `tag` produced `{ release: { tag: "" } }` instead.
+    // Every member is optional so no leaf contributes a value, yet the group is required. Left
+    // to its leaves the answer held no `release`, and clearing `tag` produced
+    // `{ release: { tag: "" } }`.
     expect(openingAnswer(plan)).toEqual({ release: {} });
   });
 
@@ -86,11 +74,9 @@ describe("what a drawn form opens holding", () => {
       },
     });
 
-    // The shape the group seed could not answer. `enabled` is required INSIDE `settings`,
-    // so seeding each member on its own requiredness opened `{ settings: { enabled: false
-    // } }` — and a box can only replace that with true or false, so a schema that accepts
-    // or requires the whole group to be ABSENT had no state the drawn form could reach.
-    // The group opens inactive; somebody activates it on its legend.
+    // `enabled` is required inside `settings`; seeding each member on its own requiredness opened
+    // `{ settings: { enabled: false } }`, which a schema requiring the group absent could never
+    // accept. The group opens inactive and is activated on its legend.
     expect(openingAnswer(plan)).toEqual({});
   });
 
@@ -111,9 +97,8 @@ describe("what a drawn form opens holding", () => {
       properties: { reviewers: { type: "array", items: { type: "string" }, default: "ada" } },
     });
 
-    // The mapper never draws this collection at all — a declared value its control could
-    // not show sends the whole schema to the raw editor — so there is no control here for
-    // "ada" to be invisible in, and the seed is the raw arm's empty one.
+    // The mapper never draws this collection (a declared value its control could not show sends
+    // the schema to the raw editor), so the seed is the raw arm's empty one.
     expect(openingAnswer(plan)).toEqual({});
   });
 
@@ -123,8 +108,7 @@ describe("what a drawn form opens holding", () => {
       properties: { retries: { type: "number", default: "auto" } },
     });
 
-    // Seeded, "auto" reached the submission while `SchemaNumberField` rendered a blank
-    // box: the answer carrying text nobody had seen or could clear.
+    // Seeded, "auto" reached the submission while `SchemaNumberField` rendered a blank box.
     expect(openingAnswer(plan)).toEqual({});
   });
 
@@ -134,8 +118,7 @@ describe("what a drawn form opens holding", () => {
       properties: { severity: { type: "string", enum: ["low", "high"], default: "retired" } },
     });
 
-    // Seeded, "retired" reached the submission while the select showed "Not answered":
-    // the answer carrying a member the control on the screen was not displaying.
+    // Seeded, "retired" reached the submission while the select showed "Not answered".
     expect(openingAnswer(plan)).toEqual({});
   });
 
@@ -145,10 +128,8 @@ describe("what a drawn form opens holding", () => {
       properties: { notify: { type: "boolean" } },
     });
 
-    // A member the schema does not demand can be left out, and a two-state box has no
-    // state that says so — which is why an optional boolean is drawn as a three-state
-    // choice. Seeded `false`, a schema requiring this member's ABSENCE had no answer the
-    // drawn form could reach.
+    // A two-state box cannot say "left out", so an optional boolean draws as a three-state
+    // choice. Seeded `false`, a schema requiring the member's absence was unreachable.
     expect(openingAnswer(plan)).toEqual({});
   });
 
@@ -185,9 +166,8 @@ describe("a value declared on the group rather than on the control that shows it
       },
     });
 
-    // Dropped, the `tag` control opened blank while the schema's own reading of `{}` was
-    // `{ release: { tag: "v1" } }` — so the form read valid and a press sent bytes
-    // different from the value that was accepted.
+    // Dropped, `tag` opened blank while the schema's reading of `{}` was
+    // `{ release: { tag: "v1" } }`, so a press sent bytes other than the accepted value.
     expect(openingAnswer(plan)).toEqual({ release: { tag: "v1" } });
   });
 
@@ -203,7 +183,6 @@ describe("a value declared on the group rather than on the control that shows it
       },
     });
 
-    // The nearest declared value on the path, which is the control's own.
     expect(openingAnswer(plan)).toEqual({ release: { tag: "v2" } });
   });
 
@@ -230,16 +209,14 @@ describe("a value declared on the group rather than on the control that shows it
           type: "object",
           default: {},
           properties: { tag: { type: "string" }, signed: { type: "boolean" } },
-          // Required, so the box is the control this member draws through and `false` is
-          // the state it is already showing. Optional, the same member is a three-state
-          // choice that opens absent, which is a different case and is pinned above.
+          // Required, so the box is a checkbox already showing `false`; optional, it is a
+          // three-state choice that opens absent (pinned above).
           required: ["signed"],
         },
       },
     });
 
-    // An empty declared value names nothing, so each control opens where it would have
-    // anyway — which for the box is the `false` it is already showing.
+    // An empty declared value names nothing, so each control opens where it would have anyway.
     expect(openingAnswer(plan)).toEqual({ release: { signed: false } });
   });
 });
@@ -264,22 +241,19 @@ describe("what an added list entry opens holding", () => {
   });
 
   it("opens a repeated number unanswered rather than as the empty string", () => {
-    // A number control shows nothing for a string, so `""` there is a payload holding a
-    // value no control on the screen is displaying — and an UNANSWERED node rather than
+    // A number control shows nothing for a string, so `""` there is an unanswered node, not
     // `undefined`, which inside the answer's array serializes as `null`.
     expect(newListEntryDraft(planSchemaForm(listSchema), ["scores"])).toBe(UNANSWERED_SCALAR);
   });
 
   it("opens a repeated choice unanswered, including one whose enumeration spells empty", () => {
-    // `""` is a member this enumeration legitimately contains, so inserting it would have
-    // answered the question the moment somebody pressed the add control.
+    // `""` is a legitimate member of this enumeration; inserting it would answer the question on
+    // the add press.
     expect(newListEntryDraft(planSchemaForm(listSchema), ["tiers"])).toBe(UNANSWERED_SCALAR);
   });
 
   it("answers for a collection this form never drew rather than throwing", () => {
-    // A caller asking about a member no control exists for is asking about a form it does
-    // not have — which is a value question and never a crash, like every read here. There
-    // is no control to derive an opening value from, so there is no value.
+    // Asking about a member no control exists for is a value question, never a crash.
     expect(newListEntryDraft(planSchemaForm(listSchema), ["absent"])).toBeUndefined();
   });
 });

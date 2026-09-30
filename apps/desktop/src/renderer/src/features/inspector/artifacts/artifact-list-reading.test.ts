@@ -1,7 +1,4 @@
 // The reductions one reading makes on the next, driven with no bridge and no clock.
-//
-// Each case is about a claim the section would otherwise make falsely: that a read answered
-// for a row it did not name, or that a row the list never carried belongs to the session.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -37,8 +34,7 @@ describe("artifact list reading — replacing a row from its own read", () => {
   });
 
   it("negative control: a row the list does not carry is not added to it", () => {
-    // Without this, a single-artifact read would be able to claim a place in the
-    // list that no list read established.
+    // Without this, a single-artifact read could claim a place no list read established.
     const listed: ArtifactsSectionState = { kind: "listed", rows: [row("first", "published")] };
     const next = withReplacedRow(listed, row("elsewhere", "published"));
     expect(next.kind === "listed" ? next.rows.map((each) => each.id) : []).toStrictEqual(["first"]);

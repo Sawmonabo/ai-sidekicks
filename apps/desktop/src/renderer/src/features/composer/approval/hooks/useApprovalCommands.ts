@@ -19,31 +19,20 @@ import {
 /** The palette category these sit under. */
 const APPROVAL_COMMAND_GROUP = "Approvals";
 
-/**
- * The clause these commands are offered under.
- *
- * `sessionActive`, the same key the run controls use: an approval belongs to a
- * session, and whether there is anything to approve is answered by whether a row
- * was contributed rather than by a clause the frame recomputes per route.
- */
+/** The clause these commands are offered under, the same key the run controls use. */
 const APPROVAL_COMMAND_WHEN = "sessionActive";
 
 /** Contribute the card's acts for as long as it is mounted. */
 export function useApprovalCommands(input: ApprovalCommandInput): void {
   const rows = approvalCommandRows(input);
-  // Refreshed by every COMMITTED render and never in the render body: a registered
-  // row reads its records and its two dispatchers through this at invoke time, and a
-  // render-body write would let a concurrent pass React throws away — one composed
-  // against another session's records, another bridge's `resolve` — leave the row on
-  // screen invoking what that discarded pass saw.
+  // Refreshed by every committed render, never in the render body: a discarded concurrent pass
+  // would otherwise leave the on-screen row invoking what that pass saw.
   const inputRef = useLatestRef(input);
 
   const signature = rows.map((row) => `${row.kind} ${row.record.id} ${row.title}`).join("|");
-  // Built from THIS render's rows rather than through a ref. The memo runs during the
-  // render whose signature changed, which is before that render's layout effect has
-  // refreshed anything, so a ref read here would build this render's commands out of
-  // the previous pass's rows. The signature is the dependency because it is what the
-  // rows SAY: keying on the array's identity would re-register on every event.
+  // Built from this render's rows, not through the ref, which is refreshed only after this memo
+  // runs. Keyed on the signature because keying on the array identity would re-register on
+  // every event.
   const commands = useMemo(
     () => rows.map((row) => buildApprovalCommand(row, inputRef)),
     [signature, inputRef],

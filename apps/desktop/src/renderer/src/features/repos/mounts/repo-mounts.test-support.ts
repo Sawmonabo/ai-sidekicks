@@ -1,13 +1,7 @@
-// What every mounts case is driven against: the daemon a case scripts, the readers it
-// opens, the disposal that must leave none of them running, the clock-driven wait they
-// settle through, and the wire records the cards are drawn from.
-//
-// Letting queued continuations run is `tests/helpers/macrotask-boundary.ts`'s role, and
-// the cases take it by that name.
-//
-// The registry is a function pair rather than a hook. Registering `afterEach` here would
-// bind this module's import to a suite lifecycle its importer cannot see, so each suite
-// keeps its own one-line `afterEach(disposeTrackedReaders)`.
+// What every mounts case is driven against: the scripted daemon, tracked readers and their
+// disposal, the clock-driven `settle`, and the wire records the cards are drawn from. Each suite
+// keeps its own `afterEach(disposeTrackedReaders)`, since registering one here would bind this
+// module's import to a suite lifecycle its importer cannot see.
 
 import type {
   BranchContextId,
@@ -29,12 +23,7 @@ import type { RepoWorkspaceRow } from "./repo-mounts-model.js";
 
 const trackedReaders: RepoMountsReader[] = [];
 
-/**
- * Hold a reader a case built itself, so the teardown reaches it too.
- *
- * A suite that builds its reader inline hands it here, and a reader left undisposed goes
- * on holding a scheduler after its case ends.
- */
+/** Hold a reader a case built itself, so the teardown reaches it too. */
 export function trackReader(reader: RepoMountsReader): RepoMountsReader {
   trackedReaders.push(reader);
   return reader;
@@ -51,28 +40,17 @@ export function disposeTrackedReaders(): void {
 export function openReader(
   operations: RepoOperations,
   clock: ManualClock,
-  // Defaulted, so the cases that only care about the READ say nothing about the store.
-  // The trigger cases construct their own and drive it.
+  // Defaulted so cases that only care about the read say nothing about the store.
   sessionStore: SessionStore = new SessionStore({ sessionId: SESSION_ID }),
 ): RepoMountsReader {
   return trackReader(new RepoMountsReader({ operations, sessionStore, clock }));
 }
 
 /**
- * Drive the frozen clock past the debounce and let the read's promises settle.
- *
- * The queued continuations are drained BEFORE the clock moves, not only after: the
- * scheduler clears its in-flight flag and re-arms inside a `finally`, so a case that
- * asked for a second read while the first was landing would otherwise advance past a
- * timer that did not exist yet and observe a re-read that had simply not been armed.
- *
- * ONLY ONE OF THE TWO WAITS IS THIS MODULE'S. The pre-clock drain is the console's
- * shared `crossMacrotaskBoundary` — a counted loop there would be a second home for a
- * role `core/` already owns, and the count would be tuned against whatever settlement
- * chain happens to sit under it. The post-clock loop stays a loop because it
- * STOPS at the reading it is waiting for: its number is a ceiling on a wait rather
- * than a tuning of one, sized well above the pass it bounds, and turns cost nothing
- * once the queue is empty.
+ * Drive the frozen clock past the debounce and let the read's promises settle. Queued
+ * continuations drain before the clock moves too: the scheduler re-arms inside a `finally`, so a
+ * second read requested while the first lands would otherwise advance past a timer not yet
+ * armed. The post-clock loop stops at the reading, so its count is only a ceiling.
  */
 export async function settle(clock: ManualClock, reader: RepoMountsReader): Promise<void> {
   await crossMacrotaskBoundary();
@@ -83,12 +61,8 @@ export async function settle(clock: ManualClock, reader: RepoMountsReader): Prom
 }
 
 /**
- * Overrides as a case writes them.
- *
- * The wire's ids are branded and nothing in a test mints one, so a builder demanding
- * them could only ever be handed its own defaults back. Each builder closes its record
- * with one `as`; this is the half of that cast the caller sees, and it loosens the
- * branded ids alone — every union member and nested shape stays exact.
+ * Overrides as a case writes them. Wire ids are branded and tests never mint one, so this
+ * loosens the branded ids to `string` alone; every union member and nested shape stays exact.
  */
 type Unbranded<TValue> = TValue extends { readonly __brand: string } ? string : TValue;
 type WireOverrides<TRecord> = { readonly [Member in keyof TRecord]?: Unbranded<TRecord[Member]> };
@@ -122,12 +96,7 @@ export function buildMount(
   } as RepoMountReadResponse;
 }
 
-/**
- * One workspace row as the roster reads it, in the mode most cases want.
- *
- * `executionMode` is the member the suites vary, so it is stated here rather than left to
- * a default a reader would have to go and look up.
- */
+/** One workspace row as the roster reads it, in the mode most cases want. */
 export function workspaceRow(overrides: WireOverrides<RepoWorkspaceRow> = {}): RepoWorkspaceRow {
   return {
     id: "workspace-sidekicks",

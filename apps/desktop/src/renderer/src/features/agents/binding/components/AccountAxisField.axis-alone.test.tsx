@@ -1,14 +1,7 @@
-// The account axis on its own, for the claims a column render cannot make.
-//
-// THE THREE STATES THE RESET CONTROL DISTINGUISHES differ only in what the FORM is
-// holding behind the field — an entry over a definition's account, an entry over
-// nothing, and a definition's account with no entry at all — and the column's own
-// fixtures reach exactly one of them. So does the fourth state this file is about:
-// nothing pinned at all, which is the state a person MEETS the field in and the one
-// where the readings beside it are about an account the form is not pinning.
-//
-// Driven through the real component over a typed registry reading, with the form's two
-// facts passed as the props they are.
+// The account axis on its own, for what a column render cannot reach: the reset control's
+// states (an entry over a definition's account, over nothing, and a definition's account with
+// no entry) and the unpinned state a person meets the field in. Driven through the real
+// component over a typed registry reading.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -18,12 +11,8 @@ import { account, registryAccountId, resolvedTo, served } from "../account-readi
 import { AccountAxisField, type AccountAxisFieldProps } from "./AccountAxisField.js";
 
 /**
- * The node's accounts: two under `claude`, one under `codex`.
- *
- * That shape is what tells a picker scoped to the chosen driver's provider apart from one
- * that offers whatever the registry holds. `acct-team` is marked default and the
- * readiness entry resolves `acct-personal`, so the cases are about the ENTRY and not the
- * flag.
+ * Two accounts under `claude` and one under `codex`. `acct-team` is marked default while the
+ * readiness entry resolves `acct-personal`, so cases are about the entry, not the flag.
  */
 const REGISTRY_ACCOUNTS = [
   account({ accountId: registryAccountId("acct-team"), displayLabel: "Team", isDefault: true }),
@@ -107,17 +96,14 @@ describe("the account axis — what its reset control promises", () => {
     });
 
     fireEvent.click(resetControl(container) as HTMLButtonElement);
-    // `undefined` and never the definition's account: substituting the inherited
-    // value here would send it as an explicit override, which is the opposite of
-    // returning the field to the definition.
+    // `undefined`, never the definition's account: sending the inherited value would be an
+    // explicit override.
     expect(dropped).toHaveBeenCalledWith(undefined);
   });
 
   it("draws no control at all over a definition's own inherited account", () => {
-    // The defect this replaces: the button stood here saying "Use the provider's
-    // default account", and a press dropped an entry that did not exist, so the
-    // field fell straight back to the same pinned account and the run still used
-    // it. A control that cannot perform its label is absent rather than disabled.
+    // A control that cannot perform its label is absent rather than disabled: over a
+    // definition's own account there is no entry to drop.
     const container = renderedAxis({
       value: "acct-team",
       inheritedValue: "acct-team",
@@ -130,9 +116,7 @@ describe("the account axis — what its reset control promises", () => {
   });
 
   it("negative control: an entry standing over nothing does reach the provider default", () => {
-    // Without this, the case above would pass over a field that had simply stopped
-    // drawing the control — and the inline arm, where dropping an entry really does
-    // leave the axis unset, would lose its way back.
+    // Otherwise the case above would pass over a field that merely stopped drawing the control.
     const container = renderedAxis({
       value: "acct-personal",
       inheritedValue: undefined,
@@ -153,13 +137,9 @@ describe("the account axis — what its reset control promises", () => {
   });
 });
 
-// THE STATE A PERSON MEETS THE FIELD IN. Nothing pinned is a REQUEST for the
-// provider's registered default, and the readiness entry already names the account
-// that resolution reached — so a field that spoke only for a pinned value said nothing
-// at all in the common case, and a default in `reauth_required` stayed silent until the
-// daemon refused the request. The fixture's registry marks `acct-team` default and its
-// entry resolved `acct-personal`, which is what makes these cases about the ENTRY
-// rather than about the flag.
+// Nothing pinned is a request for the provider's registered default, and the readiness entry
+// names the account resolution reached. The fixture marks `acct-team` default but resolves
+// `acct-personal`, so these cases are about the entry rather than the flag.
 describe("the account axis — the account an unpinned run resolves to", () => {
   /** The field with nothing pinned, which is how the field opens. */
   function unpinnedAxis(registry?: AccountRegistryReading): HTMLElement {
@@ -180,8 +160,8 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("says which account the readings are about, and that the form pins none", () => {
-    // The one confusion this addition could introduce is a default's health read as a
-    // pinned one's, so which account a list is about is said before the list.
+    // A default's health must not be read as a pinned account's, so the list says which it is
+    // about.
     const text = unpinnedAxis().textContent ?? "";
 
     expect(text).toContain("Nothing is pinned, so this run resolves to Personal.");
@@ -189,10 +169,8 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("takes the account the entry resolved and never the row the registry marks default", () => {
-    // `acct-team` carries the `isProviderDefault` flag in this fixture and `Personal`
-    // is what resolution reached. The flag is what the registry MARKS; the entry is
-    // the spawn path's own answer, and a field keyed on the flag would report the
-    // health of an account this run is not going to use.
+    // `acct-team` carries the default flag here; `Personal` is what resolution reached, which
+    // is the account the spawn path uses.
     const text = unpinnedAxis().textContent ?? "";
 
     expect(text).toContain("resolves to Personal");
@@ -212,9 +190,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("names the remedy where resolution reached no account at all", () => {
-    // The state that rendered NOTHING before this rule: accounts exist, none is the
-    // default, so there is no resolved row whose readings could carry the remedy and
-    // the form went on asking for a default the daemon would refuse.
+    // Accounts exist but none is default, so no resolved row can carry the remedy.
     const text = unpinnedAxis(REGISTRY_WITH_NO_DEFAULT).textContent ?? "";
 
     expect(text).toContain(
@@ -223,8 +199,7 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("negative control: a pinned axis shows that account's readings and not the default's", () => {
-    // Without this the derivation could speak over every state, and a person looking
-    // at a pinned account would be reading a different account's health.
+    // Otherwise the derivation could speak over every state.
     const container = renderedAxis({
       value: "acct-team",
       inheritedValue: undefined,
@@ -239,9 +214,8 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("negative control: a registry that resolves an account names no missing default", () => {
-    // The two are different facts — an entry that resolved a row, and one that
-    // resolved none — and without this the remedy sentence could render beside the
-    // resolved row's own list, saying twice what the list already says once.
+    // An entry that resolved a row and one that resolved none differ; otherwise the remedy
+    // would render beside the resolved row's own list.
     const text = unpinnedAxis().textContent ?? "";
 
     expect(text).not.toContain("none of them is the default");
@@ -259,19 +233,16 @@ describe("the account axis — the picker's accessible name", () => {
   }
 
   it("names the trigger with the field's own visible label", () => {
-    // The trigger renders `role="combobox"`, which takes no name from its own
-    // content, and this field's root is a `div` rather than a `<label>` — so before
-    // the association it was an unnamed interactive control, and in this state, with
-    // no account pinned, it carried no value text to be read out either.
+    // `role="combobox"` takes no name from its content and the field's root is a `div`, not a
+    // `<label>`, so the trigger needs the explicit association; unpinned, it has no value text.
     const field = within(renderedUnpinnedAxis());
 
     expect(field.getByRole("combobox", { name: "Provider account" })).not.toBeNull();
   });
 
   it("negative control: the query is naming the control rather than matching anything", () => {
-    // Two halves. A control IS present, so the case above fails on the name and not
-    // on an absent trigger; and a name the field does not carry finds nothing, so a
-    // matcher that matched everything would be caught here.
+    // A control is present, so the case above fails on the name and not on an absent trigger;
+    // a name the field lacks finds nothing, so a matcher matching everything is caught.
     const field = within(renderedUnpinnedAxis());
 
     expect(field.getAllByRole("combobox")).toHaveLength(1);

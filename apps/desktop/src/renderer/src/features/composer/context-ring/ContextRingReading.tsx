@@ -1,24 +1,14 @@
-// The context meter's own reading: how much of the window this run has spent.
-//
-// Split from `ContextRing.tsx`, which owns the placement — whether a meter is shown at
-// all, and for which run — while this owns what one reading looks like.
-//
-// THE SOURCE NOTE TRAVELS WITH THE READING. Where a figure came from is part of
-// what the figure means (a provider-reported window and a daemon-derived one are
-// not the same claim), so the note table lives here beside the render that uses it
-// rather than in `ContextRing.tsx`, which never reads it.
+// The context meter's own reading: how much of the window this run has spent. The source note
+// table lives here because where a figure came from is part of what it means.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { ContextWindowReading, ContextWindowSource } from "./context-window-reading.js";
 
 /**
- * What each provenance grade means for a person reading the bar.
- *
- * Total over the closed set, so a fourth grade fails to compile rather than
- * rendering with whatever a fallback said. `provider_reported` carries no sentence
- * at all: it is the grade the meter is designed around, and a note on every
- * ordinary reading is noise that makes the two that matter invisible.
+ * What each provenance grade means for a person reading the bar. Total over the closed set, so a
+ * new grade fails to compile. `provider_reported` has no note: it is the expected grade, and a note
+ * on every reading would hide the two that matter.
  */
 const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefined>> = {
   provider_reported: undefined,
@@ -27,13 +17,7 @@ const CONTEXT_SOURCE_NOTES: Readonly<Record<ContextWindowSource, string | undefi
   estimated: "The counts are estimated rather than reported, so treat the bar as approximate.",
 };
 
-/**
- * The meter with a reading behind it.
- *
- * Split out so the absent arm above is a straight-line return: a component that
- * branched inside its own body would put the bar's geometry and the absence in one
- * scope, and the two share nothing but the word "meter".
- */
+/** The meter with a reading behind it, split out so the absent arm is a straight-line return. */
 export function ContextRingReading(props: {
   readonly reading: ContextWindowReading;
 }): React.JSX.Element {
@@ -53,8 +37,7 @@ export function ContextRingReading(props: {
       >
         <span
           className="meridian-context-ring__fill"
-          // The one inline style in this file, and it carries a wire figure into
-          // CSS. The bar is the figure, and it is the same color at every fullness.
+          // The one inline style here: it carries a wire figure into CSS.
           style={{ inlineSize: `${String(usagePercent)}%` }}
         />
       </span>

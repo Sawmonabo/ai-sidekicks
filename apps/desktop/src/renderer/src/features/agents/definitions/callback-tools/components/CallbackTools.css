@@ -7,16 +7,15 @@
   list-style: none;
 }
 
-/* One argument per line, with the requirement marker beside the name rather than
-   under it: the pair is one fact and wrapping them apart reads as two rows. */
+/* One argument per line, the requirement marker beside the name: wrapping them apart reads as
+   two rows. */
 .meridian-callback-tools__schema-keys li {
   display: flex;
   gap: var(--meridian-space-1);
   align-items: baseline;
 }
 
-/* The console's own word about the schema, so it carries no wire-figure treatment —
-   muted and smaller than the name it qualifies. */
+/* The console's own word, so no wire-figure treatment: muted and smaller than the name. */
 .meridian-callback-tools__schema-required {
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);

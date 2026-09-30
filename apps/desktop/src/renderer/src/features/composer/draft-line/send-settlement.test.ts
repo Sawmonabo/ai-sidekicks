@@ -1,10 +1,5 @@
-// The settlement identity, driven directly: which completions may be written, and
-// which refusal the bar renders once they have been.
-//
-// The pure half of the defect. The hook-level cases beside this file drive the same
-// rules through a real re-address; these state them over literals, so a rule that
-// changes here fails on its own terms rather than through whatever the hook happened
-// to be doing.
+// The settlement identity over literals: which completions may be written and which refusal
+// the bar renders. The hook-level suites drive the same rules through a real re-address.
 
 import { describe, expect, it } from "vitest";
 
@@ -37,12 +32,7 @@ function identity(
   return { draftKey, visit, operation, attemptId };
 }
 
-/**
- * The newest-attempt register, in the shape the controller's ref holds it.
- *
- * Built by composing the keys rather than by spelling them, so a change to how an
- * act is keyed cannot leave this suite asserting against the old shape.
- */
+/** The newest-attempt register as the controller's ref holds it, keyed by the real key function. */
 function newestAttempts(...entries: readonly ComposerSettlementIdentity[]): Record<string, number> {
   return Object.fromEntries(
     entries.map((entry) => [
@@ -59,16 +49,15 @@ describe("composer settlement identity — which completions may be written", ()
   });
 
   it("discards a completion issued at an address the composer has left", () => {
-    // The finding's own case: a send to A awaiting the daemon while the composer is
-    // re-addressed to B. Writing it would put A's verdict under B.
+    // A send to A awaiting the daemon while the composer moves to B must not write A's verdict
+    // under B.
     const act = identity(ADDRESS_A, "send", 3);
     expect(isSettlementCurrent(act, ADDRESS_B, FIRST_VISIT, newestAttempts(act))).toBe(false);
   });
 
   it("discards a completion issued on an earlier visit to the SAME address", () => {
-    // The case a key-only comparison called current. The composer left A and came
-    // back, so the key matches and the stay does not — and admitting this settlement
-    // is what cleared a draft typed after it.
+    // The composer left A and came back: the key matches but the stay does not, and admitting
+    // it would clear a draft typed later.
     const act = identity(ADDRESS_A, "send", 3);
     expect(isSettlementCurrent(act, ADDRESS_A, SECOND_VISIT, newestAttempts(act))).toBe(false);
   });
@@ -82,9 +71,7 @@ describe("composer settlement identity — which completions may be written", ()
   });
 
   it("negative control: another ADDRESS's newer attempt does not supersede this one", () => {
-    // Keyed by operation alone, the register would let a send from B retire the
-    // attempt made at A, so A's own refusal would drop while the person was looking
-    // straight at A.
+    // Keyed by operation alone, a send from B would retire A's attempt and drop A's refusal.
     const act = identity(ADDRESS_A, "send", 1);
     const elsewhere = identity(ADDRESS_B, "send", 2);
     expect(isSettlementCurrent(act, ADDRESS_A, FIRST_VISIT, newestAttempts(act, elsewhere))).toBe(
@@ -121,9 +108,8 @@ describe("composer refusals by operation — a refusal stands until the act sett
   });
 
   it("negative control: an empty record renders nothing", () => {
-    // No address guard reads here: the refusals are held under `(bridge, draftKey)`,
-    // so a re-address DROPS them rather than hiding them behind a read-time comparison
-    // the return trip would stop satisfying.
+    // Refusals are held under `(bridge, draftKey)`, so a re-address drops them; there is no
+    // read-time address comparison.
     expect(renderableRefusal(NO_COMPOSER_REFUSALS)).toBeUndefined();
   });
 });
@@ -138,9 +124,8 @@ describe("the attempt register is bounded by the address, not by the mount", () 
   });
 
   it("drops the entries of another address and of an earlier visit to this one", () => {
-    // Both classes are unreadable the moment the composer re-addresses: `isCurrent`
-    // compares the identity's own pair before it consults the register at all, so
-    // nothing can ever look either of these up again.
+    // `isSettlementCurrent` compares the identity's own pair before the register, so nothing
+    // looks either of these up again.
     const current = identity(ADDRESS_A, "send", 9);
     const otherAddress = identity(ADDRESS_B, "send", 7);
     const earlierVisit = identity(ADDRESS_A, "send", 5, FIRST_VISIT);
@@ -155,9 +140,7 @@ describe("the attempt register is bounded by the address, not by the mount", () 
   });
 
   it("holds at most one entry per operation however many acts were dispatched", () => {
-    // The bound itself. A register that was never narrowed grew one entry per act for
-    // the life of the mounted composer; the ceiling here is the closed operation
-    // vocabulary and is independent of how much was dispatched.
+    // The ceiling is the closed operation vocabulary, whatever was dispatched.
     let register: Record<string, number> = {};
     for (let attemptId = 1; attemptId <= 40; attemptId += 1) {
       const visit = attemptId;
@@ -172,8 +155,7 @@ describe("the attempt register is bounded by the address, not by the mount", () 
   });
 
   it("negative control: an address with no act on it narrows to nothing", () => {
-    // Without this a function that returned its input unchanged would satisfy the
-    // retention case above.
+    // Without this, a function returning its input would satisfy the retention case.
     expect(
       attemptIdsAtAddress(newestAttempts(identity(ADDRESS_B, "send", 3)), ADDRESS_A, FIRST_VISIT),
     ).toStrictEqual({});

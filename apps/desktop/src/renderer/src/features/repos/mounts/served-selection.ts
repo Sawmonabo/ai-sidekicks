@@ -1,34 +1,10 @@
-// One user choice, reconciled against the set a read is currently serving.
-//
-// THE CLASS THIS MODULE CLOSES. A form that computes sendability from FORM state alone
-// while its picker draws from SERVED state disagrees with it on reachable states: a mode
-// default applied once per mount and never again, so a reopened dialog offers no mode at
-// all; and a chosen mode a capabilities refresh withdrew, so the picker draws it excluded
-// while the button beside it still sends it. Every one of them is a control that says one
-// thing and does another.
-//
-// ONE RESOLUTION, READ BY BOTH HALVES. A view asks this module which choice is live
-// and hands the answer to the picker's `checked` and to its own verdict. There is
-// nothing left for the two to drift between, which is the whole of the fix: the split
-// was never a bug in either half, it was two halves answering one question.
-//
-// THE DEFAULT IS AN INPUT AND NOT AN EFFECT. Writing a default into form state needs a
-// memory of whether it has been written yet, and that memory is what a reopened dialog
-// got wrong — it survived the form it was taken about. Derived per read, the default is
-// re-applied whenever the form is empty and the served answer names one, and a
-// user's own pick still wins because a pick is what `chosen` holds.
-//
-// FOUR ARMS BECAUSE THERE ARE FOUR SENTENCES. "Pick one", "the one you picked is gone",
-// and "nothing has answered yet" are three different facts about a shut control, and a
-// silent refusal says none of them. Collapsing them would put a false sentence under the
-// button in two cases out of the three.
+// One user choice, reconciled against the set a read is currently serving. A form that computes
+// sendability from form state while its picker draws from served state disagrees on reachable
+// states (a default applied once per mount, a chosen mode a refresh withdrew), so both halves
+// read this one resolution. The default is an input re-derived per read, not written into form
+// state, and the four arms exist because each shut control needs its own true sentence.
 
-/**
- * Where one choice stands against the answer on screen.
- *
- * `resolved` is the only arm a form may send, which {@link selectedChoiceOf} states as
- * a value rather than leaving each caller to re-derive it.
- */
+/** Where one choice stands against the answer on screen; only `resolved` may be sent. */
 export type ServedSelection<TChoice> =
   /** Live: either the user's own pick, or the default the served answer names. */
   | { readonly status: "resolved"; readonly choice: TChoice }
@@ -44,12 +20,9 @@ export interface ServedSelectionInputs<TChoice> {
   /** What the user explicitly picked, if anything. Never a default. */
   readonly chosen: TChoice | undefined;
   /**
-   * Every choice the newest served answer offers, or `undefined` where no answer is
-   * being served at all.
-   *
-   * THE TWO ABSENCES ARE KEPT APART. An empty array is a read that answered and named
-   * nothing — a mount that admits no mode — and `undefined` is a read that has not
-   * answered. The first withdraws a pick; the second cannot know.
+   * Every choice the newest served answer offers, or `undefined` where none is served. An empty
+   * array is a read that answered and named nothing, which withdraws a pick; `undefined` has
+   * not answered, so it cannot know.
    */
   readonly servedChoices: readonly TChoice[] | undefined;
   /** The one choice the served answer leaves no decision about, where there is one. */
@@ -57,12 +30,8 @@ export interface ServedSelectionInputs<TChoice> {
 }
 
 /**
- * Reconcile one pick against one served answer.
- *
- * THE DEFAULT IS CHECKED AGAINST THE SERVED SET LIKE ANY OTHER CHOICE. A caller whose
- * reply disagrees with itself — naming a default outside its own offered set — then
- * resolves to nothing rather than to a choice the picker would draw as unavailable, and
- * the rule lives here once rather than at each caller's own default derivation.
+ * Reconcile one pick against one served answer. The default is checked against the served set
+ * like any other choice, so a self-contradicting reply resolves to nothing.
  */
 export function resolveServedSelection<TChoice>(
   inputs: ServedSelectionInputs<TChoice>,
@@ -81,13 +50,7 @@ export function resolveServedSelection<TChoice>(
     : { status: "unresolved" };
 }
 
-/**
- * The choice a picker draws as checked and a form may send, or none.
- *
- * ONE FUNCTION FOR BOTH READINGS, which is the property that keeps a picker and a
- * button from disagreeing: a view that drew the withdrawn choice while refusing to
- * send it would be showing a selection nothing can act on.
- */
+/** The choice a picker draws as checked and a form may send, or none. */
 export function selectedChoiceOf<TChoice>(
   selection: ServedSelection<TChoice>,
 ): TChoice | undefined {

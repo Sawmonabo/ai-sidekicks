@@ -1,13 +1,8 @@
-// The bind dialog, driven against a mount whose answer changes under it.
-//
-// WHAT THE MODEL SUITE CANNOT SAY. `bind-form.test.ts` proves the resolution; this file
-// proves the dialog HANDS IT what the mount admits, on every open rather than once. Both
-// claims below are outside the model: the first is a pre-fill that must not outlive the
-// form it was taken about, and the second is a picker and a button that must read one
-// answer to one question.
-//
-// THE CAPABILITIES ARE SERVED BY A CALL THIS SUITE OWNS, because both cases turn on the
-// read answering DIFFERENTLY the second time.
+// The bind dialog, driven against a mount whose answer changes under it. `bind-form.test.ts`
+// proves the resolution; this proves the dialog hands it what the mount admits on every open:
+// a pre-fill must not outlive its form, and the picker and the button must read one answer.
+// Capabilities come from a call this suite owns because both cases turn on the read answering
+// differently the second time.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -59,11 +54,8 @@ const NO_DEFAULT: WorkspaceExecutionModeCapabilitiesReadResponse = {
 };
 
 /**
- * A pre-bind read this suite decides, and can decide again.
- *
- * The answer is chosen at CALL time rather than closed over, which is what lets one
- * case serve two different replies to the same dialog — the shape every case here needs
- * and the one a value captured at construction cannot have.
+ * A pre-bind read this suite decides, and can decide again. The answer is chosen at call time
+ * rather than closed over, so one case can serve two different replies to the same dialog.
  */
 class CapabilitiesUnderTest {
   #capabilities: WorkspaceExecutionModeCapabilitiesReadResponse;
@@ -157,11 +149,9 @@ async function openDialog(
 }
 
 /**
- * Refresh what the mount admits: a watched frame, then the debounce.
- *
- * WAITS ON THE ROW THE NEW ANSWER CHANGES, and not on rows existing: the picker is
- * already drawing the previous answer, so a looser wait would return before the second
- * read landed and every assertion after it would be about the answer being replaced.
+ * Refresh what the mount admits: a watched frame, then the debounce. Waits on the row the new
+ * answer changes, not on rows existing: the picker still draws the previous answer, so a
+ * looser wait would return before the second read landed.
  */
 async function refreshCapabilitiesTo(
   open: OpenDialog,
@@ -184,10 +174,9 @@ describe("the bind dialog — the mount's own default survives a close", () => {
   });
 
   it("applies it again when the same mount is reopened", async () => {
-    // A pre-fill held in a ref keyed on the mount would survive a close that reset the
-    // form: on a reopen the read has not changed, the effect declines to run again, and
-    // the dialog would offer a picker with nothing chosen behind a control that will not
-    // send.
+    // A pre-fill held in a ref keyed on the mount would survive a close that reset the form:
+    // on a reopen the effect declines to run again, leaving a picker with nothing chosen
+    // behind a control that will not send.
     const open = await openDialog(EVERY_MODE);
     act(() => {
       document.querySelector<HTMLButtonElement>(".meridian-bind__cancel")?.click();
@@ -201,9 +190,8 @@ describe("the bind dialog — the mount's own default survives a close", () => {
   });
 
   it("negative control: a reply that names a default it does not offer chooses nothing", async () => {
-    // Without this, the two cases above would pass against a dialog that pre-picked
-    // whatever came first — a mode of the console's own choosing, which is the one thing
-    // the bind's omitted-versus-chosen distinction exists to prevent.
+    // Without this, the two cases above would pass against a dialog that pre-picked whatever
+    // came first, a mode of the console's own choosing.
     await openDialog(NO_DEFAULT);
     expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
     expect(bindButton().disabled).toBe(true);
@@ -220,16 +208,16 @@ describe("the bind dialog — a capabilities refresh that withdraws the chosen m
 
     await refreshCapabilitiesTo(open, BOUND_ROOT_WITHDRAWN, "bound-root", 1);
 
-    // The defect: the row went disabled with the mount's own reason beside it while the
-    // form-only verdict stayed sendable, so Bind would have sent exactly that mode.
+    // The row went disabled with the mount's reason beside it while the form-only verdict
+    // stayed sendable, so Bind would have sent exactly that mode.
     expect(modeRadios().every((radio) => !radio.checked)).toBe(true);
     expect(bindButton().disabled).toBe(true);
     expect(blockedSentence()).toContain("no longer one this mount admits");
   });
 
   it("negative control: a refresh that keeps the chosen mode leaves the control open", async () => {
-    // Without this, the case above would pass against a dialog that shut its control on
-    // every refresh — which would make the read's own re-run the thing that broke it.
+    // Without this, the case above would pass against a dialog that shut its control on every
+    // refresh.
     const open = await openDialog(EVERY_MODE);
     fireEvent.click(radioFor("bound-root"));
 

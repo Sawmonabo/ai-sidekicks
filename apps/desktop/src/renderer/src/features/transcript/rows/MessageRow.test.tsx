@@ -59,8 +59,7 @@ function renderMessageCard(
 
 describe("which body a message renders", () => {
   it("renders a user's row through the row's own summary", () => {
-    // The whole of what the wire carries for a user: their words are sealed in
-    // the per-user encrypted column and reach no `TimelineRow`.
+    // A user's words reach no `TimelineRow`; the summary is all the wire carries.
     const container = renderMessageCard({
       type: "user.message",
       summary: "please run the tests",
@@ -83,8 +82,8 @@ describe("which body a message renders", () => {
   });
 
   it("negative control: a user row never renders the machine-body absence", () => {
-    // Without this, a card that routed every kind through `MachineBody` would put
-    // "this body has not been read" under every message a person typed.
+    // Without this, a card that routed every kind through the machine body would put "this body
+    // has not been read" under every message a person typed.
     const container = renderMessageCard({ type: "user.message", summary: "hello" });
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
   });

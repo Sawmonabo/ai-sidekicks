@@ -1,11 +1,5 @@
-// The attach act: the call it sends, and what it publishes.
-//
-// Attach asks nothing first, so it is the store's act half alone: the single-flight guard,
-// the disposed latch, and the members a dialog reads them by. What is left here is what
-// is attach's own, which call it makes and how the reply reads.
-//
-// A mount belongs to the machine, so the call carries the path and nothing about the
-// session; the session only scopes which dialog's settlement is on screen.
+// The attach act: the call it sends and how the reply reads. A mount belongs to the machine,
+// so the call carries the path and nothing about the session.
 
 import type { RepoAttachResponse } from "@ai-sidekicks/contracts";
 import { ActController } from "../../acts/act-controller.js";
@@ -36,10 +30,8 @@ export class AttachController extends ActController<AttachSettlement> {
   }
 
   /**
-   * Send one attach, and publish what came back.
-   *
-   * Does not overlap itself. A second press while one attach is on the wire would put two
-   * attaches up for one intent, and the second would fail against the first's own work.
+   * Send one attach and publish what came back. Does not overlap itself: a second press
+   * while one is on the wire would put two attaches up for one intent.
    */
   public async attach(localPath: string): Promise<void> {
     await this.act(

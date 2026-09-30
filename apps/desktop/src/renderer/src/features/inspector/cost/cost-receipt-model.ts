@@ -1,9 +1,5 @@
-// The cost receipt's one property: every figure on it adds up to the one above it.
-//
-// Each provider's account rows and its voice row add to that provider's subtotal, and
-// the subtotals add to the session's committed spend. The sums are computed and never
-// shown: the renderer produces no cost figure, and the verdict is a boolean per level
-// and nothing else.
+// The cost receipt's one property: every figure adds up to the one above it. The sums are
+// computed and never shown; the verdict is a boolean per level.
 
 import type { BillingMode, SessionCostReceipt } from "@ai-sidekicks/contracts";
 
@@ -18,10 +14,8 @@ export interface ReceiptPartitionVerdicts {
 /**
  * Check each level of the receipt against the figure the daemon settled.
  *
- * Exact integer equality, with no tolerance: the wire counts in whole micro-dollars,
- * so a partition that misses by one has genuinely dropped or double-counted a row, and
- * an epsilon here would be forgiving a defect rather than a rounding this fold does
- * not have.
+ * Exact integer equality with no tolerance: the wire counts whole micro-dollars, so a miss by
+ * one is a dropped or double-counted row, not rounding.
  */
 export function verifyReceiptPartitions(receipt: SessionCostReceipt): ReceiptPartitionVerdicts {
   return {
@@ -37,12 +31,7 @@ export function verifyReceiptPartitions(receipt: SessionCostReceipt): ReceiptPar
   };
 }
 
-/**
- * The sum of one level's figures.
- *
- * The running total is local and dies with the call — this is the one place the
- * console adds cost figures together, and nothing it produces reaches a screen.
- */
+/** The sum of one level's figures. The total is local and never reaches a screen. */
 function sumOf(usdMicros: readonly number[]): number {
   let total = 0;
   for (const figure of usdMicros) {
@@ -52,16 +41,11 @@ function sumOf(usdMicros: readonly number[]): number {
 }
 
 /**
- * The one clause each billing mode puts beside a figure on its own row.
+ * The clause each billing mode puts beside a figure on its own row.
  *
- * The accounts page owns the VOCABULARY — what each mode means as a term — and this
- * is not a second copy of it: it is the clause that stops one figure being misread
- * in the cell it sits in, which is why it is worded about the figure rather than
- * about the mode. `subscription` is the row it exists for — usage inside a plan is
- * not currency owed, and a money figure with nothing beside it says the opposite.
- *
- * TOTAL over the wire's own set, so a fourth mode landing upstream is a compile
- * error here rather than a figure that quietly loses its clause.
+ * Worded about the figure, not the mode, so it stops one figure being misread in its cell: a
+ * subscription's usage is not currency owed. Total over the wire's set, so a new mode is a
+ * compile error here.
  *
  * @consumedBy the inspector's cost section
  */

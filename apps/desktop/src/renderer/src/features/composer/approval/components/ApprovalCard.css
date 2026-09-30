@@ -1,13 +1,6 @@
-/* The approval card's sheet: the card, its facts, its disclosure panel, the remember
-   controls and the action row.
-
-   Every color, space, and radius is a Meridian token. Nothing here spends a hue:
-   the pending state's amber and a refusal's red arrive through `Chip` and
-   `Refusal`, which own those two marks. The disclosure triggers wear the shared
-   disclosure trigger class, and the scope choice and the actions wear the shared
-   action button at its regular size, both from `styles/action-buttons.css`: reject
-   and the scope choice in the outline face, approve in the filled accent. This sheet
-   adds only the actions' disabled state. */
+/* The approval card's sheet. Colors, spaces and radii are tokens; the amber and red marks come
+   through `Chip` and `Refusal`. The scope choice and the actions wear the shared action button
+   from `styles/action-buttons.css`, so this sheet adds only the actions' disabled state. */
 
 .meridian-approval-card {
   display: flex;
@@ -37,8 +30,8 @@
   font-weight: 500;
 }
 
-/* Dense by design: category, actor, scope and expiry read on one screen, and the
-   descriptor and audit metadata are one click away rather than laid out flat. */
+/* Category, actor, scope and expiry read on one screen; the descriptor and audit metadata sit
+   behind a disclosure. */
 .meridian-approval-card__facts {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
@@ -148,9 +141,8 @@
   cursor: pointer;
 }
 
-/* One filled primary action per card: approve carries the accent — through
-   `meridian-accent-fill`, whose ink is measured against that fill — and reject is
-   quiet chrome. Reject is never red: a rejection is the console working. */
+/* One filled primary action per card: approve wears `meridian-accent-fill`. Reject stays quiet
+   and never red, because a rejection is the console working. */
 .meridian-approval-card__actions {
   display: flex;
   gap: var(--meridian-space-2);

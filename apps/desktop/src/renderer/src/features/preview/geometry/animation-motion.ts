@@ -1,50 +1,22 @@
-// Which running animation could move a box, and which could not.
+// Whether a running animation could move a box. `element-motion.ts` holds the DOM seams and
+// `motion-sampling.ts` the frame loop; this decides whether the loop runs at all.
 //
-// `element-motion.ts` holds the DOM SEAMS — which events announce motion, which
-// ancestors can move a subject — and `motion-sampling.ts` holds the frame loop those
-// seams arm. This module holds the third question, and it is the one that decides
-// whether the loop runs at all: given a running animation, could it move anything?
-//
-// IT EXISTS BECAUSE "SOMETHING IS ANIMATING" IS NOT THAT QUESTION. Every `not-loaded`
-// skeleton runs an infinite opacity pulse (`meridian-skeleton-pulse`, in
-// `primitives/absence/nothing.css`), so without this question a single loading
-// skeleton anywhere on screen would make the document-wide reading true forever: the
-// frame sampler would re-arm on every frame and run a pane's geometry reads on every
-// frame, for as long as anything was loading, over an animation that cannot move a
-// box at all. A permanent RAF loop is exactly what the console's idle-CPU budget
-// forbids, and nothing about it would be visible — the pane's rectangle would simply
-// be recomputed forever and always come out the same.
-//
-// TWO BOUNDS, AND EACH ONE ALONE IS INSUFFICIENT: what a keyframe animates, and where
-// the animated box sits. Both fail SAFE — an animation this module cannot read, and a
-// box whose flow it cannot resolve, both count as able to move something, because
-// "cannot tell" and "cannot move it" are different answers and only one of them is
-// cheap to be wrong about.
+// "Something is animating" is not enough: every `not-loaded` skeleton runs an infinite opacity
+// pulse (`meridian-skeleton-pulse`, in `components/Nothing/Nothing.css`), which would keep the
+// sampler re-arming every frame for as long as anything loads. Two bounds decide: what a
+// keyframe animates, and where the animated box sits. Both fail safe: an animation or flow that
+// cannot be read counts as able to move something.
 
 /**
- * The properties whose animation moves NOTHING, spelled as one closed set.
+ * The properties whose animation moves nothing: paint-time properties that change neither a
+ * box's size nor its place. An exclusion set rather than an allowlist of layout properties, so
+ * a spelling nobody thought of costs one frame read, where a forgotten layout property would
+ * leave a native view at abandoned coordinates.
  *
- * Written as the EXCLUDED set rather than as an allowlist of layout properties, and
- * the direction is the decision: a property this set does not name counts, so a
- * spelling nobody thought of costs one frame read, while an allowlist that forgot
- * `gap` or `flex-basis` would leave a native view at coordinates its pane had
- * abandoned for the whole of an animation — silent, and the exact class the position
- * observer exists to catch. Every entry is a paint-time property: it changes what a
- * box looks like and can change neither its size nor where it sits.
- *
- * A TUPLE AND NOT A `Set`, on `lib/clipping-ancestors.ts`'s
- * `CLIPPING_OVERFLOW_VALUES` shape and for the reason `apps/desktop/AGENTS.md`
- * states: a module-level collection is mutable for the life of the process while
- * what it holds is a constant, and `ReadonlySet` restricts only the binding rather
- * than the collection underneath it. The tuple is the declaration, the union below
- * is derived from it, and membership is a comparison over twenty-six frozen literals
- * rather than a hash lookup built at module load.
- *
- * Compared in a normalized form — lower-cased with the separators dropped — because
- * `getKeyframes()` answers in camel case (`backgroundColor`) while a stylesheet is
- * authored in kebab (`background-color`), and one declaration has to cover both
- * spellings. The normalization runs at COMPARISON time on both sides, which is what
- * lets the entries below stay the authored spellings a reader recognizes.
+ * A tuple, not a `Set`, like `CLIPPING_OVERFLOW_VALUES` in `lib/clipping-ancestors.ts`: a
+ * module-level collection stays mutable while `ReadonlySet` restricts only the binding.
+ * Compared normalized (lower-cased, separators dropped) because `getKeyframes()` answers in
+ * camel case while stylesheets are authored in kebab case.
  */
 export const PAINT_ONLY_ANIMATED_PROPERTIES = [
   "opacity",
@@ -76,34 +48,23 @@ export const PAINT_ONLY_ANIMATED_PROPERTIES = [
 ] as const;
 
 /**
- * The keys `getKeyframes()` returns that are not properties at all.
- *
- * A keyframe carries its own timing beside the properties it sets, and counting
- * `easing` as an animated property would make every animation layout-affecting —
- * which is the undiscriminated reading this module replaces.
- *
- * NO `satisfies` MIRROR, AND THE REASON IS CHECKABLE. The union these four keys
- * belong to would be `keyof ComputedKeyframe`, and that interface carries a string
- * index signature — `[property: string]: string | number | null | undefined` — so
- * `keyof` widens to `string | number` and a `satisfies` clause against it would
- * assert nothing while reading like a guard. A vacuous guard is worse than none, so
- * the tuple stands as the declaration and the disjointness the module actually
- * depends on is asserted beside it in the test.
+ * The keys `getKeyframes()` returns that are timing, not properties; counting `easing` as an
+ * animated property would make every animation layout-affecting. No `satisfies` mirror against
+ * `keyof ComputedKeyframe`: that interface has a string index signature, so `keyof` widens to
+ * `string | number` and the guard would assert nothing. The test asserts disjointness instead.
  */
 export const KEYFRAME_TIMING_KEYS = ["offset", "computedOffset", "composite", "easing"] as const;
 
+/** Lower-cases a property name and drops its dashes, so camel and kebab spellings compare equal. */
 export function normalizeAnimatedPropertyName(name: string): string {
   return name.toLowerCase().replaceAll("-", "");
 }
 
 /**
- * Whether this animation could move a box the caller cares about.
- *
- * The containment half is a PARAMETER rather than an element, because the vocabulary
- * for "this motion carries my subject" belongs to `element-motion.ts` and writing it
- * a second time here is how the two answers start to disagree. The caller says which
- * targets carry its subject; this module says whether the animation moves anything at
- * all, and whether a target that does NOT carry the subject can still displace it.
+ * Whether this animation could move a box the caller cares about. The caller supplies
+ * `carriesSubject` because the vocabulary for "this motion carries my subject" belongs to
+ * `element-motion.ts`; this decides whether the animation moves anything, and whether a target
+ * that does not carry the subject can still displace it.
  */
 export function couldAnimationMove(
   animation: Animation,
@@ -119,13 +80,7 @@ export function couldAnimationMove(
   return carriesSubject(target) || isInNormalFlow(target);
 }
 
-/**
- * Whether a closed set of authored property names holds this normalized one.
- *
- * One helper for both tuples rather than a comparison written twice: the two sets
- * are asked the same question in the same expression below, and two spellings of one
- * membership test are how the normalization on each side starts to drift.
- */
+/** Whether a closed set of authored names holds this normalized property. */
 function namesNormalizedProperty(
   authoredNames: readonly string[],
   normalizedProperty: string,
@@ -135,14 +90,7 @@ function namesNormalizedProperty(
   );
 }
 
-/**
- * Whether this animation touches anything that can change a box's size or place.
- *
- * The keyframes are the reading rather than the animation's name or its target's
- * class, because they are what the platform actually interpolates — and a CSS
- * transition, a CSS animation, and a scripted `element.animate()` all answer here in
- * the same vocabulary.
- */
+/** Whether the animation touches anything that can change a box's size or place. */
 function affectsLayoutOrPosition(animation: Animation): boolean {
   const keyframes = readKeyframes(animation);
   if (keyframes === undefined) {
@@ -169,8 +117,7 @@ function readKeyframes(animation: Animation): readonly Record<string, unknown>[]
   try {
     return getKeyframes.call(effect) as readonly Record<string, unknown>[];
   } catch {
-    // A build that answers the method and throws from it cannot tell us either, which
-    // is the same answer as not having it.
+    // A build that answers the method and throws from it cannot tell us either.
     return undefined;
   }
 }
@@ -190,17 +137,11 @@ function readEffect(
 }
 
 /**
- * Whether this box lays out among its siblings.
- *
- * An absolutely or fixed positioned box is out of its siblings' flow, so animating
- * its geometry cannot move an in-flow box beside it — which is what the overlays,
- * sheets, and toasts that animate most of the time are. The residual is stated rather
- * than hidden: an out-of-flow box can still change the document's scrollable overflow
- * and so whether a scrollbar is present, and that move is picked up by the class or
- * style write that caused it rather than here.
- *
- * Absent `getComputedStyle` — a shim, a detached document — the answer is yes, which
- * keeps the coarser reading rather than silently dropping motion.
+ * Whether this box lays out among its siblings. An absolute or fixed box is out of flow, so
+ * animating its geometry cannot move an in-flow neighbor. The residual: an out-of-flow box can
+ * still change scrollable overflow and so scrollbar presence, which the class or style write
+ * that caused it picks up. Without `getComputedStyle` (a shim, a detached document) the answer
+ * is yes, keeping the coarser reading.
  */
 function isInNormalFlow(target: Element): boolean {
   if (typeof getComputedStyle !== "function") {

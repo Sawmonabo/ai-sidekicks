@@ -1,10 +1,5 @@
-// One facet's value, in the provenance its form names.
-//
-// Its own module because a `.tsx` declares one component. It stays a sibling of
-// `EntityRecord.tsx` rather than joining the record's own file:
-// a caller that could render a facet on its own could render one outside a record,
-// and the record is the thing that gives a facet its label — so this is reached by
-// the record's deep import and by nothing else.
+// One facet's value, in the provenance its form names. Reached only from `EntityRecord.tsx`,
+// which gives a facet its label.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";

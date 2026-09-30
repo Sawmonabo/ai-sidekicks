@@ -1,9 +1,5 @@
-// The daemon's vocabulary, checked for totality and for the two distinctions it turns on.
-//
-// The codes are the daemon's rather than this console's, so what a test can prove is that
-// the transcription is TOTAL — a disposition with no sentence, or a code classified by
-// nothing, is the failure mode — and that the two named codes stay apart from the default
-// and from each other.
+// The transcription of the daemon's vocabulary must be total (every disposition has a sentence),
+// and the two named codes stay apart from the default and each other.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,8 +18,7 @@ describe("attachment policy — the two named codes", () => {
   });
 
   it("negative control: an unrecognized code takes the retry-safe default, not a restart", () => {
-    // Collapsing these would tell a user to re-upload a hundred megabytes
-    // because a response was lost, which is the mistake the distinction exists to stop.
+    // Collapsing these would tell a user to re-upload a hundred megabytes over a lost response.
     expect(ingestRefusalDisposition("artifact.not_found")).toBe("retry-in-place");
     for (const disposition of INGEST_REFUSAL_DISPOSITIONS) {
       expect(INGEST_DISPOSITION_COPY[disposition].length).toBeGreaterThan(0);

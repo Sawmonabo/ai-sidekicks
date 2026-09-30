@@ -1,33 +1,15 @@
 /*
- * The shape every mount ACT wears: the trigger, the dialog, the field, and the ground
- * behind it.
- *
- * What is here is what NONE of the act sheets owns alone — one rule reaching all four act
- * dialogs at once (`attach/`, `bind/` and `roots/` each have a sheet of their own beside
- * their components). Pushing a copy of it into three sheets would be three chances for
- * one of them to drift from the others, which is the defect the single rule is written
- * against.
- *
- * ITS HOME IS THE PARENT DIRECTORY BECAUSE THE PARENT IS WHAT THEY SHARE. A shape
- * spanning three sibling directories cannot live in one of them without making the
- * other two depend on a neighbor's sheet, so `RepoSection.tsx`, the view in this
- * directory, imports it.
- *
- * IMPORTED BEFORE THE THREE SUB-SHEETS, as `RepoSection.tsx`'s first import, so a
- * per-dialog rule that overrides one of these — the excluded mode's `cursor` — still
- * comes after it. The shared `display` / `gap` / `margin` / `font-size`
- * declarations sit in selector lists disjoint from the per-dialog ones, and no element
- * carries a class from both, so they never compete in one element's cascade.
- *
- * NO LITERAL VALUES, on the feature sheets' rule: every length is on the space scale,
- * every size on the type scale, and every color is read out of a custom property.
+ * Rules shared by every mount act dialog (`attach/`, `bind/`, `execution-roots/`), which each
+ * keep a sheet of their own; declared once here so the three cannot drift. `RepoSection.tsx`
+ * imports it first so a per-dialog override (the excluded mode's `cursor`) still comes after.
+ * The shared `display` / `gap` / `margin` / `font-size` selectors are disjoint from the
+ * per-dialog ones, so they never compete in one element's cascade. Every length is on the
+ * space scale, every size on the type scale, every color a custom property.
  */
 
 /*
- * One control shape for every button this directory adds, declared once. The attach,
- * re-attach, prepare, and removal dialogs each carry a trigger, a cancel and a confirm,
- * and the open-changes control joins them — so a rule per class would have been a copy of
- * one declaration per selector below, and one chance per copy for it to drift.
+ * One control shape for every act button (trigger, cancel, confirm) and the open-changes
+ * control, declared once.
  */
 .meridian-repo-attach__trigger,
 .meridian-repo-attach__cancel,
@@ -75,10 +57,8 @@
 }
 
 /*
- * The one thing the open-changes control does NOT share with the shape above: it
- * carries a glyph beside its word, so the two need a baseline and a gap. Everything
- * else about it — the border and the ground — comes from the rules above,
- * which is why it is in their selector lists rather than restating any of them here.
+ * The open-changes control alone carries a glyph beside its word, so it needs a baseline and
+ * a gap; the rest of its shape comes from the rules above.
  */
 .meridian-open-diff {
   display: inline-flex;
@@ -158,9 +138,8 @@
 }
 
 /*
- * A path and a branch name are wire values a person is composing, so both are set in
- * the mono face the console renders wire strings in — the field and the figure it
- * becomes read as the same kind of thing.
+ * A path and a branch name are wire values a person is composing, so both use the mono face
+ * the console renders wire strings in.
  */
 .meridian-repo-attach__path-input,
 .meridian-bind__directory-input,
@@ -185,7 +164,6 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-/* One mode per row: the radio and its label side by side. */
 .meridian-bind__mode {
   display: flex;
   align-items: center;

@@ -1,5 +1,5 @@
-// What a send would carry, held to the two rules that decide it: only settled ingests
-// mint a reference, and the user's own order is the one that survives.
+// What a send would carry: only settled ingests mint a reference, and the user's own order
+// survives.
 
 import { describe, expect, it } from "vitest";
 
@@ -50,9 +50,7 @@ describe("the send attachment reference", () => {
   });
 
   it("holds a staged list of nothing but unsettled entries, rather than reporting none", () => {
-    // The `held` arm with an empty id list is the honest reading of a staged list whose
-    // every upload is still running: something IS attached, and none of it can be
-    // referenced.
+    // Something is attached, and none of it can be referenced yet.
     expect(composeSendAttachmentReference([sendingEntry("declared")])).toStrictEqual({
       disposition: "held",
       artifactIds: [],

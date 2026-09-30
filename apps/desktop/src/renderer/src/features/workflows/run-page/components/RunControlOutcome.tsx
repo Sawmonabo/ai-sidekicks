@@ -1,25 +1,7 @@
-// What one run control answered, rendered beside the button that asked.
-//
-// A SIBLING RATHER THAN A THIRD RENDER FUNCTION IN `OperatorControls.tsx`, because each
-// `.tsx` holds one component; `OperatorControls.tsx` imports it from beside it, and no
-// shared entry exports it. It is also a different concern from either renderer there — those own
-// the form an operator fills in, and this owns what came back — and the two arms that
-// matter here are reached from a call rather than from a field.
-//
-// THE CONTROL STAYS. Every arm below renders BESIDE the button rather than in place
-// of it: a refusal means nothing changed, the act did not happen, and the control stays
-// beside its refusal. A refusal that replaced the control would leave an operator with
-// nothing to press once the daemon's answer stopped applying, and the component would
-// have to guess when to put it back.
-//
-// AND THE REFUSAL IS RENDERED VERBATIM. It is the run controls' own — a second press, or a
-// reason past the bound — and the code and the sentence are the raiser's; this file
-// composes no copy of its own on that arm.
-//
-// `idle` DRAWS NOTHING, AND THAT IS NOT AN OMISSION. A control nobody has pressed has
-// no outcome, and an absence primitive there would be the console reporting on a
-// question that was never put — the conflation the five kinds of nothing exist to
-// prevent, with the empty case standing in for "we have not asked".
+// What one run control answered, rendered beside the button that asked, never in place of it, so
+// the operator still has something to press after a refusal. A refusal is rendered verbatim
+// (code and sentence are the raiser's). `idle` draws nothing: an unpressed control has no
+// outcome to report.
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -35,9 +17,7 @@ export function RunControlOutcome(props: {
     case "idle":
       return null;
     case "dispatching":
-      // `not-loaded` and never `computing`: the answer is a round trip that has been
-      // put and is still coming, which is the kind that stands in for copy arriving a
-      // beat later. `computing` would claim this console is working something out.
+      // `not-loaded`, not `computing`: the answer is a round trip still coming.
       return (
         <Nothing kind="not-loaded" placement="inline" title="Waiting for the background service." />
       );

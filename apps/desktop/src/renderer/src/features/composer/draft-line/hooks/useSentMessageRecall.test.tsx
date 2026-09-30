@@ -1,5 +1,5 @@
-// The directive history hook builds its per-address map once per mount. Keeping each
-// address's sent messages apart is held by the history cases in `sent-message-history.test.ts`.
+// The hook builds its per-address history map once per mount. Address separation is covered
+// by `sent-message-history.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -10,8 +10,7 @@ import { composerDraftKey } from "../draft-key.js";
 import { SESSION_TARGET } from "../send-router.test-support.js";
 import { useSentMessageRecall } from "./useSentMessageRecall.js";
 
-// The implementation is preserved — this counts constructions and changes nothing about
-// what it does.
+// A spy: the implementation is kept and only constructions are counted.
 vi.mock(import("../sent-message-history.js"), { spy: true });
 
 describe("useSentMessageRecall — the histories map is built once per mount", () => {
@@ -23,10 +22,8 @@ describe("useSentMessageRecall — the histories map is built once per mount", (
   }
 
   it("does not build a new one on every render", () => {
-    // `useRef(new SentMessageHistories())` evaluates its argument on EVERY
-    // render and discards all but the first — an allocation per keystroke in the
-    // composer's own hot path, invisible to every behavioral case because the ref
-    // keeps the first instance and the rest are garbage the moment they are made.
+    // `useRef(new SentMessageHistories())` would build one per render, invisible to behavioral
+    // cases because the ref keeps the first instance.
     const built = vi.mocked(SentMessageHistories);
     built.mockClear();
     const draftStore = new DraftStore({
@@ -38,7 +35,7 @@ describe("useSentMessageRecall — the histories map is built once per mount", (
     probe.rerender(<Probe draftStore={draftStore} />);
     probe.rerender(<Probe draftStore={draftStore} />);
 
-    // The negative control: unheld, this is one construction per render — three.
+    // Unheld, this would be one construction per render: three.
     expect(built.mock.calls.length).toBe(afterFirstRender);
     expect(afterFirstRender).toBe(1);
   });

@@ -1,25 +1,7 @@
-// The versions a parked run may be re-pinned onto, as the pane can honestly know them.
-//
-// WHY A SECOND READ AND NOT A MEMBER OF THE FIRST. `workflow.runRead` answers one
-// `workflowVersionId` — the pin the run is on — and stops there. No registered read
-// takes that id anywhere: `workflow.versionRead` addresses a version by
-// `(definitionId, versionNumber)`, which a caller holding one opaque id holds neither
-// half of, and the definition enumeration carries only each definition's LATEST. So
-// the re-pin picker has no target it could NAME without this read.
-//
-// AN EMPTY CHAIN IS STILL "NO CHAIN WAS READ", ON EVERY ARM THAT IS NOT SERVED. The
-// read is unasked before a snapshot names a pin and in flight after that. Both settle
-// to the SAME empty reading, and that is the honest one rather than a collapse: the
-// control's contract is that an empty chain means no target can be named, so the
-// picker is absent rather than empty and the resume travels with no re-pin.
-// Synthesizing a chain from the one id in hand would offer the operator a target
-// nobody read, which is the "no server-resolved latest" rule with the server swapped
-// out for the renderer.
-//
-// ONE READ PER PIN, AND NO POLLING. The subject is the version id itself, so the read
-// is put once for as long as the run stays on the pin it was read for and again when a
-// served resume moves it — which is the run read's own re-arm reaching this one
-// through the value it answers with, and not a cadence this module arms.
+// The versions a parked run may be re-pinned onto, read through `workflow.versionChainRead`
+// by the pinned version id alone. Every unserved state settles to the same empty chain, so the
+// picker is absent and the resume carries no re-pin; a chain synthesized from the id in hand
+// would name a target nobody read. One read per pin, never a poll.
 
 import type { WorkflowVersionChainEntry } from "@ai-sidekicks/contracts";
 import { formatCount } from "@renderer/lib/wire-figures.js";
@@ -37,22 +19,15 @@ export type WorkflowVersionChainReadCall = (request: {
 /**
  * The reading every unserved state settles to.
  *
- * A module constant rather than a fresh literal per state, so the identity a caller
- * holds is stable across renders — the picker's absence must not be a new array every
- * frame.
+ * A module constant so the identity is stable across renders.
  */
 const NO_VERSION_CHAIN: readonly WorkflowVersionChoice[] = [];
 
 /**
- * Read the chain one run's pinned version belongs to, for as long as the caller holds
- * that pin.
+ * Read the chain one run's pinned version belongs to, for as long as the caller holds it.
  *
- * Keyed on the call and the pinned version id, exactly as the run read is keyed on its
- * call and the run: a re-render with the same call never re-reads, while a run whose pin
- * moved does.
- *
- * `undefined` where the pane holds no pin: the request carries a required version id,
- * so a pane whose snapshot has not been served has nothing to ask.
+ * Keyed on the call and the pinned version id: a re-render with the same call never re-reads,
+ * while a run whose pin moved does. `undefined` where the pane holds no pin, so nothing is asked.
  */
 export function useWorkflowVersionChain(
   readChain: WorkflowVersionChainReadCall,
@@ -69,10 +44,8 @@ export function useWorkflowVersionChain(
         ? undefined
         : readChain({ workflowVersionId: pinnedWorkflowVersionId }),
     {
-      // Both unsettled states are the same empty reading, and they are not a
-      // conflation: this hook's product is the chain a picker may offer, and neither
-      // "nobody asked" nor "the answer is still coming" offers one. What those two
-      // states mean for the RUN is the run read's to report.
+      // Both unsettled states are the same empty reading: neither "nobody asked" nor "still
+      // coming" offers a chain. What they mean for the run is the run read's to report.
       unsettled: () => NO_VERSION_CHAIN,
       settled: (chain) => choicesFrom(chain.versions, pinnedWorkflowVersionId),
     },
@@ -82,16 +55,8 @@ export function useWorkflowVersionChain(
 /**
  * The picker's options, in the order the read answered them.
  *
- * NOTHING IS SORTED AND NOTHING IS FILTERED. The chain's order is the daemon's, and a
- * console that re-ranked it would be deciding which version an operator sees first on
- * evidence the wire did not send. The current pin is marked by COMPARISON rather than
- * read off a member: the caller asked by that very id, so a wire flag would be the
- * reply restating the request.
- *
- * The label is composed here because `WorkflowVersionChoice.label` is the caller's —
- * the version's own ordinal, through the console's one quantity formatter, which is
- * what the chokepoint rule in `apps/desktop/AGENTS.md` means by formatting a wire
- * value in one place.
+ * Nothing is sorted or filtered: the order is the daemon's. The current pin is marked by
+ * comparing with the id the read was asked with, not by a wire flag.
  */
 function choicesFrom(
   versions: readonly WorkflowVersionChainEntry[],

@@ -1,27 +1,8 @@
-// The run pane's body: the address checks and the three bodies that stand inside the
-// pane's frame.
-//
-// `components/PaneFrame` draws the section, its accessible name, the breadcrumb and the
-// actor's hue for every pane kind; this file returns only the body that goes inside it.
-// The frame is worn on every arm, so a pane that refused its address can still be closed.
-// Neither host control (close, tear off) is defaulted here: they are the pane layout's acts and
-// reach the chrome through the host context, so no handler is threaded on any arm.
-//
-// The bodies:
-//
-//   - No entity: the empty state and the conversational start. The start is offered on
-//     this arm and no other, so it never competes with a run already in front of the
-//     operator.
-//   - An entity of another kind: the strip's refusal, with nothing standing beside it.
-//   - An addressed run: the strip's summary line.
-//
-// The chrome's trail is told the run only where the address names one, so a pane that
-// refused a definition id does not announce itself as scoped to it.
-//
-// The address is checked before it is used, although `PaneAddress` makes another
-// kind unconstructible: a pane address is also parsed out of a persisted layout and out of
-// a route, and a parsed value is data rather than a proof. The builder pane holds the same
-// guard, and both refuse through `workflows/pane/pane-addressing.ts`.
+// The run pane's body inside `PaneFrame`, which supplies the chrome on every arm so a refused
+// pane can still be closed. Arms: no entity (empty state plus the conversational start, offered
+// only here), another kind (the strip's refusal alone), an addressed run (the summary line).
+// The address is checked though `PaneAddress` forbids other kinds: a parsed layout or route is
+// data.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { ChatStartMountPoint } from "./components/ChatStartMountPoint.js";
@@ -43,16 +24,12 @@ export interface RunPageProps {
 /** The body of a run pane, drawn inside the pane chrome's frame. */
 export function RunPage(props: RunPageProps): React.JSX.Element {
   const { sessionStore } = props.context;
-  // Widened on purpose: this arm's `entity` is declared as a required run reference, but
-  // `paneBodyForKind` narrows a context on its `kind` alone and a pane address is also
-  // parsed from a persisted layout and a route. The annotation keeps the compiler from
-  // calling the guards below dead.
+  // Widened on purpose: the address is also parsed from a persisted layout and a route, so the
+  // guards below are live code.
   const entity: EntityRef | undefined = props.context.entity;
-  // The id is taken from the address only where the address names a run.
   const addressedRunId = entity?.kind === WORKFLOW_RUN_PANE_SUBJECT_KIND ? entity.id : undefined;
 
-  // One frame for every arm: the address the trail reads is decided once, so a head and
-  // its body cannot disagree.
+  // One frame for every arm, so a head and its body cannot disagree.
   function renderBody(): React.JSX.Element {
     if (entity === undefined) {
       return (
@@ -64,8 +41,8 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
     }
 
     if (entity.kind !== WORKFLOW_RUN_PANE_SUBJECT_KIND) {
-      // The strip's `refused` arm renders the refusal and not the children, so no
-      // control, mount point or start affordance stands beside an address this pane will not open.
+      // The strip's `refused` arm renders the refusal and not the children, so no start
+      // affordance stands beside an address this pane will not open.
       return (
         <WorkflowStateStrip
           summary={SUMMARY}
@@ -81,8 +58,8 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
     <PaneFrame
       kind="workflow-run"
       sessionId={sessionStore?.sessionId}
-      // Only a run the address names: a definition id is refused above, and a head scoped
-      // to it would contradict the banner beneath.
+      // Only a run the address names: a head scoped to a refused definition id would contradict
+      // the banner beneath.
       runId={addressedRunId}
       // Passed through when absent: an unattributed pane sets no hue and the sheet's
       // neutral fallback applies.

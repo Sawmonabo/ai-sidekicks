@@ -1,18 +1,7 @@
-// The half of pane geometry that has to touch a document.
-//
-// The sampling half. `pane-geometry.ts` holds the arithmetic; this module holds the
-// part that cannot be pure — which invalidation
-// sources are armed, when a reading is taken, and when it is allowed to be written.
-// Two rules live here and nowhere else:
-//
-//   * ARM EVERY SOURCE. A resize observer alone misses a pane that MOVES without
-//     changing size, which is most of them — so a position observer sits beside it,
-//     and neither of the two replaces the viewport, theme, or overlay sources.
-//   * READ NOW, WRITE NEXT FRAME. Mutating layout from inside resize-observer delivery
-//     drops the remaining notifications on at least one shipped engine.
-//
-// The rectangle goes to the page host in `page-host.ts`; this module names no method of
-// its own.
+// The half of pane geometry that touches a document: which invalidation sources are armed, when a
+// reading is taken and when it is written. Read now, write next frame, because mutating layout
+// inside resize-observer delivery drops the remaining notifications on at least one shipped
+// engine. Every source is armed, since a resize observer alone misses a pane that moves.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
@@ -38,6 +27,7 @@ export type PaneGeometryOutcome =
   | { readonly status: "deduped"; readonly sample: PaneGeometrySample }
   | { readonly status: "suppressed"; readonly refusal: Refusal };
 
+/** What a publisher needs: where it publishes, its frame clock, and the overlay source. */
 export interface PaneGeometryPublisherOptions {
   readonly pageHost: PageHost;
   readonly clock: Clock;
@@ -45,9 +35,8 @@ export interface PaneGeometryPublisherOptions {
 }
 
 /**
- * Keeps one host element's rectangle published to one page host. A class with private
- * fields because its invariants — arm once, dispose once, never re-arm after a
- * rejection — are properties of that state and need a single owner.
+ * Keeps one host element's rectangle published to one page host. A class because arm-once,
+ * dispose-once and never-re-arm-after-a-rejection are state invariants with one owner.
  */
 export class PaneGeometryPublisher {
   readonly #pageHost: PageHost;
@@ -70,18 +59,11 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * Arm every invalidation source against one host element, and all of them are
-   * required: a resize observer misses a pane that MOVES without changing size — a
-   * rail collapse, a sidebar drag, a sibling pane's width — so a POSITION observer
-   * covers the ways the pane is carried while its own box stays the shape it was,
-   * window resize and CAPTURE-PHASE document scroll cover the viewport (a scroll
-   * inside a nested scroller does not bubble, so a bubbling listener would miss most
-   * of them), an overlay opening or moving makes the view yield, and a theme change
-   * moves the rectangle because token-driven chrome heights shift it.
-   *
-   * Every one of them lands on the same `invalidate`, which reads immediately and
-   * queues ONE write, so three observers firing on a single relayout still cost one
-   * publish.
+   * Arms every invalidation source against one host element: resize, position, window resize,
+   * capture-phase document scroll (a nested scroller's scroll does not bubble), overlays, and
+   * theme changes (token-driven chrome heights shift the rectangle). All land on `invalidate`,
+   * which reads immediately and queues one write, so several observers firing on one relayout
+   * cost one publish.
    */
   public observe(hostElement: HTMLElement): Unsubscribe {
     if (this.#disposed) {
@@ -100,12 +82,10 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * Take a reading now and queue the write. The read is synchronous because that is
-   * where it is correct — inside observer delivery, before anything else has moved —
-   * and the write waits for the next frame because mutating layout from inside
-   * resize-observer delivery drops the remaining notifications on at least one shipped
-   * engine and strands the view. Re-entry before the frame runs replaces the pending
-   * sample rather than queueing a second frame, which is what makes over-firing free.
+   * Takes a reading now and queues the write. The read is synchronous so it is correct inside
+   * observer delivery; the write waits a frame because mutating layout there drops
+   * notifications on at least one shipped engine and strands the view. Re-entry before the
+   * frame replaces the pending sample rather than queueing a second frame.
    */
   public invalidate(reason: GeometryInvalidationReason): void {
     const element = this.#hostElement;
@@ -134,18 +114,9 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * Fires whenever a new outcome is recorded, so the pane can RENDER one.
-   *
-   * Without it `lastOutcome()` is only readable by whoever happens to ask, and the
-   * pane asks exactly once — at attach, before the first frame has run, when the
-   * answer is still `undefined`. Everything after that, the `pane-gone` rejection
-   * most of all, would land in this private field and be seen by nobody, leaving the
-   * pane rendering "no page yet" over a page host that has said the pane is destroyed.
-   *
-   * A `void` event and a re-read rather than the outcome as a payload, which is the
-   * shape `PaneOverlaySource.subscribeToChanges` already uses and what `useSyncExternalStore`
-   * takes: one snapshot accessor, one notification, and no second copy of the value
-   * to fall out of step with the first.
+   * Fires whenever a new outcome is recorded, so the pane can render it. A `void` event and a
+   * re-read of `lastOutcome()`, the shape `useSyncExternalStore` takes; without it a `pane-gone`
+   * rejection landing after the pane's one read at attach would be seen by nobody.
    */
   public subscribeToOutcomes(sink: () => void): Unsubscribe {
     return this.#outcomeEmitter.subscribe(sink);
@@ -156,15 +127,14 @@ export class PaneGeometryPublisher {
     return this.#publishCount;
   }
 
-  /** Whether anything is still armed. Zero after `dispose`, and it stays zero. */
+  /** How many sources are armed; zero after `dispose`. */
   public get armedSourceCount(): number {
     return this.#detachers.length;
   }
 
   /**
-   * Whether this publisher is spent. Read by the owner that has to decide whether to
-   * mint a fresh one — a disposal is terminal, and the two ways one happens are an
-   * unmount and the page host rejecting a rectangle for a pane that is gone.
+   * Whether this publisher is spent. Disposal is terminal (an unmount, or the page host
+   * rejecting a rectangle for a gone pane), so an owner reads this to know to mint a new one.
    */
   public get isDisposed(): boolean {
     return this.#disposed;
@@ -197,18 +167,9 @@ export class PaneGeometryPublisher {
     }
     const outcome = this.#pageHost.setRect(sample);
     if (outcome.status === "rejected") {
-      // Retrying would publish a rectangle for a pane that no longer exists, once per
-      // frame, forever.
-      //
-      // THE TERMINAL STATE IS RESTORED FIRST, AND THE ORDER IS THE FIX. Recording
-      // announces, `Emitter` re-raises what a sink threw, and a single throwing
-      // observer therefore carried the exception out of this method before the
-      // disposal ran — leaving the publisher armed, subscribed, and still writing
-      // rectangles to a pane the page host had just declared gone. Disposal costs the
-      // subscribers nothing here: `dispose` deliberately does NOT clear the sinks, so
-      // the notification below still reaches everyone who was subscribed, and it
-      // now reaches them over a publisher whose `isDisposed` already agrees with
-      // the sentence they are about to render.
+      // Retrying would publish a rectangle for a pane that is gone, once per frame.
+      // Dispose before recording: `Emitter` re-raises what a sink throws, and a throwing sink
+      // must not leave the publisher armed. `dispose` keeps the sinks, so they still hear it.
       this.dispose();
       this.#recordOutcome({ status: "suppressed", refusal: outcome.refusal });
       return;
@@ -219,12 +180,9 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * The one writer of the outcome field, so no arm can record a result without
-   * announcing it. `dispose` deliberately does NOT clear the sinks: the subscription
-   * belongs to whoever opened it, and severing it here would silently drop the
-   * notification carrying the very refusal that caused the disposal. That is also
-   * what lets the rejection arm above dispose BEFORE it records — a sink that throws
-   * must not be able to keep this publisher alive.
+   * The one writer of the outcome field, so no arm records a result without announcing it.
+   * `dispose` does not clear the sinks: the subscription belongs to whoever opened it, and
+   * severing it would drop the notification carrying the refusal that caused the disposal.
    */
   #recordOutcome(outcome: PaneGeometryOutcome): void {
     this.#lastOutcome = outcome;
@@ -232,12 +190,8 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * The two overlay sources: the set's own change stream, and the per-frame motion
-   * observation only a consumer drawing a native view needs.
-   *
-   * Armed beside the other invalidation sources so `dispose` retires them on every
-   * path, the self-disposal after a `pane-gone` rejection included; a window drawing no
-   * view samples nothing.
+   * The overlay sources: the set's change stream, and the per-frame motion observation only a
+   * native-view consumer needs. Armed with the others so `dispose` retires them on every path.
    */
   #armOverlaySources(): void {
     this.#detachers.push(
@@ -248,15 +202,7 @@ export class PaneGeometryPublisher {
     );
   }
 
-  /**
-   * The size source, through the console's one resize seam.
-   *
-   * `primitives/element-resize.ts` owns the observer construction, its feature
-   * detection, and its disconnect; a second construction here would be the same four
-   * lines free to drift from those. A platform with no `ResizeObserver` degrades
-   * inside the helper and hands back a disposer that does nothing, so this arm never
-   * branches on it.
-   */
+  /** The size source, through the shared resize seam in `lib/element-resize.ts`. */
   #armResizeObserver(hostElement: HTMLElement): void {
     this.#detachers.push(
       observeElementResize(hostElement, () => {
@@ -266,14 +212,8 @@ export class PaneGeometryPublisher {
   }
 
   /**
-   * The move source — `layout-mover`'s producer, and the reason that reason exists.
-   *
-   * Until this arm the enumeration named a mover no production path ever raised: a
-   * pane layout reorder, a sibling pane shrinking, and a rail sliding in all move the pane
-   * without changing its own box, and none of them reaches a size observer, a window
-   * resize, a scroll, a theme attribute, or an overlay registration. The native view
-   * therefore stayed at its old coordinates — painted over whatever chrome the pane
-   * had just moved away from — until something unrelated happened to invalidate.
+   * The move source, producer of `layout-mover`: a pane layout reorder, a shrinking sibling or a
+   * sliding rail moves the pane without changing its own box, which no other source reports.
    */
   #armPositionObserver(hostElement: HTMLElement): void {
     this.#detachers.push(
@@ -327,13 +267,9 @@ function readElementRect(element: Element): PaneRect {
 }
 
 /**
- * Every clipping ancestor's box, outermost first — the order `PaneGeometryInput`
- * declares, kept even though the fold that consumes it intersects and so cannot tell.
- *
- * WHICH ancestors clip is `lib/clipping-ancestors.ts`'s answer and not this
- * module's, shared with the session pane layout's `pane-rect-geometry.ts` so the two read
- * one walk. What is left here is the part that is the preview's: turning the ancestors
- * into the rects the sampler subtracts.
+ * Every clipping ancestor's box, outermost first (the order `PaneGeometryInput` declares).
+ * Which ancestors clip is `lib/clipping-ancestors.ts`'s answer, shared with `pane-rect-geometry.ts`
+ * in the session pane layout.
  */
 function readClippingAncestorRects(element: HTMLElement): readonly PaneRect[] {
   return [...clippingAncestorsOf(element)].reverse().map(readElementRect);

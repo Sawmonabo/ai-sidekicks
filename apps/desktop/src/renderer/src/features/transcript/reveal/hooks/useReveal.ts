@@ -1,37 +1,7 @@
-// The React binding for the reveal engine: one engine per feed, and what a view
-// reads it through.
-//
-// `reveal-engine.ts` holds the mechanism — the ordered queue, the per-frame budget
-// split across lanes, the rope smoother, the checkpoint tail. This module holds the
-// React side of it, on `useTranscriptViewport.ts`' split and for the same reason: the
-// engine submits its drains to the frame coordinator and knows nothing about renders, and a
-// tree that has to repaint when a lane moves needs a notification the engine does
-// not owe it.
-//
-// THREE THINGS THIS BINDING IS RESPONSIBLE FOR:
-//
-//   • **Ownership.** One engine per feed, minted once and disposed when the feed
-//     unmounts, with the re-mint arm `useTranscriptViewport.ts` takes for its own
-//     controller — a remount of the same component instance has already run the
-//     cleanup, and a disposed engine ingests nothing, so the second mount takes a
-//     fresh one rather than a corpse.
-//   • **The notification.** A drained frame bumps a revision, which is what makes the
-//     feed render; the row bodies then read their own lane through the channel and
-//     React's own snapshot comparison decides which of them actually repaints. An
-//     ingest bumps it too, because arming a frame is the transition that turns the
-//     drain state on and no frame has drained yet to report it.
-//   • **Retirement.** A lane whose row the window no longer holds live is dropped, so
-//     a finished turn stops costing memory. The predicate is asked of the ENGINE's
-//     own lanes rather than of the window's rows: the engine holds at most one lane
-//     per streaming row, and walking the window instead would be a pass over the
-//     whole log per event.
-//
-// WHAT FEEDS IT, STATED RATHER THAN INVENTED. A delta carries a body, and no wire
-// this console holds carries one: `assistant.*` and `tool.*` payloads are `.strict()`
-// over a media type and a byte length, and the body itself is sealed in the daemon's
-// own encrypted column behind a read no bridge namespace serves. That read is what
-// will call `ingest`. Until it lands the engine holds no lane, publishes no text, and
-// reports `isDraining` false — a READING of a mounted scheduler rather than a literal.
+// The React binding for the reveal engine: one per feed, disposed on unmount and re-minted on a
+// remount, since a disposed engine ingests nothing. A drained frame or an ingest bumps a
+// revision so the feed renders; each row reads its own lane through the channel and React's
+// snapshot comparison decides which rows repaint.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 
@@ -49,24 +19,26 @@ export interface RevealBinding {
   readonly channel: RowRevealContextValue;
   /** True while a frame is armed. The viewport defers prune on it. */
   readonly isDraining: boolean;
-  /** Take one lane's delta. See this file's header on what will call this. */
+  /**
+   * Take one lane's delta. Nothing calls it yet: event payloads carry only a media type and byte
+   * length, and the body is sealed behind a daemon read no bridge namespace serves; that read
+   * will feed this.
+   */
   readonly ingest: (delta: RevealDelta) => void;
-  /** Drop every lane the predicate names. Asked once per window change. */
+  /**
+   * Drop every lane the predicate names. Asked of the engine's own lanes (at most one per
+   * streaming row) instead of walking the window's rows on every event.
+   */
   readonly retireLanes: (shouldRetire: (laneId: string) => boolean) => void;
 }
 
+/** Inputs to `useReveal`. */
 export interface UseRevealOptions {
   /**
-   * The frame every drain in this engine is ordered inside — the feed's, minted
-   * above both this hook and the viewport so one object orders the whole frame.
-   *
-   * NOT FIXED FOR THE MOUNT. The rule the clock carries applies here for the same
-   * reason: the feed re-mints its coordinator when the window's clock is replaced,
-   * so a holder that captured one at construction would go on submitting drains to
-   * a coordinator whose frames nothing arms. The effect below re-mints on a
-   * replacement, and deliberately: it costs one identity comparison, and a re-mint
-   * drops the lane text published so far, which is a loss this engine takes rather
-   * than carrying work submitted to one scheduler and canceled on another.
+   * The feed's frame coordinator, which orders every drain. It can be replaced: the feed
+   * re-mints it when the window's clock is replaced, and the effect below then re-mints the
+   * engine (dropping lane text published so far) rather than submit drains to a scheduler
+   * nothing arms.
    */
   readonly frameCoordinator: AnimationFrameCoordinator;
 }
@@ -75,9 +47,8 @@ export interface UseRevealOptions {
 export function useReveal(options: UseRevealOptions): RevealBinding {
   const { frameCoordinator } = options;
   const [engine, setEngine] = useState<RevealEngine>(() => new RevealEngine({ frameCoordinator }));
-  // The engine owns its own state and is not React state; the revision is how the
-  // tree finds out it moved. Nothing renders the number — see `useTranscriptViewport.ts`'
-  // lease revision, which is the same idiom for the same reason.
+  // The engine is not React state; the revision is how the tree learns it moved. Nothing
+  // renders the number.
   const [frameRevision, setFrameRevision] = useState(0);
 
   useEffect(() => {
@@ -122,8 +93,8 @@ export function useReveal(options: UseRevealOptions): RevealBinding {
     ingest: useCallback(
       (delta: RevealDelta) => {
         engine.ingest(delta);
-        // Arming is a state change no frame has reported yet: without this the
-        // viewport would not see the drain until the frame that ends it.
+        // Arming is a state change no frame has reported yet; without this the viewport would
+        // not see the drain until the frame that ends it.
         setFrameRevision((current) => current + 1);
       },
       [engine],

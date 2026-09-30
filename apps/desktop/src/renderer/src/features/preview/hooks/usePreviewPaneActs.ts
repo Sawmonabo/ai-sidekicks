@@ -1,36 +1,8 @@
-// Which of the pane's acts is the one whose answer may still be rendered.
-//
-// The chrome dispatches acts that OVERLAP. Reload is a round trip through the
-// preload boundary into a page that may be waiting on a network the console knows
-// nothing about, and the control that started it is the same control a person
-// presses to stop it — so "reload is still pending, stop was pressed and served,
-// reload then rejects" is not an exotic interleaving but the ordinary way that one
-// button is used. Rendering every completion as it lands finishes that sequence by
-// showing the failure of the act the operator ALREADY replaced, over a pane whose
-// most recent act succeeded.
-//
-// So each act takes a token as it is dispatched, and a completion writes only while
-// its token is still the newest. What is guarded is the whole write and not just the
-// refusing half: an older act that SERVED would otherwise clear a newer act's
-// refusal, which is the same defect with the two outcomes swapped.
-//
-// A LOCAL REFUSAL IS AN ACT TOO. The address field's filesystem guard and the
-// close-tab chord settle here without crossing the boundary at all, and they are the
-// person's newest act at the moment they settle — so they take a token like every
-// other, and a call dispatched before them can no longer overwrite what they said.
-//
-// DISMISSAL DELIBERATELY TAKES NO TOKEN. It says "I have read this", not "I have
-// started something newer": an act that was already in flight when the banner was
-// dismissed is still the newest thing the pane is doing, and its failure is news.
-//
-// AND EVERY ONE OF THOSE ACTS BELONGS TO A SUBJECT. A token orders acts against each
-// other and says nothing about which pane they were dispatched for, so a pane layout that
-// rebinds this component to another `paneId` or another bridge kept both halves: a
-// navigation dispatched under the previous subject settled afterwards and published
-// its refusal beside the NEW pane, naming a page nobody was looking at, and a local
-// refusal already on screen stayed there across the swap. So the refusal carries the
-// `(bridge, paneId)` it was raised under and the render compares it, and the tokens
-// outstanding under a retired subject are superseded rather than left to write.
+// Decides which of the pane's acts may still render its answer. Acts overlap (reload can be
+// pending when stop is pressed), so each takes a token and a completion writes only while its
+// token is newest, else an older completion would show or clear the wrong refusal. Local refusals
+// take a token too; dismissal takes none, since an in-flight act's failure is still news. A
+// refusal belongs to the `(bridge, paneId)` it was raised under, so a swap cannot inherit it.
 
 import { useCallback } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -45,13 +17,8 @@ import type { PreviewPaneRefusalCode } from "../pane-refusals.js";
 const PREVIEW_PANE_REFUSAL_ORIGIN = "preview-pane";
 
 /**
- * Which dispatched act is the newest one.
- *
- * A counter in an encapsulated class rather than a number in a ref, because the two
- * questions callers ask of it — "give me a token" and "is this token still current"
- * — are the whole seam, and a bare number invites each call site to compare it its
- * own way. Monotonic and never reset: a token is only ever compared against the
- * newest, so the count is free to run for the life of the pane.
+ * Which dispatched act is the newest. A monotonic counter behind two calls, so no call site
+ * compares a bare number its own way.
  */
 class BrowserActSequence {
   #newestToken = 0;
@@ -68,13 +35,9 @@ class BrowserActSequence {
   }
 
   /**
-   * Retire every token taken so far, so nothing still in flight may write.
-   *
-   * The counter ADVANCES rather than resets, which is the whole difference between
-   * this and minting a fresh sequence: a reset would start the replacement subject's
-   * first act at the same number an outstanding act from the previous one already
-   * holds, and `isNewest` would then let that stale act write against the new pane —
-   * the defect, reintroduced by the fix for it.
+   * Retire every token taken so far, so nothing in flight may write. The counter advances
+   * rather than resets: a reset would give the replacement subject's first act the number an
+   * outstanding act already holds, letting that stale act write against the new pane.
    */
   public supersedeOutstanding(): void {
     this.#newestToken += 1;
@@ -82,13 +45,8 @@ class BrowserActSequence {
 }
 
 /**
- * How the holder lets a sequence go when the subject moves or the pane unmounts.
- *
- * A RELEASE rather than a terminal disposal: superseding advances the counter and
- * leaves the object working, so there is no closed state to read and no corpse a
- * second mount could be handed. Declared at module level so its identity is stable
- * across renders, which is what keeps the holder's dependency list from moving every
- * pass.
+ * How the holder releases a sequence when the subject moves or the pane unmounts. A release, not
+ * a terminal disposal: the object keeps working. Module-level for a stable identity.
  */
 const BROWSER_ACT_SEQUENCE_DISPOSAL: SubjectScopedDisposal<BrowserActSequence> = {
   release: (retired) => {
@@ -101,17 +59,14 @@ export interface PreviewPaneActs {
   /** The newest act's refusal, or `undefined` where the newest act did not refuse. */
   readonly refusal: Refusal | undefined;
   /**
-   * Dispatch one act. The thunk answers with the refusal to render, or `undefined`
-   * where the act was served; a rejection is normalized through the console's one
-   * wire-rejection reader, so a code the other side sent survives.
+   * Dispatch one act. The thunk answers with the refusal to render, or `undefined` where the act
+   * was served; a rejection is normalized through the wire-rejection reader, so a code the
+   * other side sent survives.
    */
   run(act: () => Promise<Refusal | undefined>, fallback: RejectionFallback): void;
   /**
-   * Refuse here and now, without crossing the boundary. Outranks anything in flight.
-   *
-   * The code is one of the pane's OWN closed set (`pane-refusals.ts`) rather than a
-   * free string: every code that reaches here was decided by this renderer, so a
-   * caller inventing one more is a decision and reads as one.
+   * Refuse here and now, without crossing the boundary. Outranks anything in flight. The code
+   * is one of the pane's own closed set, so a new one is a decision.
    */
   refuseLocally(code: PreviewPaneRefusalCode, detail: string): void;
   /** Clear what is on screen. Starts nothing, and supersedes nothing. */
@@ -119,20 +74,11 @@ export interface PreviewPaneActs {
 }
 
 /**
- * Hold one pane's act ordering and the one refusal it renders.
- *
- * TWO MECHANISMS, BECAUSE THEY CLOSE TWO DIFFERENT GAPS, and the console's two
- * subject primitives are each of them. The refusal is HELD for its subject, so the
- * pass that first sees the replacement subject already shows no refusal — an effect
- * would clear it one pass late, and that pass is on screen. The sequence is a
- * RESOURCE opened for that subject, so retiring it supersedes what is in flight and
- * an act dispatched under the retired subject writes nothing at all rather than
- * writing a refusal the holder then has to hide; the same disposal covers unmount,
- * where there is no later render to compare.
+ * Hold one pane's act ordering and the one refusal it renders. The refusal is held for its
+ * subject, so the first pass for a replacement subject already shows none; the sequence is a
+ * resource whose retirement supersedes in-flight acts, on a subject change and on unmount.
  */
 export function usePreviewPaneActs(bridge: PlatformBridge, paneId: string): PreviewPaneActs {
-  // The subject is changing, or the pane is going: whatever is in flight was
-  // dispatched for a pane this hook no longer serves, so the disposal supersedes it.
   const { value: sequence } = useSubjectScopedResource(
     bridge,
     paneId,

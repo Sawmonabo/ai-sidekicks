@@ -1,14 +1,7 @@
-// The command list's shared scaffolding: one composer, mounted for real.
-//
-// Lives here because four suites drive the SAME composition — the command list watches a
-// line it does not own, opens on what a person types into it, and writes nothing
-// back — and a second mount helper written beside one of them would be a second
-// answer to what "the composer" means in these cases.
-//
-// THE STORE IS THE REAL ONE, fed the composer scenario's own beats through the
-// registered run projectors, so the address these cases resolve is the address the
-// shipped composer resolves. The bridge is the real fixture with `answer` in front of
-// `daemon.call`, so every reply, refusal, and clock reading is the fixture's own.
+// Shared scaffolding for the command list suites: one real composer over the real store, fed
+// the composer scenario's beats through the registered run projectors, and the real fixture
+// bridge with `answer` in front of `daemon.call`. One mount helper keeps "the composer" one
+// answer across suites that drive the same composition.
 
 import type { ProviderCommandBindingGroup, RunId } from "@ai-sidekicks/contracts";
 import { act, fireEvent, render } from "@testing-library/react";
@@ -31,14 +24,14 @@ import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { MessageComposer } from "../Composer.js";
 import { composerDraftKey } from "../draft-line/draft-key.js";
 import { settleEnumeration } from "./provider-command-read.js";
-// The enumeration method string and the recording bridge are the holder suite's, and
-// there is one of each: two copies would let the two suites disagree about which call
-// they are watching for.
+// One copy of the enumeration method string, shared with the holder suite.
 import { ENUMERATION_METHOD } from "./provider-command-enumeration.test-support.js";
 
+/** The id of the console command the suites register so the list has an act to offer. */
 export const TEST_COMMAND_ID = "composer-discovery-test.act";
 /** A prefix no console command and no enumerated provider entry begins with. */
 export const UNMATCHED_PREFIX = "/zzz-nothing-begins-with-this";
+/** The sentence the popover renders when no entry matches what was typed. */
 export const EMPTY_STATE_SENTENCE = "No command matches what you have typed";
 /** The opening of the sentence the popover renders when no group names this run. */
 export const UNADDRESSED_BINDING_SENTENCE = "This run's binding published nothing here";
@@ -47,12 +40,8 @@ export const NOT_RUNNABLE_FRAGMENT = "there is nothing here to run";
 /** An entry name the scenario's own enumeration does not carry. */
 export const UNADDRESSED_ENTRY_NAME = "status";
 /**
- * The run identifier the wire admits, or a loud failure.
- *
- * `runId` is a branded id, and a literal asserted into that brand would let a group
- * these cases treat as wire-shaped carry a value the wire would refuse. The bridge's
- * own reader answers the brand; a fixture whose id the wire would not take
- * fails here rather than reaching a case as if it had been enumerated.
+ * The run identifier the wire admits, or a loud failure. A literal asserted into the brand
+ * would let a group carry a value the wire would refuse; the bridge's own reader answers it.
  */
 function fixtureRunId(value: string): RunId {
   const runId = readRunId(value);
@@ -63,13 +52,9 @@ function fixtureRunId(value: string): RunId {
 }
 
 /**
- * A live binding on the OTHER provider, attributed to a run this composer never
- * addresses — the second group the agent-scoped reply can carry.
- *
- * A typed literal over the registered shape rather than a parse of an untyped one:
- * a view's suite reads the reply `callDaemon` parsed and holds no parser of
- * its own, and the annotation is the stronger claim — a member the wire does not
- * carry fails `typecheck` here rather than at the moment a case runs.
+ * A live binding on the other provider, attributed to a run this composer never addresses:
+ * the second group the agent-scoped reply can carry. Typed rather than parsed, so a member
+ * the wire does not carry fails `typecheck` here.
  */
 export const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
   runId: fixtureRunId("019b7a11-1100-740e-8120-d1a4c1150312"),
@@ -84,8 +69,10 @@ export const UNADDRESSED_CODEX_GROUP: ProviderCommandBindingGroup = {
   ],
   complete: true,
 } satisfies ProviderCommandBindingGroup;
+/** Command ids a case registered; removed from the registry after each test. */
 export const registeredIds: string[] = [];
 
+/** A mounted composer and the handles a case drives it through. */
 export interface MountedComposer {
   readonly container: HTMLElement;
   readonly line: HTMLTextAreaElement;
@@ -97,13 +84,9 @@ export interface MountedComposer {
 }
 
 /**
- * The real fixture bridge with `answer` in front of `daemon.call`.
- *
- * The fixture bridge's own helper rather than a spread of this suite's: the replies,
- * the refusals, and the scenario clock are all the fixture's own, and `answer`
- * decides only whether a call is forwarded to them or held. The daemon-call
- * chokepoint is why it is not spread here — a test outside `bridge/` stands in for a
- * view, and a view reaches the daemon only through `callDaemon`.
+ * The real fixture bridge with `answer` in front of `daemon.call`, deciding only whether a
+ * call is forwarded to the fixture's own replies and clock or held. Not a spread of the
+ * bridge: a view reaches the daemon only through `callDaemon`.
  */
 export function composerBridgeAnswering(
   answer: (call: RecordedDaemonCall, forward: () => Promise<unknown>) => Promise<unknown>,
@@ -139,22 +122,15 @@ export function bridgeHoldingTheEnumeration(): PlatformBridge {
 }
 
 /**
- * The scenario's own enumerated groups, read through the registered method.
- *
- * The command list's own read path rather than a parser beside it: `settleEnumeration`
- * puts the scripted reply through `callDaemon`, which parses it against the shape
- * the registry binds to `driver.listProviderCommands`. So a fixture that has
- * drifted from the wire shape reaches these cases as a refusal — which this throws
- * on — rather than as an enumeration, and no suite outside `bridge/` holds a
- * schema. Asynchronous because a registered reply is reached by calling for it.
+ * The scenario's own enumerated groups, read through the command list's own read path so a
+ * fixture that drifted from the wire shape reaches these cases as a refusal, which this
+ * throws on. Asynchronous because a registered reply is reached by calling for it.
  */
 export async function scenarioBindingGroups(): Promise<readonly ProviderCommandBindingGroup[]> {
   const { bridge } = createFixtureBridge({ scenario: WAITING_FOR_INPUT_SCENARIO });
   const agentId = scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO);
-  // A bare controller nothing ever aborts, which is the line this helper wants: it
-  // awaits the read to completion and has no owner who could leave. A `ReadScope`
-  // here would put a second module inside a helper whose whole job is to hand the
-  // suites the scenario's own groups.
+  // A bare controller nothing aborts: the helper awaits the read to completion and has no
+  // owner who could leave.
   const liveLine = new AbortController();
   const state = await settleEnumeration(
     bridge,
@@ -168,7 +144,7 @@ export async function scenarioBindingGroups(): Promise<readonly ProviderCommandB
   return state.groups;
 }
 
-/** The run the scenario attributes its own Claude group to — the addressed one. */
+/** The run the scenario attributes its own Claude group to, which is the addressed one. */
 export async function addressedRunIdOfFirstAgent(): Promise<
   NonNullable<ProviderCommandBindingGroup["runId"]>
 > {
@@ -198,6 +174,7 @@ export function composerLeadAgentId(): string {
   return scenarioLeadAgentId(WAITING_FOR_INPUT_SCENARIO);
 }
 
+/** A session store initialized with the composer scenario's beats. */
 export function composerSessionStore(): SessionStore {
   const store = new SessionStore({
     sessionId: WAITING_FOR_INPUT_SCENARIO.sessionId,
@@ -210,10 +187,12 @@ export function composerSessionStore(): SessionStore {
   return store;
 }
 
+/** The pane address of one agent. */
 export function agentPane(agentId: string): PaneAddress {
   return { kind: "agents", entity: { kind: "agent", id: agentId } };
 }
 
+/** Mount the real composer over the given bridge and return the handles a case needs. */
 export async function mountComposer(options: {
   readonly bridge: PlatformBridge;
   readonly focusedPane: PaneAddress | undefined;
@@ -277,6 +256,7 @@ export async function mountComposer(options: {
   };
 }
 
+/** Type text into the message line and let the input settle. */
 export async function typeIntoLine(line: HTMLTextAreaElement, text: string): Promise<void> {
   await act(async () => {
     fireEvent.input(line, { target: { value: text } });
@@ -284,6 +264,7 @@ export async function typeIntoLine(line: HTMLTextAreaElement, text: string): Pro
   });
 }
 
+/** The names of the rows the open list renders. */
 export function optionNames(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll('[role="option"] .meridian-command-discovery__name')].map(
     (element) => element.textContent ?? "",
@@ -291,10 +272,8 @@ export function optionNames(container: HTMLElement): readonly string[] {
 }
 
 /**
- * Step focus into the open list, the way the line's own ArrowDown does.
- *
- * The list is where the activation keys are handled, so a case that fired them at the
- * textarea would be testing the line's key handling and not the listbox's.
+ * Step focus into the open list, the way the line's own ArrowDown does. Activation keys are
+ * handled by the list, so firing them at the textarea would test the wrong handler.
  */
 export async function stepIntoList(mounted: MountedComposer): Promise<HTMLElement> {
   await act(async () => {

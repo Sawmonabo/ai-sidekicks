@@ -5,21 +5,14 @@ import type { Keybinding } from "@renderer/registries/commands/command-types.js"
 import { COMPOSER_FOCUS_COMMAND_ID } from "./commands.js";
 
 /**
- * The chord, in `tinykeys` grammar, that asks for the composer.
- *
- * Spelled with the physical `KeyL` code rather than the printed `l`: a code names one
- * physical key on every keyboard layout, while a printed character names a different
- * key on each. `$mod` is the platform's primary modifier — command on macOS, control
- * elsewhere.
+ * The chord in `tinykeys` grammar. `KeyL` is the physical key code, the same key on every
+ * layout; `$mod` is command on macOS and control elsewhere.
  */
 export const COMPOSER_FOCUS_CHORD = "$mod+KeyL";
 
 /**
- * The composer chord's binding.
- *
- * `allowInTextInput`, because the chord's whole job is to move the caret from wherever
- * it is to the composer, and the places a person most needs it from — a find field, a
- * filter box, a form — are text inputs.
+ * The composer chord's binding. `allowInTextInput` because the chord exists to move the caret
+ * out of text inputs such as a find field.
  */
 export const COMPOSER_FOCUS_KEYBINDING: Keybinding = {
   chord: COMPOSER_FOCUS_CHORD,
@@ -27,15 +20,9 @@ export const COMPOSER_FOCUS_KEYBINDING: Keybinding = {
   allowInTextInput: true,
 };
 
-/** The owner the composer's keybindings are contributed under. */
 const COMPOSER_KEYBINDING_OWNER = "composer-keybindings";
 
-/**
- * Contribute the composer's keybindings to a window.
- *
- * Takes the registry rather than reaching for the module-scope one, so a test contributes
- * into a registry it owns.
- */
+/** Contribute the composer's keybindings to the supplied registry, so tests own theirs. */
 export function registerComposerKeybindings(registry: CommandContributionRegistry): void {
   registry.contribute({
     owner: COMPOSER_KEYBINDING_OWNER,

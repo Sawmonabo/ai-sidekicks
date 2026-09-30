@@ -1,6 +1,5 @@
-// Every row an undo can draw, against the design's own words: every part applied, part
-// applied, nothing applied, and a resend that failed after its undo applied, for a message
-// and for a snapshot.
+// Every row an undo can draw: all parts applied, part applied, nothing applied, and a resend
+// that failed after its undo applied, for a message and for a snapshot.
 
 import { describe, expect, it } from "vitest";
 import type { SessionRestoreResult } from "@ai-sidekicks/contracts";

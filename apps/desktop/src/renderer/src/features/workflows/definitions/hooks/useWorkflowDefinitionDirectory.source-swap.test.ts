@@ -1,11 +1,7 @@
-// A list call replaced under an unchanged session is a different read, and the first
-// committed render says so: with the state keyed on the session alone, the render under
-// the new call would commit the PREVIOUS call's definitions and only the passive effect
-// afterwards would take them down.
-//
-// The cases read what each COMMIT carried rather than what each render call saw, which
-// is the only vantage that can tell the two hooks apart —
-// `store/subject-read-commits.test-support.tsx` owns that probe and states why.
+// A list call replaced under an unchanged session is a different read. The cases read what each
+// commit carried, not what each render saw: with state keyed on the session alone, the render
+// under the new call would commit the previous call's definitions before the effect cleared them.
+// `tests/helpers/subject-read-commits.tsx` owns the probe.
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -23,7 +19,6 @@ import {
   type WorkflowDefinitionListCall,
 } from "./useWorkflowDefinitionDirectory.js";
 
-/** A list call that answers one page holding one definition. */
 function callServing(definitionId: string): WorkflowDefinitionListCall {
   return async () => ({ definitions: [definitionWithId(definitionId)] });
 }
@@ -58,15 +53,13 @@ describe("useWorkflowDefinitionDirectory — the list call is part of the read's
 
     probe.readdress({ source: callServing("second-call"), subject: PROBE_SESSION_ID });
 
-    // Nothing served at all in the frames after the swap, and in particular nothing the
-    // first call answered.
+    // Nothing served in the frames after the swap, in particular nothing the first call answered.
     expect(committedDefinitionIds(probe.committed.slice(commitsBeforeSwap))).toStrictEqual([]);
     expect(latestCommitted(probe.committed).state.status).toBe("reading");
   });
 
   it("reads the replacement call rather than sitting on the reset", async () => {
-    // The reset is only half the claim: a hook that reset and never re-read would pass
-    // the case above and leave the definitions list reading forever.
+    // A hook that reset and never re-read would pass the case above and read forever.
     const probe = observeDirectory(callServing("first-call"));
     await settle();
 
@@ -81,8 +74,8 @@ describe("useWorkflowDefinitionDirectory — the list call is part of the read's
   });
 
   it("negative control: a re-render at the SAME call keeps its settled definitions", async () => {
-    // Without this, the cases above pass for a hook that reset on every render, which
-    // would re-read the enumeration forever and never show an answer at all.
+    // Without this, the cases above pass for a hook that reset on every render and never showed
+    // an answer.
     const listDefinitions = callServing("first-call");
     const probe = observeDirectory(listDefinitions);
     await settle();

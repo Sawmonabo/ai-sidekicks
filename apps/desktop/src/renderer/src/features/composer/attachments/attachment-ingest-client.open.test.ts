@@ -1,9 +1,5 @@
-// Opening a stream: what `AttachmentIngestInit` carries, and what the run through to
-// completion looks like when nothing refuses.
-//
-// The client is driven directly — never a local re-implementation of it — against the
-// scripted ingest port beside it, which records every request so a case can ask what was
-// actually sent rather than what the client meant to send.
+// Opening a stream: what `AttachmentIngestInit` carries, and the run through to completion when
+// nothing refuses. The scripted port records every request so a case asks what was sent.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -58,14 +54,13 @@ describe("ingest client — the happy stream", () => {
       mimeType: "text/markdown",
       sizeBytes: 300,
     });
-    // The declaration survives as what the caller said, never overwritten in place.
+    // The declaration survives as the caller gave it, never overwritten in place.
     expect(entry?.declared.declaredName).toBe("notes.md");
     expect(client.attachmentArtifactIds()).toStrictEqual(["artifact-9"]);
   });
 
   it("negative control: nothing is sent for an attachment nobody attached", async () => {
-    // Without this, every assertion above would pass over a port that recorded calls
-    // the client never made.
+    // Without this every assertion above would pass over a port that recorded calls never made.
     const port = new ScriptedIngestPort();
     clientOver(port);
     await crossMacrotaskBoundary();
@@ -80,11 +75,9 @@ describe("ingest client — what Init declares", () => {
     client.attach(sourceOver("attachment-notes", "notes.md", 300, "text/markdown"));
     await crossMacrotaskBoundary();
 
-    // A leading-byte signature determines nothing for a textual subtype, so this
-    // declaration is the whole of what could admit the payload under the
-    // signature-exempt branch. The other three members are asserted in the same breath
-    // because they are the registered spellings — a request that went back to naming a
-    // `name` and a `byteLength` would fail here rather than at the daemon.
+    // A leading-byte signature decides nothing for a textual subtype, so this declaration alone
+    // admits the payload under the signature-exempt branch. The other members are the registered
+    // spellings: a request naming `name` and `byteLength` would fail here, not at the daemon.
     expect(port.initCalls).toStrictEqual([
       {
         sessionId: INGEST_SESSION_ID,
@@ -101,9 +94,8 @@ describe("ingest client — what Init declares", () => {
     client.attach(SMALL_SOURCE);
     await crossMacrotaskBoundary();
 
-    // The KEY's absence, not an `undefined` value: absence is a first-class state the
-    // contract names, and a member present-and-empty would be this console declaring a
-    // type it was never told.
+    // The key's absence, not an `undefined` value: a present-and-empty member would declare a
+    // type the console was never told.
     const [initCall] = port.initCalls;
     expect(initCall).toBeDefined();
     expect(Object.hasOwn(initCall ?? {}, "mediaType")).toBe(false);
@@ -111,9 +103,8 @@ describe("ingest client — what Init declares", () => {
   });
 
   it("negative control: an empty declaration is an absent one, not an empty string", async () => {
-    // A `File` off a picker carries an empty `type` when the browser could not place it.
-    // Without this, a fix that sent `mediaType: declared ?? ""` — or forwarded the empty
-    // string verbatim — would pass the case above.
+    // A picker `File` has an empty `type` when the browser cannot place it. Without this a fix
+    // sending `mediaType: declared ?? ""` would pass the case above.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-unplaced", "capture.bin", 300, ""));
@@ -136,9 +127,8 @@ describe("ingest client — what Init declares", () => {
     client.retry("attachment-notes");
     await crossMacrotaskBoundary();
 
-    // A restart re-opens the stream, so the second Init has to carry the declaration too:
-    // it is read from the ledger's own record of what the user handed over, which
-    // a dropped stream identity does not touch.
+    // A restart re-opens the stream, so the second Init carries the declaration too, read from
+    // the ledger's record of what the user handed over.
     expect(port.initCalls.map((call) => call.mediaType)).toStrictEqual([
       "text/markdown",
       "text/markdown",

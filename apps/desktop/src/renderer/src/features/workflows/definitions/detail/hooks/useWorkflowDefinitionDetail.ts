@@ -1,40 +1,7 @@
-// One definition, as the pane that opened it can honestly know it.
-//
-// The builder pane's whole subject is a definition, and this is what composes the
-// definition read, the version read and the chain read into the one answer the
-// definition detail renders. The three calls are the caller's, and a rejected call reaches
-// whoever supplied it.
-//
-// THREE READS AND NOT ONE, BECAUSE THE WIRE IS THREE READS. `workflow.definitionRead`
-// answers the definition's identity and its latest version NUMBER; the body a person
-// actually reads — the content hash, the schema marker, the entry record, the phase
-// sequence — is `workflow.versionRead`, addressed by `(definitionId, versionNumber)`,
-// which is why it cannot be put until the first has answered. The chain is a third
-// question again, addressed by the opaque version id.
-//
-// AND THE SECOND AND THIRD GO OUT TOGETHER. Each is addressed out of the FIRST read's
-// answer and neither is addressed out of the other's, so the wire orders them against
-// the definition read and against nothing else. Chaining them anyway made the chain
-// request hostage to the version body's latency — and, against a daemon holding that
-// body open, a chain question that was never put at all while the identity it belongs
-// to had already arrived.
-//
-// THE DEFINITION READ IS THE SUBJECT, and the other two QUALIFY it: the detail is
-// served once all three have answered.
-//
-// THE CHAIN HAS A SECOND ARM AND IT IS NOT A REFUSAL. `workflowVersionId` is
-// additive-optional on the definition read — a daemon at this contract revision always
-// sends it, an older one does not — and the chain read is addressed by nothing else.
-// A console that composed an id from `(definitionId, versionNumber)` would be
-// inventing a wire fact: no delimiter or encoding over that pair exists anywhere on
-// this wire. So the absence is `unaddressable`, which says the question could not be
-// put rather than that it was put and refused.
-//
-// ONE READ PER MOUNT, AND NO POLLING, for `useWorkflowDefinitionDirectory.ts`'s
-// reason: a definition version is immutable by construction — the store carries no
-// updated-at column and an edit mints a new version — so a re-read on a timer would be
-// a second answer to a question whose answer cannot change. Navigating back to the
-// pane remounts and re-reads, which is the moment a person expects a fresh look.
+// One definition, composed from the definition, version and chain reads; served once all three
+// answer. The version read needs the definition's number and the chain read its opaque version
+// id, so both go out together after the definition read. A version is immutable, so it is read
+// once per mount with no polling. A rejected call reaches whoever supplied it.
 
 import type {
   WorkflowDefinitionReadResult,
@@ -63,12 +30,9 @@ export interface WorkflowDefinitionDetailCalls {
 }
 
 /**
- * The version chain, or no question at all.
- *
- * TWO ARMS BECAUSE THERE ARE TWO FACTS. Served is the chain. `unaddressable` is a
- * question that could not be put: the chain read is addressed by the opaque version id
- * and the definition read did not carry one, and a console that synthesized one would
- * be inventing an encoding the wire does not have.
+ * The version chain, or no question at all: `unaddressable` means the definition read carried
+ * no version id, and none can be composed from the version number because the wire has no
+ * such encoding.
  */
 export type WorkflowVersionChainReading =
   | { readonly status: "served"; readonly versions: readonly WorkflowVersionChainEntry[] }
@@ -82,9 +46,7 @@ export interface WorkflowDefinitionDetail {
 }
 
 /**
- * What the pane knows about its definition at one moment.
- *
- * Three states and no others; the two unsettled ones come from the shared shape in
+ * What the pane knows about its definition at one moment. The two unsettled states come from
  * `features/workflows/subject-read-start.ts`.
  */
 export type WorkflowDefinitionDetailState = SubjectRead<{
@@ -118,14 +80,9 @@ export function useWorkflowDefinitionDetail(
 }
 
 /**
- * The three reads, folded into one answer.
- *
- * ONE ORDERING EDGE AND NOT TWO. The version read and the chain read are both put after
- * the DEFINITION read, because each is addressed by something only that read answers —
- * the version number for one, the opaque version id for the other. Neither is addressed
- * by anything the OTHER answers, so there is no wire reason to put them in sequence, and
- * putting them in one made a slow version body hold back a question that was already
- * fully composed. They are started together and awaited together.
+ * The three reads, folded into one answer. The version and chain reads are both put after the
+ * definition read (each is addressed by something only it answers) and neither waits on the
+ * other.
  */
 async function composeDefinitionDetail(
   calls: WorkflowDefinitionDetailCalls,
@@ -140,12 +97,8 @@ async function composeDefinitionDetail(
 }
 
 /**
- * The chain that version belongs to, where the definition read named a version id.
- *
- * The absent arm is checked BEFORE the call rather than after it, which is the whole
- * point of the second arm: there is no request to compose without the id, and composing
- * one from the number would put a well-formed question about a version that does not
- * exist under that name.
+ * The chain that version belongs to, where the definition read named a version id. The absent
+ * arm returns before the call: without the id there is no request to compose.
  */
 async function readVersionChain(
   calls: WorkflowDefinitionDetailCalls,

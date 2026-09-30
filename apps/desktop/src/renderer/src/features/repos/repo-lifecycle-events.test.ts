@@ -1,9 +1,5 @@
-// Which frames the repos feature re-reads on, checked against the contract's own census.
-//
-// The claim worth asserting here is a SET claim rather than a behavior: the watched
-// kinds are derived from the registered type registry, so the case below re-derives the
-// expected members from that registry too. A literal list here would be the hand-written
-// list the module exists to avoid, restated where nothing could catch its drift.
+// The watched kinds are derived from the contract's type registry, so the case re-derives the
+// expected members from it too; a literal list here would be the hand-written list to avoid.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -16,16 +12,12 @@ describe("repo lifecycle events — the frames this feature watches", () => {
       (eventType) => eventType.startsWith("workspace.") || eventType.startsWith("worktree."),
     );
     expect([...REPO_LIFECYCLE_EVENT_KINDS].sort()).toStrictEqual([...registered].sort());
-    // Non-vacuity: a filter that matched nothing would satisfy the equality above
-    // against an empty derivation on both sides, and the section would then re-read on
-    // no frame at all while every case here stayed green.
+    // A filter that matched nothing would satisfy the equality against an empty derivation.
     expect(REPO_LIFECYCLE_EVENT_KINDS.length).toBeGreaterThan(1);
   });
 
   it("watches the terminal half of a workspace's lifecycle, not only the break", () => {
-    // The frames a `workspace.stale`-only set would drop. Each one changes a row the
-    // section draws: the mount list, the workspace state and its execution root, or an
-    // execution root.
+    // The frames a `workspace.stale`-only set would drop; each changes a row the section draws.
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.ready");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.preparing");
     expect(REPO_LIFECYCLE_EVENT_KINDS).toContain("workspace.archived");
@@ -33,8 +25,8 @@ describe("repo lifecycle events — the frames this feature watches", () => {
   });
 
   it("negative control: a frame from another entity is not watched", () => {
-    // Without this the set could be the whole census, and the section would re-read on
-    // every run frame and every token count — interval polling with extra steps.
+    // Without this the set could be the whole census and the section would re-read on every
+    // run frame.
     expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("run.queued");
     expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("session.created");
     expect(REPO_LIFECYCLE_EVENT_KINDS).not.toContain("agent.provider_binding_changed");

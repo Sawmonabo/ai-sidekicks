@@ -1,7 +1,6 @@
-// What the run read shows for each address: nothing asked, reading, or served, and never
-// a previous run's or a previous call's answer under a new address.
-//
-// `run-snapshot.rounds.test.tsx` holds the address still and varies the round.
+// What the run read shows for each address: nothing asked, reading, or served, and never a
+// previous run's or previous call's answer under a new address.
+// `useWorkflowRunSnapshot.refresh.test.ts` holds the address still and varies the round.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -22,8 +21,7 @@ import {
 /**
  * The hook at the first round, for the shared commit observer.
  *
- * The observer drives a `(source, subject)` hook, so the round is bound here rather than
- * widening a helper other suites share.
+ * The observer drives a `(source, subject)` hook, so the round is bound here.
  */
 function useSnapshotAtFirstRound(
   readRun: WorkflowRunReadCall,
@@ -84,16 +82,16 @@ describe("useWorkflowRunSnapshot — one read, three states", () => {
     const observed = retargetableSnapshot(readRun, undefined).observed;
     await settle();
 
-    // `unasked` on the first render as well as the last, so the state that must stay
-    // unasked is held to the same moment as the one below that must not be.
+    // `unasked` on the first render as well as the last, so the state that must stay unasked
+    // is held to the same moment as the one below that must not be.
     expect(firstState(observed).status).toBe("unasked");
     expect(lastState(observed).status).toBe("unasked");
     expect(readRun).not.toHaveBeenCalled();
   });
 
   it("is already reading on the first render an addressed pane commits", () => {
-    // The state is settled during the render, not in the effect after the commit, so an
-    // addressed pane never paints a frame as unasked over a read it has already issued.
+    // Settled during the render, not in the effect after the commit, so an addressed pane
+    // never paints a frame as unasked over a read it has already issued.
     const observed = retargetableSnapshot(runReadingCall(), PARKED_RUN.workflowRunId).observed;
     expect(firstState(observed).status).toBe("reading");
   });
@@ -111,8 +109,8 @@ describe("useWorkflowRunSnapshot — one read, three states", () => {
       probe.retarget(secondRun.workflowRunId);
     });
 
-    // Reading, not run A's snapshot: A's phases and park cards must not stay renderable
-    // under B's address until an effect resets them.
+    // Reading, not run A's snapshot: A's phases and park cards must not stay renderable under
+    // B's address until an effect resets them.
     expect(lastState(probe.observed).status).toBe("reading");
 
     await settle();
@@ -156,9 +154,9 @@ describe("useWorkflowRunSnapshot — the call is half of what the read is about"
   });
 
   it("commits no phase from the previous call once the call is replaced", async () => {
-    // Keyed on the run alone, the state agreed with itself: the render after a swap
-    // committed the previous call's phases and only the passive effect took them down.
-    // Reading what each COMMIT carried is the only vantage that tells the two apart.
+    // Keyed on the run alone, the state agreed with itself: the render after a swap committed
+    // the previous call's phases and only the passive effect took them down. Only reading
+    // what each commit carried tells the two apart.
     const probe = observeSubjectRead(useSnapshotAtFirstRound, {
       source: phaseTruncatingCall(2),
       subject: PARKED_RUN.workflowRunId,
@@ -174,8 +172,7 @@ describe("useWorkflowRunSnapshot — the call is half of what the read is about"
     );
 
     await settle();
-    // The reset is only half the claim: a hook that reset and never re-read would leave
-    // the pane reading forever.
+    // A hook that reset and never re-read would leave the pane reading forever.
     expect(servedPhaseStateCount(latestCommitted(probe.committed))).toBe(1);
   });
 

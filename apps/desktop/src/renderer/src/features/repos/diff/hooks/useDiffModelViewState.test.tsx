@@ -1,19 +1,7 @@
-// One diff's view state, driven through the hook itself.
-//
-// WHY THE HOOK AND NOT THE PANE. `DiffPane.test.tsx` already holds what a person
-// sees — a selection the new change set does not contain drops instead of narrowing
-// the rows to nothing, and the gap expansion does not carry over by index. Those
-// cases go through the DOM, and the DOM cannot reach the half of this rule that is
-// about a HANDLER: React dispatches an event with the props of the render that is on
-// screen, so a click can never carry a callback captured under the previous model.
-// Every consumer of this hook can, because both of them pass the callbacks down as
-// props and either could hold one across the move — which is the write the console's
-// subject rule drops and the register this module used to keep did not.
-//
-// THE CAPTURED HANDLER IS PAIRED WITH ITS CONTROL. A `selectFilePath` that did
-// nothing at all would satisfy "writes nowhere once the model has moved" without
-// being the rule; the control drives the identical capture while the model stands and
-// requires it to write.
+// One diff's view state, driven through the hook itself. `DiffPane.test.tsx` covers what a
+// person sees; the DOM cannot reach a handler captured under the previous model, because
+// React dispatches with the props of the render on screen. The captured handler is paired
+// with its control: a setter that did nothing would satisfy "writes nowhere after the move".
 
 import { act, render } from "@testing-library/react";
 import type { ReactElement } from "react";
@@ -35,11 +23,9 @@ const NOTHING_UNFOLDED = "(nothing unfolded)";
 const FIRST_GAP = { fileIndex: 0, hunkIndex: 0 } as const;
 
 /**
- * One press reveals a whole four-line gap on this shape.
- *
- * Read off the shape rather than written as `4`, so a fixture whose hidden context
- * grows past one expansion band fails here instead of silently asserting a partial
- * reveal the case was not about.
+ * One press reveals a whole four-line gap on this shape. Read off the shape so a fixture
+ * whose hidden context outgrows one expansion band fails here instead of asserting a partial
+ * reveal.
  */
 const WHOLE_FIRST_GAP = SMALL_DIFF_SHAPE.precedingContextPerHunk;
 
@@ -75,11 +61,8 @@ function ViewStateProbe(props: ViewStateProbeProps): ReactElement {
 }
 
 /**
- * Drive the hook and keep every render's state, newest last.
- *
- * The whole list rather than the latest, because the cases about a captured handler
- * need the state one particular render produced and the ones about what is on screen
- * need the last.
+ * Drive the hook and keep every render's state, newest last. The whole list, because
+ * captured-handler cases need one particular render's state and the others need the last.
  */
 class ViewStateProbeDriver {
   readonly #states: DiffModelViewState[] = [];
@@ -154,9 +137,7 @@ describe("diff view state — what one diff holds, and what a move drops", () =>
   });
 
   it("negative control: the same model object across renders keeps both", () => {
-    // Without this the case above would pass over a hook that dropped its state on
-    // every render, which would take a person's selection away the instant anything
-    // else in the console moved.
+    // Without this the case above would pass over a hook that dropped its state every render.
     const sameDiff = buildDiffFixture(SMALL_DIFF_SHAPE);
     const driver = new ViewStateProbeDriver(sameDiff);
     act(() => {
@@ -174,10 +155,8 @@ describe("diff view state — what one diff holds, and what a move drops", () =>
   });
 
   it("re-seeds on a return to the model it left, rather than restoring what it dropped", () => {
-    // A -> B -> A. The return is a SECOND visit to the same model and not a resumption
-    // of the first: the state that belonged to it was dropped when B arrived, and a
-    // hook that handed it back would be holding a value across a subject it was never
-    // about.
+    // A -> B -> A is a second visit to the model, not a resumption: its state was dropped when
+    // B arrived, and handing it back would hold a value across a subject it was never about.
     const first = buildDiffFixture(SMALL_DIFF_SHAPE);
     const driver = new ViewStateProbeDriver(first);
     act(() => {
@@ -199,11 +178,9 @@ describe("diff view state — what one diff holds, and what a move drops", () =>
 
 describe("diff view state — a handler captured under the previous diff", () => {
   it("narrows nowhere once the model has moved", () => {
-    // The half of the rule the DOM cannot reach, and the one this module used to
-    // leave open: the setter it handed out was the mount's and named no model, so a
-    // consumer holding it across the move selected a path the new change set does not
-    // contain — the index narrows to no file, `rowCount` is zero, and the renderer
-    // states that two states are identical over a change set that has changes.
+    // The half of the rule the DOM cannot reach: a consumer holding the setter across the move
+    // must not select a path the new change set lacks, which would narrow to no rows and
+    // render "nothing to review" over a change set that has changes.
     const first = buildDiffFixture(SMALL_DIFF_SHAPE);
     const heldPath = first.files[1]?.path;
     expect(heldPath).toBeDefined();
@@ -223,8 +200,7 @@ describe("diff view state — a handler captured under the previous diff", () =>
   });
 
   it("negative control: the same captured handler still writes while the model stands", () => {
-    // Without this the case above would pass over handlers that wrote nowhere at all,
-    // which is not the rule — it is a hook that does not work.
+    // Without this the case above would pass over handlers that wrote nowhere at all.
     const first = buildDiffFixture(SMALL_DIFF_SHAPE);
     const heldPath = first.files[1]?.path;
     expect(heldPath).toBeDefined();

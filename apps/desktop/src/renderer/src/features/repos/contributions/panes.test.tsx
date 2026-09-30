@@ -10,14 +10,8 @@ import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { paneContext } from "../pane-context.test-support.js";
 import { registerReposPanes } from "./panes.js";
 
-/** The kinds this feature owns. */
 const REPOS_PANE_KINDS = ["diff"] as const;
 
-/**
- * This file's pane context.
- *
- * The diff pane reads only its address, so no bridge or store is supplied.
- */
 function contextForPane(): PaneContext {
   return paneContext({
     address: { kind: "diff", entity: { kind: "workspace", id: "workspace-sidekicks" } },
@@ -33,9 +27,8 @@ describe("repos — the pane kinds", () => {
   });
 
   it("negative control: a registry `registerReposPanes` was not given claims nothing", () => {
-    // `registerReposPanes` takes a registry rather than reaching for the module-scope
-    // singleton. A registrar that reached for the singleton would leave this one
-    // empty while still appearing to work in the case above.
+    // A registrar that reached for the module singleton would leave this registry empty while
+    // still passing the case above.
     const claimed = new PaneRegistry();
     const untouched = new PaneRegistry();
     registerReposPanes(claimed);
@@ -47,21 +40,17 @@ describe("repos — the pane kinds", () => {
     registerReposPanes(registry);
     const descriptor = registry.descriptorFor("diff");
     expect(descriptor?.owner).toBe("repos");
-    // The announcer is the environment the frame supplies in production, and a pane
-    // that announces its acts calls `useAnnounce`, which throws outside the provider on
-    // purpose. The clock is frozen so nothing this mount announces clears on a timer
-    // mid-case.
+    // The announcer is supplied by the frame in production; `useAnnounce` throws outside it.
+    // The clock is frozen so nothing announced clears on a timer mid-case.
     const { container } = render(
       <LiveAnnouncerProvider clock={new ManualClock()}>
         {descriptor?.render(contextForPane())}
       </LiveAnnouncerProvider>,
     );
-    // The name is a pattern and not the whole name, because `components/PaneFrame`
-    // names a pane by its address trail and the kind is the crumb the trail ends on.
+    // A pattern, since `PaneFrame` names a pane by its address trail ending in the kind.
     const region = within(container).getByRole("region", { name: /Review$/u });
-    // And the trail really is a trail: the subject the descriptor was handed is in the
-    // name, so a body that stopped passing its address to the chrome fails here rather
-    // than passing on the kind noun alone.
+    // The subject the descriptor was handed is in the name, so a body that stopped passing its
+    // address to the chrome fails here.
     expect(region.textContent).toContain("workspace-sidekicks");
   });
 });

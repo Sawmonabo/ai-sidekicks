@@ -1,30 +1,11 @@
-// The staged list's ledger: which attachments there are, in which order, and where each
-// one's ingest stands.
-//
-// It is a separate module from `attachment-ingest-machine.ts` because the two answer
-// different questions. The ledger answers "what does this staged list hold right now",
-// and every one of its operations settles before it returns. The client answers "what
-// has been sent", and every one of its operations spans an await. Keeping them in one
-// class made the file two jobs long, and it also hid the seam that matters: a
-// continuation coming back from an await has to consult the ledger rather than the
-// entry it captured, because a user can act while a call is in flight.
-//
-// ORDER IS THE ORDER OF ATTACHING, PRESERVED END TO END, which the reference contract
-// requires and this is the first place it can be lost. So the order lives in an
-// explicit array of local ids, the record the reference is read from.
-//
-// AND THE LEDGER IS WHERE A FINISHED UPLOAD'S BYTES ARE RELEASED. THE RULE, EXACTLY:
-// an entry holds the user's `Blob` while — and only while — a send is still
-// possible from where it stands. `declared`, `ingesting`, and `refused` can still send,
-// so they hold it; `complete` has minted its artifact and `abandoned` has stopped for
-// good, so neither does. This is the only writer, so it is the only place the rule can
-// be applied — and it is applied by CONSTRUCTION rather than by a delete: a settled
-// entry is built through `attachmentIngestEntryFrom`, whose settled arm has no payload
-// member to put one in. What that is worth: a `Blob` is a handle, but it is a KEEP, so
-// a staged list that held ten finished uploads held ten files' worth of the browser's
-// memory until the composer unmounted. A write that would move a settled entry back into
-// a sending state is refused outright — those bytes are gone, and an entry claiming a
-// payload it does not have would fail at the next slice instead of here.
+// The staged list's ledger: which attachments there are, in order, and where each one's ingest
+// stands. Every operation settles before it returns, and a continuation returning from an await
+// must consult the ledger rather than the entry it captured, since a user can act mid-call.
+// Order is attach order, kept in an explicit array of local ids. An entry holds the user's `Blob`
+// only while a send is still possible (`declared`, `ingesting`, `refused`); settled entries are
+// built through `attachmentIngestEntryFrom`, whose settled arm has no payload member, so ten
+// finished uploads do not pin ten files of memory. A write moving a settled entry back into a
+// sending state is refused.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import {
@@ -41,23 +22,17 @@ import {
 } from "./attachment-shapes.js";
 
 /**
- * What one entry stood at, taken before an await and checked after it.
- *
- * The claim is the round this entry was on when the stamp was taken, and it is what
- * makes the check total: two states can be equal across an await that changed and
- * changed back, and a round a write superseded can never be current again. It is NOT
- * on the entry a card renders, because it is bookkeeping about the record rather than
- * anything a user is shown.
- *
- * IT IS THE CONSOLE'S ONE GENERATION REGISTER RATHER THAN A COUNTER OF THIS FILE'S
- * OWN: it frees a key on the supersede and answers `heldKeyCount` for what it still
- * holds, which a counter kept here would not bound or report.
+ * What one entry stood at, taken before an await and checked after it. The claim is the round
+ * the entry was on, so the check is total even if the state changed and changed back. It comes
+ * from the console's shared generation register, which frees a key on supersede and reports
+ * `heldKeyCount`.
  */
 export interface AttachmentIngestStamp {
   readonly state: AttachmentIngestState;
   readonly claim: CurrentGenerationClaim;
 }
 
+/** The ledger of staged attachments, publishing an ordered snapshot on every change. */
 export class AttachmentIngestEntries {
   readonly #entriesByLocalId = new Map<string, AttachmentIngestEntry>();
   /** The rounds entries are on, one key per local id. Never a module-level singleton. */
@@ -73,6 +48,7 @@ export class AttachmentIngestEntries {
     return this.#snapshot;
   }
 
+  /** Subscribes to each publish of the snapshot; returns the unsubscribe. */
   public subscribe(sink: (entries: readonly AttachmentIngestEntry[]) => void): Unsubscribe {
     return this.#changes.subscribe(sink);
   }
@@ -97,12 +73,8 @@ export class AttachmentIngestEntries {
   }
 
   /**
-   * The entry, but only if nothing has touched it since the stamp was taken.
-   *
-   * Every continuation that comes back from an await asks this rather than acting on
-   * the entry it captured. A user can abandon or remove an attachment while a
-   * call is in flight, and a continuation that wrote its captured entry back would
-   * restore the state that abandonment replaced — resuming an upload somebody stopped.
+   * The entry, but only if nothing has touched it since the stamp was taken. A continuation that
+   * wrote its captured entry back would resume an upload somebody abandoned.
    */
   public currentIfUnchanged(
     localId: string,
@@ -135,15 +107,10 @@ export class AttachmentIngestEntries {
   }
 
   /**
-   * Record one attachment's new standing.
-   *
-   * The declaration is carried over rather than accepted from the caller: it is what
-   * the user handed over and nothing after the attach may replace it. The
-   * PAYLOAD is carried the same way and only as far as the new state can send it, which
-   * is the release rule at the top of this file — so a caller composing its record by
-   * spreading the whole standing entry cannot carry a finished upload's bytes forward,
-   * and a caller trying to move a settled entry back into a sending state writes
-   * nothing at all.
+   * Records one attachment's new standing. The declaration is carried over from the existing
+   * entry, and the payload only as far as the new state can send it, so spreading a whole
+   * settled entry cannot carry its bytes forward and a move back into a sending state writes
+   * nothing.
    */
   public write(localId: string, record: AttachmentIngestRecord): void {
     const existing = this.#entriesByLocalId.get(localId);
@@ -155,8 +122,7 @@ export class AttachmentIngestEntries {
       return;
     }
     this.#entriesByLocalId.set(localId, written);
-    // Every stamp taken before this write is now about a record that no longer stands,
-    // so the round it named ends here and the key goes back.
+    // Stamps taken before this write are about a record that has been replaced.
     this.#rounds.supersede(this, localId);
     this.#publish();
   }
@@ -174,12 +140,9 @@ export class AttachmentIngestEntries {
   }
 
   /**
-   * The reference a staged list would carry: artifact ids, ordered, and nothing else.
-   *
-   * Only completed ingests contribute, because an artifact id is what an ingest MINTS —
-   * there is nothing to name before then. The result is exactly the typed `ArtifactId[]`
-   * specified shape, held as strings because the console never mints an
-   * identity of its own.
+   * The reference a staged list would carry: artifact ids, ordered, and nothing else. Only
+   * completed ingests contribute, since an ingest mints the id. Held as strings because the
+   * console never mints an identity.
    */
   public artifactIds(): readonly string[] {
     const artifactIds: string[] = [];
@@ -192,11 +155,12 @@ export class AttachmentIngestEntries {
     return artifactIds;
   }
 
-  /** How many entries a continuation is still holding a round on. The register's bound. */
+  /** How many entries a continuation still holds a round on: the register's bound. */
   public get heldRoundCount(): number {
     return this.#rounds.heldKeyCount(this);
   }
 
+  /** Ends the ledger: continuations lose their rounds and subscribers are dropped. */
   public dispose(): void {
     this.#disposed = true;
     this.#rounds.supersedeAll();
@@ -217,15 +181,11 @@ export class AttachmentIngestEntries {
 }
 
 /**
- * Record a refusal verbatim on one entry, with the disposition that decides what the
- * control offers.
- *
- * Takes the entry its caller re-read after the await rather than reading one itself, so
- * a refusal can never be written over a state a user moved meanwhile.
- *
- * THE DISPOSITION IS DERIVED FROM THE CODE UNLESS A CALLER STATES IT. The chunk loop
- * states `restart` for an unusable acknowledgement: the retry-in-place default would send
- * the next chunk against an offset the two sides have stopped sharing.
+ * Records a refusal verbatim on one entry with the disposition that decides what the control
+ * offers. Takes the entry the caller re-read after the await, so a refusal never overwrites a
+ * state the user moved meanwhile. The disposition is derived from the code unless stated: an
+ * unusable acknowledgement states `restart`, since retrying in place would send against an
+ * offset the two sides do not share.
  */
 export function writeIngestRefusal(
   ledger: AttachmentIngestEntries,

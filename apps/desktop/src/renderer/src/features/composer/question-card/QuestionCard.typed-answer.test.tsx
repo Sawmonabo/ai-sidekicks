@@ -1,14 +1,7 @@
-// The free-text arm's DOM identity, and why two cards on one page may not share one.
-//
-// DRIVEN THROUGH THE CARD RATHER THAN THE ARM, because the subject is what a document
-// holding two cards contains: one question can be drawn in two panes at once, and both
-// cards are then in the same document. An arm rendered alone can never show that.
-//
-// AND THE ASSERTION IS THE LABEL ASSOCIATION, not the id string. What a shared id costs
-// is exactly this: activating either label focuses the first matching field, so one
-// user's answer is typed into another pane's field, and assistive technology can
-// associate neither label unambiguously. The ids are read only to say what went wrong
-// when the association fails.
+// The free-text field's DOM identity, driven through the card because one question can be drawn
+// in two panes at once. The assertion is the label association, not the id string: with a
+// shared id, either label focuses the first field and neither is unambiguous to assistive
+// technology.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -34,7 +27,6 @@ const SHARED_PROMPT: QuestionPrompt = {
   secret: false,
 };
 
-/** One question drawn twice in one document, as two panes hold it. */
 function renderQuestionTwice(): HTMLElement {
   const { container } = render(
     <>
@@ -46,7 +38,7 @@ function renderQuestionTwice(): HTMLElement {
           questions={[SHARED_PROMPT]}
           delivery={UNSENT_ANSWER_DELIVERY}
           onAnswer={() => {
-            // The dispatch is another suite's subject; this one is about identity.
+            // Dispatch is another suite's subject.
           }}
         />
       ))}

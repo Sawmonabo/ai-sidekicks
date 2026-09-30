@@ -1,12 +1,6 @@
-// The transcript pane's body: the feed, or the one absence that stands in for it.
-//
-// Its own module for the one-component rule: the pane above decides the chrome and the
-// address, and this decides what stands in the body while no session is open.
-//
-// NOTHING HERE DRAWS THE BODY BOX. `PaneFrame` renders
-// `.meridian-pane__body` around whatever a pane hands it, so a wrapper here would be
-// a second box inside the first — and the flex chain the feed's scroll container
-// depends on would run through two elements only one of which is sized.
+// The transcript pane's body: the feed, or the one absence that stands in for it while no session
+// is open. It draws no body box: `PaneFrame` renders `.meridian-pane__body`, and a wrapper would
+// break the flex chain the feed's scroll container depends on.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
@@ -21,12 +15,8 @@ export interface TranscriptPaneBodyProps {
 }
 
 /**
- * The feed of the pane's session, or the sentence for no session.
- *
- * A route that names no session means there is nothing to be a log OF, and the pane
- * says so. An open session with no rows is the FEED's to render rather than this
- * file's — `TranscriptViewport` shows it inside the scroll container, where a row
- * would appear the moment one arrived — so the empty session is not a case here.
+ * The feed of the pane's session, or the sentence for no session. An open session with no rows
+ * is the feed's to render (`TranscriptViewport` shows it inside the scroll container).
  */
 export function TranscriptPaneBody(props: TranscriptPaneBodyProps): React.JSX.Element {
   if (props.sessionStore === undefined) {

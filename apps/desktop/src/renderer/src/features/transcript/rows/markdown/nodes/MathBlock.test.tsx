@@ -1,5 +1,3 @@
-// The one `dangerouslySetInnerHTML` site, and the four constraints that earn it.
-
 import { render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -14,8 +12,7 @@ describe("a formula that typesets", () => {
   });
 
   it("negative control: `trust: false` means TeX cannot emit a link", async () => {
-    // `\href` is exactly what `trust` gates. A formula that could reach outside itself
-    // would make model output an anchor factory inside the one innerHTML site there is.
+    // `\href` is what `trust` gates; a formula must not be able to emit a link.
     const { container } = render(
       <MathBlock source={String.raw`\href{https://example.invalid}{click}`} isDisplayMode />,
     );
@@ -36,11 +33,8 @@ describe("a formula that does not typeset", () => {
   });
 
   it("takes the source arm and says so, rather than a formula-shaped blank", async () => {
-    // The failure this case exists for is invisible by construction: under a KaTeX told
-    // not to throw, a parse error comes back AS MARKUP, so the component records it as
-    // typeset and the reader is shown KaTeX's own error rendering — colored away to
-    // nothing, in the arrangement this replaces. Nothing on screen would say the formula
-    // failed, and the source would never appear.
+    // Under a KaTeX told not to throw, a parse error comes back as markup and would be recorded
+    // as typeset, so the source would never appear.
     const { container } = render(<MathBlock source={String.raw`\frac{1`} isDisplayMode />);
 
     await waitFor(() => {
@@ -52,8 +46,6 @@ describe("a formula that does not typeset", () => {
   });
 
   it("negative control: a formula that typesets shows no notice and no source", async () => {
-    // Without this, a component that took the source arm unconditionally would pass
-    // every case above and stop typesetting anything at all.
     const { container } = render(<MathBlock source="a^2 + b^2 = c^2" isDisplayMode />);
 
     await waitFor(() => {
@@ -64,11 +56,8 @@ describe("a formula that does not typeset", () => {
   });
 
   it("negative control: a formula KaTeX only warns about still typesets", async () => {
-    // `strict: false` is a separate constraint from throwing on a parse error, and this
-    // is where the two are told apart: a Unicode character in math mode is a strict
-    // WARNING, and a user's slip inside a formula is not the console's error to
-    // raise. A fix that reached the source arm through KaTeX's strict mode rather than
-    // through a parse failure would fail here.
+    // `strict: false` is separate from throwing on a parse error: a Unicode character in math
+    // mode is a strict warning and must still typeset.
     const { container } = render(<MathBlock source="é = mc^2" isDisplayMode />);
 
     await waitFor(() => {

@@ -1,26 +1,15 @@
 /*
  * The run pane's operator controls: cancel, resume, and the repair a resume may carry.
- *
- * Owned and imported by `OperatorControls.tsx`, beside it, so the run page's chunk alone
- * carries these rules.
- *
- * THE BLOCK CARRIES ITS OWN PREFIX, `meridian-workflow-run-controls`, so no other
- * sheet decides how THIS pane lays its controls out, whichever loads last, and
- * this body goes behind a loader without that answer changing. One class, one owner —
- * the module-shape rule in `apps/desktop/AGENTS.md` states it, and a second collision
- * is caught by reading it there rather than by a census.
+ * Imported by `OperatorControls.tsx` so the run page's chunk alone carries these rules. The block
+ * has its own prefix, `meridian-workflow-run-controls`, so no other sheet decides how this pane
+ * lays its controls out.
  */
 
 /* -------------------------------------------------------------- run controls */
 
 /*
- * The run's two controls, side by side and equal.
- *
- * Equal because they are separately grantable and neither is subordinate: an
- * operator may hold cancel and not resume, and a layout that made one primary
- * would be the console guessing which. The one primary action a view is allowed is
- * spent on neither: this is the run's control cluster, and it sits in the body where
- * the run's own facts are rather than in the pane head above it.
+ * The run's two controls, side by side and equal: they are separately grantable and neither is
+ * subordinate, so no layout makes one primary.
  */
 .meridian-workflow-run-controls {
   display: flex;
@@ -47,10 +36,8 @@
 }
 
 /*
- * Shares the workflows feature's own action treatment (`.meridian-workflow__action` in
- * `WorkflowStateStrip.css`) rather than restating it: a run control and every other act this
- * feature offers are the same kind of thing, and a second set of paddings here would
- * drift from that one at the first tweak.
+ * Shares the workflows feature's action treatment (`.meridian-workflow__action` in
+ * `WorkflowStateStrip.css`) rather than restating it.
  */
 .meridian-workflow-run-controls__action {
   display: inline-flex;
@@ -72,8 +59,7 @@
   color: var(--meridian-text-faint);
 }
 
-/* The disclosure marker stays the platform's: it is already announced and already
- * rotates, and a replacement would be ornament that a screen reader cannot use. */
+/* The disclosure marker stays the platform's: it is already announced and rotates. */
 .meridian-workflow-run-controls__summary {
   font-size: var(--meridian-text-sm);
   color: var(--meridian-text-muted);
@@ -91,11 +77,7 @@
   color: var(--meridian-text-muted);
 }
 
-/*
- * Prose, not a wire figure: the operator is writing a sentence, so it is set in the
- * sans face at the reading size rather than in mono, which marks a string the daemon
- * sent.
- */
+/* Prose, not a wire figure: set in the sans face, since mono marks a string the daemon sent. */
 .meridian-workflow-run-controls__reason {
   font-family: var(--meridian-font-sans);
   font-size: var(--meridian-text-sm);
@@ -107,9 +89,8 @@
 }
 
 /*
- * The answer to the last press, beside the button that asked. Set at the quiet size
- * the budget and the re-pin target line use: it reports on an act that has already
- * happened, and it must not out-shout the control it stands under.
+ * The answer to the last press, at the quiet size the budget and re-pin target line use, so it
+ * does not out-shout the control it stands under.
  */
 .meridian-workflow-run-controls__budget,
 .meridian-workflow-run-controls__outcome,

@@ -1,9 +1,5 @@
-/*
- * A definition's row in the definitions list, drawn and imported by `DefinitionListItem.tsx`.
- * Meridian tokens only.
- */
+/* A definition's row in the definitions list, imported by `DefinitionListItem.tsx`. */
 
-/* A row is one line at rest: name, scope, version. */
 .meridian-definition-row {
   display: flex;
   flex-wrap: wrap;
@@ -23,9 +19,8 @@
 }
 
 /*
- * The open control is the name itself. A separate button beside it would be a second
- * visible control on the row, and a name that is not the way in is a name a person
- * clicks anyway.
+ * The open control is the name itself: a separate button beside it would be a second visible
+ * control on the row.
  */
 .meridian-definition-row__open {
   padding: 0;

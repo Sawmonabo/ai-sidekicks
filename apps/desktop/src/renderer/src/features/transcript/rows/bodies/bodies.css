@@ -8,22 +8,15 @@
   min-width: 0;
 }
 
-/*
- * The empty body of an unreadable turn. It occupies the turn's position — that is the
- * whole of what `UnavailableBody.tsx` asks for — and carries no text, because
- * the named absence beside it is where the reason is stated.
- */
+/* The empty body of an unreadable turn: it occupies the turn's position and carries no text. */
 .meridian-machine-body__empty {
   margin: 0;
   min-height: 1lh;
 }
 
 /*
- * A body its producer declared plain text. `pre-wrap` is the whole reason this rule
- * exists: the arm renders the bytes verbatim, so the line breaks and the runs of spaces
- * a producer wrote are content rather than whitespace to collapse. `anywhere` is the
- * transcript's own treatment for a run with no break opportunity in it — a path, a token, a
- * hash — which would otherwise widen the row past the column.
+ * A body its producer declared plain text. `pre-wrap` keeps the producer's line breaks and runs
+ * of spaces; `anywhere` stops a long unbroken run (a path, a hash) from widening the row.
  */
 .meridian-machine-body__plain {
   margin: 0;

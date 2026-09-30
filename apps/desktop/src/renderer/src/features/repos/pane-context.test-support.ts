@@ -4,14 +4,9 @@ import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
- * A pane context at one address, with whichever collaborators the case reaches.
- *
- * The ADDRESS half is not cast — it is `PaneAddress`'s own union, so a case handing a
- * pane a subject that pane is never opened over fails to compile, and the address's
- * own arm survives into the return. The binding half IS cast: the persistence stack
- * is three constructions no co-located case observes, and a builder that made them
- * anyway would put every pane suite on stores it never reads. A test tier that
- * DOES mount the real pane layout composes `paneBinding` instead.
+ * A pane context at one address, with whichever collaborators the case reaches. The address
+ * half is `PaneAddress`'s own union, so a pane handed a subject it is never opened over fails to
+ * compile. The binding half is cast: no co-located case observes the persistence stack.
  */
 export function paneContext<TAddress extends PaneAddress>(reached: {
   readonly address: TAddress;

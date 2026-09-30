@@ -1,42 +1,8 @@
-// The addons one terminal loads, the renderer it ends up on, and the order they are
-// let go of.
+// The addons one terminal loads, the renderer it ends up on, and the order they are let go of.
 //
-// Its own module rather than a section inside `xterm-adapter.ts`, on
-// `renderer-pool.ts`'s and `link-guard.ts`'s reason: the adapter's job is to
-// COMPOSE one terminal, and this owns a different question — which library
-// objects that terminal loads, which of them the page's WebGL budget lets it keep,
-// and what happens when the host takes a context away. Every constraint below is a
-// property of `@xterm/xterm`'s own behavior, so it is testable through the adapter
-// against the real library rather than against a mirror of it.
-//
-// TWO OF THE WRAPPER'S FIVE CONSTRAINTS LIVE HERE, and each one is
-// a line of code rather than a note a reviewer has to remember:
-//
-//   1. **Bound the CONTEXTS this page creates, not the terminals drawing on one.**
-//      `WebglAddon.dispose()` does not release its WebGL2 context — the addon calls
-//      `loseContext()` nowhere, verified in the pinned package rather than taken
-//      from xterm.js issue #6068 — and Chromium drops the OLDEST context past
-//      sixteen. So a teardown gives the ledger no allowance back
-//      (`renderer-pool.ts` says why at length): only the two arms where a context
-//      demonstrably does not exist do, and past the cap a terminal opens on the DOM
-//      renderer rather than taking a context from one still on screen.
-//   2. **`onContextLoss` falls back to DOM, permanently and for this INSTANCE.** The
-//      addon fires it three seconds after `webglcontextlost` with no restoration, so
-//      the fallback is permanent — which the code has to remember, because the
-//      fallback also clears the addon and hands the allowance back, and a later
-//      `attach()` to a different host re-enters the selection and would otherwise
-//      find every condition for taking a second context satisfied. So the loss is
-//      recorded on the instance and the selection reads it first. The allowance IS
-//      still reclaimed, because the host destroyed the context rather than this code
-//      letting go of one; the ledger is about the PAGE, and this flag is about this
-//      terminal.
-//
-// THE ADDONS ARE DROPPED WITH THE EMULATOR, not held for the suite's whole life. An
-// addon holds the terminal it was loaded into, so a long-lived reference keeps the
-// emulator — and its twelve-bytes-per-cell buffer — reachable after the adapter
-// nulled its own handle, which is a disposal that frees nothing. Measured: holding
-// them left almost all of a full instance's bytes retained across a teardown, which
-// is what `tests/endurance/xterm-adapter.test.ts` holds this object to.
+// The WebGL budget counts contexts ever created (`renderer-pool.ts`), so a teardown returns no
+// allowance; only a context that demonstrably does not exist does. Past the cap a terminal
+// opens on the DOM renderer rather than take a context from one still on screen.
 
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
@@ -51,13 +17,12 @@ import { TerminalRendererPool, type TerminalContextLease } from "./renderer-pool
 /** Which renderer an instance ended up with. Rendered, never inferred. */
 export const TERMINAL_RENDERER_MODES = ["webgl", "dom"] as const;
 
+/** The renderer an instance is on. */
 export type TerminalRendererMode = (typeof TERMINAL_RENDERER_MODES)[number];
 
 /**
- * One terminal's addons, its renderer selection, and its teardown order.
- *
- * Constructed by the adapter and never reached from outside it: the suite holds no
- * emulator of its own, it is handed one to load into.
+ * One terminal's addons, renderer selection and teardown order. Built by the adapter, which
+ * hands it the emulator to load into.
  */
 export class TerminalAddonSuite {
   readonly #terminalId: string;
@@ -66,21 +31,17 @@ export class TerminalAddonSuite {
   #searchAddon: SearchAddon | undefined;
   #serializeAddon: SerializeAddon | undefined;
   #webglAddon: WebglAddon | undefined;
-  // The ledger's receipt for the context THIS suite created, held so the two
-  // hand-backs name that context rather than the terminal. A pane and its sibling
-  // on the same session hold one each, so a teardown that named the terminal would
-  // retire whichever record the ledger happened to hold and leave the other pane
-  // drawing on a context nothing counts.
+  // The ledger's receipt for the context this suite created. The hand-backs name it, so a
+  // sibling pane on the same session keeps its own context.
   #contextLease: TerminalContextLease | undefined;
   #contextLossSubscription: { dispose: () => void } | undefined;
   #rendererMode: TerminalRendererMode = "dom";
-  // Whether this instance has already had a context taken away from it. Written in
-  // exactly one place and never reset: the adapter's `dispose()` ends the instance,
-  // so a remount that reuses it is the same terminal and gets the same answer.
+  // Set once and never reset when the host takes the context away. The addon fires
+  // `onContextLoss` three seconds after `webglcontextlost` with no restoration, so the
+  // fallback is permanent. The selection reads this first: the fallback also clears the addon
+  // and returns the allowance, so a later `attach()` would otherwise take a second context.
   #hasLostWebglContext = false;
-  // The mode settles inside the selection and can move again whenever the host takes
-  // the context away, so a consumer that COPIED it once reported `webgl` over a
-  // terminal that had already fallen back to the DOM renderer.
+  // Emitted on change, because the mode moves again when the host takes the context away.
   readonly #rendererModeChanges = new Emitter<TerminalRendererMode>("terminal renderer mode");
 
   public constructor(terminalId: string, pool: TerminalRendererPool) {
@@ -93,12 +54,8 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Be told which renderer this instance is on, now and whenever that changes.
-   *
-   * The current mode is delivered synchronously on subscribe, which is the point
-   * rather than a convenience: a consumer that read `rendererMode` and then
-   * subscribed would hold a value from before its own subscription — the
-   * copied-once bug in a second shape.
+   * Be told which renderer this instance is on, now and on every change. The current mode is
+   * delivered synchronously, so read-then-subscribe cannot hold a stale value.
    */
   public subscribeToRendererMode(sink: (mode: TerminalRendererMode) => void): Unsubscribe {
     sink(this.#rendererMode);
@@ -106,11 +63,8 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Build and load the addons a fresh emulator gets.
-   *
-   * `allowProposedApi` is the adapter's, and only the `unicode` getter needs it —
-   * every other API the terminal feature touches is stable — so the version is set here,
-   * where the addon that provides it is loaded.
+   * Build and load the addons a fresh emulator gets. The Unicode 11 version is set here,
+   * beside the addon that needs the adapter's `allowProposedApi`.
    */
   public loadInto(terminal: Terminal): void {
     this.#fitAddon = new FitAddon();
@@ -124,15 +78,10 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Take a WebGL renderer if the page can spare a context, and fall back to DOM if
-   * it cannot — or if the host has no WebGL2 at all, which is what the addon throws
-   * for.
-   *
-   * THE CONTEXT-LOSS FLAG IS READ FIRST, before the addon check and before the
-   * ledger is asked. A lost context clears the addon and gives its context back to the pool, so on
-   * the next `attach()` to a different host the other two conditions both say yes:
-   * without this the instance would build a second addon after a fallback its own
-   * documentation calls permanent, and churn a context per remount.
+   * Take a WebGL renderer if the page can spare a context, else the DOM one; the DOM renderer
+   * is also the outcome on a host with no WebGL2, where the addon throws. The context-loss
+   * flag is read first: after a loss the addon is cleared and the allowance returned, so the
+   * other checks would pass and a remount would build a second addon.
    */
   public selectRendererFor(terminal: Terminal): void {
     if (this.#hasLostWebglContext || this.#webglAddon !== undefined) {
@@ -152,9 +101,7 @@ export class TerminalAddonSuite {
       this.#webglAddon = webglAddon;
       this.#setRendererMode("webgl");
     } catch {
-      // No WebGL2 on this host: the addon threw before it made one. Reclaimed rather
-      // than released, so a later terminal is not counted out by a context that was
-      // never created.
+      // No WebGL2: the addon threw before making a context, so reclaim rather than release.
       this.#pool.reclaim(contextLease);
       this.#contextLease = undefined;
       this.#setRendererMode("dom");
@@ -162,9 +109,9 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Re-measure the grid. The fit addon's own division is undefined for a host with
-   * no measurable box, and skipping is self-healing — the observer fires again —
-   * where throwing would take the pane down for a transient layout.
+   * Re-measure the grid. The fit addon's division is undefined for a host with no measurable
+   * box; skipping self-heals when the observer fires again, where throwing would take the
+   * pane down.
    */
   public fitGrid(): void {
     try {
@@ -185,17 +132,10 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Everything the teardown does BEFORE the emulator is disposed.
-   *
-   * The sink set is cleared first: `Emitter` re-raises what a sink threw, so a
-   * subscriber still attached could abort the teardown between the pool release and
-   * the emulator's disposal — a leak caused by the notification. The mode reset
-   * below therefore reaches an empty sink set by construction.
-   *
-   * `release` and not `reclaim`: the context this instance created survives its
-   * addon, so the page's allowance stays spent. Handing it back here is the churn
-   * bug — an unbounded run of contexts under a ledger that never rises, ending in
-   * Chromium taking the renderer from an older terminal still on screen.
+   * Everything the teardown does before the emulator is disposed. The sinks are cleared first
+   * because `Emitter` re-raises what a sink threw, which could abort the teardown between the
+   * pool release and the emulator's disposal. `release`, not `reclaim`: the context outlives
+   * its addon, so the allowance stays spent.
    */
   public releaseBeforeEmulatorDisposal(): void {
     this.#rendererModeChanges.clear();
@@ -210,11 +150,10 @@ export class TerminalAddonSuite {
   }
 
   /**
-   * Everything the teardown does AFTER it, and why the split exists.
-   *
-   * `Terminal.dispose()` is what disposes the addons it loaded; clearing these
-   * references first would leave that disposal to run against objects nothing else
-   * could reach.
+   * Everything the teardown does after it. `Terminal.dispose()` disposes the addons it
+   * loaded, so these references are cleared only afterwards. Held longer they keep the
+   * emulator reachable; measured, almost all of a full instance's bytes stayed retained
+   * (`tests/endurance/xterm-adapter.test.ts` holds this).
    */
   public dropAfterEmulatorDisposal(): void {
     this.#fitAddon = undefined;
@@ -224,20 +163,10 @@ export class TerminalAddonSuite {
 
   /**
    * The context is gone and the addon does not restore it, so this instance is a DOM
-   * terminal from here on. This is the one teardown-shaped path that reclaims: the
-   * host destroyed the context rather than this code dropping a reference to it, so
-   * counting it would spend the page's allowance on something that no longer exists.
-   *
-   * EVERY STATE CHANGE HAPPENS BEFORE THE NOTIFICATION, and the ledger is the one
-   * that has to. `Emitter` delivers to every sink and then re-raises what any of them
-   * threw, so a consumer of `onRendererMode` that fails — a component mid-render, a
-   * diagnostic that asserted — ends this method wherever the emission sits. With the
-   * reclaim after it, the fall-back was already permanent and the addon already
-   * disposed while the page-wide ledger went on counting a context the host had
-   * destroyed, for the life of the page: an allowance spent on nothing, which the
-   * next terminal to open pays for by starting on the DOM renderer. Putting the
-   * reclaim first makes the notification the last thing this method does, and a
-   * failure in it can no longer leave the ledger disagreeing with the GPU.
+   * terminal from here on. It reclaims because the host destroyed the context. Every state
+   * change, the reclaim included, precedes the notification: `Emitter` re-raises a failing
+   * sink, and a reclaim placed after it would be skipped, leaving the ledger counting a
+   * context the host destroyed.
    */
   #fallBackToDomRenderer(webglAddon: WebglAddon): void {
     if (this.#webglAddon !== webglAddon) {
@@ -245,24 +174,21 @@ export class TerminalAddonSuite {
     }
     webglAddon.dispose();
     this.#webglAddon = undefined;
-    // The one write. Everything around it is reversible by a remount — the addon
-    // reference and the pool's context both are — and this is what makes the fallback the
-    // permanent thing the header above claims it is.
+    // The one write that makes the fallback permanent; the addon and context references
+    // are reversible by a remount.
     this.#hasLostWebglContext = true;
     if (this.#contextLease !== undefined) {
       this.#pool.reclaim(this.#contextLease);
       this.#contextLease = undefined;
     }
-    // Last, and re-raising: the invariant above is already restored, so what a sink
-    // throws reaches the caller instead of being swallowed here.
+    // Last: a sink that throws reaches the caller, and the state is already consistent.
     this.#setRendererMode("dom");
   }
 
   /**
-   * The one place `#rendererMode` is written, so no path moves it silently. Emission
-   * is conditional on the value actually CHANGING: the selection's catch arm settles
-   * on the constructed mode, and announcing that would report a fallback that never
-   * happened.
+   * The one writer of `#rendererMode`. Emits only on change: the selection's catch arm
+   * settles on the constructed mode, and announcing that would report a fallback that
+   * never happened.
    */
   #setRendererMode(rendererMode: TerminalRendererMode): void {
     if (this.#rendererMode === rendererMode) {

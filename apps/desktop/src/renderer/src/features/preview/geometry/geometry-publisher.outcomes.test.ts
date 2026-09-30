@@ -7,14 +7,8 @@ import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import { PAGE_HOST_REFUSAL_ORIGIN } from "./page-host.js";
 import { elementWithRect, RecordingPageHost, rect } from "./geometry-publisher.test-support.js";
 
-// Who finds out what the page host said.
-//
-// The publisher records an outcome on four paths and, until it announced them, the
-// only way to read one was to ask at a moment of your own choosing. The pane's moment
-// is attach — before the first frame has run, when the answer is `undefined` by
-// construction — so a `pane-gone` rejection landed in a private field and reached
-// nobody, and the pane kept saying "no page yet" over a page host that had said the
-// pane was destroyed.
+// Who finds out what the page host said. The pane reads at attach, before the first frame, when
+// the answer is `undefined`, so a `pane-gone` rejection has to be announced to reach it.
 describe("PaneGeometryPublisher outcome subscription", () => {
   function countingSubscriber(publisher: PaneGeometryPublisher): {
     readonly count: () => number;
@@ -37,7 +31,7 @@ describe("PaneGeometryPublisher outcome subscription", () => {
     });
     const listener = countingSubscriber(publisher);
     publisher.observe(elementWithRect(rect(0, 0, 100, 100)));
-    // The frame has not run, which is exactly the moment the pane reads.
+    // The frame has not run, which is the moment the pane reads.
     expect(publisher.lastOutcome()).toBeUndefined();
     expect(listener.count()).toBe(0);
     clock.runFrame();
@@ -65,11 +59,8 @@ describe("PaneGeometryPublisher outcome subscription", () => {
   });
 
   it("announces the page host's rejection over a publisher it has already disposed", () => {
-    // Both halves in one claim, and the order between them is what the case after
-    // this one pins: disposal is terminal and it deliberately keeps the sinks, so a
-    // notification raised after it still reaches everyone who was subscribed — and
-    // reaches them over a publisher whose `isDisposed` already agrees with the
-    // sentence they are about to render.
+    // Disposal is terminal but keeps the sinks, so a notification raised after it still reaches
+    // every subscriber, over a publisher whose `isDisposed` already agrees.
     const pageHost = new RecordingPageHost();
     pageHost.rejectNextWith(
       refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
@@ -92,11 +83,9 @@ describe("PaneGeometryPublisher outcome subscription", () => {
   });
 
   it("reaches its terminal state even when a sink throws on the rejection", () => {
-    // `Emitter` re-raises what a sink threw. With the announcement first, a single
-    // throwing observer carried the exception out of the flush before the disposal
-    // ran — leaving the publisher armed, subscribed, and still writing rectangles to
-    // a pane the page host had just declared gone. The throw is still raised; what
-    // changed is that it can no longer keep the publisher alive.
+    // `Emitter` re-raises what a sink throws. With the announcement first, a throwing sink
+    // carried the exception out of the flush before disposal ran, leaving the publisher armed.
+    // The throw is still raised; it cannot keep the publisher alive.
     const pageHost = new RecordingPageHost();
     pageHost.rejectNextWith(
       refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
@@ -128,9 +117,8 @@ describe("PaneGeometryPublisher outcome subscription", () => {
   });
 
   it("negative control: a sink that returns leaves the same terminal state", () => {
-    // Without this, a flush that disposed and then swallowed every sink failure
-    // would satisfy the case above while hiding a defect in the one path whose
-    // whole job is to report one.
+    // Without this, a flush that disposed and swallowed every sink failure would satisfy the
+    // case above.
     const pageHost = new RecordingPageHost();
     pageHost.rejectNextWith(
       refuse(PAGE_HOST_REFUSAL_ORIGIN, "pane-gone", "The pane was destroyed."),
@@ -154,9 +142,8 @@ describe("PaneGeometryPublisher outcome subscription", () => {
   });
 
   it("negative control: a stopped subscription hears nothing further", () => {
-    // Without this, a publisher that announced unconditionally — or one whose
-    // unsubscribe did nothing — would satisfy every case above, and a pane that had
-    // unmounted would keep being told about rectangles it no longer has.
+    // Without this, a publisher that announced unconditionally, or whose unsubscribe did nothing,
+    // would satisfy every case above.
     const pageHost = new RecordingPageHost();
     const clock = new ManualClock();
     const publisher = new PaneGeometryPublisher({

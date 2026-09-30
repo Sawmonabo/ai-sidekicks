@@ -1,7 +1,4 @@
 // The page host a pane's rectangle is published to.
-//
-// The publisher consumes this file's page host type; this file consumes the sample type from
-// `pane-geometry.ts`.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { PaneGeometrySample } from "./pane-geometry.js";

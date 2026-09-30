@@ -1,11 +1,6 @@
-// The documented line parses, and a dotted id is nobody's command.
-//
-// The grammar is fixed: one command root, `workflow`, one verb, `start`, and the line
-// `/workflow start <name>`. The end-to-end case below is what makes that a claim about
-// the SHIPPED path rather than about this module — the same recognizer the send bar
-// hands the router, the real router, and the real executor over the real console
-// registry — and its negative control registers the dotted id instead of the root, which
-// leaves the documented line an unregistered name.
+// The documented line `/workflow start <name>` parses, and a dotted id is nobody's command. The
+// end-to-end case uses the real recognizer, router, executor and registry; its control registers
+// the dotted id instead, leaving the documented line an unregistered name.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -28,12 +23,10 @@ import {
 import { WORKFLOW_COMMAND_ROOT, readWorkflowCommandLine } from "./workflow-command-grammar.js";
 import { startWorkflowFromLine } from "./start-workflow-from-line.js";
 
-/** A dotted id that names no root, registered only as a foil. */
 const DOTTED_ID = "workflow.start";
 
 const registeredIds: string[] = [];
 
-/** Register one id into the real console registry, with an act that does nothing. */
 function registerRoot(commandId: string): void {
   commandRegistry.register({
     id: commandId,
@@ -44,7 +37,6 @@ function registerRoot(commandId: string): void {
   registeredIds.push(commandId);
 }
 
-/** The router the send bar builds, over whichever ids the registry holds. */
 function routerOverRegistry(): ComposerSendRouter {
   return new ComposerSendRouter({
     calls: sendCallsAnswering(async () => undefined),
@@ -142,9 +134,8 @@ describe("the documented line, end to end through the recognizer and the router"
   });
 
   it("negative control: under a dotted id the documented line goes out as typed", () => {
-    // `directive-syntax.ts` hands the recognizer the FIRST WORD, so with `workflow.start`
-    // registered the documented line names `workflow` — an id the console does not hold —
-    // and the line goes on as a new turn rather than reaching the workflow handler.
+    // The recognizer gets the first word, so with `workflow.start` registered the documented line
+    // names `workflow`, which the console does not hold, and goes on as a new turn.
     registerRoot(DOTTED_ID);
 
     const resolution = routerOverRegistry().resolve("/workflow start nightly", SESSION_TARGET);

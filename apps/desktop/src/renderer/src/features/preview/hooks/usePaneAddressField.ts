@@ -1,14 +1,6 @@
-// The address field's state, held for the pane it was typed for.
-//
-// Its own module beside `usePreviewPaneActs.ts` and for that module's reason: the pane
-// RENDERS, and the two pieces of state it carries between renders — which act may
-// still report, and what somebody has typed into the destination field — are each a
-// small rule that is testable without mounting a chrome around it.
-//
-// WHAT THE FIELD MEANS lives in `browser/pane/address-field-model.ts`, which owns the
-// following/editing pair and the two readings taken off it. This module owns only
-// WHOSE it is, which is a different question and the one a reused component
-// instance gets wrong.
+// The address field's state, held for the pane it was typed for. What the field means lives in
+// `address-field-model.ts`; this module owns whose it is, which a reused component instance
+// gets wrong.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { FOLLOWING_ADDRESS_FIELD, type AddressFieldState } from "../address-field-model.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
@@ -20,15 +12,9 @@ export interface PaneAddressField {
 }
 
 /**
- * Hold the address field's state for one pane.
- *
- * The subject is the `(bridge, paneId)` pair and the console's one holder keeps the
- * value bound to it, which answers DURING RENDER rather than in an effect: an effect
- * runs one pass after the pass that renders the field and wires the submit handler,
- * and that first pass is the one an Enter can reach. A render for a different pane
- * reads the seed — `FOLLOWING_ADDRESS_FIELD`, the resting state a pane opens in — so
- * the replacement pane follows its own reported location and has nothing of the
- * previous one to submit.
+ * Hold the address field's state for one pane. The subject is `(bridge, paneId)`, resolved during
+ * render rather than in an effect, since the first pass is the one an Enter can reach. A
+ * different pane reads the seed, so it has nothing of the previous pane to submit.
  */
 export function usePaneAddressField(bridge: PlatformBridge, paneId: string): PaneAddressField {
   const { value: addressField, publish: setAddressField } = useSubjectScopedState(

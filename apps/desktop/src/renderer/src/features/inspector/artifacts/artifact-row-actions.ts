@@ -1,14 +1,9 @@
 // The artifact list's manifest re-read: what a press on one row sends, and what the answer
 // leaves standing on the reading.
 //
-// `artifact-list-reader.ts` owns the scheduled reads. This class owns the re-read, whose
-// concurrency rule is not the scheduler's, and delegates the payload fetch to
-// `artifact-payload-fetch.ts`. Both meet the reader at `ArtifactListReadingPublisher`.
-//
-// A re-read is single-flight per row and superseded by a refresh: the refresh is already
-// re-reading the same row from the list, so the fresher answer lands either way. The
-// reading names the rows whose re-reads are outstanding, which is what holds each row's
-// control.
+// A re-read is single-flight per row and superseded by a refresh, which is already re-reading
+// the same row. The payload fetch lives in `artifact-payload-fetch.ts`; both meet the reader
+// at `ArtifactListReadingPublisher`.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 
@@ -25,6 +20,7 @@ import {
 import type { ReadArtifact } from "./services/artifact-reads.js";
 import type { ArtifactPayloadOutcome } from "@renderer/store/artifacts/artifact-payload.js";
 
+/** What the row acts need: the read call and the reader's publishing half. */
 export interface ArtifactRowActionsOptions {
   readonly readArtifact: ReadArtifact;
   readonly publisher: ArtifactListReadingPublisher;
@@ -35,12 +31,7 @@ export class ArtifactRowActions {
   readonly #readArtifact: ReadArtifact;
   readonly #publisher: ArtifactListReadingPublisher;
   readonly #payloadFetches: ArtifactPayloadFetches;
-  /**
-   * The manifest re-read awaiting its answer on each row.
-   *
-   * Keyed by artifact id and never per section: two rows re-reading are two calls about two
-   * manifests that cannot collide.
-   */
+  /** The manifest re-read awaiting its answer on each row, keyed by artifact id. */
   readonly #manifestReads = new GenerationLatch();
 
   public constructor(options: ArtifactRowActionsOptions) {
@@ -49,7 +40,7 @@ export class ArtifactRowActions {
     this.#payloadFetches = new ArtifactPayloadFetches(options);
   }
 
-  /** Fetch one artifact's bytes. The rule is `artifact-payload-fetch.ts`'s. */
+  /** Fetch one artifact's bytes; the single-flight rule is `artifact-payload-fetch.ts`'s. */
   public async fetchPayload(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     return this.#payloadFetches.fetch(artifactId);
   }
@@ -57,13 +48,9 @@ export class ArtifactRowActions {
   /**
    * Re-read one artifact's manifest, and put what came back on its row.
    *
-   * This asks for no bytes: the read omits `includePayload`, so the reply lands on the
-   * deferred arm. The served `manifest` replaces the listed row member for member. A
-   * superseded re-read is dropped, because the refresh that superseded it is already
-   * re-reading that row. A second press while the row's re-read is on the wire throws.
-   * The section holds the control while the re-read is in flight, so the throw is reached
-   * only by a caller that offers the act without holding its control. A rejected call
-   * propagates.
+   * Asks for no bytes (no `includePayload`). A re-read a refresh superseded is dropped. A
+   * second press while the row's re-read is on the wire throws; the section holds the control,
+   * so only a caller that offers the act unheld reaches it. A rejected call propagates.
    */
   public async readManifest(artifactId: ArtifactId): Promise<ArtifactRowActOutcome> {
     const manifestRound = this.#manifestReads.claim(this, artifactId);
@@ -74,17 +61,15 @@ export class ArtifactRowActions {
     this.#holdManifestRead(artifactId);
     try {
       const answer = await this.#readArtifact({ artifactId });
-      // Two questions: this row's round says whether this reply is still the one the row
-      // is waiting for, and the scheduled read's round says whether a refresh has since
-      // re-read the row.
+      // This row's round says whether the reply is still awaited; the scheduled read's round
+      // says whether a refresh has since re-read the row.
       if (!manifestRound.isCurrent || !readRound.isCurrent) {
         return { status: "superseded" };
       }
       const reading = this.#publisher.currentReading();
       this.#publisher.publish({
         ...reading,
-        // The reply nests the envelope beside the payload members, so the row is built
-        // from `manifest` and not from the reply.
+        // The reply nests the manifest beside the payload members.
         artifacts: withReplacedRow(reading.artifacts, artifactManifestRowFrom(answer.manifest)),
       });
       return { status: "settled" };
@@ -93,16 +78,12 @@ export class ArtifactRowActions {
     }
   }
 
-  /**
-   * Terminal. A call still on the wire settles into nothing rather than onto an unmounted
-   * section.
-   */
+  /** Terminal: a call still on the wire settles into nothing. */
   public dispose(): void {
     this.#payloadFetches.dispose();
     this.#manifestReads.supersedeAll();
   }
 
-  /** Take this row's key, and redraw so its re-read control holds. */
   #holdManifestRead(artifactId: string): void {
     const reading = this.#publisher.currentReading();
     this.#publisher.publish({
@@ -117,8 +98,8 @@ export class ArtifactRowActions {
   /**
    * Give this row's key back, but only where it is still this round's to give.
    *
-   * The publish is skipped once the round has been superseded, because offering a control
-   * this round no longer holds would offer it while its successor's call is on the wire.
+   * Publishing after supersession would offer the control while the successor's call is on
+   * the wire.
    */
   #releaseManifestRead(artifactId: string, round: GenerationClaim): void {
     const heldByThisRound = round.isCurrent;

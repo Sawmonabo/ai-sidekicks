@@ -1,16 +1,7 @@
-// A NESTED OBJECT AS A FIELDSET: what it draws, what it says about itself, and what it
-// opens holding.
-//
-// One of three suites over the drawn form — `SchemaForm.test.tsx` states the split and
-// owns the leaf controls; `SchemaForm.findings.test.tsx` owns where a description and a
-// finding are attached. A group is the one member shape whose CHROME carries the same
-// three claims a leaf control's does — a name, a requiredness, and a control that says
-// whether an optional one is being answered — over a member that holds other members, so
-// the cases are about the fieldset rather than about anything inside it.
-//
-// Driven through the real hook for the same reason the sibling suites are, and the seed
-// cases read the COMPOSED ANSWER because what a group opens holding is a claim about the
-// answer and not about the markup.
+// A nested object as a fieldset: what it draws, what it says about itself, and what it opens
+// holding. Seed cases read the composed answer, since what a group opens holding is a claim
+// about the answer. Sibling suites: `SchemaForm.test.ts` (leaf controls) and
+// `SchemaForm.findings.test.ts` (where descriptions and findings attach).
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -25,10 +16,8 @@ afterEach(cleanup);
 
 describe("the fieldset a group draws", () => {
   it("draws a group as a named fieldset holding its own members", async () => {
-    // The same claim as before the draft tree, reached through the control that now says
-    // whether an OPTIONAL section is being answered: unanswered, it draws its name and
-    // that control and no members, because a control under a section nobody is answering
-    // would be a control whose value reaches nothing.
+    // Unanswered, an optional section draws its name and activation control and no members:
+    // a control under a section nobody is answering would reach nothing.
     const container = await renderForm({
       type: "object",
       properties: {
@@ -56,9 +45,8 @@ describe("the fieldset a group draws", () => {
   });
 
   it("says a group is required on its own legend, at the same depths a control says it", async () => {
-    // A group is a member like any other, and the requiredness a scalar and a list both
-    // carry visibly was read for it and then dropped: the fieldset read optional beside
-    // controls that read required, over a schema that demands the whole group.
+    // A group's requiredness must read like a scalar's and a list's over a schema that
+    // demands the whole group.
     const container = await renderForm({
       type: "object",
       properties: {
@@ -82,8 +70,7 @@ describe("the fieldset a group draws", () => {
 
     expect(requiredGroup?.querySelector("legend")?.textContent).toContain("required");
     expect(optionalGroup?.querySelector("legend")?.textContent).not.toContain("required");
-    // One level in, through the same primitive: a required member of a group still says
-    // so, and an optional one still does not.
+    // One level in: a required member still says so, and an optional one does not.
     expect(
       requiredGroup?.querySelector(".meridian-schema-field .meridian-schema-field__required")
         ?.textContent,
@@ -94,10 +81,8 @@ describe("the fieldset a group draws", () => {
   });
 
   it("opens a required group whose members are all optional at the empty object it accepts", async () => {
-    // `{ release: {} }` is what this schema accepts, and the form opens holding it. Opening
-    // at `{}` would put "must have required property" on the fieldset, and the only way to
-    // reach the valid state would be to type into `tag` and clear it again — which writes
-    // `{ tag: "" }` and leaves the form invalid for a different reason.
+    // `{ release: {} }` is what this schema accepts and the form opens holding it; opening at
+    // `{}` would put "must have required property" on the fieldset.
     const container = await renderForm({
       type: "object",
       properties: {

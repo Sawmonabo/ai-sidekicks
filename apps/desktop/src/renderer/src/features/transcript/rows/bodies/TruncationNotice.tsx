@@ -1,18 +1,5 @@
-// The notice a stored body's prefix carries — "truncated at N of M bytes", and how much
-// of the rest the payload recorded.
-//
-// Its own module for the one-component rule. The other half of the honest-body pair
-// `MachineBody` composes: a truncated body renders its prefix AND says so, because a
-// prefix alone reads as a complete short answer.
-//
-// AND IT SAYS WHAT IS KNOWN OF THE REST OF THE BODY. "Truncated when recorded" tells a
-// reader the body is a prefix and says nothing about the remainder, so the notice is
-// total over two dispositions of it: the payload recorded a longer original and names how
-// much more, or it recorded no remainder.
-//
-// WHY THE DISPOSITION IS A VALUE. It is computed by a pure function over the stored
-// prefix's byte count and the recorded pre-truncation length, so both arms are drivable
-// without rendering.
+// The notice a truncated body's prefix carries: "truncated at N of M bytes" and what is known of
+// the rest. A prefix alone would read as a complete short answer.
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
@@ -21,19 +8,12 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 
-/**
- * The loss this console names when a stored body is a prefix.
- *
- * Typed as `DeclaredLossKind` rather than inferred as its own literal: that is what
- * makes the binding load-bearing. A member renamed in the contract fails here.
- */
+/** The loss this console names for a prefix; typed so a renamed contract member fails here. */
 const TRUNCATED_LOSS_KIND: DeclaredLossKind = "turn_content_truncated";
 
 /**
- * What is known about the part of the body that is not here.
- *
- * Two arms and no third, both answerable from what the row already carries: whether the
- * payload recorded a pre-truncation length longer than the stored prefix.
+ * What is known about the part of the body that is not here: whether the payload recorded a
+ * pre-truncation length longer than the stored prefix.
  */
 export type TruncatedRemainderDisposition =
   | { readonly kind: "none-recorded" }
@@ -46,12 +26,9 @@ export interface TruncationNoticeProps {
 }
 
 /**
- * Read the disposition off the two recorded lengths.
- *
- * `none-recorded` covers both shapes of "no remainder" — a payload that recorded no
- * pre-truncation length, and one whose recorded length does not exceed what was stored.
- * Neither can name a remainder, and naming zero further bytes would report content that
- * does not exist.
+ * Reads the disposition off the two recorded lengths. `none-recorded` covers a payload with no
+ * pre-truncation length and one whose length does not exceed what was stored; naming zero
+ * further bytes would report content that does not exist.
  */
 export function truncatedRemainderDisposition(
   storedByteCount: number,
@@ -64,23 +41,16 @@ export function truncatedRemainderDisposition(
 }
 
 /**
- * "Truncated at N of M bytes", and what became of the rest.
- *
- * N is measured from the stored prefix and M is the contract's pre-truncation
- * `contentLength`, echoed from the signed payload. When the payload carries no length —
- * legal, since the descriptive members are optional — the notice says what it knows and
- * does not invent the total, because a total computed from the prefix would be the
- * prefix's own size stated twice.
+ * "Truncated at N of M bytes", and what became of the rest. N is measured from the stored
+ * prefix, M is the recorded pre-truncation `contentLength`. With no recorded length the notice
+ * does not invent a total: one computed from the prefix would be the prefix's own size twice.
  */
 export function TruncationNotice(props: TruncationNoticeProps): React.JSX.Element {
   const storedByteCount = measureUtf8ByteLength(props.storedBody);
   const storedBytes = formatByteQuantity(storedByteCount);
   const remainder = truncatedRemainderDisposition(storedByteCount, props.preTruncationLength);
-  // ONE SENTENCE CARRYING BOTH FIGURES, rather than a headline and a `detail`. The
-  // badge form renders `detail` as a `title` attribute, so the byte counts — which are
-  // the substance of the truncation notice, not an elaboration of it — would reach a reader
-  // only on hover. The badge is still the right shape here, because unlike an
-  // unavailable body this one IS present and the notice qualifies it.
+  // One sentence carrying both figures, not a headline plus `detail`: the badge form renders
+  // `detail` only as a `title` tooltip, so the byte counts would show on hover alone.
   const measurement =
     props.preTruncationLength === undefined
       ? `Truncated when recorded. Shown: ${storedBytes.text}; the original size was not recorded.`

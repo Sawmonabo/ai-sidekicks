@@ -1,51 +1,29 @@
-// The reading anchor — the transcript's promise that it will not move the page you are
-// reading.
-//
-// THE PROMISE IS THIS MODULE'S: never take the reading position away from a person
-// while agents work. The mechanism is here rather than in a library — the reading
-// anchor, follow, and window-cap controller are own-built, because no library has a
-// sub-row reading anchor — and every rule below is that promise made mechanical:
-//
-//   • **Following is a STATE, not a default.** The transcript follows the tail only
-//     while the viewport is at the tail. The moment a person scrolls up, appends
-//     stop moving the offset and start counting instead — which is what the tail
-//     pill counts.
-//   • **The anchor is a row and an offset, not a scroll position.** Rows above the
-//     fold grow while a stream reveals into them, so an offset alone drifts. A row
-//     key plus that row's distance from the top of the viewport survives every
-//     height change under it, and restoring it is one glide through the chokepoint.
-//   • **Pinning suppresses prune, and holds survive it.** Paging back cuts the
-//     window by root cursor rather than by count, and a row a person is engaged
-//     with — an open ask, an approval card, a deep-link target, a selection — is
-//     held whether or not it is pinned. Never pruning a held row is the
-//     window's rule; this is where the held set lives, because engagement is a
-//     reading fact and the window is a memory one.
-//   • **Following resumes on arrival, never on a timer.** Reaching the tail
-//     resumes it, and so does the pill. Nothing here polls.
-//
-// Nothing in this module touches the DOM or writes a scroll offset. It decides
-// WHAT should happen to the reading position; `scroll-chokepoint.ts` is the only
-// module that can make it happen.
+// The reading anchor: the transcript never takes the reading position away from a person while
+// agents work. It decides what should happen to the reading position; `scroll-chokepoint.ts` is
+// the only module that writes a scroll offset, and this one touches no DOM.
+//   - Following is a state: appends move the offset only while the viewport is at the tail, and
+//     otherwise they are counted (the tail pill's count).
+//   - The anchor is a row key plus that row's offset from the viewport top, which survives the
+//     height changes of rows above it, where a bare scroll offset would drift.
+//   - Pinning suppresses prune, and held rows (open ask, approval, deep-link target, selection)
+//     are never pruned; the held set lives here because engagement is a reading fact.
+//   - Following resumes on arrival at the tail or through the pill, never on a timer.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 
 /**
- * The three reading states this module's promise resolves to. Closed.
+ * The three reading states. Closed.
  *
- * `reading-with-new-rows` is a state and not a counter being non-zero, because the
- * tail pill's presence is what the viewport branches on and a state a reader can
- * name is one a test can assert.
+ * `reading-with-new-rows` is a state, not a nonzero counter, because the tail pill's presence is
+ * what the viewport branches on.
  */
 export const READING_MODES = ["following", "reading", "reading-with-new-rows"] as const;
 
 /** One reading state. Derived from the enumeration, never restated. */
 export type ReadingMode = (typeof READING_MODES)[number];
 
-/**
- * Why a row is held against prune. Closed: each member is a thing a person is
- * doing with the row, and a reason nobody can name is a leak.
- */
+/** Why a row is held against prune. Closed: each is something a person is doing with the row. */
 export const READING_HOLD_REASONS = [
   "open-ask",
   "open-approval",
@@ -73,6 +51,7 @@ export interface ReadingAnchorState {
   readonly anchorPoint: ReadingAnchorPoint | undefined;
 }
 
+/** The reading state machine: follow, read, pin history, and hold engaged rows against prune. */
 export class ReadingAnchor {
   readonly #stateEmitter = new Emitter<ReadingAnchorState>("reading anchor state");
   readonly #holdReasonByRowKey = new Map<string, ReadingHoldReason>();
@@ -101,30 +80,20 @@ export class ReadingAnchor {
   /**
    * Fold one geometry sample in.
    *
-   * Arriving at the tail resumes following and clears the count, which is the header's
-   * fourth rule: following resumes on arrival, never on a timer. Leaving it does NOT clear the anchor
-   * point: the viewport captures a fresh one as it scrolls, and dropping the last
-   * known point here would leave a frame with nothing to restore.
+   * Arriving at the tail resumes following, clears the count, and clears the pin, exactly as
+   * {@link resumeFollowing} does: reaching the tail by scrolling and by the pill are one act, and
+   * a pin only the pill released would survive the other and refuse prune forever. Leaving the
+   * tail keeps the last anchor point, since dropping it would leave a frame with nothing to
+   * restore.
    *
-   * ARRIVING ALSO CLEARS THE PIN, for the same reason {@link resumeFollowing} does:
-   * pinning is what a reader paging back into history raises, and being at the tail is
-   * what says they are done with it. Reaching the tail by scrolling and reaching it by
-   * the pill are one act with two gestures, and a pin only the pill released would
-   * survive the other one forever — with prune refused underneath it, which is a
-   * window that grows without bound for as long as the session does.
-   *
-   * The two arms are deliberately asymmetric. ARRIVING at the tail is arriving
-   * however the sample was produced — a shorter log or a taller pane both put the
-   * reader at the bottom, and they are at the bottom. LEAVING it takes a `"scroll"`
-   * sample, because a viewport that shrank raises the distance from the tail with
-   * no reader action at all, and dropping a follower out of following because the
-   * window got smaller is the transcript deciding to stop following on its own.
+   * Arriving counts however the sample was produced, but leaving takes a `"scroll"` sample: a
+   * shrinking viewport raises the distance from the tail with no reader action, and it must not
+   * stop following on its own.
    */
   public observeGeometry(geometry: ScrollGeometry): void {
     if (geometry.isAtTail) {
-      // Through `unpin` rather than by assignment, so a sample that releases a pin
-      // without moving the mode still notifies: the pin is on the published state, and
-      // the window's prune refusal lifts on exactly that field.
+      // Through `unpin` so a sample that only releases a pin still notifies; the window's prune
+      // refusal lifts on that field.
       this.unpin();
       this.#transition("following", 0);
       return;
@@ -149,8 +118,7 @@ export class ReadingAnchor {
   /**
    * Count rows the log appended.
    *
-   * While following the count stays at zero: the viewport is about to show them,
-   * and a pill offering to jump to rows already on screen is noise.
+   * While following the count stays at zero: the viewport is about to show them.
    */
   public noteAppendedRows(rowCount: number): void {
     if (rowCount <= 0 || this.#mode === "following") {
@@ -162,9 +130,8 @@ export class ReadingAnchor {
   /**
    * Pin history at a root cursor.
    *
-   * The cursor rather than a row count because `window-cap.ts` cuts the window by root
-   * cursor while pinned: a count would move under the reader every time the log
-   * appended, which is the drift pinning exists to stop.
+   * The cursor, not a row count, because `window-cap.ts` cuts the window by root cursor while
+   * pinned and a count would move under the reader as the log appended.
    */
   public pin(rootCursor: string): void {
     if (this.#pinnedRootCursor === rootCursor) {
@@ -185,8 +152,8 @@ export class ReadingAnchor {
   /**
    * The pill, and the keyboard's jump.
    *
-   * Returns the mode it moved to rather than performing a scroll: the anchor
-   * decides, and the one module that can move the scroll container performs.
+   * Returns the mode it moved to instead of scrolling: the one module that can move the scroll
+   * container performs the move.
    */
   public resumeFollowing(): ReadingMode {
     this.#pinnedRootCursor = undefined;
@@ -222,7 +189,7 @@ export class ReadingAnchor {
     return this.#holdReasonByRowKey.get(rowKey);
   }
 
-  /** The header's third rule, as a predicate: prune and trim stop while pinned. */
+  /** Whether prune and trim stop, which they do while history is pinned. */
   public suppressesPrune(): boolean {
     return this.#pinnedRootCursor !== undefined;
   }

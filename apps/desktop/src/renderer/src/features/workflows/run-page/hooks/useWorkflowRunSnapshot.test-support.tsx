@@ -1,5 +1,5 @@
-// What the run-snapshot suites share: the probe that mounts the hook and a call that
-// answers a run read from the probe fixtures.
+// What the run-snapshot suites share: the probe that mounts the hook and a call that answers a
+// run read from the probe fixtures.
 
 import { render } from "@testing-library/react";
 

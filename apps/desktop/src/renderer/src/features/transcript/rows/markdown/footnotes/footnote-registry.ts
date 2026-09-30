@@ -1,52 +1,14 @@
-// The footnote registry — one per transcript, keyed by source.
-//
-// The footnote registry is own-built, and nothing above this module says how it is
-// keyed. THIS MODULE DECIDES THAT, and the
-// rule is: one registry per transcript keyed by (source, identifier), so a definition line
-// never resolves as its own body.
-//
-// THE FAILURE THE KEYING PREVENTS. GFM footnotes are `[^1]` for the reference and
-// `[^1]: …` for the definition, and the identifier is scoped to the DOCUMENT. A transcript
-// is not one document — it is hundreds of messages, each parsed separately, and `[^1]`
-// means a different thing in each. A registry keyed by identifier alone would let
-// message 40's definition answer message 3's reference, and — the case the rule above
-// names outright — would let a definition line resolve as its own body, because a definition
-// and its reference carry the same identifier inside the same message. Keying by
-// (source, identifier) makes both unrepresentable: the source is the row the definition
-// came from, so a lookup can only find a definition its own message declared.
-//
-// WHY A CLASS AND NOT A CONTEXT VALUE. Definitions arrive as blocks settle, from a
-// parse that runs outside React. A `useState` holding this would re-render every row in
-// the transcript each time any message declared a footnote.
-//
-// AND WHY IT IS STILL AN EXTERNAL STORE. A plain class with no subscription is written
-// from an effect — `StreamingMarkdown`'s registration hook — so a read during render
-// always lands BEFORE the write. While a body streams the next frame hides that; on the
-// LAST frame there is no next frame, so a reader of a note the final update rewrote stays
-// on the penultimate body indefinitely. The remedy is one mechanism rather than two: this
-// class is the store, `definitionsFor` is its snapshot, and `subscribeToSource` is what
-// re-renders a reader whose source's body changed. There is deliberately no second lookup
-// beside the snapshot — a read that bypassed the subscription is exactly the stale read
-// this closes.
-//
-// THE SNAPSHOT IS PER SOURCE, AND STABLE. `useSyncExternalStore` compares snapshots by
-// identity, so `definitionsFor` hands back a view held until that source's definitions
-// actually change: a re-registration of the identical parse — the ordinary case on a
-// frame that changed nothing about this note, since a settled block's nodes are
-// referentially stable — is not a change and notifies nobody.
+// One footnote registry per transcript, keyed by (source, identifier): a GFM identifier is scoped
+// to its own message, so a lookup can only find a definition its own message declared.
+// It is an external store (`definitionsFor` snapshot plus `subscribeToSource`) because writes come
+// from an effect, and a plain read during render would stay stale after the last frame.
 
 import type { RootContent } from "mdast";
 
 /**
- * The separator the composite key is built with.
- *
- * NUL, because a GFM footnote label may contain spaces, colons, and slashes — every
- * separator a reader reaches for first — and two different (source, identifier) pairs
- * that concatenated to one string would resolve each other's definitions, which is the
- * exact failure the composite key exists to prevent. NUL occurs in neither half: an
- * event id is a wire identifier, and a label arrives from text micromark has already
- * decoded, where commonmark replaces a literal NUL with U+FFFD. Written as an escape
- * rather than typed, so a reader and a diff can both see it.
+ * The separator the composite key is built with. NUL, because labels may contain spaces, colons
+ * and slashes; an event id is a wire identifier, and commonmark replaces a literal NUL in a
+ * label with U+FFFD, so neither half can hold one. Written as an escape so a diff shows it.
  */
 const FOOTNOTE_KEY_SEPARATOR = "\u0000";
 
@@ -57,44 +19,30 @@ export interface FootnoteDefinition {
   /** The GFM identifier, wire-verbatim from the message text. */
   readonly identifier: string;
   /**
-   * The definition's body, as parsed nodes rather than as rendered elements.
-   *
-   * The reader maps them when it draws them, which is what keeps registration a pure
-   * fact about the parse: a registry holding elements would have to be written during a
-   * render, and `apps/desktop/AGENTS.md` puts every such write in a class or a hook.
+   * The definition's body as parsed nodes, not rendered elements: the reader maps them when it
+   * draws them, so registration stays a fact about the parse rather than a write during render.
    */
   readonly bodyNodes: readonly RootContent[];
 }
 
+/** The transcript's footnote definitions, as an external store read through `definitionsFor`. */
 export class FootnoteRegistry {
   readonly #definitionsByKey = new Map<string, FootnoteDefinition>();
-  /** One source's definitions, held until that source's set changes. See the header. */
+  /** One source's definitions, held until that source's set changes. */
   readonly #viewsBySource = new Map<string, ReadonlyMap<string, FootnoteDefinition>>();
   readonly #changes = new Emitter<string>("footnote definition change");
   /**
-   * The view a source with no definitions is answered with.
-   *
-   * An instance field rather than a module constant, so it is a value this registry
-   * owns instead of the module-level mutable singleton `apps/desktop/AGENTS.md`
-   * rejects — and one instance rather than a fresh `Map` per call, because a snapshot
-   * that changed identity on every read would spin `useSyncExternalStore` forever.
+   * The view for a source with no definitions: one shared instance, since a snapshot whose
+   * identity changed on every read would spin `useSyncExternalStore`.
    */
   readonly #emptyDefinitions: ReadonlyMap<string, FootnoteDefinition> = new Map();
 
   /**
-   * Record a definition under its own source.
+   * Records a definition under its own source. Bounded and oldest-first: a definition older
+   * than the window's oldest row can never be opened, because its reference is gone too.
    *
-   * Bounded, and eviction is oldest-first for the reason the cap's own rationale in
-   * `features/transcript/cards/card-caps.ts` gives: a
-   * definition belongs to the message that carried it, the window retains a bounded
-   * number of messages, and a definition older than the window's oldest row can never
-   * be opened because the reference that would open it is gone too.
-   *
-   * The recency refresh happens whichever way the comparison below goes — a definition
-   * a live card re-registered is not old — while the ANNOUNCEMENT is made only for a
-   * body that actually moved. An evicted definition announces too, and for the same
-   * reason a rewritten one does: a reader showing it is showing something the
-   * registry no longer holds.
+   * Recency refreshes on every call, but sinks are told only when a body actually moved or was
+   * evicted, so a reader showing an evicted note is told.
    */
   public register(definition: FootnoteDefinition): void {
     const key = footnoteKey(definition.sourceId, definition.identifier);
@@ -117,17 +65,11 @@ export class FootnoteRegistry {
   }
 
   /**
-   * Every definition one source declared, keyed by identifier — the store's snapshot.
+   * Every definition one source declared, keyed by identifier: the store's snapshot. Empty when
+   * none has arrived (a stream can carry `[^1]` several frames before `[^1]: ...`).
    *
-   * An empty map is the honest answer for a body whose definitions have not arrived
-   * yet — a stream can carry `[^1]` several frames before `[^1]: …` — and the reader
-   * renders no body rather than an empty one.
-   *
-   * Built on demand and then HELD, because identity is what
-   * `useSyncExternalStore` compares: rebuilding per read would report a change on every
-   * render. The empty answer is not held, because it is already one shared value and a
-   * cache entry per source ever asked about would grow with every row the window
-   * rendered rather than with the definitions the cap bounds.
+   * Held after the first build because `useSyncExternalStore` compares by identity. The empty
+   * answer is not held, so the cache stays bounded by the definitions the cap allows.
    */
   public definitionsFor(sourceId: string): ReadonlyMap<string, FootnoteDefinition> {
     const held = this.#viewsBySource.get(sourceId);
@@ -149,14 +91,9 @@ export class FootnoteRegistry {
   }
 
   /**
-   * Hear about one source's definitions changing, for as long as its body is mounted.
-   *
-   * Scoped to the source rather than to the registry, because one registry serves every
-   * row in the transcript: an unscoped signal would re-render every mounted reader
-   * each time any message declared a note, which is the fan-out this class exists to
-   * avoid. The filter is here rather than in the caller so the two halves of the
-   * scoping — which key a change names and which key a reader waits on — stay in one
-   * module.
+   * Hears about one source's definitions changing while its body is mounted. Scoped to the
+   * source because one registry serves every row: an unscoped signal would re-render every
+   * mounted reader whenever any message declared a note.
    */
   public subscribeToSource(sourceId: string, onChange: () => void): Unsubscribe {
     return this.#changes.subscribe((changedSourceId) => {
@@ -182,11 +119,8 @@ export class FootnoteRegistry {
   }
 
   /**
-   * Retire the stale views, then tell the sinks — in that order and not interleaved.
-   *
-   * A sink reads the snapshot back synchronously (React's does, while deciding whether
-   * to re-render), so announcing one source before invalidating the next would hand a
-   * reader a view this very call has already made wrong.
+   * Retires the stale views, then tells the sinks, in that order: a sink reads the snapshot
+   * back synchronously, so announcing before invalidating would hand it a stale view.
    */
   #announce(changedSources: ReadonlySet<string>): void {
     for (const sourceId of changedSources) {
@@ -204,12 +138,9 @@ function footnoteKey(sourceId: string, identifier: string): string {
 }
 
 /**
- * The source half of a composite key, for naming what an eviction changed.
- *
- * Total by construction — every key is {@link footnoteKey}'s, and NUL occurs in neither
- * half for the reason the separator's own rationale gives — and written totally anyway,
- * because the natural one-liner `key.slice(0, key.indexOf(SEPARATOR))` on a key without
- * one would silently name a source one character short and invalidate nothing.
+ * The source half of a composite key, for naming what an eviction changed. Total on purpose:
+ * `key.slice(0, key.indexOf(SEPARATOR))` on a key without a separator would name a source one
+ * character short and invalidate nothing.
  */
 function sourceOfKey(key: string): string {
   const boundary = key.indexOf(FOOTNOTE_KEY_SEPARATOR);

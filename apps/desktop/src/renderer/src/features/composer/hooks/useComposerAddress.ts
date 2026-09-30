@@ -1,15 +1,6 @@
-// Where the composer is addressed, resolved once from the store and the focused pane.
-//
-// A hook rather than a derivation in a render body, per this package's structure
-// rules: the resolution reads two store partitions, and a component that read them
-// inline would re-derive on every render of every zone that needed the answer.
-// `useMemo` over the two partition references is exact — the store merges
-// immutably, so an untouched partition keeps its identity and the memo is a pointer
-// comparison rather than a deep one.
-//
-// EVERY ZONE THAT NEEDS THE ADDRESS CALLS IT. Calling one hook from several zones is
-// one implementation with several readers; handing the answer down from the host
-// would have made the host know what every zone is for.
+// Where the composer is addressed, resolved once from the store and the focused pane. Every
+// zone calls this hook rather than receiving the answer from the host; the memo over the two
+// partitions is a pointer comparison because the store merges immutably.
 
 import { useMemo } from "react";
 

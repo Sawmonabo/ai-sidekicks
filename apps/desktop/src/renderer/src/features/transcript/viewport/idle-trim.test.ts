@@ -1,9 +1,5 @@
-// The quiet-period trim: what it takes, what it refuses to take, and when it runs.
-//
-// Every case drives the real objects — a real `TranscriptWindow`, a real
-// `RowMeasurementTable`, the shipped `ManualClock` — because the claim is about what
-// those three do together after a quiet period, and a stand-in for any of them would
-// be a claim about the stand-in.
+// Drives the real window, ledger and ManualClock together; a stand-in would be a claim about
+// the stand-in.
 
 import { describe, expect, it } from "vitest";
 
@@ -49,9 +45,7 @@ function fixture(rowKeys: readonly string[] = ["row-a", "row-b"]): TrimFixture {
 
 describe("the trim arms nothing", () => {
   it("leaves the clock empty however much activity it is told about", () => {
-    // The property the console's steady state asks for, and the reason this is a
-    // measured gap rather than a dwell timer. A first draft armed
-    // one and `TranscriptViewport.test.tsx`'s settled-frame case caught it.
+    // A settled frame must arm nothing, so the trim measures a gap instead of arming a timer.
     const { clock, trim } = fixture();
     for (let beat = 0; beat < 5; beat += 1) {
       trim.noteActivity();
@@ -61,9 +55,8 @@ describe("the trim arms nothing", () => {
   });
 
   it("does nothing when time passes and nothing else happens", () => {
-    // The cost this design accepts, stated as a case rather than only in prose: a
-    // transcript nobody touches again keeps what it was holding until the frame is
-    // disposed, and a disposed frame drops both tables whole.
+    // A transcript nobody touches again keeps what it holds until the frame is disposed, which
+    // drops both tables.
     const { clock, measurements, trim } = fixture(["row-a"]);
     measurements.acceptedHeight("dropped-row", 80);
     trim.noteActivity();
@@ -97,9 +90,7 @@ describe("the trim runs on the first activity after a quiet period", () => {
   });
 
   it("measures the gap against the previous activity and not against the frame's birth", () => {
-    // The negative control for where the stamp is taken. A trim that compared against
-    // its own construction would fire once, late, on a transcript that had never paused —
-    // and then never again.
+    // A trim comparing against its own construction would fire once, late, and never again.
     const { clock, measurements, trim } = fixture(["row-a"]);
     for (let beat = 0; beat < 10; beat += 1) {
       measurements.acceptedHeight(`dropped-${String(beat)}`, 80);
@@ -110,8 +101,8 @@ describe("the trim runs on the first activity after a quiet period", () => {
   });
 
   it("does not run on the first activity of a frame's life", () => {
-    // A frame just built has been quiet for its whole existence and has nothing yet
-    // to give back; comparing against an absent stamp would trim on the first render.
+    // A new frame has nothing to give back; comparing against an absent stamp would trim on the
+    // first render.
     const clock = new ManualClock();
     clock.advance(TEST_DWELL_MS * 10);
     const measurements = new RowMeasurementTable();
@@ -156,9 +147,7 @@ describe("the trim takes only what the frame cannot reach", () => {
   });
 
   it("keeps the prior of every row the window still holds", () => {
-    // The property that makes the activity signal's completeness a non-question: a
-    // pass triggered by something nobody counted as activity still cannot take a row
-    // on screen.
+    // A pass triggered by something not counted as activity still cannot take an on-screen row.
     const { clock, measurements, trim } = fixture(["row-a", "row-b"]);
     measurements.acceptedHeight("row-a", 40);
     measurements.acceptedHeight("row-b", 60);
@@ -171,9 +160,7 @@ describe("the trim takes only what the frame cannot reach", () => {
   });
 
   it("releases parked leases and leaves live ones alone", () => {
-    // Parked through the real cap rather than by hand: a lease is parked because a
-    // prune dropped its row, and a case that put one in the table directly would be
-    // driving a state the frame cannot actually produce.
+    // Parked through the real cap: a lease is parked because a prune dropped its row.
     const clock = new ManualClock();
     const window = loadedWindow();
     window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });

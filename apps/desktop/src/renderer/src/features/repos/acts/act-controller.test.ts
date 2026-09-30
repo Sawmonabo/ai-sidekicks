@@ -1,10 +1,6 @@
-// The act primitive's two halves, driven through every arm each one publishes.
-//
-// THE REAL CLASSES, THE REAL SCHEDULER, AND THE REAL LATCH. Only the wire call is the
-// test's — it is a parameter rather than a collaborator, which is what lets these cases
-// hold answers open and settle them out of order. The two cases that matter most are
-// exactly the ones a hand-rolled copy of this pattern got wrong: a superseded read
-// installing its answer, and two presses in one tick both dispatching.
+// The act primitive's two halves, driven through every arm each publishes. Real classes,
+// scheduler and latch; only the wire call is the test's, so cases can hold answers open and
+// settle them out of order (a superseded read installing its answer, two presses in one tick).
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -17,13 +13,11 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 /** The frames this reading would re-read on. Never fired here; declared to be read. */
 const TRIGGERING_KINDS: ReadonlySet<string> = new Set(["workspace.ready"]);
 
-/** What a settled act publishes in these cases. The caller's own arm. */
 interface TestSettlement {
   readonly status: "done";
   readonly value: string;
 }
 
-/** One answer a case holds open and settles by hand. */
 interface HeldAnswer<TValue> {
   readonly promise: Promise<TValue>;
   serve(value: TValue): void;
@@ -42,7 +36,6 @@ function heldAnswer<TValue>(): HeldAnswer<TValue> {
   };
 }
 
-/** Let every pending microtask land. Nothing here is timer-driven but the debounce. */
 async function flush(): Promise<void> {
   for (let turn = 0; turn < 20; turn += 1) {
     await Promise.resolve();
@@ -52,9 +45,7 @@ async function flush(): Promise<void> {
 interface OpenedReader {
   readonly reader: PrerequisiteReader<string>;
   readonly clock: ManualClock;
-  /** Every question the read path was asked, in order. */
   readonly questionsAsked: string[];
-  /** The answer the next read will wait on, replaced per read. */
   readonly answers: HeldAnswer<string>[];
 }
 
@@ -81,7 +72,6 @@ function openActs(): ActController<TestSettlement> {
   return new ActController<TestSettlement>({ label: "act controller test reading" });
 }
 
-/** Move past the debounce so the scheduler performs whatever was requested. */
 async function runScheduledRead(clock: ManualClock): Promise<void> {
   await flush();
   clock.advance(REFRESH_DEBOUNCE_MS);
@@ -120,7 +110,7 @@ describe("PrerequisiteReader — the question an act is issued against", () => {
     reader.ask("first", "subscribe");
     await runScheduledRead(clock);
     expect(questionsAsked).toStrictEqual(["first"]);
-    // And the answer already on screen is untouched, rather than being blanked.
+    // The answer already on screen is untouched, not blanked.
     expect(reader.snapshot.status).toBe("read");
   });
 
@@ -129,15 +119,13 @@ describe("PrerequisiteReader — the question an act is issued against", () => {
     reader.ask("first", "user-request");
     await runScheduledRead(clock);
     expect(questionsAsked).toStrictEqual(["first"]);
-    // The question changes while the first read is still on the wire, and the first call
-    // still answers.
+    // The question changes while the first read is still on the wire.
     reader.ask("second", "user-request");
     expect(reader.snapshot.status).toBe("reading");
     answers[0]?.serve("first answer");
     await flush();
-    // THE ASSERTION: the answer for the abandoned question installed nothing. A
-    // verdict on screen for a branch the user has edited away from is the one
-    // state that would let a consent be given for the wrong tree.
+    // The abandoned question's answer must install nothing: a verdict for a branch the user
+    // edited away from could let a consent be given for the wrong tree.
     expect(reader.snapshot.status).toBe("reading");
     await runScheduledRead(clock);
     expect(questionsAsked).toStrictEqual(["first", "second"]);
@@ -269,18 +257,10 @@ describe("ActController — the act", () => {
 
 describe("ActController — a settlement arm's discriminant is its own", () => {
   /**
-   * THE PIN IS A COMPILE-TIME ONE, and it is here because the rule it holds cannot be
-   * written as a type constraint: `Exclude<string, "sending">` is `string`, so the
-   * `ActSettlementArm` interface can require a `status` and cannot require which
-   * strings it is not. `ActOwnArm` states the negation as a collision test instead and
-   * `act`'s settle callback is annotated with it, so this case is what proves the
-   * annotation does work rather than reading as though it did — deleting the directive
-   * yields TS2322 `Type '{ status: "sending"; }' is not assignable to type 'never'`,
-   * never an unused-directive error.
-   *
-   * The runtime half says why the rule exists at all. A colliding arm is published
-   * verbatim, so a SETTLED act is indistinguishable on the reading from one still on
-   * the wire — which is a dialog reporting work in flight that has already finished.
+   * A compile-time pin: `Exclude<string, "sending">` is `string`, so only the `ActOwnArm`
+   * annotation on the settle callback can refuse the collision. Deleting the directive yields
+   * TS2322, not an unused-directive error. At runtime a colliding arm is published verbatim,
+   * so a settled act reads as still on the wire.
    */
   it("refuses a settle callback whose arm reuses one of the two owned statuses", async () => {
     const colliding = new ActController<{ readonly status: "sending" }>({

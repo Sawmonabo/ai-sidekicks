@@ -32,13 +32,9 @@ function rowRendererProps(row: TranscriptRowProps["row"]): TranscriptRowProps {
 }
 
 /**
- * The bridge every row now renders inside.
- *
- * A reasoning row holds a registered daemon call — the reasoning-surface read — so a row
- * rendered outside the provider is a row whose hooks cannot resolve a bridge at all. The
- * quiet scenario is the one with no beats: the harness needs a bridge to exist and
- * needs it to answer nothing, and a scripted session would put a log behind rows
- * these cases hand in one at a time.
+ * The bridge every row renders inside. A reasoning row holds a registered daemon call, so its
+ * hooks cannot resolve a bridge outside a provider; the quiet scenario has no beats, so the
+ * bridge answers nothing.
  */
 function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Element {
   return (
@@ -49,12 +45,9 @@ function InBridge(props: { readonly children: React.ReactNode }): React.JSX.Elem
 }
 
 /**
- * The row renderer inside a list that owns its density, which is what a transcript is.
- *
- * Every routing case above renders the row bare, and that is deliberate: routing is
- * a decision the renderer makes alone. Density is not — the renderer writes a lease and
- * the LIST hands the answer back, so a harness that did not close that loop would be
- * asserting over a component that no longer decides anything.
+ * The row renderer inside a list that owns its density, as a transcript does. Routing cases
+ * render the row bare because routing is the renderer's alone; density is not, since the
+ * renderer writes a lease and the list hands the answer back.
  */
 function MountedInAList(props: {
   readonly row: TranscriptRowProps["row"];
@@ -114,9 +107,8 @@ describe("routing a row to its card", () => {
       />,
     );
     expect(container.querySelector(".meridian-reasoning-surface")).not.toBeNull();
-    // NEGATIVE CONTROL for the routing: without the split, a reasoning row rendered
-    // through the hydrated-content body and reported a policy redaction as a body
-    // that could not be opened.
+    // Negative control for the routing: without the split, a reasoning row would render through
+    // the hydrated-content body and report a policy redaction as a body that could not be opened.
     expect(container.querySelector(".meridian-machine-body")).toBeNull();
   });
 });
@@ -152,10 +144,9 @@ describe("the edit control's footer renderer", () => {
 
 describe("standing in for the list's density decision", () => {
   it("writes a reader's press to the list rather than remembering it here", () => {
-    // The whole point of the change. A `useState` here was discarded the moment the
-    // virtualizer scrolled the row out of the mounted range, so the choice had to
-    // leave the component — and this asserts on the value that leaves it, keyed by
-    // the row, which is what the window parks and re-parks across a prune.
+    // A `useState` here would be discarded when the virtualizer scrolls the row out of the
+    // mounted range, so the choice must leave the component; this asserts on the value that
+    // leaves, keyed by the row, which the window parks across a prune.
     const written: Array<{ readonly rowKey: string; readonly lease: RetainedRowState }> = [];
     const row = sampleRunRow({ type: "tool.invoked" });
     const { container } = render(
@@ -186,9 +177,8 @@ describe("standing in for the list's density decision", () => {
   });
 
   it("closes a row the list opened on the first press, not the second", () => {
-    // The press inverts the EFFECTIVE density — what is on screen — so one press on
-    // an open row closes it. A renderer that inverted some private "have I been
-    // touched" flag would store "open" here and leave the row exactly as it was.
+    // The press inverts the effective density (what is on screen), so one press closes an open
+    // row. A private "touched" flag would store "open" and leave the row as it was.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
     );
@@ -198,7 +188,7 @@ describe("standing in for the list's density decision", () => {
   });
 
   it("negative control: a second press on the same row opens it again", () => {
-    // Without this, a press that inverted the LIST's answer rather than the density
+    // Without this, a press that inverted the list's answer rather than the density
     // it was handed would pass the case above and then refuse to reopen.
     const { container } = render(
       <MountedInAList row={sampleRunRow({ type: "tool.invoked" })} listDensity="expanded" />,
@@ -210,8 +200,8 @@ describe("standing in for the list's density decision", () => {
   });
 
   it("refuses to mount outside a transcript rather than swallowing the press", () => {
-    // A no-op default channel would look exactly like a row that will not open,
-    // which is the defect this whole change closes. It fails loudly instead.
+    // A no-op default channel would look exactly like a row that will not open; it fails loudly
+    // instead.
     expect(() =>
       render(<TranscriptRow {...rowRendererProps(sampleRunRow({ type: "tool.invoked" }))} />),
     ).toThrow(/retained row state provider/);

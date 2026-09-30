@@ -1,8 +1,6 @@
-// The geometry value's own two rules, asserted rather than driven.
-//
-// Both are about the VALUE — which causes exist, and when two samples say the same
-// thing — so neither needs a scroll container, a listener or a frame. The machinery that
-// produces samples is `scroll-chokepoint.test.ts`'.
+// The geometry value's own two rules, asserted without a scroll container: which causes exist,
+// and when two samples say the same thing. The machinery that produces samples is tested in
+// `scroll-chokepoint.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,19 +30,17 @@ describe("the geometry sample", () => {
   });
 
   it("calls two samples the same when the three numbers agree within the epsilon", () => {
-    // Sub-pixel wobble is what a fractional row height and a device pixel ratio
-    // produce every frame, and waking every subscriber for it is the render this
-    // frame's budget exists to avoid.
+    // Sub-pixel wobble from fractional row heights and the device pixel ratio recurs every
+    // frame, and waking every subscriber for it is the render the frame budget avoids.
     const wobble = TRANSCRIPT_GEOMETRY_EPSILON_PX / 2;
     expect(sameSampledGeometry(sample(), sample({ scrollTop: 400 + wobble }))).toBe(true);
-    // Provenance is not a difference: the same box at the same offset is the same
-    // reading whether a resize or a scroll went looking for it.
+    // Provenance is not a difference: the same box at the same offset is the same reading.
     expect(sameSampledGeometry(sample(), sample({ sampledAt: 99, cause: "resize" }))).toBe(true);
   });
 
   it("negative control: a real change in any one of the three is a difference", () => {
-    // Without this the comparison could be returning `true` unconditionally, and
-    // every publication would be suppressed rather than every duplicate.
+    // Without this the comparison could return `true` unconditionally and suppress every
+    // publication rather than every duplicate.
     expect(sameSampledGeometry(sample(), sample({ scrollTop: 480 }))).toBe(false);
     expect(sameSampledGeometry(sample(), sample({ viewportHeight: 260 }))).toBe(false);
     expect(sameSampledGeometry(sample(), sample({ contentHeight: 5200 }))).toBe(false);

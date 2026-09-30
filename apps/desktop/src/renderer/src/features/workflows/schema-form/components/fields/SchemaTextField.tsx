@@ -1,20 +1,10 @@
-// A one-line answer.
-//
-// The plainest of the five, and the default a string member lands on: a string with no
-// `format` the mapper recognizes is one line of text, because that is what the corpus's
-// own `text` field type is.
-//
-// AND A CLEARED BOX REPORTS AN UNANSWERED NODE, which leaves what that is WORTH to the
-// projection's one rule rather than to this control's reading of it. Writing `""` for
-// an emptied box put an ANSWERED empty string where the person had taken their answer
-// back: a schema that tells absence from `""` — an object under `maxProperties`, a
-// `minLength` the empty string fails — then had a state the form could reach on the way in
-// and never on the way out, with the control looking exactly as it had at the mount.
+// A one-line answer, the default for a string member. A cleared box reports an unanswered
+// node rather than an answered `""`, so a schema that tells absence from `""` stays reachable.
 
 import { textValueOf, type SchemaFieldControlProps } from "../field-control-props.js";
 import { answeredScalar, UNANSWERED_SCALAR } from "../../answer/schema-draft.js";
 
-/** One line of text. */
+/** A one-line text input bound to a string member. */
 export function SchemaTextField(props: SchemaFieldControlProps): React.JSX.Element {
   return (
     <input

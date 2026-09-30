@@ -1,19 +1,7 @@
-// What holds the section's reader, and what happens to it on the renders React throws
-// away and replays.
-//
-// A `useMemo` HELD IT, AND A MEMO IS NOT A RESOURCE SEAM. Two things follow from that,
-// and both are about renders rather than about reads. A memo opened during a pass React
-// then DISCARDS really built the reader and really armed its refresh, and no effect ever
-// committed to close it — so the pass leaks a scheduler and a store subscription that
-// nothing can reach. And strict mode's double-mount runs the cleanup and then the same
-// setup again on the SAME memoized reader: `dispose` is terminal, so the replayed
-// `start()` returned early and the section sat unread, with nothing on screen to say
-// why. `useSubjectScopedResource` answers the first; the binding's re-mint arm answers
-// the second, on `useStagedAttachments`'s pattern.
-//
-// A WORKSPACE-LIST READ IS THE OBSERVABLE, because reader identity is not one: the list
-// is the first call every started reader makes, so counting it counts readers that were
-// built AND started, which is the pair the seam is being asked about.
+// What holds the section's reader, and what happens to it on renders React discards and
+// replays. A memo is not a resource seam: a discarded pass would leak a started reader, and
+// StrictMode's replayed setup would call `start()` on a disposed one. The observable is the
+// workspace-list read, the first call every started reader makes.
 
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { StrictMode, createElement, type ReactNode } from "react";
@@ -84,9 +72,8 @@ function renderBinding(options: { readonly strict: boolean }): BindingUnderTest 
 
 describe("useRepoMounts — the reader is a resource, not a memo", () => {
   it("reads under StrictMode, where a memoized reader was disposed, never restarted", async () => {
-    // The bug, exercised: the cleanup disposed terminally and the replayed setup called
-    // `start()` on the corpse, so this section never left `not-read` in development —
-    // the one environment where the budgets are being watched.
+    // The cleanup disposed terminally and the replayed setup called `start()` on the disposed
+    // reader, so the section never left `not-read` in development.
     const binding = renderBinding({ strict: true });
 
     await binding.settle();
@@ -95,10 +82,8 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
   });
 
   it("negative control: a re-mint is once, not once per render", async () => {
-    // Without this the case above would pass against a binding that opened a reader on
-    // every pass — the leak the memo existed to prevent, dressed as a fix for the one
-    // it caused. Exactly one reader ever reaches the wire, StrictMode's replay
-    // included.
+    // Without this the case above would pass against a binding that opened a reader on every
+    // pass. Exactly one reader reaches the wire, StrictMode's replay included.
     const binding = renderBinding({ strict: true });
     await binding.settle();
     expect(binding.listReadCount()).toBe(1);
@@ -111,9 +96,8 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
   });
 
   it("negative control: outside StrictMode the same binding reads exactly once too", async () => {
-    // The re-mint arm must not fire where nothing was disposed: a binding that minted a
-    // second reader on an ordinary commit would double every read this section makes
-    // while both cases above stayed green.
+    // The re-mint arm must not fire where nothing was disposed: a second reader on an ordinary
+    // commit would double every read.
     const binding = renderBinding({ strict: false });
 
     await binding.settle();
@@ -122,12 +106,9 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
   });
 
   it("disposes every reader it opened exactly once", async () => {
-    // The seam is told the disposal is TERMINAL, through `isClosed`. Re-derived in the
-    // binding's own effect instead, the corpse StrictMode's replay produced was
-    // recorded as committed, the binding published a replacement, and the
-    // value-change cleanup disposed that corpse a second time. `dispose` here is
-    // re-entrant, so nothing broke and nothing could fail — which is why the call is
-    // counted rather than its effect.
+    // Disposal is terminal and reported through `isClosed`. Re-derived in the binding's effect,
+    // StrictMode's corpse was disposed twice; `dispose` is re-entrant so nothing failed, which is
+    // why the call is counted rather than its effect.
     const disposals = vi.spyOn(RepoMountsReader.prototype, "dispose");
     try {
       const binding = renderBinding({ strict: true });
@@ -135,8 +116,7 @@ describe("useRepoMounts — the reader is a resource, not a memo", () => {
       binding.unmount();
 
       expect(repeatedDisposalCount(disposals)).toBe(0);
-      // Negative control on the count itself: a spy that saw nothing would report zero
-      // repeats for a binding that had stopped disposing readers at all.
+      // A spy that saw nothing would report zero repeats for a binding that never disposed.
       expect(disposals.mock.contexts.length).toBeGreaterThan(0);
     } finally {
       disposals.mockRestore();

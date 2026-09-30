@@ -1,18 +1,12 @@
-// What the disclosure panel is allowed to call an argument.
-//
-// The defect this reader exists for is one line: the panel listed
-// `Object.keys(inputSchema)`, which for a JSON Schema is `type`, `properties`,
-// `required`, `additionalProperties` — the schema's own KEYWORDS. So the shipped
-// `workflow_run` entry named neither `definitionName` nor `scope`, and the panel
-// answered "what does this tool take" with a list of words that are not arguments at
-// all. The first case below is that entry, read through this module rather than
-// restated: the registry's shape is the thing being asserted about.
+// What the disclosure panel may call an argument: the schema's properties, never its keywords
+// (`Object.keys(inputSchema)` would list `type`, `properties`, `required` and
+// `additionalProperties`). The first case reads the shipped `workflow_run` entry.
 
 import { describe, expect, it } from "vitest";
 
 import { callbackToolArguments } from "./callback-tool-arguments.js";
 
-/** The shipped registry's one entry, in the shape `api-payload-contracts.md` fixes. */
+/** The shipped `workflow_run` input schema. */
 const WORKFLOW_START_INPUT_SCHEMA: Record<string, unknown> = {
   type: "object",
   properties: {
@@ -32,8 +26,8 @@ describe("the arguments a registered tool takes", () => {
   });
 
   it("negative control: no keyword of the schema is offered as an argument", () => {
-    // Without this the case above would pass over a reader that listed the keywords
-    // AND the properties, which is the defect plus a superset.
+    // Otherwise the case above would pass for a reader that listed the keywords as well as the
+    // properties.
     const names = callbackToolArguments(WORKFLOW_START_INPUT_SCHEMA).map(
       (argument) => argument.name,
     );
@@ -61,8 +55,8 @@ describe("the arguments a registered tool takes", () => {
   });
 
   it("names an argument the schema requires but does not describe", () => {
-    // JSON Schema admits it, and dropping the row would report a tool as taking
-    // fewer arguments than it does.
+    // JSON Schema admits it, and dropping the row would report the tool as taking fewer
+    // arguments than it does.
     expect(
       callbackToolArguments({ type: "object", properties: {}, required: ["undescribed"] }),
     ).toStrictEqual([{ name: "undescribed", isRequired: true }]);
@@ -73,9 +67,8 @@ describe("the arguments a registered tool takes", () => {
   });
 
   it("answers with nothing where the members are not the shapes JSON Schema names", () => {
-    // The schema is daemon-constructed, but this reader is still the boundary: a
-    // `properties` that is an array, a null, or a string names no argument, and a
-    // `required` that is not a list of strings marks none.
+    // The schema is daemon-constructed, but this reader is still the boundary: a non-object
+    // `properties` names no argument and a `required` that is not a list of strings marks none.
     expect(callbackToolArguments({ properties: ["definitionName"] })).toStrictEqual([]);
     expect(callbackToolArguments({ properties: null })).toStrictEqual([]);
     expect(
@@ -87,8 +80,8 @@ describe("the arguments a registered tool takes", () => {
   });
 
   it("reads only the schema's own members, never an inherited one", () => {
-    // `properties` is untrusted at the type level and reached by key, so a member
-    // arriving through the prototype chain would otherwise be listed as an argument.
+    // `properties` is reached by key, so a member arriving through the prototype chain would
+    // otherwise be listed.
     const inherited: Record<string, unknown> = Object.create({ properties: { ghost: {} } });
     expect(callbackToolArguments(inherited)).toStrictEqual([]);
   });

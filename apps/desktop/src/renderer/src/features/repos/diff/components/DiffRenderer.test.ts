@@ -1,22 +1,8 @@
-// The renderer's claims, and the three it would be worst to get wrong.
-//
-// The ordinary ones are that the rows arrive, that both layouts draw what each
-// layout should, and that a long line is never clipped. The three that matter
-// more are the ones a reviewer cannot see by looking at a screenshot: that the
-// row count on screen is bounded by the WINDOW and not by the diff, which is the
-// only reason a five-thousand-line change set is openable at all; that the window is
-// placed at the heights the rows were MEASURED at rather than at the height they were
-// estimated at, which is the case the sheet's `min-block-size` creates and a
-// fixed-height window silently gets wrong (its cases are in the geometry suite); and
-// that no line kind is painted amber or red, which is the two-hue rule and is exactly
-// the rule a diff renderer is most likely to break.
-//
-// HOW A ROW GETS A HEIGHT HERE. happy-dom has no layout engine, so every box it
-// reports is zero and a window measured against one would be measured against
-// nothing. `tests/helpers/diff-layout-fixture.ts` supplies the heights at the seam the library
-// reads them from, and every case here installs it. Nothing about the window is
-// reimplemented: the library computes it from the numbers a browser would have
-// given it.
+// The renderer's claims. The three that matter most: the mounted row count is bounded by the
+// window, not the diff; the window sits at the heights rows were measured at, not estimated
+// (cases in the geometry suite); and no line kind is painted amber or red (the two-hue rule).
+// happy-dom has no layout engine, so `tests/helpers/diff-layout-fixture.ts` supplies heights
+// at the seam the library reads them from, and every case installs it.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -29,13 +15,7 @@ import {
 } from "@test/helpers/diff-layout-fixture.js";
 import { SMALL_DIFF, renderDiff, reportedRowCount } from "./diff-renderer.test-support.js";
 
-/**
- * The rendered-row ceiling one window may reach.
- *
- * Derived from the bounds rather than picked: the viewport's own rows plus
- * overscan on both sides, plus the boundary row. A window that returned more than
- * this is a virtualizer that is not virtualizing.
- */
+/** The rendered-row ceiling one window may reach: viewport rows, overscan, and a boundary row. */
 const MAXIMUM_WINDOW_ROW_COUNT =
   Math.ceil(DIFF_FIXTURE_VIEWPORT_HEIGHT_PX / DIFF_ROW_HEIGHT_PX) +
   DIFF_WINDOW_OVERSCAN_ROWS * 2 +
@@ -56,9 +36,8 @@ describe("diff renderer — the rows", () => {
     const container = renderDiff();
     const scroller = container.querySelector(".meridian-diff");
     expect(scroller?.getAttribute("aria-label")).toBe("Diff, main to feat/rate-limit-wiring");
-    // The count is the DIFF's, not the window's — a virtualized list that
-    // reported its rendered count would tell a screen reader the diff is
-    // fifteen rows long.
+    // The count is the diff's, not the window's: a virtualized list reporting its rendered
+    // count would tell a screen reader the diff is fifteen rows long.
     expect(scroller?.getAttribute("aria-rowcount")).toBe("22");
   });
 
@@ -79,10 +58,8 @@ describe("diff renderer — the rows", () => {
   });
 
   it("renders only a window of a five-thousand-line change set", () => {
-    // The claim the whole module exists for. A renderer that drew every row would
-    // pass every other case in this file and cost about 6,600 DOM rows here. The
-    // ceiling is derived from the bounds against a real viewport height, so it
-    // holds the window to the pane it is drawn in rather than to a round number.
+    // A renderer that drew every row would pass every other case and cost about 6,600 DOM rows
+    // here. The ceiling is derived from the bounds against a real viewport, not a round number.
     const bigDiff = buildDiffFixture(ENDURANCE_DIFF_SHAPE);
     const container = renderDiff({ model: bigDiff });
     const renderedRowCount = container.querySelectorAll(".meridian-diff__row").length;
@@ -101,22 +78,19 @@ describe("diff renderer — the rows", () => {
 describe("diff renderer — the two-hue rule", () => {
   it("paints insert and delete with ground and rule, never with a hue token", () => {
     const container = renderDiff();
-    // The modifier rides the CELL, so a split row can paint its two sides in two
-    // kinds. In unified the row's one cell fills it, so the painted ground is the
-    // same rectangle it always was.
+    // The modifier rides the cell so a split row can paint its two sides in two kinds; in
+    // unified the row's one cell fills it.
     const insertCell = container.querySelector(".meridian-diff__side--insert");
     const deleteCell = container.querySelector(".meridian-diff__side--delete");
     expect(insertCell).not.toBeNull();
     expect(deleteCell).not.toBeNull();
-    // The classes are the whole signal, and they are distinct — which is what the
-    // sheet then paints as two ground weights and two rule styles.
+    // The classes are distinct; the sheet paints them as two ground weights and two rule styles.
     expect(insertCell?.className).not.toBe(deleteCell?.className);
   });
 
   it("negative control: no row carries the kind modifier the cell now owns", () => {
-    // Without this, the case above would pass over a renderer that painted the
-    // kind in both places — and a paired split row would then be a whole-width
-    // ground in one of its two kinds.
+    // Negative control: a renderer painting the kind in both places would give a paired split
+    // row a whole-width ground in one kind.
     const container = renderDiff();
     for (const row of container.querySelectorAll(".meridian-diff__row")) {
       expect(row.className).not.toContain("meridian-diff__row--insert");
@@ -126,9 +100,7 @@ describe("diff renderer — the two-hue rule", () => {
   });
 
   it("negative control: no diff row reaches for amber or red", () => {
-    // Amber means a person is needed and red means something failed. A deleted
-    // line is neither, and this is the case that fails the day somebody reaches
-    // for the familiar colors.
+    // Amber means a person is needed and red means something failed; a deleted line is neither.
     const container = renderDiff();
     for (const row of container.querySelectorAll(".meridian-diff__row")) {
       expect(row.className).not.toContain("amber");
@@ -149,10 +121,8 @@ describe("diff renderer — the view controls it is handed", () => {
   });
 
   it("puts a modified line's old text and new text side by side in ONE split row", () => {
-    // The one thing split view exists to do. The fixture's hunks spell a modified
-    // line the way a unified patch does — a deletion immediately followed by an
-    // insertion — and the flattening pairs them, so the two cells of one row
-    // carry different text.
+    // The fixture spells a modified line as a deletion followed by an insertion, and the
+    // flattening pairs them, so the two cells of one row carry different text.
     const container = renderDiff({ viewMode: "split" });
     const pairedRow = [...container.querySelectorAll(".meridian-diff__row--line")].find(
       (row) => row.querySelector(".meridian-diff__side--delete") !== null,
@@ -167,17 +137,16 @@ describe("diff renderer — the view controls it is handed", () => {
   });
 
   it("negative control: the pairing is one row, so split reports fewer rows than unified", () => {
-    // Without this the case above would pass over a renderer that painted the new
-    // text into the deletion row's head cell while still emitting the insertion
-    // as a second row below it — two rows claiming the same change.
+    // Negative control: new text painted into the deletion row's head cell while the insertion
+    // stays a second row below would pass above.
     expect(reportedRowCount(renderDiff({ viewMode: "split" }))).toBeLessThan(
       reportedRowCount(renderDiff({ viewMode: "unified" })),
     );
   });
 
   it("negative control: an unpaired deletion still leaves its head cell empty", () => {
-    // Pairing must not become "show the line on both sides", which is the bug
-    // that makes a deletion read as a modification of itself.
+    // Pairing must not become "show the line on both sides", which reads a deletion as a
+    // modification of itself.
     const deletionOnly = {
       ...SMALL_DIFF,
       files: [
@@ -208,9 +177,8 @@ describe("diff renderer — the view controls it is handed", () => {
   });
 
   it("marks the changed segment of a modified line pair", () => {
-    // A modified PAIR rather than a hand-segmented line: the segmentation is
-    // derived per rendered row, so a model carrying pre-split segments would
-    // assert against a shape the renderer never reads.
+    // A modified pair, not a hand-segmented line: segmentation is derived per rendered row, so
+    // pre-split segments would assert a shape the renderer never reads.
     const modifiedPairDiff = {
       ...SMALL_DIFF,
       files: [

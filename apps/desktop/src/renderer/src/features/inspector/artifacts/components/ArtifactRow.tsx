@@ -1,9 +1,5 @@
 // One artifact manifest row: the figures on its face, its manifest re-read, and its
-// disclosure.
-//
-// Split from `ArtifactsSection.tsx`, which owns the session-scoped section (the head count,
-// the type filter, and which absence the body renders). Everything here is scoped to one
-// manifest. No element can hold a payload.
+// disclosure. Everything here is scoped to one manifest, and no element can hold a payload.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
@@ -13,11 +9,12 @@ import { formatByteQuantity, formatRelativeTime } from "@renderer/lib/wire-figur
 import { type ArtifactManifestRow } from "../artifact-model.js";
 import { ARTIFACT_STATE_PRESENTATION, artifactProducerLabel } from "../artifact-copy.js";
 
+/** What one manifest row renders and the re-read it may offer. */
 export interface ArtifactRowProps {
   readonly row: ArtifactManifestRow;
-  /** The instant the row was rendered against. Ages move when the section re-reads. */
+  /** The instant the row was rendered against; ages move only when the section re-reads. */
   readonly nowMilliseconds: number;
-  /** Whether this row's manifest re-read is on the wire. Holds the control that sent it. */
+  /** Whether this row's manifest re-read is on the wire; holds the control that sent it. */
   readonly isManifestReadInFlight?: boolean | undefined;
   /** Re-read this row's manifest. Absent means the section offers no re-read. */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
@@ -39,7 +36,7 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
         />
         <Chip tone={statePresentation.tone} label={row.state} mono />
         <span className="meridian-artifact-row__size">
-          {/* The scaled reading, with the exact byte count the daemon sent on its title. */}
+          {/* The title keeps the exact byte count the daemon sent. */}
           <WireFigure value={formattedSize.text} title={`${row.size}`} />
         </span>
         <span className="meridian-artifact-row__producer">
@@ -56,8 +53,8 @@ export function ArtifactRow(props: ArtifactRowProps): React.JSX.Element {
             type="button"
             className="meridian-artifact-row__act meridian-artifact-row__act--primary"
             onClick={() => props.onReadManifest?.(row)}
-            // Held while this row's re-read is outstanding: two reads of one manifest settle
-            // in either order, so a second press could bring back the staler row.
+            // Two reads of one manifest settle in either order; a second press could bring
+            // back the staler row.
             disabled={props.isManifestReadInFlight ?? false}
           >
             Read manifest

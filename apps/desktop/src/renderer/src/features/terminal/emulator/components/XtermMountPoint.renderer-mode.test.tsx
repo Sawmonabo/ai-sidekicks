@@ -1,14 +1,7 @@
-// The mount point, when the renderer under it changes.
-//
-// The component's own half of the fallback: it moves its rendered reading and tells its
-// parent, rather than copying `rendererMode` once at attachment — which is what the old
-// component did, so its box read `webgl` over a terminal drawing through the DOM
-// renderer and every consumer of the callback believed it. And it hears nothing from an
-// emulator it has already unmounted, because a subscription left attached across the
-// disposal is a state write into a tree React has dropped.
-//
-// See `webgl-fallback.test-support.ts` for what is stood in and why this is a file of
-// its own rather than a block in `XtermMountPoint.test.tsx`.
+// The mount point when the renderer under it changes: it moves its rendered reading and tells
+// its parent rather than copying `rendererMode` once, and hears nothing from an emulator it has
+// unmounted (a subscription left across disposal writes state into a dropped tree). See
+// `webgl-fallback.test-support.ts` for what is stood in and why this is its own file.
 
 import { act } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -23,11 +16,8 @@ vi.mock("@xterm/addon-webgl", async () => ({
 }));
 
 /**
- * The terminal ids THIS file's components mount under, reclaimed after each case.
- *
- * Its own ids and its own name: the shared `COMPONENT_TERMINAL_IDS` is the pair the
- * unmocked suites hold, and two lists under one name in one directory is a page ledger
- * one suite reclaims on another suite's behalf.
+ * The terminal ids this file's components mount under, reclaimed after each case. Separate from
+ * the shared `COMPONENT_TERMINAL_IDS` so one suite does not reclaim on another's behalf.
  */
 const RENDERER_MODE_TERMINAL_IDS = ["context-loss-1", "context-loss-2"] as const;
 
@@ -54,19 +44,16 @@ describe("the mount point, when the renderer under it changes", () => {
       newestRenderer().loseContext();
     });
 
-    // The negative control is the old component: it copied `rendererMode` once at
-    // attachment and called `onRendererMode` once beside it, so this box would
-    // still read `webgl` over a terminal drawing through the DOM renderer, and
-    // every consumer of the callback would still believe it.
+    // A component that copied `rendererMode` once at attachment would still read `webgl` here,
+    // and so would every consumer of the callback.
     expect(mountPointBoxOf(container).getAttribute("data-renderer")).toBe("dom");
     expect(observed).toHaveBeenCalledTimes(2);
     expect(observed).toHaveBeenLastCalledWith("dom");
   });
 
   it("negative control: a mode that did not move reports nothing further", async () => {
-    // Without this the case above would pass against a mount point that re-announced on
-    // every render, which would make the callback a re-render signal rather than a
-    // renderer one.
+    // Without this the case above would pass against a mount point that re-announced on every
+    // render, making the callback a re-render signal rather than a renderer one.
     const observed = vi.fn();
     const { rerender } = await renderSettledMountPoint(
       <XtermMountPoint

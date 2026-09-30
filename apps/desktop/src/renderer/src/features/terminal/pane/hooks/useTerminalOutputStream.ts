@@ -1,9 +1,8 @@
-// The terminal pane's subscription to one terminal's output stream.
+// Subscribes the terminal pane to one terminal's output stream.
 //
-// The handle belongs to the shell it was opened for. It is held for its
-// `(bridge, terminalId)` subject by the console's one subject-scoped holder, so a pane
-// rebound to another terminal reads no handle until that terminal's own subscription
-// is served, and the subscription for the terminal it left is closed.
+// The handle belongs to its `(bridge, terminalId)` subject, so a pane rebound to another
+// terminal reads no handle until that terminal's own subscription is served, and the one for
+// the terminal it left is closed.
 
 import { useEffect } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";

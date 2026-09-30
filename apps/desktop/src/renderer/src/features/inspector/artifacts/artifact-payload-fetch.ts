@@ -1,19 +1,9 @@
-// The artifact list's payload fetch, and the single flight that keeps it to one.
+// The artifact list's payload fetch: single-flight across the whole section.
 //
-// The manifest re-read in `artifact-row-actions.ts` is single-flight per row and superseded by
-// a refresh. This fetch is single-flight across the whole section and is superseded by
-// nothing but the section going away.
-//
-// The reading holds one payload, which is why: two fetches racing put one artifact's bytes
-// under another's name, and their answers can settle in either order, so the older reply
-// could overwrite the newer bytes and the newer manifest it carries. The reading names the
-// pending artifact on its `fetching` arm, which is what holds the section's control.
-//
-// A continuation also has to ask whether the pending fetch is its own, because a reply for
-// a round the latch has moved past describes bytes a later act has already superseded.
-// That is what the latch's round answers, so this class takes one key from it rather than
-// keeping a serial of its own. The fetch does not read the scheduled read's stamp: a list
-// read carries the payload arm forward untouched and answers nothing about anyone's bytes.
+// The reading holds one payload, so two racing fetches would put one artifact's bytes under
+// another's name, and the older reply could overwrite the newer. A continuation checks its
+// own latch round rather than the scheduled read's stamp, since a list read carries the
+// payload arm forward and says nothing about anyone's bytes.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 
@@ -30,11 +20,12 @@ import {
 /**
  * The one key the section's payload fetch takes.
  *
- * A constant and not the artifact id, because the rule is one fetch across the whole
- * section: keying by artifact would admit a second press for a second row.
+ * A constant, not the artifact id: keying by artifact would admit a second press for a
+ * second row.
  */
 const PAYLOAD_FETCH_KEY = "payload-fetch";
 
+/** What the payload fetch needs: the read call and the reader's publishing half. */
 export interface ArtifactPayloadFetchesOptions {
   readonly readArtifact: ReadArtifact;
   readonly publisher: ArtifactListReadingPublisher;
@@ -55,15 +46,11 @@ export class ArtifactPayloadFetches {
   /**
    * Ask for one artifact's bytes, because the user pressed for them.
    *
-   * It is the same call as the manifest re-read, told apart by `includePayload`. It runs
-   * when asked for and never on mount, because a payload is bounded only by the ingest
-   * cap. It is not routed through the scheduler: coalescing it with a list refresh would
-   * make a refresh silently re-fetch bytes.
-   *
-   * One at a time. A second press while a fetch is on the wire throws. The `fetching` arm
-   * holds the control, so the throw is reached only by a caller that offers the act
-   * without holding its control. A rejected call propagates, and the reading returns to
-   * no payload so the control is not held for a fetch that ended.
+   * The same call as the manifest re-read, told apart by `includePayload`. Never run on mount,
+   * because a payload is bounded only by the ingest cap, and not routed through the scheduler,
+   * which would make a refresh silently re-fetch bytes. A second press while a fetch is on
+   * the wire throws; the `fetching` arm holds the control, so only a caller that offers the
+   * act unheld reaches it. A rejected call propagates and the reading returns to no payload.
    */
   public async fetch(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     const round = this.#fetches.claim(this, PAYLOAD_FETCH_KEY);
@@ -81,12 +68,11 @@ export class ArtifactPayloadFetches {
     }
   }
 
-  /** Terminal. A settlement still on the wire finds its round superseded. */
+  /** Terminal: a settlement still on the wire finds its round superseded. */
   public dispose(): void {
     this.#fetches.supersedeAll();
   }
 
-  /** The call, and what its answer writes if this round still holds the key. */
   async #awaitAnswer(
     artifactId: ArtifactId,
     round: GenerationClaim,
@@ -99,9 +85,8 @@ export class ArtifactPayloadFetches {
     const reading = this.#publisher.currentReading();
     this.#publisher.publish({
       ...reading,
-      // The reply also carries the manifest, a fresher reading of the row this fetch was
-      // about. Dropping it would leave the row stating what an older read said beside
-      // bytes that came from this one.
+      // The reply's manifest is fresher than the row; dropping it would leave the row stating
+      // an older read beside bytes from this one.
       artifacts: withReplacedRow(reading.artifacts, artifactManifestRowFrom(answer.manifest)),
       payload,
     });
@@ -111,8 +96,7 @@ export class ArtifactPayloadFetches {
   /**
    * Give the key back, and end a `fetching` arm the call left behind.
    *
-   * A settled answer has already replaced the arm; only a call that rejected leaves it
-   * standing. Nothing is published once the round has been superseded.
+   * A settled answer has already replaced the arm; only a rejected call leaves it standing.
    */
   #release(round: GenerationClaim): void {
     const heldByThisRound = round.isCurrent;

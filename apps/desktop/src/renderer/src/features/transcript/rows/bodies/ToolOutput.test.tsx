@@ -6,15 +6,12 @@ import { describe, expect, it } from "vitest";
 import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 import { ToolOutput } from "./ToolOutput.js";
 
-/** The one byte every ANSI sequence opens with. */
 const ESCAPE = "\u001b";
 
-/** The BEL an OSC sequence is terminated by. */
 const BEL = "\u0007";
 
 describe("command output", () => {
-  // No tool payload declares a body's shape, so the bytes are the only reading the wire
-  // supplies; a renderer that ignored them would put escape sequences on the page.
+  // No tool payload declares a body's shape, so its bytes are the only reading.
 
   it("routes a body carrying escape sequences through the ANSI path", () => {
     const { container } = render(
@@ -31,9 +28,6 @@ describe("command output", () => {
   });
 
   it("negative control: an ordinary reply still takes the markdown path", () => {
-    // Without this the case above would pass over a body reader that answered "ANSI"
-    // for every result, which is what put a web-search answer in a raw block with its
-    // markdown showing.
     const { container } = render(
       <ToolOutput
         content={{ status: "available", body: "an ordinary **reply**" }}
@@ -46,9 +40,7 @@ describe("command output", () => {
   });
 
   it("puts no escape sequence on the page, whichever renderer the body took", () => {
-    // The half neither renderer had: anser consumes the CSI sequences and leaves OSC
-    // and the two-byte escapes inside the chunk it hands back, so a shell that set a
-    // window title rendered the title sequence as text beside its output.
+    // Anser leaves OSC and the two-byte escapes inside the chunk it returns.
     const { container } = render(
       <ToolOutput
         content={{

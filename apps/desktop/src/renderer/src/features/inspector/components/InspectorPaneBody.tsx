@@ -1,31 +1,22 @@
-// The inspector's two boundary arms, split from the frame that wears them.
-//
-// Its own module because a `.tsx` declares one component, and the split is load-
-// bearing rather than clerical: the record's hooks live below this branch, so a body
-// that ran inside the frame would call them conditionally.
+// The inspector's boundary arm, split from the frame that wears it: the record's hooks live
+// below this branch, so a body running inside the frame would call them conditionally.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { InspectedEntity } from "../entity-detail/components/InspectedEntity.js";
 
 /**
- * The two boundary arms, split from the frame so the record's hooks are never
- * called conditionally.
+ * The pane with no session, or the record for the addressed entity.
  *
- * `linkedSourcePaneId` comes straight off the pane context, which is where the pane layout
- * puts it: a pane opened from another carries the source pane's id on its context, and
- * an unlinked one carries `undefined` there deliberately rather than by omission. So
- * the record claims a link exactly when the pane layout made one, and the pane invents
- * neither the presence nor the absence.
+ * `linkedSourcePaneId` comes straight off the pane context: the record claims a link exactly
+ * when the pane layout made one.
  */
 export function InspectorPaneBody(props: {
   readonly context: PaneContextOf<"inspector">;
 }): React.JSX.Element {
   const { context } = props;
-  // There is no arm for a missing entity, and that is the pane address's doing rather than an
-  // omission: `routing/panes/pane-address.ts` makes the inspector's address REQUIRE one, so an
-  // address with none is refused as `pane-entity-required` at the two untyped
-  // boundaries — a restored layout row and a typed route — and never reaches a body.
+  // No arm for a missing entity: `parsePaneAddress` refuses an inspector address without one,
+  // so a body is never reached without it.
   if (context.sessionStore === undefined) {
     return (
       <Nothing

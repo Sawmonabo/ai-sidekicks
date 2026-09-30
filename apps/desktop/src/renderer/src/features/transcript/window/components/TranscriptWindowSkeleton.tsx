@@ -1,53 +1,31 @@
-// The skeleton rows a window draws while its first read is in flight.
-//
-// WHAT WAS MISSING. The store has carried the fact since it was written — `initialized`
-// is false until a read response lands — and it never reached the pane. So a session
-// whose first read was in flight rendered exactly like a session that had never had
-// anything happen in it.
-//
-// A STANDING CAUSE ENDS THE SKELETON. `read-failed` is marked when the first read is
-// refused or rejects, which leaves the store uninitialized and the cause standing, so
-// drawing skeleton rows on `initialized` alone would leave `aria-busy` rows up for as
-// long as the failure lasted over a read that had already ended. Only a window with no
-// cause and no first read yet is still filling; the line under the session header says
-// what the cause means for the person.
+// Skeleton rows for a window whose first read is in flight. A standing degraded cause ends the
+// skeleton: a failed read leaves the store uninitialized, so `initialized` alone would keep
+// `aria-busy` rows up over a read that already ended.
 
 import { useSessionDegraded } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useTranscriptFirstReadSettled } from "../hooks/useTranscriptFirstReadSettled.js";
 
-/**
- * How many skeleton rows a window that has not been read yet draws.
- *
- * Twelve is a screen of transcript at this density: enough that the shape on screen is
- * the shape the rows will take, and few enough that the first read replacing them is
- * one repaint rather than a page of skeleton rows collapsing.
- */
+/** A screenful at transcript density, so the first read replaces the rows in one repaint. */
 const SKELETON_ROW_COUNT = 12;
 
-/**
- * The skeleton rows, minted once: twelve identical elements need twelve stable keys and
- * nothing else.
- */
 const SKELETON_ROW_KEYS: readonly string[] = Object.freeze(
   Array.from({ length: SKELETON_ROW_COUNT }, (_unused, index) => `skeleton-row-${String(index)}`),
 );
 
+/** The session whose first read the skeleton follows. */
 export interface TranscriptWindowSkeletonProps {
   readonly sessionStore: SessionStore;
 }
 
 /**
- * The skeleton rows, or nothing once the first read has landed or a cause stands.
- *
- * Read through the store's own selectors rather than off a snapshot, so this follows
- * a navigation that changes which session the pane is a log of.
+ * Skeleton rows while the first read is in flight; nothing once it has landed or a degraded
+ * cause stands. Reads through the store's selectors so it follows a change of session.
  */
 export function TranscriptWindowSkeleton(
   props: TranscriptWindowSkeletonProps,
 ): React.JSX.Element | null {
-  // The same reading the viewport's empty arm takes, through the same hook: two
-  // views speaking about one moment, and never from two selectors.
+  // Same reading as the feed's empty window, so the two never speak about one moment differently.
   const firstReadSettled = useTranscriptFirstReadSettled(props.sessionStore);
   const causeStands = useSessionDegraded(props.sessionStore);
   if (firstReadSettled || causeStands) {

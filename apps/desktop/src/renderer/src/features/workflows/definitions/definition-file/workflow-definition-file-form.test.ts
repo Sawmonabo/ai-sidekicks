@@ -1,19 +1,7 @@
-// The definition file, checked on the claims its module makes about the DOCUMENT.
-//
-//   1. It is YAML, and one dialect of it. A file written as ordinary block mappings —
-//      which is what the CLI and the SDK emit — reads here, and so does the JSON-shaped
-//      spelling, because JSON is YAML. A reader that took only one of those closed the
-//      round trip in one direction and broke it in the other.
-//   2. A file this console wrote is a file this console reads, and the phases come back
-//      whole. One module owns both sides precisely so that holds.
-//   3. The marker is `ai-sidekicks-schema`, it is written quoted, it is read off the
-//      node so an unquoted `1.0` still reads as `1.0`, and it is checked for the stored
-//      shape and never against a constant.
-//   4. The document has the marker and two parts and nothing else. An unknown top-level
-//      key is a refusal by name, because that is what a conforming reader does with one.
-//   5. The target is the caller's. A file names no scope, so the parse takes the one it
-//      was handed and never one the bytes proposed — which is the decision the daemon's
-//      operator-scope authorization is keyed on.
+// The definition file document: it is YAML (block mappings and the JSON spelling both read), a
+// file this console wrote reads back whole, the marker is `ai-sidekicks-schema` (written quoted,
+// read off the node, checked for shape and never against a constant), an unknown top-level key
+// is refused by name, and the target is the caller's and never the file's.
 
 import { describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
@@ -32,11 +20,9 @@ const TARGET: WorkflowDefinitionImportTarget = {
 };
 
 /**
- * One served body, with only what a case varies overridden.
- *
- * It carries a tool binding and a phase config on purpose: those two are the members an
- * earlier reader wrote and never read back, so a round trip over a body without them
- * would have passed while an import silently removed every tool call in the definition.
+ * One served body, with only what a case varies overridden. It carries a tool binding and a
+ * phase config because a reader once wrote those and never read them back, so a round trip
+ * without them would pass while an import removed every tool call.
  */
 function versionBody(overrides: Partial<WorkflowVersionBody> = {}): WorkflowVersionBody {
   return {
@@ -99,10 +85,8 @@ function exportedFileWith(members: Record<string, unknown>): string {
 
 describe("the definition file form — what a serialized body reads back as", () => {
   it("round-trips the name, the entry and every phase member", () => {
-    // THE PIN FOR THE MEMBERS THAT USED TO VANISH. `toolBindings` and `config` were
-    // written by the exporter and dropped by the reader, so an imported definition
-    // reached the daemon with different executable bytes and a different content hash
-    // while reporting a successful round trip.
+    // `toolBindings` and `config` must survive: dropping them would import different executable
+    // bytes and a different content hash while reporting a successful round trip.
     const body = versionBody();
     const reading = parseOrFail(serializeDefinitionFile(body));
 
@@ -150,9 +134,8 @@ describe("the definition file form — the document an export writes", () => {
   });
 
   it("writes the marker and the two parts, and nothing else at the top level", () => {
-    // The pin for the section that used to be there. A `exportedFrom` block made every
-    // file this console wrote a refusal in a conforming CLI, because the registered form
-    // has exactly the hashed body plus an optional `layout`.
+    // A `exportedFrom` block would make every exported file a refusal in a conforming CLI,
+    // whose form is the hashed body plus an optional `layout`.
     expect(Object.keys(exportedDocument())).toStrictEqual([
       "ai-sidekicks-schema",
       "name",
@@ -173,8 +156,7 @@ describe("the definition file form — the document an export writes", () => {
 
 describe("the definition file form — what it reads, and what it refuses", () => {
   it("reads a file written as ordinary block mappings, block scalars included", () => {
-    // The pin for the primary producer. A CLI or SDK writes YAML, and the reader that
-    // called `JSON.parse` refused every such file before it validated anything.
+    // The primary producer: a CLI or SDK writes YAML, which `JSON.parse` would refuse.
     const reading = parseOrFail(
       [
         "ai-sidekicks-schema: 1.0",
@@ -232,8 +214,7 @@ describe("the definition file form — what it reads, and what it refuses", () =
   });
 
   it("accepts a marker value it has never seen, because no value is registered", () => {
-    // The claim, stated positively: the SHAPE is what a store can hold, and comparing
-    // against a constant would reject the daemon's own files the day it revised one.
+    // The shape is what a store can hold; a constant would reject the daemon's own files.
     expect(parseOrFail(serializeDefinitionFile(versionBody({ schemaVersion: "2.7" }))).status).toBe(
       "parsed",
     );
@@ -275,10 +256,8 @@ describe("the definition file form — what it reads, and what it refuses", () =
   });
 
   it("refuses a supplied start mode the engine cannot honor, rather than defaulting it", () => {
-    // End to end, because the defect was end to end: the reader dropped an entry it did
-    // not recognize, the create request then carried none, and the daemon materialized
-    // `manual` — so a definition meant to fire on a schedule imported as one that runs
-    // when somebody presses a button, and every layer reported success.
+    // End to end: an unrecognized entry dropped by the reader became `manual` in the daemon,
+    // so a scheduled definition imported as one that runs on a button press.
     const reading = parseOrFail(exportedFileWith({ entry: { startMode: "schedule" } }));
 
     expect(reading.status).toBe("invalid");
@@ -332,9 +311,7 @@ describe("the definition file form — what it reads, and what it refuses", () =
   });
 
   it("negative control: every perturbation above starts from a file that parses", () => {
-    // Without this, each refusal case would hold over a parser that refused
-    // everything — the right answer for all of them, arrived at from a reader that
-    // never accepts anything at all.
+    // Guards against a parser that refuses everything.
     expect(parseOrFail(serializeDefinitionFile(versionBody())).status).toBe("parsed");
   });
 });

@@ -8,30 +8,15 @@ import { type AgentsPaneCalls } from "../../agent-reads.js";
 import { AgentsPaneModels } from "../agents-pane-models.js";
 
 /**
- * Hold one {@link AgentsPaneModels} for as long as this mount shows one session.
+ * Hold one {@link AgentsPaneModels} for as long as this mount shows one session. A hook, not a
+ * render body, so a discarded render leaves no subscription behind. `undefined` in either
+ * argument answers `undefined`.
  *
- * A hook rather than a render body: the models open subscriptions and a scheduler,
- * and a body that built them would build a new set on every pass React discarded,
- * each leaving a subscription behind it. `undefined` in either argument is a real
- * state — an auxiliary address that named no session — and answers `undefined`, which
- * the pane renders as the absence it is.
- *
- * A MODEL NEVER BELONGS TO A SUBJECT IT IS NOT FOR. State replaced from an effect
- * lags its own inputs by one committed frame, so a console moving directly from one
- * open session to another renders once with the previous session's models under the
- * new session's store. That frame is not merely a stale roster: the column would
- * read through the session the console has LEFT while naming the agent of the one it
- * arrived at. So the held set is answered only while it matches the subject it was
- * asked about, and the mismatched frame answers `undefined` — the absence every
- * consumer already renders.
- *
- * THE SUBJECT IS THE PAIR AND NOT THE SESSION ID. A replacement bridge or a rebuilt
- * store for the SAME session passes an id comparison, so the first committed render
- * after either replacement would hand back models whose reads are bound to the
- * transport and the projection that were just retired. `store/subject-scoped/session-subject.ts`
- * owns the comparison, so the predicate has one copy.
- *
- * `calls` is held stable by the caller: a new object rebuilds the models.
+ * The held set is answered only while it matches the (bridge, store) pair it was asked about:
+ * state replaced from an effect lags its inputs by a frame, and that frame would read through
+ * the session the console has left. The pair, not the session id, is compared, because a
+ * replacement bridge or rebuilt store under one session passes an id check. `calls` is held
+ * stable by the caller: a new object rebuilds the models.
  */
 export function useAgentsPaneModels(
   bridge: PlatformBridge | undefined,

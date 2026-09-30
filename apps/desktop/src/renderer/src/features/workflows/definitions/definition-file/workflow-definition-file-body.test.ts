@@ -1,10 +1,6 @@
-// The hashed body of a definition file, checked on the two claims that decide whether a
-// round trip is real: every registered member survives it, and nothing else gets in.
-//
-// The reader is driven directly rather than through the document above it, because what
-// is under test here is the record shapes: the document's own suite pins the file, and a
-// case that had to compose a whole file to vary one phase member would be testing the
-// marker every time it meant to test `dependsOn`.
+// The hashed body of a definition file: every registered member survives a round trip and
+// nothing else gets in. The reader is driven directly so a case varying one phase member does
+// not also test the marker.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,11 +15,8 @@ import type {
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 
 /**
- * One phase carrying EVERY member the registered shape declares.
- *
- * Every member on one record is the point: the round-trip case below is what pins the
- * writer and the reader to the same set, so a member either of them forgets is a
- * failure here rather than a definition that imports as something else.
+ * One phase carrying every member the registered shape declares, so a member the writer or
+ * reader forgets fails the round trip.
  */
 const COMPLETE_PHASE: WorkflowPhaseDefinition = {
   phaseId: "phase-verify",
@@ -110,10 +103,8 @@ describe("the hashed body — the entry record", () => {
   });
 
   it("refuses an unsupported start mode by name rather than defaulting it", () => {
-    // The pin. A reader that dropped an unrecognized entry left the daemon to
-    // materialize `manual`, so a definition its author expects to run on a schedule
-    // imported as one that runs when somebody presses a button — a change of WHEN the
-    // workflow runs, reported as a success.
+    // A reader that dropped an unrecognized entry left the daemon to materialize `manual`,
+    // changing when the workflow runs and reporting success.
     const reading = readOrFail(documentWith({ entry: { startMode: "schedule" } }));
 
     expect(reading).toContain("schedule");
@@ -132,8 +123,7 @@ describe("the hashed body — the entry record", () => {
 
 describe("the hashed body — what a phase may not carry", () => {
   it("refuses a member no phase declares, by name", () => {
-    // Carrying it would widen a registered request shape and dropping it would be the
-    // same silent edit one member along, so the reader refuses and says which.
+    // Carrying it would widen a registered request shape; dropping it is a silent edit.
     expect(
       readOrFail(documentWith({ phaseDefinitions: [phaseDocumentWith({ timeoutMs: 30000 })] })),
     ).toContain("timeoutMs");

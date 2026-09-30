@@ -2,19 +2,13 @@
 
 import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
-/**
- * Register the terminal feature's pane kinds.
- *
- * One kind, and structurally one: a session has exactly one terminal pane, and the
- * pane registry makes a second claim on this kind an error rather than a swap.
- */
+/** Registers the terminal pane kind; a session has one terminal pane, so a second claim errors. */
 export function registerTerminalPane(registry: PaneRegistry): void {
   registry.register({
     kind: "terminal",
     owner: "terminal",
-    // A loader, for `browser/index.ts`'s reason. The emulator was already a lazy chunk
-    // of its own and everything around it was not, so a session that never opens a
-    // terminal still carried the pane, the lease line, and their rules.
+    // A loader, so a session that never opens a terminal does not carry the pane, the lease
+    // line, or their styles.
     body: () => import("../pane/terminal-pane-body.js"),
   });
 }

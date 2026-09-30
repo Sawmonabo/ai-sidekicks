@@ -1,14 +1,6 @@
-// What a lane that failed a transition costs, and what it stops costing.
-//
-// SPLIT FROM `reveal-engine.test.ts`, which is about the budget, the four lanes, and
-// the guarantee that visible text never regresses. Every case here is about the OTHER
-// side of that guarantee — a lane whose smoother threw, what the engine does with it
-// after, and what it takes to get it back — and the two subjects were one file over
-// the size at which a file is doing two jobs.
-//
-// `ManualClock` is the instrument for the same reason it is there: the claims are
-// about what is armed and what is spent per frame, and `pendingCount` is the only way
-// to check that rather than assert it.
+// A lane that failed a transition: what it costs, what it stops costing, and what gets it back.
+// `ManualClock` is the instrument because the claims are about what is armed and spent per
+// frame, which `pendingCount` checks.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,21 +15,16 @@ import type { RevealDiagnostic } from "./reveal-model.js";
 
 /** One engine on the test's own clock, as the sibling suite builds one. */
 function engineOn(clock: ManualClock): RevealEngine {
-  // The engine no longer arms its own frame: every drain is submitted to the frame
-  // coordinator's phase two, so `clock.runFrame()` here runs the coordinator's frame
-  // and the coordinator runs the drain. What `pendingCount` measures is unchanged.
+  // Every drain is submitted to the frame coordinator's second phase, so `clock.runFrame()` runs
+  // the coordinator's frame and the coordinator runs the drain.
   return new RevealEngine({ frameCoordinator: new AnimationFrameCoordinator({ clock }) });
 }
 
 describe("the reveal engine — a lane whose advance throws an unrenderable value", () => {
   /**
-   * A failure value nothing can be assumed about.
-   *
-   * `Object.create(null)` carries no `toString`, no `valueOf`, and no
-   * `Symbol.toPrimitive`, so ToPrimitive on it throws. That is not exotic: a lane's
-   * smoother can be handed anything a producer threw, and the reporting expression
-   * runs after the `catch` has been entered — so a stringifier that throws there
-   * leaves the handler by exception.
+   * A failure value nothing can be assumed about. `Object.create(null)` has no `toString`,
+   * `valueOf` or `Symbol.toPrimitive`, so ToPrimitive throws; the reporting expression runs
+   * inside the `catch`, so a throwing stringifier there would leave the handler by exception.
    */
   function unrenderableFailure(): object {
     return Object.create(null) as object;
@@ -63,10 +50,8 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
       text: prose(REVEAL_FRAME_CHARACTER_BUDGET * 3),
     });
 
-    // THE NEGATIVE CONTROL ON THE OLD CODE, and it is this line: the reporting
-    // expression used to be `String(...)`, which throws on the value above, out of
-    // the frame loop and past the re-arm below. This case fails at `runFrame` on
-    // that code and passes here.
+    // A bare `String(...)` throws on the value above, out of the frame loop and past the re-arm
+    // below; this case fails at `runFrame` under that code.
     expect(() => {
       clock.runFrame();
     }).not.toThrow();
@@ -74,11 +59,11 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
     // The quarantine is scoped to the lane that threw.
     expect(engine.publishedText("lane-1")).toBe("");
     expect(engine.publishedText("lane-2").length).toBeGreaterThan(0);
-    // And the frame is still armed, because lane 2 still has characters left —
-    // which is the half the old code lost: the throw escaped past `#armFrame()`.
+    // The frame is still armed, because lane 2 still has characters left; a throw escaping past
+    // `#armFrame()` would have lost it.
     expect(clock.pendingCount).toBe(1);
     expect(engine.state).not.toBe("settled");
-    // The failure is REPORTED, naming the lane, rather than swallowed.
+    // The failure is reported, naming the lane, rather than swallowed.
     const reported = diagnostics.filter((diagnostic) => diagnostic.kind === "transition-failed");
     expect(reported).toHaveLength(1);
     expect(reported[0]?.laneId).toBe(`lane-1: ${UNREPRESENTABLE_VALUE_TEXT}`);
@@ -86,7 +71,7 @@ describe("the reveal engine — a lane whose advance throws an unrenderable valu
 
   it("negative control: the value really does defeat a bare stringifier, and the total one renders it", () => {
     // Without this the case above would pass over a failure value any stringifier
-    // could have handled, which is not the class the fix is for.
+    // could have handled, which is not the class this case covers.
     const failure = unrenderableFailure();
     expect(() => String(failure)).toThrow();
     expect(lossyStringify(failure)).toBe(UNREPRESENTABLE_VALUE_TEXT);
@@ -147,9 +132,8 @@ describe("the reveal engine — what a quarantined lane costs", () => {
     const clock = new ManualClock();
     const engine = engineWithAQuarantinedLane(clock);
 
-    // The producer knows nothing about the quarantine: a long tool output or a
-    // multi-megabyte turn goes on arriving, every delta appended to a rope no frame
-    // would ever walk, with memory growing monotonically for the life of the run.
+    // The producer knows nothing about the quarantine: a long output keeps arriving, and no delta
+    // may grow a rope that no frame would walk.
     for (let burst = 0; burst < 20; burst += 1) {
       engine.ingest({
         laneId: "lane-1",
@@ -181,8 +165,8 @@ describe("the reveal engine — what a quarantined lane costs", () => {
   });
 
   it("an authoritative commit lifts the quarantine, and the lane streams again", () => {
-    // The one way out. Without it, releasing the tail would have turned a
-    // recoverable lane into a dead one — which is a worse answer than the leak.
+    // The one way out: without it, releasing the tail would turn a recoverable lane into a dead
+    // one, which is worse than the leak.
     const clock = new ManualClock();
     const engine = engineWithAQuarantinedLane(clock);
 

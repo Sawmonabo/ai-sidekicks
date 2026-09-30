@@ -1,8 +1,5 @@
-// Which answers close the form, which keep it open, and which latch its confirm.
-//
-// Driven on the model rather than through the rendered form, because the claim is
-// about a mapping over the daemon's own `state` — every arm of it, including the two
-// the rendered cases never reach.
+// Which answers close the form, keep it open, or latch its confirm; driven on the mapping
+// so the arms the rendered cases never reach are covered.
 
 import { describe, expect, it } from "vitest";
 import type { InterventionRequestResponse } from "@ai-sidekicks/contracts";
@@ -55,15 +52,14 @@ describe("only a settlement that landed closes the form", () => {
   });
 
   it("latches the confirm on an intervention recorded and not yet applied", () => {
-    // Confirming twice there would raise a SECOND intervention, so this arm is
-    // neither landed nor retryable — it is the one that leaves cancel as the way out.
+    // Confirming twice there would raise a second intervention, so cancel is the way out.
     expect(readInterventionFormSettlement(settledAt("requested")).kind).toBe("recorded");
     expect(readInterventionFormSettlement(settledAt("accepted")).kind).toBe("recorded");
   });
 
   it("negative control: the arms are not all one answer", () => {
-    // Without this every case above would pass over a reader that answered `refused`
-    // to everything, which would leave a landed intervention's form open forever.
+    // Without this the cases above would pass over a reader that answered `refused` to
+    // everything.
     const kinds = new Set(
       (["applied", "rejected", "requested"] as const).map(
         (state) => readInterventionFormSettlement(settledAt(state)).kind,

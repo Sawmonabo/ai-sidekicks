@@ -13,10 +13,8 @@ export interface AttachBinding {
 }
 
 /**
- * Bind one session section's attach controller to a dialog.
- *
- * KEYED ON THE SESSION, so a section re-addressed to another session drops the
- * settlement the previous one's dialog was showing.
+ * Bind one session section's attach controller to a dialog. Keyed on the session, so a section
+ * re-addressed to another session drops the previous settlement.
  */
 export function useAttachController(
   bridge: PlatformBridge,

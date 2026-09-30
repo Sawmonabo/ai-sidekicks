@@ -1,17 +1,7 @@
-// What a definition's detail shows once its reads have answered.
-//
-// THREE STATES AND NO OTHERS, which is `run-snapshot.ts`'s rule for the same seam: no
-// definition is named so nothing was asked, a read is in flight, or the definition
-// came back. Everything arrives as props: `definition-detail-read.ts` composes the
-// reads and `definition-authoring-dispatch.ts` the acts, and whichever container wires
-// their calls hands the products here.
-//
-// A chain that could not be addressed says so without taking the body down with it.
-//
-// WHAT THIS IS NOT. It is not the canvas. The node graph, the inspector and the
-// connection-validity predicate are the workflow engine's body, mounted through the
-// builder pane's own typed mount points; this is the read the canvas will be drawn from and
-// the acts that carry a definition somewhere else.
+// What a definition's detail shows once its reads have answered: no definition named (nothing
+// asked), a read in flight, or the definition. Everything arrives as props from the container.
+// A chain that could not be addressed says so without taking the body down. This is not the
+// canvas, which is the workflow engine's body mounted through the builder pane.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
@@ -34,7 +24,7 @@ export interface DefinitionDetailProps {
 export function DefinitionDetail(props: DefinitionDetailProps): React.JSX.Element {
   const { detail, authoring } = props;
   if (detail.status === "unasked") {
-    // A container that names no definition has asked nothing, so nothing is drawn.
+    // No definition is named, so nothing was asked and nothing is drawn.
     return <></>;
   }
   if (detail.status === "reading") {
@@ -48,10 +38,8 @@ export function DefinitionDetail(props: DefinitionDetailProps): React.JSX.Elemen
         <dd>{definition.name}</dd>
         <dt>Scope</dt>
         {/*
-         * The scope and the identity it refers to, side by side and never joined into
-         * one string: `shared` is daemon-wide and carries the empty string, so a
-         * composed label would read as a scope with a blank name rather than as one
-         * that refers to nothing narrower.
+         * Scope and identity side by side, never joined: `shared` carries the empty string, so a
+         * joined label would read as a scope with a blank name.
          */}
         <dd>
           <WireFigure value={definition.scope} />

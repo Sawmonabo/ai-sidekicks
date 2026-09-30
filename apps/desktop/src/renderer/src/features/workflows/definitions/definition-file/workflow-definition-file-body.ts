@@ -1,34 +1,7 @@
-// The hashed part of a definition file: the name, the entry record, and the phase
-// sequence — written by an export and read back by an import.
-//
-// ONE MODULE FOR BOTH SIDES. The member names and the write order are stated once, so a
-// body this console wrote is a body this console reads; split in two they would agree
-// until one of them grew a member. `workflow-definition-file-form.ts` beside this one
-// owns the DOCUMENT — the schema marker, the two top-level parts, and the target a
-// caller supplies — and this module owns what goes inside the first of them.
-//
-// THE SEAM IS THE FILE FORM'S OWN. The definition file form says the document has
-// exactly two top-level parts, the hashed
-// definition body and the optional non-hashed `layout`; this module is the first of
-// them, end to end. The split is not "the file was too long": a reader asking what the
-// executable part of a definition file is reads one module, and a reader asking what a
-// file IS reads the other.
-//
-// EVERY PRESENT MEMBER IS CARRIED, AND AN UNKNOWN ONE IS REFUSED. A file exported here
-// and imported here must reach the daemon as the same executable bytes, so a reader
-// that dropped `toolBindings` or `config` would hand back a definition that runs
-// differently and hashes differently while reporting success. That leaves exactly one
-// honest answer for a member nobody declared: carrying it widens a registered request
-// shape and dropping it is the same silent edit one member along, so the reader refuses
-// and names the member. Absence is never read as a value — a file stating no
-// dependency states a phase with no dependency, and a default written here would be
-// this console authoring a sequence nobody typed.
-//
-// A STRING IS THE FAILURE ARM at every level, and the optional members answer with the
-// PARTIAL RECORD they contribute rather than with a bare value: `goBackTo` is itself a
-// string, so a reader answering `string | undefined` could not say whether it had read
-// a phase id or a refusal. Each optional reader therefore returns `{}` for absent, its
-// own one-member record for present, and a sentence for present-and-wrong.
+// The hashed part of a definition file (name, entry record, phase sequence), written and read in
+// one module so the member names and write order are stated once. Every present member is
+// carried and an unknown one is refused: dropping `toolBindings` or `config` would hand back a
+// definition that hashes differently while reporting success. Absence is never read as a value.
 
 import type { WorkflowToolBinding } from "@ai-sidekicks/contracts";
 
@@ -50,11 +23,8 @@ import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 
 /**
- * The hashed body's own top-level members, in the order a file writes them.
- *
- * The document module composes its admitted top-level key set from this tuple, so the
- * body's membership is declared once and the file's two parts are added up rather than
- * restated.
+ * The hashed body's top-level members in write order. The document module builds its admitted
+ * key set from this tuple, so membership is declared once.
  */
 export const DEFINITION_BODY_KEYS = ["name", "entry", "phaseDefinitions"] as const;
 
@@ -76,11 +46,8 @@ const PHASE_KEYS = [
 const ENTRY_KEYS = ["startMode"] as const;
 
 /**
- * What the hashed body of a file states, with the entry record where it states one.
- *
- * `entry` is optional HERE and required on the served version body, which is the
- * asymmetry the wire itself carries: a stored definition always has exactly one entry
- * record because the daemon materializes it, and a create request may omit it.
+ * What the hashed body of a file states. `entry` is optional here and required on the served
+ * body: the daemon materializes it, and a create request may omit it.
  */
 export interface WorkflowDefinitionFileBody {
   readonly name: string;
@@ -139,14 +106,9 @@ function phaseFileRecord(phase: WorkflowPhaseDefinition): Readonly<Record<string
 }
 
 /**
- * The entry record where the file states one, or the sentence refusing it.
- *
- * AN ABSENT ENTRY IS NOT A REFUSAL and a present unsupported one is. `manual` is the
- * only V1 start mode and the daemon materializes it when a create omits the record, so
- * a file that says nothing about how the definition starts is a file the daemon
- * completes. A file that says `schedule` is a file whose author expects the definition
- * to run without anybody pressing anything — accepting it as `manual` would change WHEN
- * the workflow runs and report success, which is the one outcome worse than refusing.
+ * The entry record where the file states one, or the sentence refusing it. An absent entry is
+ * not a refusal (the daemon materializes `manual`), but an unsupported one is: reading
+ * `schedule` as `manual` would change when the workflow runs and report success.
  */
 function readEntry(
   document: Readonly<Record<string, unknown>>,
@@ -273,11 +235,9 @@ function readGoBackTo(
 }
 
 /**
- * The predecessor list where the file carries one, written entirely in ids.
- *
- * An EMPTY list is admitted and is not the same fact as an absent one: the graph model
- * gives an entry-node successor an empty list, while a definition that omits the member
- * on every phase declares the sequential chain by array order.
+ * The predecessor list where the file carries one. An empty list is admitted and differs from
+ * an absent one: an entry-node successor has an empty list, while omitting the member on every
+ * phase declares the sequential chain by array order.
  */
 function readDependsOn(
   value: Readonly<Record<string, unknown>>,
@@ -316,11 +276,8 @@ function readParallelJoinPolicy(
 }
 
 /**
- * The phase's execution and human-form configuration where it carries one.
- *
- * Carried VERBATIM, because the registered shape is an open record: what a phase's
- * config means is the engine's and the phase type's, and a console narrowing it would
- * be deciding which keys an engine it does not implement is allowed to read.
+ * The phase's execution and human-form configuration where it carries one. Carried verbatim:
+ * the registered shape is an open record, and what config means is the engine's.
  */
 function readPhaseConfig(
   value: Readonly<Record<string, unknown>>,

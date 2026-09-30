@@ -7,19 +7,10 @@ import { type RunGroup } from "../../run-groups/run-groups.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";
 
 /**
- * Hold one session's run group disclosure.
- *
- * `RunGroupFoldState` is the single owner of the rule — a live run group answers
- * open before any stored state is read — so this hook does not restate it; it
- * publishes the instance's opened set so a toggle repaints. The set is derived from
- * the instance and written nowhere else, which is what keeps it one source of truth
- * mirrored rather than two states kept in step.
- *
- * Scoped to the session, not the mount: session stores are opened and never closed, so
- * moving between two open sessions re-renders this pane at the same position rather
- * than unmounting it, and a per-mount holder would carry one session's opened run ids
- * into the other. Both halves are held per session, because the instance and its
- * published mirror are one fact.
+ * Hold one session's run group disclosure. `RunGroupFoldState` owns the rule (a live run group
+ * answers open before any stored state is read); this hook publishes its opened set so a toggle
+ * repaints, deriving the set from the instance and writing it nowhere else. Both are held per
+ * session, because moving between open sessions re-renders this pane instead of unmounting it.
  */
 export function useRunGroupDisclosure(sessionId: string): RunGroupDisclosure {
   const bridge = usePlatformBridge();

@@ -42,11 +42,8 @@ describe("REASONING_ARM_COPY", () => {
     }
   });
 
-  // THE NEGATIVE CONTROL for the one defect the discriminant exists to prevent:
-  // two of these arms carry no entries, so if any two said the same thing
-  // a reader could not tell "nothing was captured" from "it was captured and is being
-  // withheld". Comparing the whole set by size is what makes that checkable rather
-  // than eyeballed — two arms sharing a sentence collapses the set and fails here.
+  // Two arms sharing a sentence collapse the set, so comparing its size checks that a reader
+  // can tell "nothing was captured" from "captured and withheld".
   it("says something different for every arm", () => {
     const sentences = new Set(
       REASONING_AVAILABILITY_STATES.map(

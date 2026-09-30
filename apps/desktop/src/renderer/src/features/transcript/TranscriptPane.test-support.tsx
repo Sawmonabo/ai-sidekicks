@@ -1,7 +1,4 @@
 // The pane context, the render, and the log the transcript pane suite is driven over.
-//
-// The row renderer teardown is NOT here: it is an `afterEach`, which the suite states
-// beside its own cases.
 
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -15,28 +12,21 @@ import {
   type TranscriptPaneProps,
 } from "./TranscriptPane.js";
 
+/** The session id the pane suite's route and store share. */
 export const TRANSCRIPT_PANE_SESSION_ID = "session-transcript";
 
 /**
- * The pane context, with the members this component reads real and the rest cast.
- *
- * `WindowStore` is real because the pane subscribes to it for the address its
- * breadcrumb renders — a cast one would make that subscription untested. The three
- * stores it does not read are cast rather than constructed: one of them opens a
- * database, and building it to satisfy a field nothing reads would make the setup
- * the subject.
+ * The pane context with the window store real and the other members cast. The pane
+ * subscribes to the window store for its breadcrumb address; the stores it never reads
+ * are cast because one of them opens a database.
  */
 export function paneContext(
   overrides: Partial<TranscriptPaneContext> = {},
   sessionId: string | null = TRANSCRIPT_PANE_SESSION_ID,
 ): TranscriptPaneContext {
-  // `null` rather than `undefined` for the session-less arm: passing `undefined`
-  // explicitly re-applies a parameter default, so the one case that needs a bare
-  // route would silently have got the addressed one.
-  //
-  // The `entity` member is omitted rather than set to `undefined`: this pane kind's
-  // address arm makes it optional, and an absent key is how the union says the pane
-  // is scoped to the session rather than to one of its entities.
+  // `null` rather than `undefined` for the session-less arm: an explicit `undefined`
+  // re-applies the parameter default. `entity` is omitted rather than `undefined` because
+  // an absent key is how the address union says the pane is scoped to the session.
   return {
     kind: "transcript",
     paneId: "transcript-pane",
@@ -48,15 +38,8 @@ export function paneContext(
 }
 
 /**
- * Render one mount of the pane under a bridge, and answer the pane element.
- *
- * NO CHROME ARGUMENT. The frame is `components/PaneFrame`, which the pane imports
- * itself, so there is nothing for a suite to compose it with.
- *
- * The quiet scenario rather than a richer one: what these suites need from a bridge is
- * the frozen clock the viewport's scheduler runs on, and every row they assert on comes
- * from a store they build, so a scenario that delivered its own would make the setup
- * the subject.
+ * Render one mount of the pane under a fixture bridge and return the pane element. The
+ * quiet scenario is enough: every row the suites assert on comes from a store they build.
  */
 export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
   const { container } = render(
@@ -72,11 +55,8 @@ export function renderTranscriptPane(props: TranscriptPaneProps): HTMLElement {
 }
 
 /**
- * A real store holding a two-event log.
- *
- * Real rather than a stand-in because the pane's whole job here is to read one, and
- * a fake store would let the projection, the fold, and the viewport's reconcile all
- * be wrong together while this case stayed green.
+ * A real session store holding a two-event log; a fake store would let the projection,
+ * fold and viewport reconcile all be wrong while the case stayed green.
  */
 export function openSessionStoreWithPaneLog(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: TRANSCRIPT_PANE_SESSION_ID });

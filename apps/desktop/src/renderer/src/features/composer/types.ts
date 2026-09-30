@@ -1,30 +1,15 @@
 // The seam between recognizing a client command and running one.
 //
-// The router INTERCEPTS: a leading slash whose name a recognizer knows resolves to
-// `client-command`, carrying the name and no request, because the prefix is reserved
-// and such a line never composes into a message on any path.
-// Interception is where the send path ends — and it is not where the act happens.
-//
-// SO THE OUTCOME IS A VALUE AND NOT A VOID. A controller that cleared the line on
-// interception alone would report success for work nothing performed: the person's
-// text is gone, no command ran, and no refusal says so. The executor answers with
-// one of three arms, the line is cleared on `applied` only, `refused` renders the
-// refusal beside the input like every other refusal the composer meets, and `not-run`
-// leaves the line as typed with nothing drawn.
-//
-// ONE MODULE FOR BOTH SIDES OF THE SEAM, per this package's structure rules — the
-// controller that awaits an outcome and the command executor that produces one name
-// the same shapes rather than two copies that drift.
+// The router intercepts a leading slash whose name a recognizer knows, carrying the name and
+// no request. The outcome is a value, not a void, so a controller never clears the line for
+// work nothing performed: it clears on `applied` only, `refused` renders beside the input,
+// and `not-run` leaves the line as typed.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
- * The line an executor is handed.
- *
- * Both halves, because they answer different questions: the name is what a registry
- * is keyed by, and the text is what an executor parses its own arguments out of.
- * The text is the trimmed line as typed, leading slash included — the router
- * strips nothing on this arm, so an executor reads exactly what the person wrote.
+ * The line an executor is handed. The name is what a registry is keyed by; the text is what
+ * an executor parses its arguments from, trimmed, leading slash included.
  */
 export interface ComposerCommandLine {
   /** The command name, without its leading slash. Wire-verbatim as typed. */
@@ -34,14 +19,9 @@ export interface ComposerCommandLine {
 }
 
 /**
- * What running one client command settled as. Closed at three.
- *
- * `not-run` is a command that reads its arguments off the typed line when nothing here
- * can perform it: the line stays exactly as typed and no message is drawn.
- *
- * There is deliberately no "not found" arm: whether a name is registered is the
- * recognizer's question and is answered before this seam is reached, and an executor
- * that could disagree with the recognizer would be a second registry.
+ * What running one client command settled as. There is no "not found" arm: whether a name is
+ * registered is answered by the recognizer before this seam, and an executor that could
+ * disagree would be a second registry. `not-run` leaves the line as typed and draws nothing.
  */
 export type CommandOutcome =
   | { readonly status: "applied" }

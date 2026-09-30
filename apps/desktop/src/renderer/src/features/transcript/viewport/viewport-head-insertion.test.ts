@@ -9,8 +9,8 @@ function rowsFrom(keys: readonly string[]): readonly ViewportRow[] {
 
 describe("the head-growth reading", () => {
   it("reports nothing on the first set it is shown", () => {
-    // Every row is new and none of them arrived UNDER anybody: there was no window
-    // for a page to land in front of.
+    // Every row is new but none arrived under anybody: there was no window for a page to land
+    // in front of.
     expect(new HeadInsertion().read(rowsFrom(["c", "d"]))).toEqual({
       insertedCount: 0,
       headRootCursor: undefined,
@@ -38,11 +38,9 @@ describe("the head-growth reading", () => {
   });
 
   it("negative control: a set re-supplied after the cap trimmed reports nothing", () => {
-    // THE CASE THAT DECIDES WHICH KEY THIS OBJECT REMEMBERS. The window's cap takes
-    // rows from the oldest end and the surrounding feed keeps handing over the
-    // whole projection, so the rows the cap took are back at the front of the very
-    // next set. Read against the RETAINED head this is a page of history arriving;
-    // read against the incoming one it is the ordinary reconcile it actually is.
+    // The cap takes rows from the oldest end and the feed keeps handing over the whole
+    // projection, so those rows lead the next set. Against the retained head that reads as a page
+    // arriving; against the incoming head it is an ordinary reconcile.
     const growth = new HeadInsertion();
     const whole = rowsFrom(["a", "b", "c", "d"]);
     growth.read(whole);
@@ -51,9 +49,8 @@ describe("the head-growth reading", () => {
   });
 
   it("reports nothing when the set no longer carries the head it last saw", () => {
-    // A different session's rows, or a window rebuilt from scratch: the key it
-    // remembered names nothing, so there is no origin for the arithmetic and no
-    // shift to undo.
+    // A different session's rows, or a rebuilt window: the remembered key names nothing, so
+    // there is no origin and no shift to undo.
     const growth = new HeadInsertion();
     growth.read(rowsFrom(["c", "d"]));
 

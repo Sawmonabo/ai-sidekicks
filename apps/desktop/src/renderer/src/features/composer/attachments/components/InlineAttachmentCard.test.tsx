@@ -1,10 +1,5 @@
-// The attachment card in the transcript, and its registration.
-//
-// Two claims: the composer registers the `attachment` card, and the body it mounts is the
-// composer's own `AttachmentCard` rather than a second one written for the
-// transcript. The second is checkable because that card carries its own classes, and
-// it matters because an unresolved marker is read for details two renderers would drift
-// on — which of the six causes, and what the remedy is.
+// The composer registers the `attachment` card, and the body it mounts is the composer's own
+// `AttachmentCard`, so an unresolved marker reads the same in the transcript and the strip.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -25,7 +20,7 @@ const CARD: AttachmentInlineCardProps = {
   attachment: { attachmentId: "artifact-4" },
 };
 
-/** When the stream opened and last moved. Every age below is read against this one. */
+/** When the stream opened and last moved. */
 const UPLOAD_OPENED_AT = 1_800_000_000_000;
 
 /** One upload in flight whose last acknowledged chunk was the moment it opened. */
@@ -50,11 +45,7 @@ function quietUpload(): AttachmentIngestEntry {
 }
 
 describe("inline attachment card — the registration", () => {
-  /**
-   * A registry this case owns.
-   *
-   * The registrar writes only what it is handed, so there is nothing to release afterwards.
-   */
+  /** A registry this case owns; the registrar writes only what it is handed. */
   function fill(): InlineCardRegistry {
     const registry = new InlineCardRegistry();
     registerComposerInlineCards(registry);
@@ -74,14 +65,12 @@ describe("inline attachment card — the registration", () => {
   });
 
   it("negative control: an empty registry answers nothing", () => {
-    // Without this, the two cases above would pass over a registry that answered from
-    // somewhere else entirely, and the registration call would be doing nothing.
+    // Without this, the cases above would pass over a registry that answered from elsewhere.
     expect(new InlineCardRegistry().bodyFor("attachment")).toBeUndefined();
   });
 
   it("writes the registry it is given and never the process-wide one", () => {
-    // The registrar closes over no singleton. A body that reached one would render
-    // correctly in every case above and still leak into the running console.
+    // A body that reached the process-wide registry would render correctly and still leak.
     fill();
     expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });
@@ -113,10 +102,8 @@ describe("inline attachment card — one body", () => {
 
 describe("inline attachment card — the instant an age is read against", () => {
   it("discloses a stalled upload, which a mount-frozen instant could never do", () => {
-    // `isIngestStalled` compares the instant against `lastProgressAtMilliseconds +
-    // INGEST_STALL_DISCLOSURE_MS`, and progress is stamped after the card mounts, so an
-    // instant frozen at mount could never disclose. The instant arrives with the reading,
-    // from the producer that took both, so a later one discloses.
+    // Progress is stamped after the card mounts, so an instant frozen at mount could never
+    // disclose a stall; the instant arrives with the reading.
     const { container } = render(
       <InlineAttachmentCard
         card={CARD}
@@ -130,12 +117,9 @@ describe("inline attachment card — the instant an age is read against", () => 
   });
 
   it("spends the instant it was handed, so the ceiling remainder actually falls", () => {
-    // The second figure the frozen instant broke. `ingestCeilingRemainingMs` subtracts
-    // `openedAtMilliseconds` from the instant, so a mount-frozen one never moved — and
-    // where it was captured BEFORE the stream opened the subtraction went negative and
-    // the card reported more time remaining than the ceiling allows. The claim here is
-    // that the figure is a function of what the producer handed over: one upload, two
-    // instants, two remainders, and the later one is smaller.
+    // `ingestCeilingRemainingMs` subtracts `openedAtMilliseconds` from the instant, so a
+    // mount-frozen one never moved and, captured before the stream opened, went negative. One
+    // upload at two instants must give two remainders, the later one smaller.
     const noteAt = (nowMilliseconds: number): string => {
       const { container, unmount } = render(
         <InlineAttachmentCard
@@ -153,14 +137,13 @@ describe("inline attachment card — the instant an age is read against", () => 
     const later = noteAt(UPLOAD_OPENED_AT + INGEST_STALL_DISCLOSURE_MS + 60_001);
     expect(earlier).not.toBe("");
     expect(later).not.toBe(earlier);
-    // And neither is negative, which is what the pre-open subtraction produced.
+    // Neither is negative, which is what a pre-open subtraction produced.
     expect(earlier).not.toContain("-");
     expect(later).not.toContain("-");
   });
 
   it("negative control: an upload that has not gone quiet discloses nothing", () => {
-    // Without this the cases above would pass over a card that disclosed the ceiling
-    // unconditionally, which reports a stall for every upload in flight.
+    // Without this, a card that disclosed the ceiling unconditionally would pass.
     const { container } = render(
       <InlineAttachmentCard
         card={CARD}

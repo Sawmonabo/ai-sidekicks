@@ -1,13 +1,6 @@
-// The find field, wired to the window it searches and the scroll writer its walk jumps
-// through.
-//
-// SPLIT FROM `TranscriptFeed.tsx` FOR THE REASON THAT FILE SPLITS FROM THE PANE. The
-// feed's job is arrangement: it composes the pipeline, mounts the pieces, and hands each
-// of them what it needs. This is one of the seams between those pieces: the walk that
-// jumps to each match, and the close that hands focus back to the log.
-//
-// WHAT IT DELIBERATELY DOES NOT OWN. The find state itself is `useTranscriptFind.ts`';
-// this module holds only the wiring between it and this window's scroll writer and focus.
+// The find field, wired to the window it searches and the scroll writer its walk jumps through:
+// the walk that jumps to each match, and the close that hands focus back to the log. The find
+// state itself is `useTranscriptFind.ts`'; this holds only the wiring.
 
 import { useCallback } from "react";
 
@@ -38,9 +31,8 @@ export function useTranscriptFindAndJump(inputs: {
 }): TranscriptFindAndJump {
   const { foldedAwayRows, visible, jumpToRow, focusTranscriptViewport } = inputs;
 
-  // Every stage, not just the rows on screen: what the walk cannot reach is counted
-  // under the name of the stage holding it, each reported by the stage that removed it
-  // rather than re-derived here from a pair of windows.
+  // Every stage, not just the rows on screen: what the walk cannot reach is counted under the
+  // stage holding it, each reported by the stage that removed it rather than re-derived here.
   const find = useTranscriptFind({ visible, foldedAwayRows });
 
   const onStep = useCallback(
@@ -56,9 +48,8 @@ export function useTranscriptFindAndJump(inputs: {
   const closeFind = find.close;
   const onClose = useCallback(() => {
     closeFind();
-    // The field took focus when it opened, and it is unmounted by the close — so
-    // without this focus falls to `body` and the next Tab restarts from the top of
-    // the document, well away from the log somebody was reading.
+    // The field took focus when it opened and is unmounted by the close; without this focus falls
+    // to `body` and the next Tab restarts from the top of the document.
     focusTranscriptViewport();
   }, [closeFind, focusTranscriptViewport]);
 

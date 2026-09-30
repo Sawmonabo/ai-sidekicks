@@ -1,25 +1,7 @@
-// The geometry binding under React's double mount, and under a new page host.
-//
-// `useGeometryPublisher` holds its publisher in the console's subject-scoped resource
-// holder, and one of the three arms that buys is the one a double mount reaches:
-// React runs a mount's cleanup and then mounts the SAME component instance again, so
-// the second mount is handed the publisher the first one's teardown disposed. A
-// publisher's disposal is terminal by its own contract — it never re-arms, however
-// late an event arrives — so committing that value would leave the pane with a
-// publisher that reports nothing for the life of the mount, and the eventual native
-// view positioned by nobody.
-//
-// The holder answers it with `isClosed`: a lifetime effect that finds its resource
-// already closed re-mints rather than committing, and the run the re-mint causes does
-// the committing. This case is that arm reached through the pane, because the arm is
-// only worth anything if the pane is actually wired to it.
-//
-// The second case is the other subject a binding can outlive: a publisher writes to one
-// page host for life, so a pane handed a different page host has to publish through that one.
-//
-// `StrictMode` rather than a hand-driven unmount-and-remount, because the double
-// mount is React's own behavior and a hand-rolled imitation of it is a test of the
-// imitation.
+// React's double mount runs a mount's cleanup and remounts the same instance, so the second
+// mount would be handed the publisher the first teardown disposed (terminal: it never re-arms)
+// and the pane would report nothing. The holder re-mints on `isClosed`; these cases reach that
+// through the pane. `StrictMode` is React's own double mount, not an imitation of it.
 
 import { StrictMode } from "react";
 
@@ -42,9 +24,8 @@ describe("Preview pane geometry — the publisher's binding", () => {
       render(<StrictMode>{chromeFor(built, recordingActs(), pageHost)}</StrictMode>);
     });
 
-    // The frame the attach queued, which is where a publish lands. A binding that had
-    // committed the corpse arms nothing on the second mount, so this releases nothing
-    // and the log below stays empty.
+    // The frame the attach queued, which is where a publish lands. A committed disposed binding
+    // arms nothing, so this would release nothing.
     await releaseQueuedPaneFrames(built.fixture);
 
     expect(pageHost.samples.length).toBeGreaterThan(0);

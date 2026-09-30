@@ -1,37 +1,16 @@
-// The position work a reconcile ARMS and a layout effect performs.
+// The position work a reconcile arms and a layout effect performs.
 //
-// WHY ANY OF IT IS DEFERRED. `reconcile` runs in a passive effect, so the rows it took
-// have not rendered when it runs: the sizer still carries the previous total size and
-// the virtualizer still answers offsets in the previous space. Two of the three things
-// this frame does to a reading position depend on the space AFTER that render, so they
-// are decided here and performed once the library has committed the new height.
-//
-// THREE ARMS, AND THE THIRD IS THE ONE THAT IS NOT DEFERRED AT ALL:
-//
-//   • **The tail glide.** A follower is at the bottom, and `glideToTail()` reads
-//     `scrollHeight` — which, before the render, is the height of the log as it was
-//     BEFORE the append. Nothing corrects it afterwards: the container did not resize
-//     and no further row arrived, so the reader is left short of the new entry with
-//     the state still reporting `following`.
-//   • **The head hold.** Rows arriving BEFORE the window's head move every row below
-//     them down by the height of the page that landed, so a reader standing still is
-//     carried up into rows they did not ask to be looking at. Held by putting the row
-//     that USED to be first back at the distance from the top of the viewport it had —
-//     which is arithmetic in the post-insert offset space and reads as the wrong row's
-//     offset in the pre-insert one.
-//   • **The anchored hold**, which is the ordinary case and runs immediately. Its
-//     index lookup is deliberately in the PRE-render offset space, because that is the
-//     space the anchored row's offset was measured in.
-//
-// THE HEAD HOLD DELIBERATELY DOES NOT READ THE READING ANCHOR. The anchor captures
-// nothing while a reader is at the tail — `isAtTail` returns before the capture — so a
-// follower who asks for earlier rows has no anchor point to be restored to, and an arm
-// that depended on one would hold every reader except the one standing at the end of
-// the log. What it holds instead is a fact every reader has: where the head row was.
+// `reconcile` runs in a passive effect, before the rows it took have rendered, so the sizer and
+// the virtualizer's offsets are still in the previous space. The tail glide (which would land
+// short of the new entry) and the head hold (which needs post-insert offsets) are armed here and
+// performed once the new height is committed; the anchored hold runs immediately, in the
+// pre-render space its offset was measured in. The head hold does not read the reading anchor,
+// which captures nothing while a reader is at the tail; it uses where the head row was.
 
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
 import { type ScrollController } from "../scroll/scroll-chokepoint.js";
 
+/** Dependencies of a `ViewportDeferredHold`; `rowKeys` is read when the hold is performed. */
 export interface ViewportDeferredHoldOptions {
   readonly anchor: ReadingAnchor;
   readonly scroll: ScrollController;
@@ -63,13 +42,9 @@ export class ViewportDeferredHold {
   }
 
   /**
-   * Decide what this reconcile owes the reading position.
-   *
-   * THE HEAD HOLD OUTRANKS THE TAIL GLIDE, and the ordering is the one case where both
-   * could be true: a backward page landing in the same reconcile as an append leaves a
-   * reader who was following with rows at both ends, and gliding them to the tail
-   * would discard the history they just asked for. A reader who wanted the tail has
-   * the pill and the keyboard jump, and both clear the pin on the way.
+   * Decides what this reconcile owes the reading position. The head hold outranks the tail
+   * glide: a backward page landing with an append would otherwise glide a following reader to
+   * the tail and discard the history they asked for.
    */
   public armAfterReconcile(input: {
     readonly headInsertedCount: number;
@@ -89,12 +64,8 @@ export class ViewportDeferredHold {
   }
 
   /**
-   * Perform whatever was armed, now that the new height is committed.
-   *
-   * Idempotent and cheap when nothing is armed, because the binding calls it after
-   * every render rather than only after the ones that changed the row set. Every arm
-   * clears its own flag before it acts, so a stale arming never fires against a later
-   * render.
+   * Performs whatever was armed, now that the new height is committed. Cheap when nothing is
+   * armed, since the binding calls it after every render; each arm clears its flag before acting.
    */
   public commit(): void {
     const headHold = this.#headHoldPending;
@@ -107,9 +78,7 @@ export class ViewportDeferredHold {
       return;
     }
     this.#tailGlidePending = false;
-    // Re-checked rather than trusted: a reader who scrolled away between the reconcile
-    // and this commit is no longer following, and dragging them to the tail is the one
-    // thing the reading anchor exists to prevent.
+    // Re-checked: a reader who scrolled away since the reconcile must not be dragged to the tail.
     if (this.#anchor.state.mode !== "following") {
       return;
     }
@@ -123,18 +92,10 @@ export class ViewportDeferredHold {
   }
 
   /**
-   * Put the row that used to be first back where it was.
-   *
-   * Its previous distance from the top of the viewport was `0 - scrollTop`, because it
-   * sat at content offset zero. Its offset now is the height of everything inserted
-   * above it, so the offset that restores that distance is exactly that height plus
-   * the offset the reader was at.
-   *
-   * Two exits and neither guesses. A key the window no longer holds names a row the
-   * cap took while the page was in flight — the offset is left where it is rather than
-   * anchored to whichever row now holds that index, which is `holdReadingPosition`'s
-   * own rule for a vanished anchor. An index of zero means nothing ended up above it
-   * after all, so there is nothing to compensate for.
+   * Puts the row that used to be first back at its previous distance from the top of the
+   * viewport. That row sat at offset zero, so the offset that restores it is its new offset (the
+   * height inserted above it) plus the reader's `scrollTop`. A key the window no longer holds, or
+   * an index of zero, leaves the offset alone rather than anchoring to whichever row now holds it.
    */
   #performHeadHold(headHold: PendingHeadHold): void {
     const index = this.#rowKeys().indexOf(headHold.rowKey);

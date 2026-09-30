@@ -1,12 +1,7 @@
-// The React binding for the transcript frame: the virtualizer, and what a view reads.
+// React binding for the transcript viewport: creates the virtualizer and exposes what a view reads.
 //
-// `viewport-controller.ts` holds the policy; this module holds the React side of it.
-// The split is not cosmetic — the two options this adoption requires, `useFlushSync:
-// false` and `directDomUpdates`, exist only on
-// `@tanstack/react-virtual`'s hook and nowhere on the core `Virtualizer`, so the
-// instance HAS to be minted inside a hook. Everything it is minted WITH is the
-// controller's, which is why the option list below is almost entirely method
-// references rather than closures written here.
+// `useFlushSync: false` and `directDomUpdates` exist only on `@tanstack/react-virtual`'s hook, so
+// the instance is created here; nearly all of its options are the controller's seams.
 
 import { useVirtualizer } from "@tanstack/react-virtual";
 import type { VirtualItem } from "@tanstack/react-virtual";
@@ -38,88 +33,52 @@ export interface TranscriptViewportBinding {
   readonly attachRow: (element: HTMLElement | null) => void;
   readonly jumpToTail: () => void;
   /**
-   * Bring one row into view by its key, if this window still holds it.
+   * Scrolls one row into view by key; does nothing if the window no longer holds it.
    *
-   * Keyed rather than indexed because every caller — find's walk, a run group's
-   * header, a jump by event id — names a ROW, and an index is a fact about the current
-   * window that a prune invalidates between the caller reading it and acting on it.
-   * The lookup is over the reconciled snapshot, so a key the cap has already
-   * dropped scrolls nothing rather than landing on whichever row now holds that
-   * index.
-   *
-   * Routed through the virtualizer's own `scrollToIndex`, which the controller
-   * binds to the transcript's scroll chokepoint — so this adds a caller, not a second
-   * scroll writer.
+   * Keyed because an index goes stale when a prune runs between the caller reading and acting on
+   * it. Routed through the virtualizer's `scrollToIndex`, which the controller binds to the
+   * scroll chokepoint.
    */
   readonly jumpToRow: (rowKey: string) => void;
   /**
-   * Put keyboard focus back on the log itself.
-   *
-   * For a caller that took focus and is giving it back — the find field's close is
-   * the one today. Without it focus falls to `body`, which is nowhere: the next Tab
-   * restarts from the top of the document and the reading position a person was
-   * keeping is unreachable from the keyboard.
-   *
-   * The binding holds the scroll container its own attach callback already receives,
-   * so no component reaches into the DOM and the view that mounts the scroll container is
-   * untouched.
+   * Puts keyboard focus back on the log for a caller that took it (the find field's close).
+   * Without it focus falls to `body` and the next Tab restarts from the top of the document.
    */
   readonly focusScrollContainer: () => void;
   /**
    * The state a row body parked on this window, live or re-parked after a prune.
-   *
-   * The window has held this table since it was written and nothing production-side
-   * ever read it: the one row that kept an expansion kept it in its own `useState`,
-   * which the virtualizer discards the moment the row leaves the mounted range. The
-   * lease survives both an unmount and a prune, under the parked-lease cap.
+   * Survives an unmount and a prune, up to the parked-lease cap.
    */
   readonly rowLease: (rowKey: string) => RetainedRowState | undefined;
   /** Park one row body's state on the window. */
   readonly setRowLease: (rowKey: string, lease: RetainedRowState) => void;
   /**
-   * What this window is showing, read at the instant it is asked.
-   *
-   * A FUNCTION and not a snapshot member, because most of what it reports is layout
-   * or a computation over it, and this binding deliberately keeps that off the React
-   * snapshot — publishing it there would notify the tree on every scrolled pixel.
-   * Nothing in the console renders from it: the endurance tier reads it through the
-   * fixture handle, where the several ways a transcript can show nothing are different
-   * findings that one row count answers identically. Stable across renders, so a
-   * registration keyed on it registers once.
+   * What this window is showing, read when called; stable across renders.
+   * A function, not a snapshot member: it is mostly layout, and publishing it through React
+   * would re-render on every scrolled pixel.
    */
   readonly readWindowDiagnostics: () => TranscriptWindowReading;
 }
 
+/** Inputs to `useTranscriptViewport`: the viewport conditions plus the clock. */
 export interface UseTranscriptViewportOptions extends ViewportConditions {
-  /**
-   * The clock every timer in this frame is minted through. Fixed for the mount:
-   * a viewport that swapped clocks mid-life would have work armed on one and
-   * canceled on another.
-   */
+  /** The clock every timer in this frame is minted through; fixed for the mount. */
   readonly clock: Clock;
 }
 
 /**
- * Bind a viewport controller and a virtualizer to a React tree.
+ * Binds a viewport controller and a virtualizer to a React tree.
  *
- * `rows` is expected to be MEMOIZED by the caller. The reconcile effect keys on its
- * identity, and so does the measurement ledger's key projection, so a caller that
- * rebuilds the array every render reconciles every render — a cost the caller
- * controls and this hook documents, rather than a deep compare performed on its
- * behalf.
- *
- * The re-mint arm is `frame/session/session-lifecycle.ts`' idiom, for its reason: a remount
- * of the same component instance — React's StrictMode double-mount is the one that
- * does it today — has already run the cleanup, and a disposed controller attaches
- * nothing, so the second mount takes a fresh one rather than a corpse.
+ * `rows` must be memoized by the caller: the reconcile effect and the measurement key projection
+ * key on its identity. A remount of the same instance (StrictMode) has already run the cleanup
+ * and a disposed controller attaches nothing, so the effect creates a fresh controller.
  */
 export function useTranscriptViewport(
   options: UseTranscriptViewportOptions,
 ): TranscriptViewportBinding {
   const { clock, rows, hasActiveTurn, isRevealDraining } = options;
-  // The element the controller is attached to, kept for the one act that needs the
-  // node rather than the controller. A ref rather than state: nothing renders from
-  // it, so writing it during attach must not schedule a render.
+  // The attached element, for the one act that needs the node. A ref because nothing renders
+  // from it.
   const scrollContainerRef = useRef<HTMLElement | null>(null);
   const [controller, setController] = useState<ViewportController>(
     () => new ViewportController({ clock }),
@@ -143,11 +102,8 @@ export function useTranscriptViewport(
   const virtualizer = useVirtualizer<HTMLElement, HTMLElement>({
     count: snapshot.keyProjection.virtualKeys.length,
     overscan: TRANSCRIPT_OVERSCAN_ROWS,
-    // The attribute the row primitive WRITES, named here rather than left to the
-    // library's identically-spelled default: the row and the measurement are two
-    // sides of one seam, and a default is not a seam — a rename in the primitive
-    // would leave this reading an attribute nothing writes, which measures every
-    // row as row zero with no gate anywhere to notice.
+    // Named here rather than left to the library's same-spelled default: a rename in the row
+    // primitive would otherwise measure every row as row zero with nothing to notice.
     indexAttribute: WINDOWED_ROW_INDEX_ATTRIBUTE,
     estimateSize: controller.seams.estimateSize,
     getItemKey: controller.seams.getItemKey,
@@ -156,12 +112,11 @@ export function useTranscriptViewport(
     observeElementOffset: controller.seams.observeElementOffset,
     observeElementRect: controller.seams.observeElementRect,
     measureElement: controller.seams.measureElement,
-    // React 19 logs "flushSync was called from inside a lifecycle method" when the
-    // adapter flushes its own re-render, and the render this would force is one this
-    // frame does not need: the offsets are written to the DOM directly.
+    // React 19 warns when the adapter flushes inside a lifecycle method, and offsets are written
+    // to the DOM directly, so the render is not needed.
     useFlushSync: false,
-    // Scroll ticks skip React entirely — the adapter writes each row's transform and
-    // the container's height itself, and re-renders only when the index range moves.
+    // Scroll ticks skip React: the adapter writes row transforms and the container height, and
+    // re-renders only when the index range moves.
     directDomUpdates: true,
   });
 
@@ -179,33 +134,13 @@ export function useTranscriptViewport(
     controller.reconcile({ rows, hasActiveTurn, isRevealDraining });
   }, [controller, rows, hasActiveTurn, isRevealDraining]);
 
-  // THE PRUNE THE RECONCILE ABOVE COULD NOT FINISH, RE-ASKED WHEN ITS REFUSAL
-  // LIFTS.
-  //
-  // The effect above depends on the row set and the two activity flags and on
-  // nothing else, which is right for what it does and is exactly why it is not
-  // enough on its own: the window also refuses a prune while the reader is above
-  // the tail, while history is pinned, while a programmatic scroll is mid-write, and
-  // while the rows the cap wants are held — and none of those four moves any of its
-  // three dependencies. A reader who scrolled up on a busy session and then came
-  // back to the tail therefore left the window over its cap for as long as the log
-  // stayed quiet.
-  //
-  // COULD NOT FINISH, NOT COULD NOT PERFORM. The commonest case by far is a pass
-  // that APPLIED — it took the rows above the reader and stopped at their row with
-  // thousands still over the cap. That outcome names no deferral, so it is the
-  // outcome's `owedBecause` and not its `deferredBecause` that the cycle re-asks on.
-  //
-  // THE DEPENDENCIES ARE THE TRANSITIONS AND NOT THE SCROLL. The reading fields
-  // carry the first two refusals and move only when the reading state itself does —
-  // the snapshot deliberately omits the anchor point, so scrolling within a mode
-  // changes neither. `lastPrune` is what carries the third: the veto is raised and
-  // dropped inside a single synchronous write, so by the time a render observes the
-  // refusal it recorded, the write that caused it is already over. Keying on the
-  // outcome's identity is therefore what makes that refusal reachable at all, and it
-  // cannot spin — every pass that lands takes rows the next one no longer has to,
-  // and a residual whose blocker is still standing answers `undefined` however often
-  // it is asked.
+  // Re-asks a prune the reconcile above could not finish. That effect depends only on the rows
+  // and the two activity flags, but the window also refuses a prune while the reader is above
+  // the tail, history is pinned, a programmatic scroll is mid-write, or the rows the cap wants
+  // are held; none of those moves a dependency. The reading fields carry the first two, and
+  // `lastPrune`'s identity carries the rest because the veto is raised and dropped inside one
+  // synchronous write. It cannot spin: each landed pass leaves fewer rows over the cap, and a
+  // residual whose blocker still stands answers `undefined`.
   const { mode: readingMode, pinnedRootCursor } = snapshot.reading;
   const lastPrune = snapshot.lastPrune;
   useEffect(() => {
@@ -215,27 +150,12 @@ export function useTranscriptViewport(
     controller.retryDeferredPrune();
   }, [controller, readingMode, pinnedRootCursor, lastPrune]);
 
-  // THE POSITION HOLD, PERFORMED AFTER THE HEIGHT IT DEPENDS ON IS COMMITTED.
-  //
-  // `reconcile` runs in a PASSIVE effect, so the rows it took have not rendered when
-  // it runs and the sizer still carries the previous total size. Both deferred arms
-  // fail there for that one reason: a glide to the tail lands on the bottom of the log
-  // as it was before the append, and a head hold reads the offset the row that used to
-  // be first had before a page was inserted above it. The controller therefore arms
-  // whichever is owed and this performs it — `viewport-deferred-hold.ts` states which
-  // is which.
-  //
-  // A LAYOUT effect, declared AFTER `useVirtualizer`, and both halves are the
-  // mechanism rather than style. The adapter writes the container's height under
-  // `directDomUpdates` from its own layout effect; React runs a component's layout
-  // effects in hook order, so this one runs after that write and before the browser
-  // paints. No timer and no second animation frame is involved: the signal is the
-  // library's own commit, and reading `scrollHeight` here answers with the height it
-  // just wrote.
-  //
-  // No dependency array, because the height can move on any render — a re-measured
-  // row changes the total size with the row set untouched — and the call costs a
-  // boolean read on every render that armed nothing.
+  // Performs the deferred position hold once the height it depends on is committed.
+  // `reconcile` runs in a passive effect, so the sizer still has the previous total size: a
+  // glide to the tail would land on the old bottom and a head hold would read a stale offset.
+  // A layout effect declared after `useVirtualizer` runs after the adapter's own height write
+  // and before paint, so `scrollHeight` is the fresh value. No dependency array: the height can
+  // move on any render, and the call is a boolean read when nothing is armed.
   useLayoutEffect(() => {
     if (controller.isDisposed) {
       return;
@@ -243,9 +163,7 @@ export function useTranscriptViewport(
     controller.commitPendingPositionHold();
   });
 
-  // A lease write is state the WINDOW owns, so it is not React state — but the tree
-  // has to repaint to show it. The revision is the notification, and nothing reads
-  // it: it exists so the density overlay recomputes on the frame a lease changes.
+  // A lease write is window state, not React state; the revision only re-renders the tree.
   const [leaseRevision, setLeaseRevision] = useState(0);
 
   const virtualItems = virtualizer.getVirtualItems();
@@ -274,8 +192,7 @@ export function useTranscriptViewport(
     }, [controller]),
     rowLease: useCallback(
       (rowKey: string) => {
-        // `leaseRevision` is the memo's reason to recompute, and reading it here is
-        // what makes that honest rather than a dependency nobody spends.
+        // Read so the memo recomputes when a lease changes.
         void leaseRevision;
         return controller.window.lease(rowKey);
       },
@@ -289,22 +206,17 @@ export function useTranscriptViewport(
       [controller],
     ),
     readWindowDiagnostics: useCallback((): TranscriptWindowReading => {
-      // `getVirtualItems()` FIRST, because it is the call that recomputes the range:
-      // reading `virtualizer.range` before it would report the window as it was at
-      // the last render rather than as it is now, and the two disagree exactly when
-      // this reading is worth taking.
+      // `getVirtualItems()` first: it recomputes the range, so `virtualizer.range` read before
+      // it would be stale.
       const virtualItems = virtualizer.getVirtualItems();
       const range = virtualizer.range;
-      // The ELEMENT, and not the chokepoint's last sample. The sample is what the
-      // library was told the box is, so a reading taken from it could only ever
-      // agree with the window — including when both are describing a box that has
-      // since collapsed. Read here, a disagreement between the two is visible.
+      // The element, not the chokepoint's last sample: the sample is what the library was told,
+      // so it would agree with the window even when both describe a collapsed box.
       const scrollContainer = scrollContainerRef.current;
       return {
         virtualItemCount: virtualItems.length,
-        // Counted under the SCROLL CONTAINER rather than the sizer, so a row the view placed
-        // outside the sizer is still counted and the figure cannot be flattered by
-        // asking only where rows are supposed to be.
+        // Counted under the scroll container, not the sizer, so a row placed outside the sizer
+        // still counts.
         mountedRowCount:
           scrollContainer?.querySelectorAll(`[${WINDOWED_ROW_INDEX_ATTRIBUTE}]`).length ?? 0,
         totalRowCount: virtualizer.options.count,

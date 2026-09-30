@@ -1,22 +1,8 @@
-// What an attach form holds and what makes it sendable.
-//
-// PURE, AND SEPARATE FROM THE ACT FOR THAT REASON. Everything below is a function of
-// what a user typed; nothing here reaches a bridge or holds a lifetime. The controller
-// beside it owns both.
-//
-// THE CONSOLE VALIDATES TWO THINGS AND RESOLVES NOTHING. Resolution, containment,
-// symlink following, case folding, and working-tree-boundary awareness are DAEMON
-// rules, so this module never normalizes a path, never joins one, never decides whether
-// two spellings name one place, and never asks whether a path exists. What it does is
-// refuse to put a request on the wire that the contract's own parser would reject unread
-// — an entry with no non-whitespace character, and one past `FILE_PATH_MAX_LEN` — because
-// a refusal a person can act on beats a schema failure that names a member path.
-//
-// AND IT SENDS WHAT WAS TYPED, BYTE FOR BYTE. The emptiness guard READS a trimmed copy
-// and the request carries the original: a leading or trailing space is a legal POSIX
-// filename character, so a console that trimmed on the way out would attach a
-// different directory from the one that was named — silently, and only for the paths
-// where it matters.
+// What an attach form holds and what makes it sendable. The console only refuses requests
+// the contract's parser would reject (no non-whitespace character, or past `FILE_PATH_MAX_LEN`)
+// and resolves nothing: normalization, containment and symlinks are daemon rules. The emptiness
+// check reads a trimmed copy but the request carries the path as typed, since surrounding
+// spaces are legal POSIX filename characters.
 
 import { FILE_PATH_MAX_LEN } from "@ai-sidekicks/contracts";
 
@@ -30,10 +16,8 @@ export interface AttachFormState {
 export const EMPTY_ATTACH_FORM: AttachFormState = { localPath: "" };
 
 /**
- * Whether this form can be sent, and if not, what is missing.
- *
- * A verdict rather than a boolean, because a disabled control with no sentence declines to
- * say why.
+ * Whether this form can be sent, and if not, what is missing. A verdict rather than a
+ * boolean, so a disabled control can say why.
  */
 export type AttachFormVerdict =
   | { readonly status: "sendable"; readonly localPath: string }
@@ -50,11 +34,8 @@ export function resolveAttachForm(form: AttachFormState): AttachFormResolution {
 }
 
 /**
- * The verdict itself.
- *
- * THE LENGTH IS MEASURED IN CODE UNITS, WHICH IS WHAT THE CONTRACT MEASURES. Its cap
- * is a Zod `max` on the string, so this guard is exact rather than approximate — a
- * byte count over a UTF-8 encoding would refuse paths the daemon accepts.
+ * The verdict itself. Length is measured in code units, as the contract's Zod `max` does; a
+ * UTF-8 byte count would refuse paths the daemon accepts.
  */
 function attachVerdictFor(form: AttachFormState): AttachFormVerdict {
   if (form.localPath.trim().length === 0) {

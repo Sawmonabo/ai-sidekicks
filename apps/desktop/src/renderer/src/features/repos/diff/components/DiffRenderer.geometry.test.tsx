@@ -1,10 +1,6 @@
-// A diff row under a window: where it wraps, what expands, and what a header carries.
-//
-// WHAT A ROW IS is the other half of this pair, in `DiffRenderer.test.ts` — the row
-// kinds, the two-hue rule, and the view controls the renderer is handed. Every case
-// here is about a row's GEOMETRY or its provenance: the offsets under a wrapped line,
-// an expansion that mounts rows a window had elided, the extended headers a file header
-// draws, and the marker that says a file ends without a newline.
+// A diff row under a window: the offsets under a wrapped line, an expansion that mounts rows
+// the window had elided, the extended headers a file header draws, and the marker for a file
+// that ends without a newline. Row kinds and view controls are in `DiffRenderer.test.ts`.
 
 import { fireEvent } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -71,9 +67,8 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
   });
 
   it("holds the scroller open at the height the rows measured, not the height they were estimated at", () => {
-    // One row three lines tall, and the whole diff is that much taller. This is what
-    // the scrollbar has to report; a window that multiplied a row count by a constant
-    // would report the estimate and scroll past the end of the content.
+    // One row three lines tall makes the diff that much taller; a window multiplying a row
+    // count by a constant would report the estimate and scroll past the end of the content.
     const container = renderDiff({ model: bigDiff });
     expect(contentHeightPx(container)).toBe(
       reportedRowCount(container) * DIFF_ROW_HEIGHT_PX + grownByPx,
@@ -81,10 +76,8 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
   });
 
   it("places the window below a wrapped row at the offset that row was measured at", () => {
-    // Scroll past the grown row, then ask where the window was put. Every row
-    // above the first rendered one is one row tall except the grown one, so the
-    // offset is the row count times the row height PLUS what that one row grew
-    // by — and the case is only worth anything if the scroll actually cleared it.
+    // Every row above the first rendered one is one row tall except the grown one, so the
+    // offset is the row count times the row height plus the growth. The scroll must clear it.
     const container = renderDiff({ model: bigDiff });
     const scroller = container.querySelector<HTMLElement>(".meridian-diff");
     expect(scroller).not.toBeNull();
@@ -97,9 +90,8 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
   });
 
   it("negative control: the constant-height offset is not the offset it lands on", () => {
-    // Without this the case above would pass over a window still placed at
-    // `index x row height` whenever the grown row happened to add nothing — which
-    // is exactly what the replaced arithmetic did on every scroll.
+    // Negative control: a window still placed at `index x row height` passes above whenever
+    // the grown row happens to add nothing.
     const container = renderDiff({ model: bigDiff });
     const scroller = container.querySelector<HTMLElement>(".meridian-diff");
     scroller!.scrollTop = 4_000;
@@ -113,10 +105,8 @@ describe("diff renderer — a wrapped row and the offsets under it", () => {
 
 describe("diff renderer — expansion and emptiness", () => {
   it("replaces the expanded gap with its context, leaving the diff's other gaps alone", () => {
-    // Positional rather than counted: expansion acts on ONE gap, and the row
-    // immediately after the first file header is where that shows. A count would
-    // also move because the window's rows shift under the newly revealed lines,
-    // which would make the case pass for the wrong reason.
+    // Positional, not counted: the window's rows shift under the revealed lines, so a count
+    // could pass for the wrong reason.
     const rowClassesAfterFirstFileHeader = (container: HTMLElement): string =>
       container.querySelectorAll(".meridian-diff__row")[1]?.className ?? "";
 
@@ -135,8 +125,7 @@ describe("diff renderer — expansion and emptiness", () => {
   });
 
   it("says nothing to review when a read holds no changed line", () => {
-    // `empty` and not `not-checked`: a diff WAS read here, and it holds no changed
-    // line. The pane spends `not-checked` for the other fact.
+    // `empty`, not `not-checked`: a diff was read here and holds no changed line.
     const container = renderDiff({ model: { ...SMALL_DIFF, files: [] } });
     expect(container.querySelector(".meridian-nothing--empty")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
@@ -147,12 +136,8 @@ describe("diff renderer — the file header carries what the extended headers sa
   const EXTENDED_HEADER_DIFF = buildDiffFixture(EXTENDED_HEADER_DIFF_SHAPE);
 
   /**
-   * The file-header row for one path, narrowed to that file.
-   *
-   * Narrowed rather than scrolled to: a header-only file has no hunks, so it is the
-   * change set's last row and a window bounded by the viewport need not reach it.
-   * The narrowing is the renderer's own, so the row under assertion is the row the
-   * pane draws when a reader selects that file.
+   * The file-header row for one path, narrowed to that file. Narrowed rather than scrolled to:
+   * a header-only file has no hunks, so it is the last row and the window need not reach it.
    */
   function fileHeaderTextFor(path: string): string {
     const container = renderDiff({ model: EXTENDED_HEADER_DIFF, shownFilePath: path });
@@ -189,8 +174,7 @@ describe("diff renderer — the file header carries what the extended headers sa
   });
 
   it("negative control: a file whose change is textual carries no note", () => {
-    // Without this, a header that stamped every file with a note would pass every
-    // case above while telling a reader that every file in the change set had moved.
+    // Negative control: a header that stamped every file with a note would pass above.
     const container = renderDiff({ model: SMALL_DIFF });
     expect(container.querySelector(".meridian-diff__file-change")).toBeNull();
   });
@@ -210,9 +194,8 @@ describe("diff renderer — the line that ends the file without a newline", () =
   }
 
   it("says which of two identical lines is the one with no terminator", () => {
-    // The whole subject: the deletion and the insertion are the same characters, so
-    // without the annotation the pane draws two rows a reader cannot tell apart and
-    // gives no account of what the change was.
+    // The deletion and insertion are the same characters, so without the annotation the pane
+    // draws two rows a reader cannot tell apart.
     const rows = terminalNewlineRows("unified");
     const annotated = rows.filter(
       (row) => row.querySelector(".meridian-diff__no-newline") !== null,
@@ -224,9 +207,8 @@ describe("diff renderer — the line that ends the file without a newline", () =
   });
 
   it("puts the annotation on the side that carries it in split view", () => {
-    // A paired row holds a deletion and an insertion at once, and only one of them
-    // is the line without a terminator — so a marker drawn on the row rather than
-    // the cell would claim it of both.
+    // A paired row holds a deletion and an insertion and only one lacks a terminator, so a
+    // marker on the row rather than the cell would claim it of both.
     const [pairedRow] = terminalNewlineRows("split").filter(
       (row) => row.querySelector(".meridian-diff__no-newline") !== null,
     );
@@ -238,9 +220,7 @@ describe("diff renderer — the line that ends the file without a newline", () =
   });
 
   it("negative control: an ordinary change set draws the annotation nowhere", () => {
-    // Without this, a row that stamped every last line would pass the cases above
-    // while telling a reader that every file in the change set ends without a
-    // newline.
+    // Negative control: a row that stamped every last line would pass above.
     const container = renderDiff({ model: SMALL_DIFF });
     expect(container.querySelector(".meridian-diff__no-newline")).toBeNull();
   });

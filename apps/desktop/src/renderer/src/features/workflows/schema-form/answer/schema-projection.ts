@@ -1,37 +1,9 @@
-// The answer, which is a PROJECTION of the draft and never a second copy of it.
-//
-// ONE FUNCTION COMPOSES WHAT IS CHECKED AND WHAT IS SENT, so the value the compiled
-// validator reads and the bytes a submission carries are the same bytes by construction
-// rather than by two writers that agree today. `schema-draft.ts` states the tree; this is
-// the only module that turns one into an answer.
-//
-// A MEMBER IS PRESENT EXACTLY WHILE SOMETHING ON THE SCREEN IS DISPLAYING A VALUE FOR IT,
-// AND WHERE THE CONTROL CANNOT DISPLAY ABSENCE, REQUIREDNESS DECIDES. That rule lives in
-// `schema-fields.ts` and is read here rather than restated: an answered node contributes
-// what it holds, and an unanswered one contributes `unansweredFieldValue` — which is a
-// value for the one control that cannot show absence and nothing at all for the other five.
-//
-// AN INACTIVE CONTAINER IS OMITTED WHOLE, AND AN ACTIVE ONE IS PRESENT WHATEVER IT HOLDS.
-// Nobody has said they are answering that section or that collection, so there is no
-// object and no array for the answer to carry — which is the state a presence-sensitive
-// schema needs and the one a seeded `{ settings: { enabled: false } }` could never reach.
-// Answered, a collection with no rows contributes `[]` rather than falling back through
-// `unansweredListValue`: an optional array under `maxItems: 0` at a root demanding one
-// member has exactly one valid answer, and reading presence off the row count could never
-// compose it.
-//
-// AN UNANSWERED LIST ENTRY IS OMITTED FROM THE PROJECTED ARRAY AND REPORTED AS AN ISSUE.
-// Omitted alone, a press would send fewer entries than the person can see; carried, the
-// only representation available inside a JSON array is `undefined`, which serializes to
-// `null` and makes the checked value and the sent value differ. So the entry leaves the
-// array and the form says so: `draftIssuesIn` names it, the report the form renders
-// carries that sentence, and the answer is invalid until the entry is answered or removed.
-//
-// AND THE POSITIONS THE VALIDATOR ADDRESSES ARE THE PROJECTED ONES. An entry the
-// projection dropped shifts every entry after it, so a finding the schema reports at
-// `["reviewers", 0]` can belong to the second row on the screen. `projectedEntryPosition`
-// is that translation, made once here, so no component matches a row against a position it
-// computed itself.
+// The answer is a projection of the draft (`schema-draft.ts`): the one place a draft becomes the
+// value the validator checks and a submission sends, so the two cannot differ.
+// A member is present while the screen shows a value for it; `schema-fields.ts` decides the
+// rest. An inactive container is omitted; an active one is present, `[]` included.
+// An unanswered list entry is dropped from the array and reported as an issue (`undefined` in a
+// JSON array would serialize as `null`), so finding positions are translated to projected ones.
 
 import {
   unansweredFieldValue,
@@ -64,23 +36,20 @@ export interface SchemaControlView {
 
 /** One row of a drawn collection: what it displays, under the identity it keeps. */
 export interface SchemaListEntryView extends SchemaControlView {
-  /** Minted when the entry was added, so a React subtree follows its own entry. */
+  /** Stable across removals so a React subtree follows its own entry. */
   readonly entryId: string;
   /** Whether this row has a value at all, which is what the answer omits it for. */
   readonly isAnswered: boolean;
 }
 
-/** The sentence a row with nothing in it carries, so a dropped entry is never silent. */
+/** The message a row with no value carries, so a dropped entry is never silent. */
 export function unansweredEntryMessage(index: number): string {
   return `Entry ${String(index + 1)} has no value yet.`;
 }
 
 /**
- * The answer this draft composes: what the validator checks, and what a submission sends.
- *
- * Walked over the PLAN rather than over the draft, so a member no control draws can never
- * reach the answer however the draft came to hold a node for it, and the order of the
- * members is the order the form drew them.
+ * The answer this draft composes: what the validator checks and what a submission sends.
+ * Walked over the plan, so a member no control draws never reaches the answer.
  */
 export function projectAnswer(plan: SchemaFormPlan, draft: SchemaFormDraft): SchemaFormAnswerValue {
   if (plan.shape !== "fields") {
@@ -131,10 +100,8 @@ export function listEntryViewsOf(
 }
 
 /**
- * Where one drawn row sits in the projected array, or nothing where it was dropped.
- *
- * Counted rather than looked up, because the projection is a filter and the count of
- * answered rows before this one IS the position the validator addressed it at.
+ * Where one drawn row sits in the projected array, or nothing where it was dropped: the
+ * count of answered rows before it, which is the position the validator addressed.
  */
 export function projectedEntryPosition(
   list: SchemaListDraft | undefined,
@@ -149,11 +116,8 @@ export function projectedEntryPosition(
 }
 
 /**
- * Everything wrong with the DRAFT that the answer cannot carry to the validator.
- *
- * One class today, and it is the class the projection creates: a row on the screen that
- * contributes no entry. Anything the answer can express is the schema's to judge, and a
- * second opinion here would be this form re-deciding a question the validator settles.
+ * Everything wrong with the draft that the answer cannot carry to the validator: a row on
+ * the screen that contributes no entry. Anything the answer can express is the schema's call.
  */
 export function draftIssuesIn(
   plan: SchemaFormPlan,
@@ -172,12 +136,8 @@ export function draftIssuesIn(
 }
 
 /**
- * The schema's verdict with the draft's own findings folded into it.
- *
- * Invalid the moment there is one, because a form that reported `valid` over a row nobody
- * has answered would be offering to send fewer entries than the person can see. The
- * schema's sentences are kept whole and the draft's are appended, so nothing is ranked,
- * paraphrased, or hidden.
+ * The schema's verdict with the draft's own findings appended, invalid as soon as there is
+ * one: a `valid` report over an unanswered row would offer to send fewer entries than shown.
  */
 export function reportWithDraftIssues(
   report: SchemaValidationReport | undefined,
@@ -203,12 +163,8 @@ function answeredEntryValues(entries: readonly SchemaListEntryDraft[]): readonly
 }
 
 /**
- * What one collection contributes: its answered entries, or what an unanswered one is worth.
- *
- * The LATCH decides, never the row count. An answered collection contributes an array
- * however few rows survive the projection — `[]` included — and one nobody is answering
- * contributes `unansweredListValue`, which for the required case that can never be
- * unanswered is still the `[]` its fieldset stands over.
+ * What one collection contributes: its answered entries once active (`[]` included), else
+ * what an unanswered one is worth. The active state decides, never the row count.
  */
 function projectedList(leaf: SchemaLeafEntry, node: SchemaLeafDraft | undefined): unknown {
   if (leaf.form !== "list") {

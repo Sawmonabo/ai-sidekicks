@@ -1,8 +1,6 @@
-// What the two sources compose into, and what survives the prefix.
-//
-// The rule that would rot silently: a provider entry keeps its own binding rather
-// than borrowing the group's by position. When the command list opens at all is the
-// slash-command grammar's own rule and is asserted beside it, in `slash-command-syntax.test.ts`.
+// What the two sources compose into, and what survives the prefix. A provider entry keeps its
+// own binding rather than borrowing the group's by position. When the list opens at all is
+// asserted in `slash-command-syntax.test.ts`.
 
 import { describe, expect, it } from "vitest";
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
@@ -110,8 +108,8 @@ describe("selectAddressedBindingGroup", () => {
   ];
 
   it("selects the group naming the addressed run", () => {
-    // The finding: an older Claude run beside a newer Codex one. Only the addressed
-    // run's binding may reach the list.
+    // An older Claude run beside a newer Codex one: only the addressed run's binding may reach
+    // the list.
     const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
       runId: CODEX_RUN,
       driverName: "codex",
@@ -121,8 +119,8 @@ describe("selectAddressedBindingGroup", () => {
   });
 
   it("falls back to the addressed driver where no group names the run", () => {
-    // `runId` is `null` on two legitimate arms — no live run, and two or more on one
-    // binding — and the composer's own address still names the driver it is bound to.
+    // `runId` is `null` both when no run is live and when several are; the composer's address
+    // still names its driver.
     const selected = selectAddressedBindingGroup(GROUPS, {
       runId: CLAUDE_RUN,
       driverName: "claude",
@@ -132,8 +130,7 @@ describe("selectAddressedBindingGroup", () => {
   });
 
   it("selects nothing where two groups share the addressed driver and name no run", () => {
-    // A coin flip presented as routing is worse than an absence: the command list renders
-    // the absence and offers neither binding's entries.
+    // A coin flip presented as routing is worse than an absence.
     const sameDriver: readonly ProviderCommandBindingGroup[] = [
       GROUPS[0]!,
       { ...GROUPS[1]!, binding: { driverName: "claude", providerAccountId: "account-1" } },
@@ -151,8 +148,8 @@ describe("selectAddressedBindingGroup", () => {
   });
 
   it("negative control: composing the selected group alone drops the sibling's entries", () => {
-    // Without the selection every group reached `composeCommandList`, which is exactly
-    // what put one binding's commands under another binding's address.
+    // Without the selection every group reached `composeCommandList`, putting one binding's
+    // commands under another binding's address.
     const merged = composeCommandList({ offeredCommands: OFFERED, providerGroups: RUN_ATTRIBUTED });
     const selected = selectAddressedBindingGroup(RUN_ATTRIBUTED, {
       runId: CODEX_RUN,

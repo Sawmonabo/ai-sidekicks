@@ -1,12 +1,6 @@
-// The rope's two claims: the cursor only moves forward, and no growing string is
-// ever indexed.
-//
-// The second is structural rather than observable, so it is tested the way it is
-// enforced: `isPrefixOf` and `lookahead` are driven against a source built from many
-// small appends, and the results are compared with what a naive concatenation would
-// have produced. If either ever reached for a materialized source, the answers would
-// still agree — so the cases that matter are the ones about the CURSOR, which is
-// what the rope exists to keep honest.
+// The rope's two claims: the cursor only moves forward, and no growing string is ever indexed.
+// The second is structural, so `isPrefixOf` and `lookahead` are driven against a source of many
+// small appends; the cases that matter are the ones about the cursor.
 
 import { describe, expect, it } from "vitest";
 
@@ -105,9 +99,9 @@ describe("the rope smoother — a frame never cuts a character in half", () => {
   });
 
   it("negative control: the code-unit cut at that offset WOULD have split the pair", () => {
-    // `slice(0, 3)` is the cut the budget used to make, and it ends on the pair's
-    // lead half. The guard's own return value is what says it extended rather than
-    // retreated: three units of budget move four, and the character is whole.
+    // `slice(0, 3)` is the cut a plain code-unit budget makes, and it ends on the pair's lead
+    // half. The guard's return value says it extended rather than retreated: three units of
+    // budget move four.
     const source = `ab${GRINNING_FACE}cd`;
     expect(codePointBoundaryPrefixes(source).has(source.slice(0, 3))).toBe(false);
     const smoother = fedWith([source]);

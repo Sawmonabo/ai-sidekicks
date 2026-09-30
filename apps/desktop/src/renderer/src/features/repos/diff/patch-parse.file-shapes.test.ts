@@ -1,12 +1,5 @@
-// The file shapes a patch can describe, and the marker that ends a file without a
-// newline.
-//
-// THE BODY OF A PATCH is `patch-parse.test.ts` — the hunk header, the line kinds, and
-// the intraline segments a changed pair produces. Every case here is about a file
-// whose CHANGE IS NOT IN ITS LINES: a rename, a mode change, a binary file, or a copy
-// that the extended headers carry and the hunk body does not mention at all — and the
-// marker that says a file ends without a newline, which is the one line in a patch
-// that describes the line before it rather than itself.
+// File shapes whose change is not in their lines (rename, mode change, binary, copy), which
+// the extended headers carry, and the marker that ends a file without a newline.
 
 import { describe, expect, it } from "vitest";
 
@@ -64,9 +57,8 @@ const RENAME_WITH_HUNK_PATCH = [
 
 describe("parseUnifiedPatch — a change that lives only in the extended headers", () => {
   it("carries the path a rename came from, with the git prefix stripped", () => {
-    // A mapping that kept only the selected path and `hunks` would show this file in
-    // both diff views as `+0 −0` under `docs/decisions/after.md`, and the name a
-    // reader is actually looking for would be gone.
+    // A mapping that kept only the path and `hunks` would show this file as `+0 −0` under a
+    // bare path and lose the name a reader is looking for.
     const file = parsePlainPatch(RENAME_ONLY_PATCH).files[0];
     expect(file?.path).toBe("docs/decisions/after.md");
     expect(file?.renamedFrom).toBe("docs/decisions/before.md");
@@ -86,9 +78,8 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
   });
 
   it("tells a copy from a rename, because the source still exists", () => {
-    // Folding the two would tell a reader the original is gone. `parsePatch` reads
-    // `copy from` into the same `oldFileName` and a different flag, so the two are
-    // told apart by the flag rather than by the path.
+    // Folding the two would tell a reader the original is gone. `parsePatch` reads `copy from`
+    // into the same `oldFileName` with a different flag, so the flag tells them apart.
     const file = parsePlainPatch(COPY_ONLY_PATCH).files[0];
     expect(file?.copiedFrom).toBe("config/base.yml");
     expect(file?.renamedFrom).toBeUndefined();
@@ -102,10 +93,8 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
   });
 
   it("negative control: an ordinary change declares none of the four", () => {
-    // Without this, a mapping that stamped every file `binary` or invented a
-    // `renamedFrom` from the `---` line would pass every case above, and every
-    // ordinary file in a change set would carry a note about a change it did not
-    // have.
+    // Without this, a mapping that stamped every file `binary` or invented a `renamedFrom`
+    // from the `---` line would pass every case above.
     for (const file of parsePlainPatch(PLAIN_PATCH).files) {
       expect(file.renamedFrom).toBeUndefined();
       expect(file.copiedFrom).toBeUndefined();
@@ -115,9 +104,8 @@ describe("parseUnifiedPatch — a change that lives only in the extended headers
   });
 
   it("negative control: a created file's single mode is not a mode CHANGE", () => {
-    // `parsePatch` fills `newMode` from `new file mode`, and a file that appeared
-    // did not have its mode changed — it had no mode before. A member read off one
-    // side would render "mode undefined → 100644" on every new file in a change set.
+    // `parsePatch` fills `newMode` from `new file mode`, and a new file had no mode before; a
+    // member read off one side would render "mode undefined → 100644" on every new file.
     const created = [
       "diff --git a/src/fresh.ts b/src/fresh.ts",
       "new file mode 100644",
@@ -163,9 +151,8 @@ describe("parseUnifiedPatch — the marker that says a file has no final newline
   });
 
   it("marks only the side the patch marked, which is what a newline-only change is", () => {
-    // The subject the marker exists for: the deleted and the inserted text are the
-    // same characters, so the marker on the insertion is the entire content of the
-    // change. A parser that dropped it left two rows nothing could tell apart.
+    // The deleted and inserted text are the same characters, so the marker on the insertion is
+    // the entire content of the change.
     const lines = linesOfFirstHunk(NEWLINE_REMOVED_PATCH);
     const [, deleted, inserted] = lines;
 
@@ -175,8 +162,8 @@ describe("parseUnifiedPatch — the marker that says a file has no final newline
   });
 
   it("draws no row for the marker, because the file has no such line", () => {
-    // Three lines, not four: the marker annotates the line above it and the numbering
-    // of both sides is untouched by it.
+    // Three lines, not four: the marker annotates the line above it and does not touch the
+    // numbering.
     const lines = linesOfFirstHunk(NEWLINE_REMOVED_PATCH);
     expect(lines).toHaveLength(3);
     expect(lines.map((line) => line.kind)).toStrictEqual(["context", "delete", "insert"]);
@@ -185,9 +172,8 @@ describe("parseUnifiedPatch — the marker that says a file has no final newline
   });
 
   it("negative control: an ordinary last-line change marks nothing", () => {
-    // Without this, a parser that stamped every hunk's last line would report that
-    // every file in a change set ends without a newline — which is the opposite
-    // error and just as unreadable.
+    // Without this, a parser that stamped every hunk's last line would report that every
+    // file ends without a newline.
     for (const line of linesOfFirstHunk(PLAIN_PATCH)) {
       expect(line.noNewlineAtEnd).toBeUndefined();
     }

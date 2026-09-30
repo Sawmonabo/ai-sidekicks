@@ -1,38 +1,8 @@
-// The three-call ingest protocol: open, chunk, complete — and what each answer does to
-// the ledger entry the stream is about.
-//
-// SPLIT FROM `attachment-ingest-machine.ts` ON THE SEAM BETWEEN AN ACT AND A WIRE. That
-// module owns what a user's act does to the staged list's record — attach, retry,
-// abandon, remove — a set of synchronous decisions over the ledger. This one
-// owns what happens on the wire afterwards, and hands the middle leg to
-// `attachment-ingest-chunks.ts`, which is a loop rather than a call. Three subjects,
-// three modules.
-//
-// THE PROTOCOL IS OWN-BUILT, and this module is where that is decided and why: the
-// chunking, the decoded-byte accounting, and the replay-safe retry are all CONTRACT
-// behavior, and a generic upload library would obscure every one of them. So
-// this is a class with private fields rather than a hook holding four `useState`s.
-//
-// WHAT IT CALLS. Every leg goes through the `AttachmentIngestPort` the client was handed,
-// and the ledger advances on whatever that port acknowledges: the chunk loop runs and
-// every request carries exactly the members the port names. A rejected port call is not
-// turned into state; it propagates out of `drive`. The one fault `drive` catches is local:
-// a subscriber that threw while the ledger published a write that had already landed.
-//
-// RETRY REPLAYS, IT DOES NOT RESTART. Every call of the trio is retry-safe: Init is
-// skipped where the stream is already open, and a replayed completion replays its
-// original response verbatim. So a lost response resumes at the current offset.
-//
-// A USER CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
-// ledger after its await and proceeds only if the entry still stands where it stood.
-// Abandonment makes this load-bearing: an upload stopped while Init was in flight would
-// otherwise be resumed by the continuation writing its captured entry back. A stale
-// continuation writes nothing. The one thing it does do is give back the spool the
-// daemon opened underneath it, which nobody else can: that ingest id reached no ledger
-// entry, so `abandon` never saw it.
-//
-// NO TIMER, ANYWHERE. Work happens when a user asks for it and at no other
-// moment. There is no interval, no backoff timer, and no automatic re-drive.
+// The three-call ingest protocol (open, chunk, complete) and what each answer does to the
+// ledger entry. Own-built because chunking, decoded-byte accounting and replay-safe retry are
+// contract behavior. Retry replays: open is skipped when the stream is already open, and a
+// replayed completion returns its original response. A user can act mid-call, so every
+// continuation re-reads the ledger after its await and a stale one writes nothing. No timer.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { lossyStringify } from "@renderer/lib/wire-errors.js";
@@ -58,15 +28,9 @@ export interface AttachmentIngestStreamDriverOptions {
 }
 
 /**
- * One attachment's stream, from Init to Complete, driven on demand.
- *
- * THE RUNNING SET IS RE-ENTRANCY AND NOT SUPERSESSION, which is why it is a set here
- * rather than a key taken from `lib/reads/generation-latch.ts`. Supersession in the attachment
- * modules is the ledger's stamp, which that register already supplies; what this one answers is
- * whether a second `drive` for the same attachment would put a second Init on the wire —
- * and the caller has to be able to ASK, because a retry offered while a stream is
- * running is a duplicate upload. The register answers that question only by TAKING the
- * key, which is the act the asking exists to avoid.
+ * One attachment's stream, from open to complete, driven on demand. The running set is a set
+ * rather than a latch key because a caller must be able to ask whether a stream is running
+ * without taking the key: a retry offered mid-stream would be a duplicate upload.
  */
 export class AttachmentIngestStreamDriver {
   readonly #port: Pick<AttachmentIngestPort, "begin" | "complete">;
@@ -103,14 +67,9 @@ export class AttachmentIngestStreamDriver {
 
   /**
    * Begin or resume one stream: open it if it is not open, chunk it, then complete it.
-   *
-   * Every caller discards this promise (`attach` and `retry`), so a rejected port call
-   * surfaces as the page's unhandled rejection rather than as ledger state.
-   *
-   * A subscriber that throws while the ledger publishes is different: the write has
-   * already landed, so the record is ahead of the views reading it. That is reported
-   * as an `apply-chokepoint-bypass` tripwire and not written again, since a second write
-   * would publish into the same throwing subscriber.
+   * A rejected port call propagates, since every caller discards this promise and it surfaces
+   * as the page's unhandled rejection. A subscriber that throws while the ledger publishes is
+   * reported as a tripwire and not written again: the write already landed.
    */
   public async drive(localId: string): Promise<void> {
     if (this.#runningLocalIds.has(localId)) {
@@ -141,7 +100,7 @@ export class AttachmentIngestStreamDriver {
     }
   }
 
-  /** `AttachmentIngestInit`. Skipped when the stream is already open, which is what makes retry a replay. */
+  /** Init leg; skipped when the stream is already open, which makes retry a replay. */
   async #openStream(localId: string): Promise<boolean> {
     const entry = this.#ledger.current(localId);
     const stamp = this.#ledger.stamp(localId);
@@ -151,26 +110,22 @@ export class AttachmentIngestStreamDriver {
     if (entry.ingestId !== undefined) {
       return true;
     }
-    // A `File` off a picker or a drop carries an EMPTY `type` when the browser could not
-    // place it, which is the same situation as a source that declared nothing and is
-    // reported the same way: as an absent member.
+    // A `File` off a picker or drop carries an empty `type` when the browser could not place
+    // it; that is reported the same way as a source that declared nothing, as an absent member.
     const declared = entry.declared.declaredMediaType;
     const declaredMediaType = declared === undefined || declared === "" ? undefined : declared;
     const opened = await this.#port.begin({
       sessionId: this.#sessionId,
       fileName: entry.declared.declaredName,
-      // Spread rather than assigned, so a source that declared nothing sends a request
-      // with no `mediaType` key at all. The contract makes absence a first-class state
-      // and the daemon reads presence, so a key carrying `undefined` — or an empty
-      // string — would be this console declaring a type it was never told.
+      // Spread so a source that declared nothing sends no `mediaType` key at all: the daemon
+      // reads presence, and `undefined` or an empty string would declare a type nobody gave.
       ...(declaredMediaType === undefined ? {} : { mediaType: declaredMediaType }),
       declaredSizeBytes: entry.declared.byteLength,
     });
     const settled = this.#ledger.currentIfUnchanged(localId, stamp);
     if (settled === undefined) {
-      // Abandoned, removed, or disposed while Init was in flight. The daemon opened a
-      // stream whose id never reached the ledger, so this is the only place that can
-      // ask for its spool back.
+      // Abandoned, removed, or disposed while Init was in flight. The daemon opened a stream
+      // whose id never reached the ledger, so only this path can give its spool back.
       this.#reclaimer.request(opened.ingestId);
       return false;
     }
@@ -184,7 +139,7 @@ export class AttachmentIngestStreamDriver {
     return true;
   }
 
-  /** `AttachmentIngestComplete`. The derived truth replaces the declaration here and nowhere else. */
+  /** Complete leg; the derived truth replaces the declaration here and nowhere else. */
   async #completeStream(localId: string): Promise<void> {
     const entry = this.#ledger.current(localId);
     const stamp = this.#ledger.stamp(localId);

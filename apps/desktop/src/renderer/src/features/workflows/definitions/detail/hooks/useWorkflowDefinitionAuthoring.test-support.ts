@@ -1,17 +1,9 @@
-// What both of this dispatch's suites need to press an act and read what came back.
-//
-// TWO SUITES BECAUSE THE MODULE HAS TWO HALVES, and the seam is its own: exporting
-// reaches the HOST and submits nothing, while importing rides the one create call. The
-// two ask different questions of different seams — when a clipboard write may be called
-// settled, and what a create body carries — so they are two files, and everything they
-// share is here rather than typed out twice.
-//
-// EVERY CASE DRIVES THE REAL HOOK. The create is a plain function the case hands it and
-// the host is the one native seam the export reaches.
+// What the definition authoring suites need to press an act and read what came back. Every case
+// drives the real hook; the create is a plain function the case supplies and the host clipboard
+// is the one native seam the export reaches.
 
-// The file form's chunk reads its vocabularies from the contracts package, which this
-// environment compiles from source on first load. Loading it here, when a suite imports
-// this file, keeps each case's wait about the act's verdict rather than that compile.
+// The file form's chunk reads its vocabularies from the contracts package, which compiles from
+// source on first load; importing it here keeps each case's wait about the act, not the compile.
 import "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
 import { expect } from "vitest";
@@ -113,11 +105,8 @@ export function authoringBridge(parts: BridgeParts = {}): PlatformBridge {
 
 /**
  * Mount the hook against one definition, and give the caller a way to press it.
- *
- * THE SESSION IS REQUIRED AND DOES NOT DEFAULT: a default parameter is applied to an
- * argument passed as `undefined`, so a case driving an absent session would get the
- * present one and pass against the wrong arm. The create call defaults because most
- * cases never reach it.
+ * The session has no default: a default parameter applies to an argument passed as `undefined`,
+ * so a case driving an absent session would get the present one.
  */
 export function mountAuthoring(
   bridge: PlatformBridge,
@@ -133,9 +122,8 @@ export function mountAuthoring(
     press: async (pressed) => {
       await act(async () => {
         pressed();
-        // A boundary and not a counted turn: the clipboard write and the create both
-        // settle through the normalizer and a publish, and a chain one link deeper
-        // would leave a case asserting about the state from before the answer landed.
+        // A boundary rather than a counted turn: answers settle through a normalizer and a
+        // publish, at a depth a turn count would miss.
         await crossMacrotaskBoundary();
       });
     },
@@ -155,11 +143,8 @@ export function outcomeDetail(outcome: WorkflowDetailActOutcome): string {
 }
 
 /**
- * Assert one act refused with a code the definition detail DECLARES.
- *
- * Two claims and not one: the specific code, and its membership in the closed tuple.
- * Without the second a refusal raised with a string nobody declared would pass every
- * case that names it, which is the whole failure mode the vocabulary exists to stop.
+ * Assert one act refused with a declared code: the specific code, and its membership in the
+ * closed tuple, so a refusal raised with an undeclared string cannot pass.
  */
 export function expectLocalRefusal(
   outcome: WorkflowDetailActOutcome,

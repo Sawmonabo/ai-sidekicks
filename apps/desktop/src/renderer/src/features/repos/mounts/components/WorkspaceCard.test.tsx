@@ -1,10 +1,6 @@
-// A workspace row carries what the list gave it, and nothing it invented.
-//
-// The load-bearing negative control here is the absence of a health chip.
-// `WorkspaceCard.tsx` names it a Never, and the reason is
-// structural: `WorkspaceListResponse` carries no health member because a mount's
-// reachability is the MOUNT's projection. A row that synthesized one would be
-// answering a question the daemon deliberately did not answer.
+// A workspace row carries what the list gave it and nothing it invented. There is no health
+// chip: the list carries no health member, so a row that synthesized one would answer a
+// question the daemon did not.
 
 import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -61,8 +57,7 @@ describe("WorkspaceCard — the root", () => {
   });
 
   it("says the root is pending while the workspace is provisioning", () => {
-    // A row's `fsRoot` is absent until its execution root is prepared; an empty cell
-    // would read as "this workspace has no root", which is a different and false fact.
+    // `fsRoot` is absent until the root is prepared; an empty cell would read as no root.
     const { container, getByText } = renderRow(
       workspace({ state: "preparing", fsRoot: undefined }),
     );
@@ -85,9 +80,7 @@ describe("WorkspaceCard — the stale row", () => {
   });
 
   it("negative control: a ready row renders no error region at all", () => {
-    // `lastError` is present only on a row that went stale from a recorded failure, so
-    // a card that always rendered the region would show an empty red box on every
-    // healthy workspace.
+    // `lastError` exists only on a stale row; always rendering it would show an empty box.
     const { container } = renderRow(workspace());
     expect(container.querySelector(".meridian-workspace-card__last-error")).toBeNull();
   });
@@ -106,8 +99,7 @@ describe("WorkspaceCard — two chips, and no third axis", () => {
   });
 
   it("negative control: no chip anywhere reads as a mount health verdict", () => {
-    // The two words `RepoMountHealth` ships. If either ever appears on this row, a
-    // health axis has been synthesized onto a projection that carries none.
+    // The two words `RepoMountHealth` ships; either here means a health axis was synthesized.
     const { container } = renderRow(workspace({ state: "stale", lastError: "path vanished" }));
     const head = container.querySelector(".meridian-workspace-card__head");
     expect(within(head as HTMLElement).queryByText("healthy")).toBeNull();
@@ -116,15 +108,13 @@ describe("WorkspaceCard — two chips, and no third axis", () => {
 });
 
 describe("WorkspaceCard — one posture for both binding controls", () => {
-  /** Whether the root-preparation form is live, read off the control the form is entered through. */
   function branchInput(container: HTMLElement): HTMLInputElement | null {
     return container.querySelector<HTMLInputElement>(".meridian-prepare-root__branch-input");
   }
 
   it("holds the root preparation while the mount withholds its bind controls", () => {
-    // A detached, unreachable, or identity-mismatched mount refuses every bind and
-    // every run, and a prepare is a bind. Offering the form there collects a branch
-    // name for a call the daemon has already said it will not accept.
+    // A prepare is a bind, and the mount refuses every bind; the form must not collect a
+    // branch name for a call the daemon will refuse.
     const { container } = renderRow(WRITABLE_ROW, { bindControls: DETACHED_MOUNT_BIND_CONTROLS });
 
     expect(branchInput(container)?.disabled).toBe(true);
@@ -132,9 +122,8 @@ describe("WorkspaceCard — one posture for both binding controls", () => {
   });
 
   it("holds the root preparation while a mode switch is on the wire", () => {
-    // Which call a prepare sends and whether it asks a reuse question are both read
-    // off `workspace.executionMode`, which is the member the pending switch is about
-    // to change — so a prepare sent now is a prepare for the mode being left.
+    // A prepare sent now would be for the mode being left: its call and reuse question both
+    // read `workspace.executionMode`, which the pending switch is about to change.
     const { container } = renderRow(WRITABLE_ROW, { pendingMode: "bound-root" });
 
     expect(branchInput(container)?.disabled).toBe(true);
@@ -142,8 +131,7 @@ describe("WorkspaceCard — one posture for both binding controls", () => {
   });
 
   it("negative control: a writable row on a healthy mount offers the preparation", () => {
-    // Without this the two cases above would pass against a control that was never
-    // offered at all, which is a root nobody can prepare ahead of a run.
+    // Without this the two cases above would pass against a control never offered.
     const { container } = renderRow(WRITABLE_ROW);
 
     expect(branchInput(container)?.disabled).toBe(false);

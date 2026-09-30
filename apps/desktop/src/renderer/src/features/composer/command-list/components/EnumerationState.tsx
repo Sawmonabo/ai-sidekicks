@@ -1,10 +1,6 @@
-// What the command popover says about its own enumeration.
-//
-// Split from `CommandList.tsx`. The enumeration is a live read, and
-// its state — reading, refused, cut short — is a fact about the READ rather than
-// about the commands, which is why it renders as its own line above the list rather
-// than as an entry in it. An entry would be selectable, and there is nothing there
-// to send.
+// What the command popover says about its own enumeration. The state (reading, refused, cut short)
+// is a fact about the read, not the commands, so it is its own line rather than a selectable entry
+// with nothing to send.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
@@ -14,19 +10,9 @@ import { type ReadingState } from "@renderer/lib/partial-read.js";
 import { useProviderCommandEnumeration } from "../hooks/useProviderCommandEnumeration.js";
 
 /**
- * What the provider half of the list is, when it is not the whole list.
- *
- * Six outcomes and six different next moves, which is why none of them is an empty
- * list: nobody was asked (this composer addresses the session, not an agent), the read
- * is in flight, the daemon refused, the provider answered in full for this run's
- * binding, it answered for bindings none of which is this run's — an absence about
- * ROUTING rather than about the provider's catalog, and stated as one — or it
- * answered for this run's binding and the reply says the answer was CUT.
- *
- * The group itself is the input rather than a boolean beside it: the two questions
- * this arm asks — is there a group for this run, and did it carry everything — are
- * both answered by the group, and two derived flags would be two chances to hand
- * this component one that disagreed with the list the popover rendered.
+ * The provider half of the list when it is not the whole list: nobody asked, reading, refused, no
+ * group attributable to this run's binding (a routing absence, not a claim about the catalog), or a
+ * group the reply says was cut. Takes the group, not a flag, so it cannot disagree with the list.
  */
 export function EnumerationState(props: {
   readonly enumeration: ReturnType<typeof useProviderCommandEnumeration>;
@@ -69,11 +55,8 @@ export function EnumerationState(props: {
           </div>
         );
       }
-      // Said whether the filter matched anything or not: a nonempty list off a cut
-      // enumeration looks exhaustive, and an empty one reads as a finished search.
-      // The figure is what the group DID carry, which is the only count the reply
-      // supplies — how many were dropped is not on the wire, and the `cut` reading is
-      // the one shape in the console that says so without inventing one.
+      // Said whether or not the filter matched: a nonempty list off a cut enumeration looks
+      // exhaustive. The figure is what the group carried; how many were dropped is not on the wire.
       return (
         <PartialRead
           states={[cutEnumerationReading(addressedGroup)]}
@@ -84,12 +67,8 @@ export function EnumerationState(props: {
 }
 
 /**
- * A served group's own account of how complete its list is.
- *
- * `complete` is the reply's member and `cut` is the console's word for what it means
- * — the one reading kind that says a producer stopped short without a figure for how
- * much it dropped. A complete group answers `served`, which renders nothing at all,
- * so this branch never has to be written twice.
+ * A served group's own account of how complete its list is. `cut` says a producer stopped short
+ * without a figure for what it dropped; a complete group is `served`, which renders nothing.
  */
 function cutEnumerationReading(group: ProviderCommandBindingGroup): ReadingState {
   return group.complete ? { kind: "served" } : { kind: "cut", servedCount: group.entries.length };

@@ -1,64 +1,25 @@
-// The delta-fed block segmenter — where the committed prefix ends and the volatile
-// tail begins.
-//
-// Settled blocks parse once with a two-block settle lag, and the delta-fed block
-// segmenter is own-built. The committed-and-volatile split in `markdown-rules.ts` owns
-// the other half —
-// the volatile tail is the reveal engine's and an incomplete construct never mounts. The
-// measurement is why: a whole-message re-parse costs 94.3 ms at 64 KB
-// and is linear in length, so re-parsing per token is quadratic over a stream, while a
-// 256 B–2 KB tail slice costs 0.30–1.31 ms.
-//
-// WHAT IT IS FED. The reveal engine publishes CUMULATIVE text for a lane — the whole of
-// what may be shown, growing at one end. So the segmenter takes a snapshot rather than
-// a delta and answers what changed, which is what lets one card be re-rendered from a
-// store read without the segmenter having to have seen every intermediate frame.
-//
-// AND WHETHER THAT SNAPSHOT IS THE LAST. Everything this class holds back it holds back
-// against a later character; a caller that knows there is none says so, and gets every
-// block settled and an empty tail. Without that signal a finished body keeps its last
-// two blocks and its whole remainder volatile forever, which costs a re-parse per
-// remount and — the part that is not merely slow — routes complete text through
-// `remend`, silently closing a construct its author left open on purpose.
-//
-// WHY A CLASS. It holds the split across frames and it is not a component's state: a
-// re-render must not re-split from scratch, and a card that unmounts and remounts must
-// not re-parse its whole history. The scan itself is incremental — the boundary search
-// resumes from the last committed offset, so a growing message costs its growth rather
-// than its length.
-//
-// THE SUBTLETY: A BLANK LINE IS NOT ALWAYS A BOUNDARY. Three commonmark containers hold
-// blank lines inside themselves — a fenced code block, an indented code block, and a
-// list item, whose blank line is what makes a list LOOSE rather than a list that ended.
-// Getting any of them wrong splits one construct into two documents and parses each
-// half with no memory of the other: half a code block rendered as prose, or a list
-// item's second paragraph rendered as an unrelated top-level paragraph.
-//
-// So the scan carries interior state, and that is three rules rather than a parser —
-// commonmark's block grammar has more openers than this, and a blockquote needs none of
-// them because a `>`-prefixed blank line does not trim to empty. Each rule is decided
-// from two lines: the one the block OPENED on, and the one following the blank run.
+// Splits the reveal engine's cumulative text into settled blocks and a volatile tail. Own-built
+// because re-parsing the whole message per token is quadratic: measured, a whole-message re-parse
+// costs 94.3 ms at 64 KB and grows linearly, while a 256 B-2 KB tail slice costs 0.30-1.31 ms.
+// The segmenter takes a snapshot, not a delta, so a card can re-render from a store read.
 
 import { MARKDOWN_SETTLE_LAG_BLOCKS } from "./segmentation-bounds.js";
 
 /** The split, as a card renders it. */
 export interface MarkdownSegmentation {
-  /**
-   * Complete blocks far enough behind the tail to be final. Each is parsed once and
-   * memoized by its own text.
-   */
+  /** Complete blocks far enough behind the tail to be final; each is parsed once. */
   readonly settledBlocks: readonly string[];
-  /**
-   * Everything after them: the lagged complete blocks and the incomplete tail, as one
-   * string. Re-parsed on every frame, and the only part `remend` is applied to.
-   */
+  /** Everything after them, as one string: re-parsed every frame, the only part `remend` sees. */
   readonly volatileTail: string;
 }
 
 /** What a caller knows about the snapshot beyond its text. */
 export interface MarkdownSegmentationOptions {
   /**
-   * Whether this snapshot is the body's last. See this file's header for what it buys.
+   * Whether this snapshot is the body's last. Everything otherwise held back against a later
+   * character is then settled and the tail is empty; without it a finished body keeps its last
+   * two blocks volatile and routes complete text through `remend`, which would close a
+   * construct its author left open on purpose.
    */
   readonly isFinal: boolean;
 }
@@ -70,24 +31,22 @@ interface FenceState {
 }
 
 /**
- * What the current block opened as, where that decides whether a blank line ends it.
- *
- * A closed set of exactly the two containers a fence's own state does not cover. A block
- * that opened as anything else — a paragraph, a heading, a quote, a table — takes the
- * plain rule, and `undefined` is that answer.
+ * What the current block opened as, where that decides whether a blank line ends it. A blank
+ * line is not always a boundary: fenced code, indented code and a list item (a loose list) hold
+ * blank lines inside themselves, and splitting there would parse each half with no memory of
+ * the other. Fences carry their own state; these are the other two. A blockquote needs none,
+ * since a `>`-prefixed blank line does not trim to empty.
  */
 type BlockContainer = { readonly kind: "indented-code" } | ListContainer;
 
-/** The list arm of that set, named so the reader that builds one can be typed by it. */
+/** The list arm of that set. */
 interface ListContainer {
   readonly kind: "list";
   /** Columns of indent the marker itself sat at, so a sibling can be recognized. */
   readonly markerIndent: number;
   /**
-   * The marker's own delimiter — a bullet character, or an ordered list's `.` / `)`.
-   *
-   * Commonmark starts a NEW list when this changes, so it is what separates a sibling
-   * item from a different list that happens to begin here.
+   * A bullet character or an ordered list's `.` / `)`. Commonmark starts a new list when it
+   * changes, which is what separates a sibling item from a different list.
    */
   readonly markerDelimiter: string;
   /** Columns a continuation line of this item has to reach. */
@@ -101,31 +60,28 @@ const INDENTED_CODE_INDENT = 4;
 const TAB_STOP_COLUMNS = 4;
 
 /**
- * A bullet or ordered list marker, with the whitespace that separates it from content.
- *
- * The trailing `[ \t]+|$` is what keeps `-a` out: a marker needs whitespace after it, or
- * to be the whole line (an empty item). Ordered markers are capped at nine digits, which
- * is commonmark's own limit.
+ * A bullet or ordered list marker, with the whitespace that separates it from content. The
+ * trailing `[ \t]+|$` keeps `-a` out; ordered markers cap at nine digits, commonmark's limit.
  */
 const LIST_MARKER = /^( {0,3})(?:([-+*])|(\d{1,9})([.)]))([ \t]+|$)/u;
 
+/**
+ * Holds the split across frames, so a re-render or a remount does not re-split from scratch. The
+ * scan resumes from the last committed offset, so a growing message costs its growth.
+ */
 export class MarkdownBlockSegmenter {
   /** Complete blocks, oldest first. Grows only at the end. */
   readonly #completeBlocks: string[] = [];
 
   /** The snapshot this segmentation was computed from, so growth can be detected. */
   #scannedSource = "";
-
   /** Where in `#scannedSource` the uncommitted remainder starts. */
   #remainderOffset = 0;
 
   /**
-   * Re-split for a new cumulative snapshot.
-   *
-   * A snapshot that does not extend the last one — a rollback, a lane rebase, a card
-   * handed a different message — resets the scan rather than appending to it. The
-   * reveal engine makes the same decision for the same reason: gluing a new history
-   * onto the tail of an old one is the one outcome worse than re-doing the work.
+   * Re-splits for a new cumulative snapshot. One that does not extend the last (a rollback, a
+   * rebase, a different message) resets the scan: gluing a new history onto an old tail is
+   * worse than redoing the work.
    */
   public segment(
     cumulativeSource: string,
@@ -138,8 +94,7 @@ export class MarkdownBlockSegmenter {
     this.#scannedSource = cumulativeSource;
 
     if (options.isFinal) {
-      // The lag is lifted rather than reduced: the scan has already committed the
-      // remainder, so every block is final and the tail is empty by construction.
+      // The lag is lifted: the scan already committed the remainder, so every block is final.
       return { settledBlocks: [...this.#completeBlocks], volatileTail: "" };
     }
 
@@ -165,17 +120,11 @@ export class MarkdownBlockSegmenter {
   }
 
   /**
-   * Walk the uncommitted remainder, closing every block boundary it now contains.
-   *
-   * The walk starts at `#remainderOffset` rather than at zero, which is what makes the
-   * whole thing incremental: text already committed to a block is never re-examined.
-   * Fence state is recomputed across the remainder alone, and that is sound because a
-   * boundary is only ever committed OUTSIDE a fence — so the remainder always begins at
-   * fence depth zero.
-   *
-   * On a FINAL snapshot the walk ends by committing what it has: the trailing blank run
-   * is a boundary rather than a maybe, and the unterminated last line is the author's
-   * last line rather than a line still arriving.
+   * Walks the uncommitted remainder, closing every block boundary it now contains. It starts at
+   * `#remainderOffset`, so committed text is never re-examined; fence state is recomputed across
+   * the remainder alone, which is sound because a boundary is only committed outside a fence.
+   * On a final snapshot the trailing blank run is a boundary and the unterminated last line is
+   * the author's last line.
    */
   #scanFrom(cumulativeSource: string, isFinal: boolean): void {
     let openFence: FenceState | undefined;
@@ -190,8 +139,7 @@ export class MarkdownBlockSegmenter {
         // A line with no terminator has not arrived in full; it cannot close a block.
         break;
       }
-      // On a final snapshot the last line is complete without one, and it is walked like
-      // any other so that it can close — or continue — the container ahead of it.
+      // On a final snapshot the last line is complete without a terminator.
       const lineEnd = newlineIndex === -1 ? cumulativeSource.length : newlineIndex;
       const line = cumulativeSource.slice(lineStart, lineEnd);
       const nextLineStart = lineEnd + 1;
@@ -214,8 +162,8 @@ export class MarkdownBlockSegmenter {
           continue;
         }
         if (blankRunStart !== undefined && !continuesContainer(openContainer, line)) {
-          // The blank run behind this line closed the block before it. The block keeps
-          // its own trailing blank line so a re-join reproduces the source exactly.
+          // The blank run closed the block before it; the block keeps its trailing blank line
+          // so a re-join reproduces the source.
           this.#commitBlock(cumulativeSource.slice(this.#remainderOffset, blankRunStart + 1));
           this.#remainderOffset = blankRunStart + 1;
           blockHasContent = false;
@@ -239,9 +187,8 @@ export class MarkdownBlockSegmenter {
       return;
     }
     if (blankRunStart !== undefined) {
-      // A trailing blank run is only ever pending because a lazy continuation could
-      // still follow it. On the last snapshot none can, so it is the boundary it looks
-      // like. (It cannot be set inside a fence: opening one clears it.)
+      // A trailing blank run is pending only because a lazy continuation could still follow;
+      // on the last snapshot none can. It cannot be set inside a fence: opening one clears it.
       this.#commitBlock(cumulativeSource.slice(this.#remainderOffset, blankRunStart + 1));
       this.#remainderOffset = blankRunStart + 1;
     }
@@ -258,28 +205,18 @@ export class MarkdownBlockSegmenter {
 }
 
 /**
- * Blank separator lines ahead of the tail's first content line, and nothing more.
- *
- * The block before this tail keeps its own trailing blank line so a re-join reproduces
- * the source, which is why the tail starts on one at all — and dropping the separator
- * is all that is wanted. Trimming leading WHITESPACE instead takes the indentation of
- * the first content line with it, and in commonmark that indentation is syntax: four
- * spaces open an indented code block, so `    command` would arrive at the parser as
- * an ordinary paragraph and a reader would be shown prose where an author wrote code.
- * The class is `[ \t]` rather than `\s` for the same reason the boundary scan is
- * line-oriented: `\s` matches the newline itself and would eat the line's own
- * terminator out of the middle of the run.
+ * Blank separator lines ahead of the tail's first content line, and nothing more. Trimming all
+ * leading whitespace would take that line's indentation, which is syntax: four spaces open an
+ * indented code block. `[ \t]` rather than `\s`, which would match the newline itself.
  */
 function withoutLeadingBlankLines(tail: string): string {
   return tail.replace(/^(?:[ \t]*\n)+/u, "");
 }
 
 /**
- * What container the block opening on this line is, if it is one of the two.
- *
- * Read from the block's FIRST content line and from nothing else: a container's identity
- * is fixed the moment it opens, and re-reading it from a later line would let a line
- * inside a list item claim to open an indented code block of its own.
+ * The container the block opening on this line is, if it is a list or indented code. Read from
+ * the block's first content line only: re-reading from a later line would let a line inside a
+ * list item claim to open an indented code block.
  */
 function readBlockContainer(firstContentLine: string): BlockContainer | undefined {
   const listMarker = LIST_MARKER.exec(firstContentLine);
@@ -292,7 +229,7 @@ function readBlockContainer(firstContentLine: string): BlockContainer | undefine
   return undefined;
 }
 
-/** The list container one marker match describes. Split out to keep the reader short. */
+/** The list container one marker match describes. */
 function readListContainer(listMarker: RegExpExecArray): ListContainer {
   const markerIndent = (listMarker[1] ?? "").length;
   const bullet = listMarker[2];
@@ -300,12 +237,10 @@ function readListContainer(listMarker: RegExpExecArray): ListContainer {
   const orderedDelimiter = listMarker[4] ?? "";
   const separator = listMarker[5] ?? "";
   const markerWidth = bullet === undefined ? (orderedDigits ?? "").length + 1 : 1;
-  // Commonmark puts an item's content at the first non-space column after the marker,
-  // EXCEPT where that run is five or more columns — there the run itself opens indented
-  // code inside the item and the content column is the marker plus one. A tab is treated
-  // as that same one column rather than expanded, which is the conservative reading: it
-  // under-states the continuation indent, so the scan keeps a line it is unsure about
-  // rather than splitting a construct it should not have.
+  // Commonmark puts an item's content at the first non-space column after the marker, except
+  // where that run is five or more columns: then the run opens indented code inside the item and
+  // the content column is the marker plus one. A tab counts as one column, which under-states
+  // the indent so the scan keeps a line it is unsure about rather than splitting a construct.
   const separatorWidth =
     separator.length >= 1 && separator.length <= INDENTED_CODE_INDENT && !separator.includes("\t")
       ? separator.length
@@ -319,11 +254,8 @@ function readListContainer(listMarker: RegExpExecArray): ListContainer {
 }
 
 /**
- * Whether the line after a blank run belongs to the container the block opened on.
- *
- * `false` for a block that opened on nothing container-shaped, which is the ordinary
- * paragraph-to-paragraph boundary and the answer this scan gave for every line before
- * containers were tracked at all.
+ * Whether the line after a blank run belongs to the container the block opened on; `false` for
+ * a block that opened on nothing container-shaped (the ordinary paragraph boundary).
  */
 function continuesContainer(container: BlockContainer | undefined, postBlankLine: string): boolean {
   if (container === undefined) {
@@ -336,8 +268,8 @@ function continuesContainer(container: BlockContainer | undefined, postBlankLine
   if (indent >= container.continuationIndent) {
     return true;
   }
-  // A sibling item at the same indent under the same delimiter continues the LIST even
-  // where it does not continue the item — which is exactly what a loose list is.
+  // A sibling item at the same indent and delimiter continues the list even where it does not
+  // continue the item: that is a loose list.
   const siblingMarker = LIST_MARKER.exec(postBlankLine);
   if (siblingMarker === null) {
     return false;

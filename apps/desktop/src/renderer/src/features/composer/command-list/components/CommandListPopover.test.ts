@@ -1,10 +1,6 @@
-// The popover itself: which entries reach the list, which row is active, and what a
-// press on a row that cannot run is answered with.
-//
-// Split from the command list's own suite along the same seam the modules were: the
-// command list decides WHETHER a popover is open and what a selection sends, and these
-// cases are about what an open one renders and how it is moved through. Still driven
-// through the whole composer, because that is where an open popover exists.
+// The popover itself: which entries reach the list, which row is active, and what a press on a
+// row that cannot run is answered with. Driven through the whole composer, because that is where
+// an open popover exists.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -41,10 +37,6 @@ describe("CommandList — one binding's entries reach the list", () => {
 
     await typeIntoLine(mounted.line, "/");
 
-    // The finding: the popover composed the catalog over EVERY group in the reply,
-    // so a second live binding's commands appeared under this run's name — offering
-    // a Codex entry through a Claude-bound agent, which is exactly the routing the
-    // enumeration's own provenance pair exists to prevent.
     expect(optionNames(mounted.container)).toEqual(expect.arrayContaining(["compact", "review"]));
     expect(optionNames(mounted.container)).not.toContain(UNADDRESSED_ENTRY_NAME);
   });
@@ -65,9 +57,6 @@ describe("CommandList — one binding's entries reach the list", () => {
   });
 
   it("negative control: that same group IS listed for the run it names", async () => {
-    // Without this the two cases above would hold over a popover that had simply
-    // stopped rendering provider entries. The group is unchanged; only the composer's
-    // address moves, and the entries follow it.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([
         { ...UNADDRESSED_CODEX_GROUP, runId: await addressedRunIdOfFirstAgent() },
@@ -82,7 +71,6 @@ describe("CommandList — one binding's entries reach the list", () => {
 });
 
 describe("CommandList — the list activates its active row", () => {
-  /** Registers the console act these cases activate, and counts what it ran. */
   function registerCountedConsoleCommand(): { runCount: () => number } {
     let ranCount = 0;
     commandRegistry.register({
@@ -98,9 +86,6 @@ describe("CommandList — the list activates its active row", () => {
   }
 
   it("runs the active console row on Enter, exactly once", async () => {
-    // The finding: the arrows moved `aria-activedescendant` and neither Enter nor
-    // Space did anything, so a keyboard-only person could reach the console's own
-    // act and never perform it.
     const counted = registerCountedConsoleCommand();
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
@@ -137,11 +122,8 @@ describe("CommandList — the list activates its active row", () => {
     });
     await typeIntoLine(mounted.line, "/");
     const list = await stepIntoList(mounted);
-    // Console entries lead the catalog, and HOW MANY of them there are is not this
-    // case's business: any console feature mounted beside this composer contributes
-    // its own, so a hard-coded step count turns a growing palette into a failure
-    // about arithmetic. Step while the active row still carries the run affordance
-    // and let the loop's exit condition be the claim the assertion then re-reads.
+    // Console entries lead the catalog and their number grows with the palette, so step until the
+    // active row lacks the run affordance rather than counting.
     await stepToFirstUnrunnableRow(mounted, list);
     expect(
       activeRow(mounted.container, list)?.querySelector(".meridian-command-discovery__run"),
@@ -157,9 +139,6 @@ describe("CommandList — the list activates its active row", () => {
   });
 
   it("negative control: the same key on the same list runs the console row beside it", async () => {
-    // Without this the case above would hold over a listbox that had gone inert
-    // again — the press must be a no-op BECAUSE of which row is active, not because
-    // the key reaches nothing.
     const counted = registerCountedConsoleCommand();
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
@@ -180,18 +159,12 @@ describe("CommandList — the list activates its active row", () => {
 describe("CommandList — a declared disabled entry renders disabled", () => {
   /** The scenario entry whose `enabled: true` these cases flip. */
   const FLIPPED_ENTRY_NAME = "review";
-  /** A fragment of the state the row says in its own words. */
   const UNAVAILABLE_FRAGMENT = "the provider published this entry as disabled";
-  /** A fragment of the sentence a press on a disabled row is answered with. */
   const DISABLED_PRESS_FRAGMENT = "unavailable there as well as here";
 
   /**
-   * The scenario's addressed group with one entry's `enabled` set as the case wants.
-   *
-   * Derived from the group the registered method already answered with rather than
-   * re-parsed: the flag is a wire member on a shape `callDaemon` checked, so the
-   * only thing a second parse here would prove is that a spread of a parsed value
-   * is still that value.
+   * The scenario's addressed group with one entry's `enabled` set. Not re-parsed: the flag is a
+   * wire member on a shape `callDaemon` already checked.
    */
   async function addressedGroupWithFlag(enabled: boolean): Promise<ProviderCommandBindingGroup> {
     const group = (await scenarioBindingGroups())[0];
@@ -206,7 +179,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
     } satisfies ProviderCommandBindingGroup;
   }
 
-  /** The composer over that group, filtered to the one entry by its exact name. */
   async function mountFilteredToFlippedEntry(enabled: boolean): Promise<MountedComposer> {
     const mounted = await mountComposer({
       bridge: bridgeEnumerating([await addressedGroupWithFlag(enabled)]),
@@ -216,7 +188,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
     return mounted;
   }
 
-  /** The one row that prefix leaves in the list. */
   function soleRow(mounted: MountedComposer): HTMLElement {
     const row = mounted.container.querySelector('[role="option"]');
     if (!(row instanceof HTMLElement)) {
@@ -225,7 +196,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
     return row;
   }
 
-  /** What the popover answered the last press with. */
   function pressNotice(mounted: MountedComposer): string | undefined {
     return (
       mounted.container.querySelector(".meridian-command-discovery__notice")?.textContent ??
@@ -234,10 +204,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   }
 
   it("marks the row the provider declared unavailable", async () => {
-    // The finding: `enabled: false` is returned precisely so a client can tell a
-    // disabled command from one that does not exist, and the row rendered it exactly
-    // like an available or unqualified entry — so the popover told a person the entry
-    // was among what the provider offers with no unavailable state anywhere on it.
     const row = soleRow(await mountFilteredToFlippedEntry(false));
 
     expect(row.getAttribute("aria-disabled")).toBe("true");
@@ -248,9 +214,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   });
 
   it("negative control: the same entry declared available carries none of it", async () => {
-    // Without this the case above would hold over a row that marked every provider
-    // entry — and an absent flag means the provider draws no such distinction, which
-    // is not a disabled state either.
     const row = soleRow(await mountFilteredToFlippedEntry(true));
 
     expect(row.getAttribute("aria-disabled")).toBeNull();
@@ -259,9 +222,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   });
 
   it("answers a press on it with the declared state rather than the standing rule", async () => {
-    // Not selectable for a send in either case — no provider entry is — but a person
-    // who reached this one is owed the reading the reply carried: it is disabled
-    // where it lives, which stays true wherever they try it next.
     const mounted = await mountFilteredToFlippedEntry(false);
     const list = await stepIntoList(mounted);
 
@@ -271,8 +231,6 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
   });
 
   it("negative control: the available entry answers the standing rule instead", async () => {
-    // Without this the case above would hold over a popover that had replaced the
-    // one sentence with the other for every provider row.
     const mounted = await mountFilteredToFlippedEntry(true);
     const list = await stepIntoList(mounted);
 
@@ -284,13 +242,8 @@ describe("CommandList — a declared disabled entry renders disabled", () => {
 });
 
 /**
- * Move the active row to the first entry that cannot be run.
- *
- * The console's runnable entries lead the catalog and every one of them renders the
- * run affordance, so the ABSENCE of that affordance is what identifies a provider
- * row — read off the rendered row rather than counted from a position. Bounded by the
- * number of options, so a list whose every row is runnable fails here rather than
- * pressing a key forever.
+ * Steps the active row to the first entry without the run affordance, which identifies a provider
+ * row. Bounded by the option count so a list of only runnable rows fails instead of looping.
  */
 async function stepToFirstUnrunnableRow(
   mounted: MountedComposer,

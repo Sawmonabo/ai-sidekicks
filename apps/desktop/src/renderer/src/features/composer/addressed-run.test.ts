@@ -1,9 +1,5 @@
-// Which run the composer points at, and the three readings that must not collapse.
-//
-// The failure this pins is silent and permanent: an agent whose newest run has
-// settled keeps the composer on the steer path, so every later message resolves to
-// a steer against a run the daemon will not move and comes back refused — with the
-// new-turn path unreachable for the rest of the session.
+// A composer left on a settled run keeps every message on the steer path, and the daemon refuses
+// each one, so the new-turn path is unreachable for the rest of the session.
 
 import { describe, expect, it } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
@@ -13,15 +9,7 @@ import { RUN_STATE_ADMITS_STEER, resolveAddressedRun, stateAdmitsSteer } from ".
 
 const AGENT_ID = "agent-implementer";
 
-/**
- * Every state the wire carries, as a typed literal.
- *
- * `satisfies readonly RunState[]` is what makes this a claim about the registered
- * union rather than a hand-written set beside it: a member the wire does not carry
- * fails `typecheck` here, and the totality of the record below is the annotation's
- * own. So the pair proves both directions — no key missing, no key invented — with
- * neither half reading a parser into a view's suite.
- */
+/** Every state the wire carries; `satisfies` makes a state the wire lacks fail `typecheck`. */
 const WIRE_RUN_STATES = [
   "queued",
   "starting",
@@ -45,12 +33,8 @@ function partition(...entities: readonly StoredEntity[]): Record<string, StoredE
 
 describe("RUN_STATE_ADMITS_STEER — total over the contract's own union", () => {
   it("keys exactly the states the wire carries", () => {
-    // The `Record<RunState, boolean>` annotation makes a MISSING key a compile
-    // error, so the half worth asserting at runtime is the other one: that no key
-    // here is a state the wire does not carry. The comparand is a typed literal
-    // whose every member the compiler has already checked against `RunState`, so a
-    // key invented on either side fails — the record's by this assertion, the
-    // literal's by `typecheck`.
+    // The `Record` annotation already rejects a missing key; this asserts no key is a state the
+    // wire does not carry.
     expect(Object.keys(RUN_STATE_ADMITS_STEER).sort()).toStrictEqual([...WIRE_RUN_STATES].sort());
   });
 
@@ -81,9 +65,8 @@ describe("stateAdmitsSteer — the store's string, read through the registered s
 
 describe("resolveAddressedRun — the newest run that still admits a steer", () => {
   it("prefers an older active run over a terminal one touched later", () => {
-    // This case IS the negative control for the superseded rule: "the newest run by
-    // `touchedAt`, whatever its state" answers `run-settled` here, so the assertion
-    // below fails on the code that shipped before the fix.
+    // Negative control: "newest run by `touchedAt`, whatever its state" answers `run-settled`
+    // here.
     const older = run("run-active", "running", "2026-01-01T10:00:00.000Z");
     const newer = run("run-settled", "completed", "2026-01-01T11:00:00.000Z");
     expect(resolveAddressedRun(partition(older, newer), AGENT_ID)?.id).toBe("run-active");

@@ -25,7 +25,6 @@ function event(
   };
 }
 
-/** The child's birth beat, carrying whichever linkage members the case is about. */
 function childBirth(
   sequence: number,
   linkage: Readonly<Record<string, unknown>>,
@@ -70,9 +69,8 @@ describe("the row projection's child-run summaries", () => {
   });
 
   it("summarizes no run whose creation row names no parent", () => {
-    // THE NEGATIVE CONTROL for the whole treatment. A run is a child because the
-    // daemon said so on its birth beat; without that member there is a run and no
-    // parent, and the transcript already draws one of those.
+    // Negative control: a run is a child because the daemon said so on its birth beat; without
+    // the parent member it is a plain run.
     const summaries = deriveChildRunSummaries([childBirth(1, {}), childTransition(2, "running")]);
 
     expect([...summaries.keys()]).toStrictEqual([]);
@@ -104,8 +102,7 @@ describe("the row projection's child-run summaries", () => {
     const redelivered = childBirth(2, { parentRunId: OTHER_RUN });
     const summaries = deriveChildRunSummaries([birth, redelivered]);
 
-    // First-wins, the rule the anchor index is written under: a redelivered birth
-    // would otherwise walk the card down the log and re-parent the child with it.
+    // First wins: a redelivered birth would walk the card down the log and re-parent the child.
     expect([...summaries.keys()]).toStrictEqual([birth.id]);
     expect(summaries.get(birth.id)?.parentRunId).toBe(PARENT_RUN);
   });
@@ -127,9 +124,8 @@ describe("the row projection carrying a child-run summary", () => {
   });
 
   it("leaves the member absent rather than present-and-undefined elsewhere", () => {
-    // The retention table compares own keys with `Object.is`, so a row carrying
-    // `childRunSummary: undefined` is a different row from one carrying no key at
-    // all — and every such row would lose its place on every projection pass.
+    // The retention table compares own keys with `Object.is`, so `childRunSummary: undefined`
+    // differs from no key, and every such row would lose its place on each pass.
     const { rows } = projectTranscriptRows([
       event(1, "run.running", { sessionId: SESSION_ID, runId: PARENT_RUN }),
       childBirth(2, { parentRunId: PARENT_RUN }),

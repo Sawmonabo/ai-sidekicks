@@ -1,8 +1,5 @@
-// The agent library's body, and the root of the chunk it arrives in.
-//
-// A LOADER-BACKED BODY, so the page, its registry view, its rows and its sheet are not
-// on the initial import graph: nothing paints the library before a person opens it. The
-// sheet is named here and nowhere else, so it loads with the page and no other view.
+// The agent library's body, the root of the chunk it arrives in. Loader-backed, so the page,
+// its rows and its sheet stay off the initial import graph; the sheet is imported here only.
 
 import "./agent-library.css";
 

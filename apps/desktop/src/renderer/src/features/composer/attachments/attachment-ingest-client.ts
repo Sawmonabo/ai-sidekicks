@@ -1,23 +1,7 @@
-// The staged list's user-facing acts: what attach, retry, abandon, remove,
-// and disposal do to the record of every attachment a person has handed this session.
-//
-// THREE MODULES, THREE SUBJECTS, AND THIS ONE IS THE ACTS. The staged list's own record —
-// which attachments there are, in which order, and where each one stands — is
-// `attachment-ingest-entries.ts`. The wire is `attachment-ingest-stream.ts`, whose
-// middle leg is `attachment-ingest-chunks.ts`. Giving a stopped stream's spool back is
-// `attachment-ingest-abort.ts`, whose rules are the opposite of the stream's in every
-// respect that matters; the port every leg calls through is declared in
-// `attachment-ingest-answer.ts`; and what one chunk acknowledgement establishes is
-// `attachment-ingest-acknowledgement.ts`.
-//
-// EVERY ACT HERE IS SYNCHRONOUS, and that is the seam. A press moves the ledger and
-// returns; whether anything then goes on a wire is the driver's question, and the
-// promise it answers with is deliberately discarded — a stream is not a render and a
-// press is not a round trip. The one thing this module awaits is nothing at all.
-//
-// NO TIMER, ANYWHERE. The staged list performs work when a user asks it to — attach,
-// retry, abandon — and at no other moment. There is no interval, no backoff timer, and
-// no automatic re-drive.
+// The staged list's user-facing acts: attach, retry, abandon, remove and dispose. The record
+// itself is `attachment-ingest-entries.ts`; the wire legs are in `services/`. Every act is
+// synchronous: a press moves the ledger and returns, and the stream driver's promise is
+// deliberately discarded. There is no timer, backoff or automatic re-drive.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
@@ -28,6 +12,7 @@ import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
 import { AttachmentIngestStreamDriver } from "./services/attachment-ingest-stream.js";
 import type { AttachmentIngestEntry, AttachmentSource } from "./attachment-shapes.js";
 
+/** The port to call through, the session, and an optional clock. */
 export interface AttachmentIngestClientOptions {
   readonly port: AttachmentIngestPort;
   readonly sessionId: SessionId;
@@ -35,6 +20,7 @@ export interface AttachmentIngestClientOptions {
   readonly clock?: Clock;
 }
 
+/** Every attachment a user has handed this staged list, in the order they chose. */
 /** Every attachment a user has handed this staged list, in the order they chose. */
 export class AttachmentIngestClient {
   readonly #ledger = new AttachmentIngestEntries();
@@ -59,18 +45,15 @@ export class AttachmentIngestClient {
     return this.#ledger.snapshot;
   }
 
+  /** Subscribes to each publish of the staged list; returns the unsubscribe. */
   public subscribe(sink: (entries: readonly AttachmentIngestEntry[]) => void): Unsubscribe {
     return this.#ledger.subscribe(sink);
   }
 
   /**
-   * Take one attachment and begin its stream.
-   *
-   * The count cap is NOT enforced here. The daemon refuses the whole staged list at
-   * acceptance with `artifact.too_many_attachments` and leaves every artifact minted by
-   * an earlier ingest untouched, so a client that blocked the eleventh attach would be
-   * deriving eligibility the daemon owns — and would be wrong the moment an operator
-   * raises the bound. The count is rendered against its cap and the daemon decides.
+   * Takes one attachment and begins its stream. The count cap is not enforced here: the daemon
+   * refuses the whole list at acceptance with `artifact.too_many_attachments`, and blocking the
+   * eleventh attach would be wrong once an operator raises the bound.
    */
   public attach(source: AttachmentSource): void {
     const localId = source.declared.localId;
@@ -82,18 +65,9 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * Send again after a refusal.
-   *
-   * The disposition decides the shape: `restart` drops the stream identity and the
-   * ledger and begins from the first byte, and every other disposition resumes at the
-   * current offset — which is what makes a lost response cost one chunk rather than the
-   * whole upload.
-   *
-   * ONLY FROM `refused`, which is exactly where the card offers the control. It is also
-   * the last state that still holds the payload: a completed or abandoned entry has
-   * released its bytes, so a retry from one would have nothing to send and the ledger
-   * would refuse the write anyway. Stated here so the refusal is the guard rather than
-   * the backstop.
+   * Sends again after a refusal. `restart` drops the stream identity and begins from the first
+   * byte; every other disposition resumes at the current offset, so a lost response costs one
+   * chunk. Only from `refused`, the last state that still holds the payload.
    */
   public retry(localId: string): void {
     const entry = this.#ledger.current(localId);
@@ -114,11 +88,8 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * Stop sending, and ask for the spool back.
-   *
-   * The state moves immediately because sending stops immediately; the abort call is
-   * best-effort, which is why the copy states the reaper rather than promising an
-   * instant reclaim.
+   * Stops sending and asks for the spool back. The state moves at once because sending stops at
+   * once; the abort call is best-effort, so the copy names the reaper.
    */
   public abandon(localId: string): void {
     const entry = this.#ledger.current(localId);
@@ -144,30 +115,11 @@ export class AttachmentIngestClient {
   }
 
   /**
-   * Stop the staged list, and give the daemon back every spool it is still holding.
-   *
-   * THE ABORTS GO FIRST, AND THE ORDER IS THE WHOLE POINT. Disposing the ledger is
-   * what stops the continuations, and it is also what makes the open streams
-   * unreachable: an ingest id lives in the ledger and nowhere else, so after the
-   * ledger goes nothing in this console can name one. A staged list closed with several
-   * uploads open would leave those spools and their aggregate reservations standing until
-   * the daemon's abandoned-spool reaper claimed them, and a later upload in the same
-   * session could fail capacity admission long after the composer was gone.
-   *
-   * `abandoned` entries are skipped rather than reclaimed twice: `abandon` already asked
-   * for that spool back at the moment sending stopped, and a second request for one
-   * spool is a duplicate rather than a safeguard. `complete` entries hold a finished
-   * stream, which there is nothing to reclaim from.
-   *
-   * FIRED AND NOT AWAITED. Disposal is synchronous — a staged list that waited on a
-   * best-effort abort would hold a closed composer open for an answer nothing is
-   * left to render.
-   *
-   * IDEMPOTENT, on `repo-mounts-reader.ts`'s reason for its own guard: the ledger's
-   * published snapshot outlives its disposal, so a second call would walk the same
-   * entries and send the daemon a second reclaim request for every spool the first
-   * one already asked back. React unmounts an effect twice in development strict
-   * mode, which is exactly where a staged list is disposed twice.
+   * Stops the staged list and gives back every spool still held. The aborts go first: an ingest
+   * id lives only in the ledger, so once it is disposed nothing can name an open stream, and its
+   * spool and capacity reservation would stand until the reaper claimed them. `abandoned` entries
+   * were already asked for and `complete` ones hold nothing. Fired, not awaited. Idempotent: the
+   * ledger's snapshot outlives its disposal, and strict-mode React disposes twice.
    */
   public dispose(): void {
     if (this.#disposed) {

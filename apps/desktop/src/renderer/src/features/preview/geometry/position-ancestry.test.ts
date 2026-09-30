@@ -1,15 +1,7 @@
-// The reading no other position source can take: a sibling that grew.
-//
-// The other five position sources are covered beside the observer that composes
-// them. This file is about the sixth, and about the case that has to stay cheap: a
-// document mutating under a pane that moves nothing.
-//
-// WHY THE ASSERTIONS DRIVE THE SIZE SEAM RATHER THAN WRITING TEXT INTO A NODE. The
-// environment these console tiers run on lays nothing out — every box measures zero,
-// and a rewritten text node changes no reported size — so a case that appended a
-// character and waited would pass over an observer that was never armed. The claim
-// being made is which BOXES are watched, so the fake size seam delivers to one of
-// them by name and the negative controls deliver to boxes that must not be watched.
+// The sibling-growth reading no other position source takes, and the case that must stay cheap:
+// a document mutating under a pane that moves nothing. The cases drive the fake size seam
+// because this test environment lays nothing out (every box measures zero), so appending text
+// would pass over an observer that was never armed.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -28,12 +20,9 @@ afterEach(() => {
 });
 
 /**
- * `root > (fixedSibling, ancestor > (element, paneSibling))`, in the live document.
- *
- * The shape the finding describes: `ancestor` is the fixed-size box the pane sits in,
- * `paneSibling` is the auto-sized box beside the pane whose text grows, and
- * `fixedSibling` is a box beside the ANCESTOR, which is the other half of the case —
- * a sibling one level up moves the pane exactly as a sibling beside it does.
+ * `root > (fixedSibling, ancestor > (element, paneSibling))`, in the live document. `ancestor`
+ * is the fixed-size box the pane sits in, `paneSibling` the auto-sized box beside the pane, and
+ * `fixedSibling` a box beside the ancestor, which moves the pane as a sibling beside it does.
  */
 function attachedBoxTree(): {
   readonly root: HTMLElement;
@@ -64,9 +53,8 @@ describe("readAncestrySiblings", () => {
   });
 
   it("negative control: nothing on the ancestry path is named", () => {
-    // Every one of these is already watched for size by the ancestor arm. Naming one
-    // here would arm a second observer to learn a fact the caller already has, and
-    // would make the bound below count boxes twice.
+    // Each is already watched for size by the ancestor arm; naming one here would arm a second
+    // observer for a known fact and count boxes twice.
     const boxes = attachedBoxTree();
     const siblings = readAncestrySiblings(boxes.element, readPositionAncestry(boxes.element));
 
@@ -109,11 +97,9 @@ describe("SiblingSizeObservers", () => {
   });
 
   it("negative control: a box that is not beside the ancestry reports nothing", () => {
-    // The cost half of the finding, and the whole reason this is a size reading
-    // rather than a widened subtree mutation watch: a box INSIDE a sibling changing
-    // — a rewritten label, an appended feed row — reaches this observer only if it
-    // changed the sibling's own box, and the platform decides that, not this module.
-    // A box nested somewhere else entirely reaches it never.
+    // The cost half: a box inside a sibling changing (a rewritten label, an appended feed row)
+    // reaches the observer only if it changed the sibling's own box, and the platform decides
+    // that. That is why this is a size reading and not a widened mutation watch.
     const resizeObserver = installFakeResizeObserver();
     const boxes = attachedBoxTree();
     const deepChild = document.createElement("span");
@@ -144,8 +130,8 @@ describe("SiblingSizeObservers", () => {
 
     observers.watch([boxes.fixedSibling]);
     expect(observers.watchedCount).toBe(1);
-    // The survivor is not re-armed: a diff that disconnected and re-observed the
-    // whole set would raise an initial delivery for every box on every reorder.
+    // The survivor is not re-armed: re-observing the whole set would raise an initial delivery
+    // for every box on every reorder.
     expect(resizeObserver.observedCount()).toBe(observedAfterFirstWatch);
 
     resizeObserver.deliverFor(boxes.paneSibling);

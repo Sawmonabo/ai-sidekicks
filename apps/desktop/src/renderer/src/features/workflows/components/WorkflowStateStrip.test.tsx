@@ -1,21 +1,7 @@
-// Every strip state renders its own shape, the two grammars stay apart, and the strip
-// names nothing.
-//
-// The first claim is about a SET — four states, four renderings — so the tests drive
-// `WORKFLOW_STRIP_STATES` rather than four hand-listed arms beside it. A fifth arm
-// added to the union and forgotten here fails the exhaustiveness case rather than
-// passing silently, which is the property a hand-listed set cannot have.
-//
-// The second is the one worth a test of its own: a refusal is NOT an absence. Both
-// would look like "something is wrong" to a reader skimming the markup, and only the
-// refusal carries the daemon's code — so the refusal case asserts the code is on
-// screen, and the absence cases assert it is not the shape they took.
-//
-// THE THIRD: THE STRIP DRAWS NO HEADING AND NO REGION. Every pane in the console wears
-// `PaneFrame`, whose crumb trail IS the pane's accessible name — so a heading inside
-// the body would name the pane a second time and a region inside the body would give a
-// person navigating by region two stops for one view. So this file asserts the absence
-// of a heading, because one that crept back would look like an improvement in a diff.
+// Every strip state renders its own shape, a refusal is not an absence, and the strip draws no
+// heading or region. Driven over `WORKFLOW_STRIP_STATES` so an arm added and forgotten here
+// fails the exhaustiveness case. `PaneFrame`'s crumb trail is the pane's accessible name, so a
+// heading in the body would name the pane twice.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -54,8 +40,7 @@ function renderStrip(state: WorkflowStripState): HTMLElement {
 
 describe("workflow state strip — what it leads with", () => {
   it("says what the view is for, on every arm", () => {
-    // Every arm and not one: the summary is the sentence a person reads while the
-    // view is telling them it has nothing, which is exactly when it matters.
+    // Every arm: the summary matters most when the view says it has nothing.
     for (const kind of WORKFLOW_STRIP_STATES) {
       const summary = renderStrip(STATE_BY_KIND[kind]).querySelector(".meridian-workflow__summary");
       expect([kind, summary?.textContent]).toStrictEqual([kind, "A summary."]);
@@ -63,9 +48,7 @@ describe("workflow state strip — what it leads with", () => {
   });
 
   it("draws no heading and no region of its own, because its host already is one", () => {
-    // A `<section aria-labelledby>` and an `<h2>` here would name a pane wearing the
-    // console's pane frame twice — once by the frame's crumb trail and once by a
-    // heading nested inside it.
+    // A `<section aria-labelledby>` or `<h2>` here would name the pane a second time.
     for (const kind of WORKFLOW_STRIP_STATES) {
       const strip = renderStrip(STATE_BY_KIND[kind]);
       expect([
@@ -105,17 +88,13 @@ describe("workflow state strip — one rendering per state", () => {
   });
 
   it("negative control: a refusal is not rendered as an absence", () => {
-    // Without this, the absence cases above would still pass over a strip that
-    // routed `refused` into `Nothing`'s error arm — which would drop the code.
+    // Guards against routing `refused` into `Nothing`'s error arm, which would drop the code.
     expect(renderStrip(STATE_BY_KIND.refused).querySelector(".meridian-nothing")).toBeNull();
   });
 
   it("negative control: the pane-level action prop is gone from the type, not merely unsupplied", () => {
-    // Compile-time on purpose: removing a dead prop leaves nothing to render, so no rendered
-    // assertion can tell the deletion from a caller that never passed it. The
-    // suppression below has nothing to suppress on the strip as it now stands and
-    // `tsc` fails the file for an unused directive, which is the control — and the
-    // repo's typecheck gate is what runs it.
+    // Compile-time on purpose: no rendered assertion can tell a removed prop from a caller that
+    // never passed it. The directive below fails `tsc` if the prop is ever added back.
     const { container } = render(
       <WorkflowStateStrip
         summary="A summary."

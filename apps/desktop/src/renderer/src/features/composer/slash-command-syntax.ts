@@ -1,20 +1,9 @@
-// The reserved slash prefix, read in exactly one place.
+// The reserved slash prefix, read in one place for both the command list (filtering by
+// name) and the send router (running a name), so the two never disagree.
 //
-// The command zone reads the name a person is filtering the discovery list by, and the
-// send router reads the name a person is asking it to run. Both readings live in this
-// module: two copies of one normalization drift, and the list that shows a name
-// stops agreeing with the path that acts on it while every test stays green.
-//
-// The slash prefix is reserved for client commands. A slash word on no list is not
-// a command: it goes out as typed, and there is no escape for a message that really
-// begins with a slash.
-//
-// A DIRECTIVE OPENS ITS LINE, AND THE TRIGGER IS THE FIRST CHARACTER. The send router
-// hands this module the user's text UNTOUCHED — trimming is a test there and never a
-// transform — and a grammar that skipped leading whitespace would claim pasted code
-// whose first non-blank character happens to be a slash. Indented text beginning
-// with a slash is prose; a command occupies the whole line from its first byte. Both
-// readers get that same answer, which is the property this module exists to hold.
+// A command opens its line: the trigger must be the first character of the untouched text.
+// Indented text that begins with a slash is prose, so pasted code is never claimed. A slash
+// word on no list goes out as typed; there is no escape for a message that begins with one.
 
 /** The prefix that opens the command list and claims a line for a command. */
 export const SLASH_COMMAND_TRIGGER = "/";
@@ -23,12 +12,8 @@ export const SLASH_COMMAND_TRIGGER = "/";
 const FIRST_WHITESPACE = /\s/u;
 
 /**
- * The command name a line names, or `undefined` when the line names none.
- *
- * `undefined` for ordinary prose, including an indented line.
- *
- * The empty string is a real answer and not an absence — the trigger alone has been
- * typed, which opens the list with nothing filtered and names no command to run.
+ * The command name a line names, or `undefined` for ordinary prose, including an indented
+ * line. The empty string is a real answer: the trigger alone opens the list unfiltered.
  */
 export function readSlashCommandName(lineText: string): string | undefined {
   if (!opensCommandLine(lineText)) {

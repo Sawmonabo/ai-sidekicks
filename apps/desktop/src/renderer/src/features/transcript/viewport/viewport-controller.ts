@@ -1,36 +1,10 @@
-// What holds the transcript frame's four objects together, and the hook a view reads it
-// through.
+// Holds the transcript frame's four objects together (scroll chokepoint, reading anchor,
+// measurement ledger, window cap) and decides when each is asked and what the tree is told.
 //
-// The scroll chokepoint, the reading anchor, the measurement ledger, and the window cap
-// are each one idea and each testable alone. They are also useless alone: the anchor
-// decides where the reader is and only the chokepoint can hold them there; the
-// virtualizer knows every row's offset and the anchor is the only thing that knows
-// which offset matters. This class is that wiring and nothing else.
-//
-// WHAT THE LIBRARY OWNS AND WHAT THIS CLASS OWNS. `@tanstack/react-virtual` is adopted
-// under our own scroll controller. The library owns the measurements, the offsets, the
-// total
-// size, and which indexes are inside the fold; `virtualizer-options.ts` owns every way
-// it reaches the outside world; this class owns when the four objects below are
-// asked anything, and what the tree is told afterwards.
-//
-// THE ONE PROPERTY THIS FILE STILL OWNS. **The anchor is captured from the
-// virtualizer, never from the DOM.** The row a reader is looking at and its offset both
-// fall out of measurements the library already holds, so holding a reading position
-// costs no element read at all — which is what lets `scroll-chokepoint.ts`'s "no hit
-// test per scroll event while following" hold without a special case for the anchor.
-//
-// WHAT IT NO LONGER DECLARES, in six directions, each stating why its cut is there:
-// the value vocabulary a render speaks and the two pure rules over it are
-// `viewport-snapshot.ts`'; applying the window cap and deciding whether a refusal has
-// lifted are `viewport-prune-cycle.ts`'; holding the published snapshot and deciding
-// whether a rebuild is worth a notification are `viewport-publication.ts`'; which
-// position work waits for the committed height, and what it does when it runs, are
-// `viewport-deferred-hold.ts`'; whether a set grew at the FRONT of the window is
-// `viewport-head-insertion.ts`'; and reading WHICH row the reader is on out of the
-// library's measurements — the paragraph above, the two methods that perform it and
-// the glide-in-flight refusal that guards them — is `viewport-anchor-capture.ts`'.
-// This file holds the objects and the order they are asked in.
+// The library owns measurements, offsets and the total size; `virtualizer-options.ts` owns its
+// reach to the outside world. The anchor is captured from the virtualizer, never the DOM, so
+// holding a reading position costs no element read. The snapshot vocabulary, prune cycle,
+// publication, deferred holds, head insertion and anchor capture live in `viewport-*.ts`.
 
 import { type Clock } from "@renderer/lib/clock.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
@@ -52,10 +26,12 @@ import {
 import { VirtualizerOptions, type TranscriptRowVirtualizer } from "./virtualizer-options.js";
 import { TranscriptWindow } from "./window-cap.js";
 
+/** The clock every timer and frame of the controller is minted through. */
 export interface ViewportControllerOptions {
   readonly clock: Clock;
 }
 
+/** Wires the scroll, anchor, measurement and window-cap objects into one published snapshot. */
 export class ViewportController {
   readonly scroll: ScrollController;
   readonly anchor: ReadingAnchor;
@@ -121,9 +97,8 @@ export class ViewportController {
       },
     });
     this.#teardown.push(
-      // No publication here: a scroll sample changes nothing this snapshot carries.
-      // Whatever a scroll DOES change — following became reading, the tail was
-      // reached — reaches the tree through the anchor's own notification below.
+      // No publication for a scroll sample: it changes nothing the snapshot carries. A mode
+      // change reaches the tree through the anchor's own notification below.
       this.scroll.subscribeToGeometry((geometry) => {
         this.anchor.observeGeometry(geometry);
         this.#anchorCapture.captureFrom(geometry);
@@ -132,9 +107,8 @@ export class ViewportController {
         this.#publication.publish();
       }),
       this.scroll.observeOverflow(() => {
-        // A resize moves the tail without the reader touching anything, so the
-        // position is re-held before the tree is told: a follower re-glides to the
-        // bottom the new box put there, and a reader keeps the row they are on.
+        // A resize moves the tail without the reader acting, so re-hold before the tree is
+        // told.
         this.holdReadingPosition();
         this.#publication.publish();
       }),
@@ -166,12 +140,9 @@ export class ViewportController {
   }
 
   /**
-   * Hand the controller the virtualizer the hook minted.
-   *
-   * The instance is created inside a React hook because `useFlushSync` and
-   * `directDomUpdates` are the React adapter's options and exist nowhere else; the
-   * POLICY those options run under is this class's, which is why every option body
-   * below is a method here rather than a closure in the component.
+   * Hands the controller the virtualizer the hook created. The instance must be created in a
+   * React hook (`useFlushSync` and `directDomUpdates` exist only on the adapter); the option
+   * bodies are methods here so the policy stays in this class.
    */
   public bindVirtualizer(virtualizer: TranscriptRowVirtualizer): void {
     this.#virtualizer = virtualizer;
@@ -180,33 +151,22 @@ export class ViewportController {
   }
 
   /**
-   * Fold one render's conditions in: take the rows, prune, and hold the reader's
-   * position across whatever that changed.
+   * Folds one render's conditions in: takes the rows, prunes, and holds the reader's position.
    *
-   * Order matters, and the three steps are why this method exists at all. The cap
-   * cycle runs first, because it is what can change the row set; the row set is
-   * rebuilt from what the window retained; the position is held last, because both
-   * of the steps before it can change what is above the fold.
-   *
-   * The compensation is PAID here rather than inside the cycle that incurred it,
-   * and the ordering is the reason: a glide publishes a geometry sample, and a
-   * sample taken while this frame still held the pre-prune key list would reach the
-   * anchor capture against keys the window no longer has.
+   * The cap cycle runs first because it can change the row set, the row set is rebuilt from what
+   * the window retained, and the position is held last. The prune compensation is paid here,
+   * after the rebuild, because a glide publishes a geometry sample that would otherwise reach
+   * the anchor capture against keys the window no longer has.
    */
   public reconcile(conditions: ViewportConditions): void {
     const previousHeadKey = this.#rowKeys[0];
     const previousTailKey = this.#rowKeys[this.#rowKeys.length - 1];
     const scrollTopPx = this.scroll.geometry?.scrollTop ?? 0;
-    // READ BEFORE THE CAP RUNS, because the pin has to be up when the pass happens: a
-    // backward page lands over the row cap by its own length and the cap prunes
-    // oldest-first, so an unpinned pass would take the rows that had just arrived and
-    // every press would answer with nothing.
+    // Read before the cap runs so the pin is up: a backward page lands over the row cap and the
+    // cap prunes oldest-first, so an unpinned pass would take the rows that just arrived.
     const headGrowth = this.#headGrowth.read(conditions.rows);
     if (headGrowth.headRootCursor !== undefined) {
-      // The anchor's own third rule — "pinning suppresses prune, and holds survive
-      // it" — with its first production caller. It clears when the reader reaches
-      // the tail again, by the pill or by scrolling there, which is the same act
-      // that says they are done with history.
+      // Pinning suppresses prune. It clears when the reader reaches the tail again.
       this.anchor.pin(headGrowth.headRootCursor);
     }
     const { prunedHeightPx, readingFloorRowKey } = this.#pruneCycle.run(conditions);
@@ -232,13 +192,9 @@ export class ViewportController {
   }
 
   /**
-   * Perform whatever the last reconcile armed, now that the new height is committed.
-   *
-   * The binding calls this from a layout effect declared after `useVirtualizer`, so
-   * the library has already written the container's height under `directDomUpdates`
-   * and both arms read the space they were computed for. `viewport-deferred-hold.ts`
-   * owns which arm is owed and what each one does; this is the disposal check and the
-   * delegation.
+   * Performs whatever the last reconcile armed, now that the new height is committed. The
+   * binding calls it from a layout effect declared after `useVirtualizer`, so the library has
+   * already written the container height.
    */
   public commitPendingPositionHold(): void {
     if (this.#disposed) {
@@ -248,17 +204,9 @@ export class ViewportController {
   }
 
   /**
-   * Re-ask for a prune the window refused, now that the refusal's condition is
-   * gone.
-   *
-   * A second entry point rather than a wider reconcile, because four of the seven
-   * refusals are facts about this controller that none of the reconcile's own three
-   * conditions carry — `viewport-prune-cycle.ts` states which and why, and answers
-   * whether the refusal has lifted. This method is the disposal check and the
-   * re-drive, and deliberately nothing else: a re-ask is one ordinary reconcile over
-   * the conditions the refused pass was given. "Refused" covers a pass that APPLIED
-   * and is still over its cap — a walk that stopped at the reader's row having taken
-   * some — so what is owed is read off `owedBecause` and never `deferredBecause`.
+   * Re-asks for a prune the window refused, once the refusal's condition is gone: one ordinary
+   * reconcile over the conditions the refused pass was given. `ViewportPruneCycle.owedConditions`
+   * says which refusals need it.
    */
   public retryDeferredPrune(): void {
     if (this.#disposed) {
@@ -272,10 +220,9 @@ export class ViewportController {
   }
 
   /**
-   * Declare the display every measurement is being taken on.
-   *
-   * A change drops this ledger's priors AND the library's, in one act: two caches
-   * disagreeing about a row's height is a scrollbar that never settles.
+   * Declares the display every measurement is taken on. A change drops this ledger's priors and
+   * the library's together; two caches disagreeing about a row's height gives a scrollbar that
+   * never settles.
    */
   public observeDisplaySettings(devicePixelRatio: number, rootFontSizePx: number): void {
     if (this.measurements.setDisplaySettings({ devicePixelRatio, rootFontSizePx })) {
@@ -285,19 +232,14 @@ export class ViewportController {
   }
 
   /**
-   * Put the reader back where they were, if they had left the tail.
+   * Puts the reader back where they were if they had left the tail; while following, glides to
+   * the tail instead.
    *
-   * While following, the tail is the position, so the frame glides there instead —
-   * which is the one case where the transcript moves the offset on its own, and it does
-   * it only because the reader asked for it by being at the tail.
-   *
-   * Called from `reconcile`'s own arm only where no prune compensation ran: its index
-   * lookup reads a virtualizer still in the PRE-prune offset space until React
-   * re-renders, so after a prune it would name the wrong row. That arm defers the
-   * FOLLOWING and head-insert cases to `commitPendingPositionHold` — see
-   * `viewport-deferred-hold.ts`. Called directly, as the overflow pass does, both arms
-   * run now: a container that has already resized carries a current `scrollHeight`, so
-   * there is nothing to wait for.
+   * `reconcile` calls it only where no prune compensation ran: after a prune the virtualizer is
+   * still in the pre-prune offset space until React re-renders, so its index lookup would name
+   * the wrong row. The following and head-insert cases wait for `commitPendingPositionHold`.
+   * Called directly, as the overflow pass does, everything runs now: a container that already
+   * resized has a current `scrollHeight`.
    */
   public holdReadingPosition(): void {
     const reading = this.anchor.state;
@@ -311,8 +253,8 @@ export class ViewportController {
     }
     const index = this.#rowKeys.indexOf(anchorPoint.rowKey);
     if (index < 0) {
-      // The anchored row left the window. Rather than guess at a replacement — which
-      // is how a transcript teleports — the offset is left exactly where it is.
+      // The anchored row left the window; guessing a replacement would teleport the
+      // transcript, so the offset stays.
       return;
     }
     this.scroll.glideTo(
@@ -330,9 +272,8 @@ export class ViewportController {
   /** Terminal. Every subscription this controller opened is closed here. */
   public dispose(): void {
     this.#deferredHold.disarm();
-    // The retry's hold on the last row set goes with the subscriptions: a disposed
-    // controller that kept it would hold a whole window's identity list alive for
-    // as long as anything still referenced the corpse.
+    // Drop the retry's hold on the last row set so a disposed controller keeps no window
+    // identity list alive.
     this.#pruneCycle.forgetConditions();
     for (const unsubscribe of this.#teardown) {
       unsubscribe();

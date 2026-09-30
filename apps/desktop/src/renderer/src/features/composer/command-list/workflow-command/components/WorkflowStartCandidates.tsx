@@ -1,19 +1,7 @@
-// The definitions a half-typed `/workflow start <name>` could still become.
-//
-// THE LIST IS OFFERED WHILE THE NAME IS BEING TYPED, WHICH IS THE WHOLE POINT. The
-// accelerator reads the enumeration only after Enter, to resolve a name somebody had
-// to know already, so a person who did not know it was told the name they guessed does
-// not exist and offered nothing instead. This is the other half: the same enumeration,
-// held by the caller while the argument is still open, offered as a list. The caller
-// walks it with `definition-enumeration.ts`, so a candidate offered here is a name the
-// dispatch will resolve. Nothing here reads a wire: the definitions arrive as props,
-// and the filtering as somebody types is arithmetic over the list already in hand.
-//
-// SELECTING ONE COMPLETES THE LINE — this console's own command, this console's own
-// grammar, and a line the send path accepts. The popover's standing rule that nothing
-// is inserted into the message box is about PROVIDER entries, whose text the
-// provider-bound send path refuses outright; it is not a rule about completing the
-// argument of a command the runtime itself intercepts.
+// The definitions a half-typed `/workflow start <name>` could still become, offered as a list while
+// the name is typed. Nothing here reads a wire: definitions arrive as props and filtering is over
+// the list in hand. Selecting one completes the line; the popover's rule against inserting text
+// covers provider entries only, not the argument of a command the runtime itself intercepts.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -33,9 +21,7 @@ export interface WorkflowStartCandidatesProps {
   readonly onComplete: (definitionName: string) => void;
 }
 
-/**
- * The candidate list, for the caller to mount while a `/workflow start` argument is open.
- */
+/** The candidate list, for the caller to mount while a `/workflow start` argument is open. */
 export function WorkflowStartCandidates(props: WorkflowStartCandidatesProps): React.JSX.Element {
   const { definitions, complete, typedPrefix, onComplete } = props;
   return (
@@ -55,9 +41,8 @@ function renderReading(
 ): React.JSX.Element {
   const candidates = workflowDefinitionCandidates(definitions, typedPrefix);
   if (candidates.length === 0) {
-    // Withheld under an incomplete walk, exactly as the provider enumeration withholds
-    // its own empty claim: a search that stopped short answers no question about what
-    // is missing.
+    // Withheld under an incomplete walk: a search that stopped short says nothing about what is
+    // missing.
     return complete ? (
       <Nothing
         kind="empty"

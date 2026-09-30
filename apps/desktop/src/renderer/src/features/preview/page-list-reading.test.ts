@@ -1,8 +1,5 @@
-// `pagesOf` and the two claims it keeps apart.
-//
-// "This session owns no pages" and "nobody has answered yet" are different claims, and
-// an empty array is the shape both take. So the cases pair the served-and-empty reading
-// with the arms that are not it, and each caller still branches on the reading itself.
+// An empty array is both "owns no pages" and "nobody has answered yet", so the cases pair the
+// served-and-empty reading with the arms that are not it.
 
 import { describe, expect, it } from "vitest";
 
@@ -31,14 +28,12 @@ describe("the pages a reading carries", () => {
   });
 
   it("carries none for an ended subscription, rather than the last frame", () => {
-    // A strip drawing tabs nobody is reporting any more offers close controls over
-    // pages whose existence is a memory.
+    // A strip drawing tabs nobody reports any more would offer close controls over gone pages.
     expect(pagesOf({ kind: "ended" })).toEqual([]);
   });
 
   it("negative control: a served reading with no pages is the same array as the others", () => {
-    // Which is why every caller branches on the reading and not on this result: the
-    // arms above are indistinguishable here by construction.
+    // Every caller branches on the reading, since the arms above are indistinguishable here.
     expect(pagesOf({ kind: "served", frame: { pages: [], activeIndex: -1 } })).toEqual([]);
   });
 });

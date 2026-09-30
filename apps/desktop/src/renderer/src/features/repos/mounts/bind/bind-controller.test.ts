@@ -1,7 +1,4 @@
 // The bind act: the pre-bind read, the bind, and the store it is bound against.
-//
-// Driven through the real controller over scripted calls that answer the way the daemon
-// does, recording what each bind was asked so a case can say exactly what went out.
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -98,8 +95,7 @@ afterEach(() => {
 
 describe("BindWorkspaceController — the pre-bind read", () => {
   it("asks nothing until a user opens the dialog", async () => {
-    // A session with six mounts must not put six pre-bind reads on the wire for a
-    // person who is not binding anything.
+    // A session with six mounts must not put six pre-bind reads on the wire.
     const { controller, clock } = open(OPEN_MOUNT_ID);
     controller.requestRead("reconnect");
     await settleCapabilities(controller, clock);
@@ -132,8 +128,7 @@ describe("BindWorkspaceController — the pre-bind read", () => {
   });
 
   it("declares the repos feature's own event census", () => {
-    // What a mount admits changes when the mount does, and two readers of one answer
-    // must not disagree about when it goes stale.
+    // Two readers of one answer must not disagree about when it goes stale.
     const { controller } = open(OPEN_MOUNT_ID);
     expect(controller.triggeringEventKinds.has("workspace.ready")).toBe(true);
     // Negative control: a frame about something else must not re-ask this question.
@@ -143,8 +138,7 @@ describe("BindWorkspaceController — the pre-bind read", () => {
 
 describe("BindWorkspaceController — the bind itself", () => {
   it("binds into this session and publishes the mode and state the daemon answered", async () => {
-    // The mount belongs to the machine, so the session is what says whose workspace
-    // this is; a bind without it would be refused by the contract.
+    // The mount belongs to the machine, so the session says whose workspace this is.
     const bindRequests: WorkspaceBindRequest[] = [];
     const { controller } = open(OPEN_MOUNT_ID, bindRequests);
     await controller.bind("provisioned-worktree", undefined);
@@ -163,8 +157,7 @@ describe("BindWorkspaceController — the bind itself", () => {
   it("refuses to put a second bind on the wire for one intent", async () => {
     const { controller } = open(OPEN_MOUNT_ID);
     const first = controller.bind("bound-root", undefined);
-    // The single-flight key is already taken, so the second call returns without
-    // reaching the wire, where it would have bound a second workspace.
+    // The single-flight key is taken, so the second call never reaches the wire.
     await controller.bind("provisioned-worktree", undefined);
     await first;
     const { act: settlement } = controller.snapshot;
@@ -192,7 +185,6 @@ describe("BindWorkspaceController — the bind itself", () => {
 });
 
 describe("useBindController — the store is the axis the resource key cannot carry", () => {
-  /** Bind once through the hook, and let the settlement land. */
   async function bindOnce(bind: BindBinding["bind"]): Promise<void> {
     await act(async () => {
       bind("bound-root", undefined);
@@ -201,9 +193,8 @@ describe("useBindController — the store is the axis the resource key cannot ca
   }
 
   it("mints a fresh controller when the store is rebuilt under an unchanged bridge", async () => {
-    // The defect: the seam holds one controller per `(bridge, mount id)`, and a projection
-    // rebuilt across a reconnect carries that whole address — so the controller stayed,
-    // armed on a store nothing else reads.
+    // The seam holds one controller per (bridge, mount id), and a store rebuilt across a
+    // reconnect keeps that address, so the controller stayed armed on a store nothing reads.
     const { bridge, clock } = bridgeOnClock("repos");
     const operations = scriptedDaemon();
     const rendered = renderHook(
@@ -218,15 +209,13 @@ describe("useBindController — the store is the axis the resource key cannot ca
 
     rendered.rerender({ sessionStore: new SessionStore({ sessionId: SESSION_ID }) });
 
-    // A fresh controller has sent nothing, where the retired one still held the
-    // settlement it read against the store that is gone.
+    // A fresh controller has sent nothing; the retired one still held its settlement.
     expect(rendered.result.current.reading.act.status).toBe("idle");
   });
 
   it("disposes the controller the swap replaced, once, and keeps the new one live", async () => {
-    // A controller replaced but never disposed would go on listening to a store nothing on
-    // screen is drawn from; one that disposed the new controller instead could not publish
-    // the bind below.
+    // A replaced controller left alive would keep listening to a store nothing draws from;
+    // disposing the new one instead could not publish the bind below.
     const disposals = vi.spyOn(BindWorkspaceController.prototype, "dispose");
     try {
       const { bridge, clock } = bridgeOnClock("repos");
@@ -252,8 +241,8 @@ describe("useBindController — the store is the axis the resource key cannot ca
   });
 
   it("negative control: a store standing still rebinds nothing", async () => {
-    // Without this the case above would pass against a binding that re-opened a
-    // controller on every render, which would lose the settlement on each pass.
+    // Without this the case above would pass against a binding that re-opened a controller
+    // on every render.
     const { bridge, clock } = bridgeOnClock("repos");
     const operations = scriptedDaemon();
     const sessionStore = new SessionStore({ sessionId: SESSION_ID });

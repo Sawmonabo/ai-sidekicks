@@ -1,5 +1,3 @@
-// The markdown policy, as values — and the one thing it must never do is fail open.
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -19,10 +17,8 @@ describe("deferred fences", () => {
   });
 
   it("is total over the enumeration it is derived from", () => {
-    // The two are one closed set and a predicate over it, so every declared member
-    // must answer `true`. Enumerating four literals above tests the four somebody
-    // thought of; this tests the set, and a fifth member added without a matching
-    // arm fails here rather than rendering as an ordinary code block.
+    // The set and its predicate must agree: a member added without a matching arm would render
+    // as ordinary code.
     const undeferred = DEFERRED_FENCE_LANGUAGES.filter(
       (language) => !isDeferredFenceLanguage(language),
     );
@@ -36,8 +32,8 @@ describe("deferred fences", () => {
   });
 
   it("negative control: an absent info string defers nothing", () => {
-    // A fence with no language must take the ordinary code path; deferring it would
-    // hold back every unlabeled block in the log until it settled.
+    // A fence with no language takes the ordinary code path; deferring would hold back every
+    // unlabeled block.
     expect(isDeferredFenceLanguage(null)).toBe(false);
     expect(isDeferredFenceLanguage(undefined)).toBe(false);
     expect(isDeferredFenceLanguage("")).toBe(false);

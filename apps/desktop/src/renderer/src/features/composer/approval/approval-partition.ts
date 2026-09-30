@@ -1,16 +1,6 @@
-// The pure folds over the approval reads: what each list renders from, and how far
-// each read got.
-//
-// None of them touches React and none of them performs a read, which is the whole
-// reason they are here: a fold over an answered read is a value question with a table
-// of cases, and it is testable as one only while it is not wrapped in a render.
-//
-// THE PHASE IS CARRIED, NEVER FLATTENED. `partitionApprovalRecords` answers empty arrays for
-// every phase that is not `answered`, and that is correct only because its callers
-// render the PHASE beside the arrays rather than the arrays alone. "The read is in
-// flight" and "the read answered and found none" are different next moves, and a
-// section that showed its empty copy for the first would tell an operator that
-// nothing needs them while the read is still running.
+// Pure folds over the approval reads, kept out of React so they test as value cases.
+// `partitionApprovalRecords` returns empty lists for every phase but `answered`, so callers
+// render the phase beside them: a read in flight is not a read that found none.
 
 import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
 
@@ -22,18 +12,11 @@ export interface PartitionedApprovals {
   readonly history: readonly ApprovalProjectionRow[];
 }
 
-/** Neither list has a member until a read has answered. */
 const NO_RECORDS: PartitionedApprovals = { pending: [], history: [] };
 
 /**
- * Split one answered read into the pending cards and the history.
- *
- * A rendering of ONE read rather than two reads or a filter of the wire: every
- * record the daemon returned appears in exactly one of the two lists, so the
- * history's "drops nothing" claim survives the split.
- *
- * Both lists are empty for every other phase, and that emptiness is NOT an answer —
- * every caller renders the phase this was folded from beside them.
+ * Splits one answered read into pending cards and history; every returned record lands in
+ * exactly one list. Both lists are empty for any other phase, which is not an answer.
  */
 export function partitionApprovalRecords(
   phase: ReadPhase<ApprovalProjectionRow>,

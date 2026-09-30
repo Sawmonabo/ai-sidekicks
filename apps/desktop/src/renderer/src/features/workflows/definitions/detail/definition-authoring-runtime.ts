@@ -1,16 +1,6 @@
-// What every act of a definition's detail is handed, and the one record they all write.
-//
-// ITS OWN MODULE BECAUSE THE TWO ACT MODULES TAKE FROM IT AND THE COORDINATOR TAKES
-// FROM BOTH. `definition-authoring-dispatch.ts` composes this runtime and hands it
-// to `definition-authoring-export.ts` and `definition-authoring-port-acts.ts`. Were the
-// shared shape held on the coordinator instead, each act would import its own importer
-// — a cycle `no-circular` fails — so the substrate sits below all of them and every edge
-// runs one way.
-//
-// THE HELD VALUE IS ONE RECORD AND NOT TWO, which is what `publishOutcome` is for:
-// the two acts share it, so an arm composed from a closure's copy would drop the
-// other — an export settling while an import refusal was on screen would erase the
-// refusal.
+// What every authoring act is handed, and the one record they all write. It sits below the act
+// modules and the coordinator so every import edge runs one way; a shared shape held on the
+// coordinator would make each act import its own importer, a cycle.
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type {
   WorkflowDefinitionCreateBody,
@@ -57,7 +47,6 @@ export interface AuthoringRuntime {
   readonly publish: SubjectScopedPublish<AuthoringState>;
 }
 
-/** One act that has not been attempted. */
 const IDLE_OUTCOME: WorkflowDetailActOutcome = { kind: "idle" };
 
 /** Nothing attempted — what a newly opened definition starts at. */
@@ -67,24 +56,17 @@ export const IDLE_STATE: AuthoringState = {
 };
 
 /**
- * One key per `(act, definition)`.
- *
- * The definition is in the key because this pane is RE-ADDRESSED IN PLACE: the latch
- * outlives one definition's visit, so definition A's outstanding create must not refuse
- * definition B's first press. The two acts take separate keys for the mirror reason —
- * an export superseding its own clipboard write must abandon no create.
+ * One key per `(act, definition)`: the pane is re-addressed in place and the latch outlives a
+ * visit, so one definition's outstanding create must not refuse another's first press. The
+ * acts take separate keys so an export superseding itself abandons no create.
  */
 export function actKey(act: WorkflowDetailAct, workflowDefinitionId: string | undefined): string {
   return `${act}:${workflowDefinitionId ?? ""}`;
 }
 
 /**
- * Write one act's outcome into the state this render is addressed at.
- *
- * The FUNCTION form of publish rather than a value, because the two acts share one
- * held record and a settlement composed from a closure's copy of it would drop the
- * other — an export settling while an import refusal was on screen would erase the
- * refusal.
+ * Write one act's outcome into the state this render is addressed at. It publishes with the
+ * function form so one act's settlement never erases the other act's outcome.
  */
 export function publishOutcome(
   runtime: AuthoringRuntime,
@@ -98,12 +80,8 @@ export function publishOutcome(
 }
 
 /**
- * Publish the refusal for a file-form codec that did not arrive.
- *
- * ONE SENTENCE FOR BOTH ACTS, because it is one fact: the reader and the writer are the
- * same module and it is fetched on first use, so an export and an import fail together
- * or not at all. Two spellings of it would drift the first time either was reworded.
- * That shared sentence is also why this lives here rather than on either act.
+ * Publish the refusal for a file-form codec that did not arrive. One sentence serves both acts
+ * because the reader and writer are one lazily fetched module, so they fail together.
  */
 export function publishCodecUnavailable(
   runtime: AuthoringRuntime,

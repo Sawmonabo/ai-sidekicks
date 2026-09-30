@@ -1,9 +1,5 @@
-// The rows the changed-file list holds, and the index the window addresses them by.
-//
-// Driven directly rather than through the component, which is the point of the model
-// being a module: the window, the keyboard, and the selection all address the same
-// index space, and a case that had to render a pane to check an off-by-one would be
-// checking the DOM's arithmetic rather than the list's.
+// The changed-file list's rows and the index the window, keyboard and selection share,
+// driven without rendering a pane.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,8 +22,8 @@ describe("diffFileListReading", () => {
   });
 
   it("keeps the reset control counting the whole change set under a filter", () => {
-    // The count is what the control DOES — clear the narrowing — and a count that
-    // followed the filter would report the change set as smaller than it is.
+    // The count is what the control does (clear the narrowing); a count that followed the
+    // filter would report the change set as smaller than it is.
     const { entries, matchCount } = diffFileListReading(DIFF, "module-01");
     expect(entries[0]).toStrictEqual({ kind: "all-files", fileCount: SMALL_DIFF_SHAPE.fileCount });
     expect(matchCount).toBe(1);
@@ -51,8 +47,8 @@ describe("diffFileListReading", () => {
   });
 
   it("negative control: a filter matching nothing still leaves the reset control", () => {
-    // Without this, a reading that returned an empty sequence for a filter nobody
-    // matched would leave the list with no way back to the whole change set.
+    // Without this, an empty reading for an unmatched filter would leave no way back to the
+    // whole change set.
     const { entries, matchCount } = diffFileListReading(DIFF, "no-such-path");
     expect(matchCount).toBe(0);
     expect(entries).toStrictEqual([{ kind: "all-files", fileCount: SMALL_DIFF_SHAPE.fileCount }]);
@@ -75,16 +71,14 @@ describe("selectedEntryRow", () => {
   });
 
   it("answers that the filter hides the narrowing rather than naming another row", () => {
-    // Row zero is the control that CLEARS the narrowing, so answering it for a
-    // narrowing the filter hid made the list mark "All files" current while the
-    // renderer went on showing the hidden file.
+    // Row zero clears the narrowing, so answering it for a hidden narrowing would mark "All
+    // files" current while the renderer still shows the hidden file.
     const { entries } = diffFileListReading(DIFF, "module-01");
     expect(selectedEntryRow(entries, FIRST_PATH)).toStrictEqual({ kind: "hidden-by-filter" });
   });
 
   it("negative control: a filter that still shows the narrowing answers its row", () => {
-    // Without this the arm above would pass against a reading that called every
-    // narrowing hidden the moment a filter was typed at all.
+    // Guards against a reading that calls every narrowing hidden once any filter is typed.
     const { entries } = diffFileListReading(DIFF, FIRST_PATH);
     expect(selectedEntryRow(entries, FIRST_PATH)).toStrictEqual({ kind: "row", index: 1 });
   });

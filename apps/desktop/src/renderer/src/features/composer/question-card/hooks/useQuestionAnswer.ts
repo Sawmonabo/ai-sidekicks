@@ -1,15 +1,8 @@
 // The answer a question card delivers, and where that delivery has got to.
 //
-// ONE CALL ANSWERS THE QUESTION. `question.resolve` takes every answer at once, one per
-// question in the record's own order, and the daemon refuses a list that does not
-// answer every question. The call is taken as an argument until the daemon serves it,
-// so this module constructs no wire of its own.
-//
-// AND IT IS NOT FIRE-AND-FORGET. The call answers `served` or `refused` for every
-// outcome a transport can have, so a caller that ignored the reply would have decided
-// that a refusal looks exactly like a success — an answer that never reached the daemon
-// left the run blocked with nothing on screen saying so. This hook holds what came back,
-// and the question card renders it.
+// `question.resolve` takes every answer at once, one per question in the record's order, and
+// the daemon refuses a list that leaves one out. The call is passed in, and its reply is held
+// because ignoring it would show a refused answer as a success and leave the run blocked.
 
 import { useCallback, useState } from "react";
 
@@ -38,13 +31,9 @@ export interface QuestionAnswerHandle {
 }
 
 /**
- * Deliver a question record's answers, and hold what the reply said about them.
- *
- * SINGLE-FLIGHT, AND NO SECOND ANSWER AFTER ONE LANDED. A press while a call is in flight
- * is answered with the state already on screen; a press after the daemon took an answer
- * is refused too, because the question is answered and a second delivery would be a
- * second answer to a question that has one. A REFUSED answer is the case both of those
- * exist to leave open — nothing reached the daemon, so pressing again dispatches again.
+ * Delivers a question record's answers and holds what the reply said. Single-flight: a press
+ * while a call is out, or after the daemon took an answer, does nothing; a refusal leaves
+ * the press live, since nothing reached the daemon.
  */
 export function useQuestionAnswer(
   questionId: string,
@@ -57,8 +46,7 @@ export function useQuestionAnswer(
         return;
       }
       setDelivery({ status: "delivering" });
-      // NO `catch` ARM: the call answers `served` or `refused` for every outcome a
-      // transport can have, so a `catch` here would be a branch nothing can reach.
+      // No `catch`: the call answers `served` or `refused` for every transport outcome.
       void resolveQuestion({
         questionId: heldIdAsWireId(questionId),
         answers,

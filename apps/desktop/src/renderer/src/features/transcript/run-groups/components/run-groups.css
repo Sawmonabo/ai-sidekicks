@@ -1,19 +1,14 @@
-/* The run group's header (its disclosure, the actor it names, its terminal figure and
- * counts) and its body, shared by the two components here and imported by the
- * transcript's chunk root. The body
- * block below is the run group's nested scroller: the rows the outer list's ceiling left
- * out, bounded, faded at the top edge, and re-pinned by the engine's own anchoring.
+/* The run group's header (disclosure, actor, state and counts) and its body, shared by the two
+ * components. The body is the run group's nested scroller: the rows the outer list's ceiling
+ * left out, bounded, faded at the top edge, and re-pinned by the engine's own anchoring.
  */
 
 /* --- Structure: the run group header --------------------------------------- */
 
 /*
- * One finished run, on one line, with the disclosure that opens it.
- *
- * The 2 px inline-start edge is the same attribution edge a transcript row wears, set
- * from the user wheel by the component so a run group and the rows inside it
- * are colored by one allocation. The fallback is the neutral border, which is what
- * an unattributed run group takes — never a user hue nobody was allocated.
+ * One finished run, on one line, with the disclosure that opens it. The 2 px inline-start edge
+ * is the attribution edge a transcript row wears, set from the actor hue wheel by the
+ * component; the neutral border is the fallback for an unattributed run group.
  */
 
 .meridian-run-group-header {
@@ -58,10 +53,7 @@
 
 /* --- Structure: the run group body ----------------------------------------- */
 
-/*
- * The body is a full row of the wrapping header, so the scroller sits UNDER the line
- * rather than beside the counts it belongs to.
- */
+/* The body is a full row of the wrapping header, so the scroller sits under the line. */
 
 .meridian-run-group-body {
   position: relative;
@@ -70,16 +62,10 @@
 }
 
 /*
- * The nested scroller. Its height is set by the component from a CSS length the
- * engine was asked about first, so this rule carries no height of its own — a
- * declaration here would be a second answer to that question and would win or lose by
- * cascade order rather than by support.
- *
- * `overflow-anchor` is the re-pin, declared rather than left to the default: when a
- * row above the reading position settles to a different height, the engine holds the
- * reading position instead of letting the content slide under it. The transcript writes
- * scroll offsets in one module, so this body's re-pin is the platform's and not a
- * second writer's.
+ * The nested scroller. Its height is set by the component from a CSS length the engine was
+ * asked about first, so no height is declared here. `overflow-anchor` is declared so the
+ * engine holds the reading position when a row above it settles to a different height; the
+ * transcript's scroll offsets are written in one module, and this re-pin is the platform's.
  */
 
 .meridian-run-group-body__scroller {
@@ -93,9 +79,8 @@
 }
 
 /*
- * The top-edge fade: the console's own, drawn over the scroller's first lines while
- * anything is clipped above them. It is never the scroll anchor — an anchored overlay
- * would hold the fade still and move the rows behind it.
+ * The top-edge fade, drawn over the scroller's first lines while anything is clipped above
+ * them. Never the scroll anchor: an anchored overlay would hold the fade still.
  */
 
 .meridian-run-group-body__fade {

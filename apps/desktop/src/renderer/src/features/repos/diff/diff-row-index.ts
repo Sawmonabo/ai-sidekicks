@@ -1,30 +1,11 @@
-// Which rows of a diff exist, at which offsets.
+// Which rows of a diff exist, at which offsets. Files hold hunks and hunks hold lines, and a
+// virtualizer needs a flat count, so the flattening is done here; the window itself is
+// `@tanstack/react-virtual`'s and is not computed here, since it would assume every row is
+// one row tall, which is false once a long line wraps. Nothing here renders or imports React.
 //
-// A diff is not a list of items, it is a nested structure — files hold hunks,
-// hunks hold lines, and gaps between hunks hold lines a reader has not asked for
-// yet — and every virtualizer's contract starts from a flat count. So the
-// flattening IS the work, and it is the part a library cannot do. What is left
-// after it — which of those rows a scroll position needs, at what offset, under
-// what total height — is `@tanstack/react-virtual`'s, the adopted virtualizer
-// `DiffRenderer.tsx` is the seam for.
-// This module answers the count and the addressing and computes no window: a window
-// computed here would assume every row is exactly one row tall, which is false as soon
-// as a long line wraps.
-//
-// WHAT A ROW IS, and how much of a gap has been revealed, are `diff-row-model.ts`'s:
-// values the renderer and the pane hold, which this module reads and does not declare.
-//
-// WHY THE FLATTENING IS AN INDEX AND NOT AN ARRAY. A forty-file, five-thousand
-// line change set is about five thousand rows; materializing them costs an object
-// per row that is alive for as long as the diff is open, and every gap expansion
-// rebuilds all of them. This class stores the per-file and per-hunk OFFSETS —
-// tens of numbers — and answers `rowAt` by binary search, so the memory it holds
-// is a function of the change set's shape rather than of its size, and an
-// expansion re-derives one prefix-sum instead of five thousand objects.
-//
-// THIS MODULE RENDERS NOTHING and imports no React. It is the arithmetic the
-// renderer asks; every test of it runs without a DOM, which is what lets the
-// endurance tier measure a five-thousand-line change set at all.
+// The flattening is an index, not an array: it stores per-file and per-hunk offsets and
+// answers `rowAt` by binary search, so memory follows the change set's shape rather than its
+// row count, and an expansion re-derives one prefix sum instead of thousands of row objects.
 
 import type { DiffModel, DiffLine, DiffViewMode } from "./diff-model.js";
 import {
@@ -41,19 +22,13 @@ import {
 } from "./hunk-row-layout.js";
 
 /**
- * The flattened row index of one diff, under one expansion state, narrowed to at
- * most one of its files.
+ * The flattened row index of one diff, under one expansion state, narrowed to at most one of
+ * its files. Immutable: an expansion produces a new index, which is what keeps a memoized
+ * renderer correct.
  *
- * Immutable: an expansion produces a NEW index, which is what makes a memoized
- * renderer correct — a mutated index would report new rows against an unchanged
- * identity and the rows on screen would not move.
- *
- * NARROWING IS A VIEW OVER THE WHOLE MODEL AND NEVER A SMALLER MODEL. `DiffPane.tsx`
- * opens on its file list and narrows the rows to the file a person picks;
- * doing that by filtering `model.files` renumbers them, and every index the rows
- * then hand back — to the expansion key, and to the host resolving how much
- * context a gap still holds — addresses the wrong file. So the file stays where
- * it is and the flattening skips the others.
+ * Narrowing is a view over the whole model, never a smaller model: filtering `model.files`
+ * would renumber the files and every index the rows hand back (the expansion key, the gap
+ * context lookup) would address the wrong file.
  */
 export class DiffRowIndex {
   readonly #model: DiffModel;
@@ -68,20 +43,14 @@ export class DiffRowIndex {
     /** Show only the file at this wire-verbatim path. Absent shows every file. */
     shownFilePath?: string,
     /**
-     * Which layout these rows are flattened for.
-     *
-     * The view mode is an input to the FLATTENING and not only to the row
-     * renderer, because in split view a modified line is one row addressing two
-     * lines rather than two rows addressing one each. A renderer that paired at
-     * paint time would be pairing rows the count above it had already spaced
-     * apart.
+     * Which layout these rows are flattened for. It shapes the flattening itself, not only
+     * the renderer: in split view a modified line is one row addressing two lines.
      */
     viewMode: DiffViewMode = "unified",
   ) {
     this.#model = model;
     this.#expansion = expansion;
-    // The mode is not held: it is an input to the FLATTENING, which happens here, and
-    // a field nothing reads afterwards would suggest a lookup still consults it.
+    // The mode is not held: it only shapes the flattening done here.
 
     const fileSpans: FileRowSpan[] = [];
     let rowCursor = 0;
@@ -90,27 +59,24 @@ export class DiffRowIndex {
         return;
       }
       const startRowIndex = rowCursor;
-      // The file's own header.
       let fileRowCount = 1;
       const hunkSpans: HunkRowSpan[] = [];
       file.hunks.forEach((hunk, hunkIndex) => {
         const available = hunk.precedingContext.length;
         const revealed = Math.min(available, expansion.get(diffGapKey(fileIndex, hunkIndex)) ?? 0);
-        // A gap row exists only while the gap still hides something.
         const hidden = available - revealed;
         const bodyLayout = buildHunkBodyLayout(hunk.lines, viewMode);
         this.#bodyLayoutBuildCount += 1;
-        // The gap row, the revealed context, the hunk header, then the body — whose
-        // row count is the flattening's own rather than a second count that could
-        // disagree with it.
+        // The gap row, the revealed context, the hunk header, then the body, whose row count
+        // comes from the flattening itself.
         const hunkRowCount = (hidden > 0 ? 1 : 0) + revealed + 1 + hunkBodyRowCount(bodyLayout);
         hunkSpans.push({
           hunkIndex,
           startRowIndex: fileRowCount,
           hiddenLineCount: hidden,
           revealedLineCount: revealed,
-          // Revealed context is the TAIL of `precedingContext` — the lines nearest
-          // the hunk — because a gap is read from the hunk outwards.
+          // Revealed context is the tail of `precedingContext`: a gap is read from the hunk
+          // outwards.
           firstRevealedLineIndex: available - revealed,
           bodyLayout,
           rowCount: hunkRowCount,
@@ -141,28 +107,18 @@ export class DiffRowIndex {
   }
 
   /**
-   * How many hunk body layouts this index has built.
-   *
-   * The caching assertion, not an inference — `RefreshScheduler.performCount`'s rule.
-   * A correct index builds exactly one per hunk it shows, in its constructor, and
-   * never another however many rows are read from it; a `rowAt` that flattened as it
-   * walked would grow this on every scroll, which is a defect no row-level assertion
-   * can see because the rows it hands back are identical either way.
+   * How many hunk body layouts this index has built. A correct index builds exactly one per
+   * hunk it shows, in its constructor, and never another however many rows are read; a
+   * `rowAt` that flattened as it walked would grow this on every scroll.
    */
   public get bodyLayoutBuildCount(): number {
     return this.#bodyLayoutBuildCount;
   }
 
   /**
-   * The row at one absolute index, or `undefined` past the end.
-   *
-   * TWO BINARY SEARCHES AND THEN ARITHMETIC. The outer one finds the file, the inner
-   * one the hunk within it, and what is left is subtraction against the counts that
-   * hunk's span already holds. It reads nothing out of the model, builds nothing, and
-   * allocates only the row it returns — which is what makes a scroll cost the viewport
-   * rather than the change set. The walk this replaced re-flattened every hunk it
-   * passed, so reading one row near the end of a large hunk cost that hunk's whole
-   * body, once per rendered row and again on every scroll render.
+   * The row at one absolute index, or `undefined` past the end. Two binary searches (file,
+   * then hunk) and subtraction; it builds nothing and allocates only the returned row, so a
+   * scroll costs the viewport rather than the change set.
    */
   public rowAt(rowIndex: number): DiffRow | undefined {
     if (rowIndex < 0 || rowIndex >= this.#rowCount) {
@@ -215,11 +171,8 @@ export class DiffRowIndex {
   }
 
   /**
-   * The head line a paired split row addresses beside `lineFor`'s base line.
-   *
-   * A sibling reader rather than a second index: the pairing is carried on the
-   * row, so both sides resolve through the same addressing and there is no second
-   * structure that could describe a different diff.
+   * The head line a paired split row addresses beside `lineFor`'s base line. The pairing is
+   * carried on the row, so both sides resolve through the same addressing.
    */
   public pairedLineFor(row: DiffRow): DiffLine | undefined {
     if (row.kind !== "line" || row.pairedLineIndex === undefined) {
@@ -229,12 +182,9 @@ export class DiffRowIndex {
   }
 
   /**
-   * The absolute row index a file's header sits at, or `undefined` where this
-   * index does not show that file.
-   *
-   * A scan over the spans rather than a lookup by position: the spans are the
-   * files this index SHOWS and the argument names a file of the model, and the
-   * two are the same list only when nothing is narrowed.
+   * The absolute row index a file's header sits at, or `undefined` where this index does not
+   * show that file. A scan, because the spans cover only the shown files while the argument
+   * names a file of the model.
    */
   public rowIndexOfFile(fileIndex: number): number | undefined {
     return this.#fileSpans.find((span) => span.fileIndex === fileIndex)?.startRowIndex;
@@ -253,14 +203,9 @@ export class DiffRowIndex {
 }
 
 /**
- * Where one file's rows start, and which file of the MODEL they belong to.
- *
- * `fileIndex` is carried rather than implied by the span's own position, because
- * a narrowed index holds a span only for the file it shows while every row it
- * hands out still addresses the model. A file's index is what a gap expansion is
- * keyed by and what the pane resolves a hunk's available context from, so an
- * index that renumbered its files under a filter would key one file's expansion
- * against another file's context.
+ * Where one file's rows start, and which file of the model they belong to. `fileIndex` is
+ * carried because a narrowed index holds a span only for its shown file while every row it
+ * hands out still addresses the model, and expansions are keyed by that index.
  */
 interface FileRowSpan {
   readonly fileIndex: number;
@@ -271,21 +216,10 @@ interface FileRowSpan {
 }
 
 /**
- * Where one hunk's rows start within its file, and everything needed to address them.
- *
- * THE CACHE THE FINDING ASKED FOR, AND IT IS A CACHE OF THE CONSTRUCTOR'S OWN WALK
- * rather than a second structure beside it. The index already had to flatten every
- * hunk to know its row count; holding what that flattening produced costs nothing
- * extra and is what lets `rowAt` answer without rebuilding it. `rowAt` used to rebuild
- * a hunk's whole body layout for every hunk it walked past — so one five-thousand-line
- * hunk allocated five thousand row objects per rendered virtual row, and again on
- * every scroll render, which is virtualization paying the cost virtualization exists
- * to avoid.
- *
- * IMMUTABLE, AND SO IS ITS INVALIDATION. A `DiffRowIndex` is built per (model,
- * expansion, view mode) and never mutated, so a changed hunk set or a changed mode
- * produces a NEW index with new spans; there is no staleness question to answer and
- * no invalidation hook to forget to call.
+ * Where one hunk's rows start within its file, and everything needed to address them. It
+ * caches the constructor's own flattening walk, so `rowAt` never rebuilds a hunk's body
+ * layout. Immutable like its index: a changed hunk set or mode produces a new index, so
+ * there is nothing to invalidate.
  */
 interface HunkRowSpan {
   readonly hunkIndex: number;
@@ -302,13 +236,8 @@ interface HunkRowSpan {
 }
 
 /**
- * Binary search for the span, of either level, that contains a row index.
- *
- * ONE SEARCH FOR BOTH LEVELS, because the two are the same question asked of two
- * ordered, contiguous, non-overlapping run lengths: which file a row of the diff falls
- * in, and which hunk a row of a file falls in. A second copy for the inner level would
- * be the same arithmetic written twice, and the off-by-one that makes the last span
- * unreachable is exactly the kind that would be fixed in one copy and not the other.
+ * Binary search for the span, of either level, that contains a row index. Files and hunks
+ * are both ordered, contiguous run lengths, so one search serves both.
  */
 function spanAt<TSpan extends { readonly startRowIndex: number }>(
   spans: readonly TSpan[],

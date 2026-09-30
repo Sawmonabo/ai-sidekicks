@@ -1,6 +1,3 @@
-// A message's Copy control: what a press puts on the clipboard, and the in-place
-// outcome that clears after the one transient-status duration.
-
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 

@@ -1,16 +1,12 @@
-/* The system message (`SystemMessage`): the line that marks a provider switch, a
- * compaction or a rollback across the transcript.
+/* The system message (`SystemMessage`): one line marking a provider switch, compaction or
+ * rollback.
  */
 
 /* --- Structure: the system message row --------------------------------------------- */
 
 /*
- * A system message is ONE LINE, which is the whole visual claim `SystemMessage.tsx` is built on: a
- * glyph, a label, and whichever wire members that kind carries, laid across the row
- * rather than stacked. `flex-wrap` is what keeps that true on a narrow pane — the
- * parts reflow onto a second line rather than the row growing a scrollbar or one
- * member being clipped away, and a member a reader cannot see is a member the
- * console did not render.
+ * One line: a glyph, a label and the kind's wire members. `flex-wrap` reflows the parts onto a
+ * second line on a narrow pane, so no member is clipped away.
  */
 
 .meridian-system-message {
@@ -26,21 +22,13 @@
   color: var(--meridian-text);
 }
 
-/*
- * The one caution in the set. Amber is spent on attention and red on failure,
- * and `SYSTEM_MESSAGE_BINDINGS` marks exactly one member a caution — the failed provider
- * switch — so this class is reachable from one binding and no other.
- */
+/* The failed provider switch is the only caution binding. */
 
 .meridian-system-message--caution .meridian-system-message__label {
   color: var(--meridian-red-text);
 }
 
-/*
- * Every wire-sourced part, in mono. Mono is the console's figure treatment: it is
- * how a reader tells a value the daemon sent from a word the console chose, and
- * every part carrying it here is verbatim.
- */
+/* Wire-sourced parts in mono, so a value the daemon sent reads differently from console words. */
 
 .meridian-system-message__figure {
   font-family: var(--meridian-font-mono);

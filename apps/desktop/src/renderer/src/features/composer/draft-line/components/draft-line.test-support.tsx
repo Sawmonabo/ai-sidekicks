@@ -1,10 +1,6 @@
-// The message line's shared scaffolding: the line and Send, one store, one bridge.
-//
-// Lives here because the suites mount the SAME pair against the same draft store, and
-// the store is the point — the line renders a draft it does not own and Send sends it,
-// so a helper written beside one suite would be a second answer to what "the
-// composer's line" is in these cases. No product host mounts both; the pair is the
-// composition the send cases need.
+// The message line's shared scaffolding: the line and Send over one draft store and one bridge.
+// The suites mount the same pair because the line renders a draft it does not own and Send
+// sends it; no product host mounts both.
 
 import { fireEvent, render, type RenderResult } from "@testing-library/react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -22,6 +18,7 @@ import { DraftLine } from "./DraftLine.js";
 import { SendButton } from "./SendButton.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 
+/** One mounted line and Send, with the stores a case reads. */
 export interface MountedDraftLine {
   readonly result: RenderResult;
   readonly line: HTMLTextAreaElement;
@@ -29,6 +26,7 @@ export interface MountedDraftLine {
   readonly frameStore: WindowStore;
 }
 
+/** An initialized, empty session store for the default session. */
 export function openSessionStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: 0, entities: [] });
@@ -49,6 +47,7 @@ export function pressSend(container: HTMLElement): void {
   fireEvent.click(sendButton(container));
 }
 
+/** Mount the line beside Send over the given stores and calls. */
 export function mountDraftLine(options: {
   readonly calls: ComposerSendCalls;
   readonly draftStore: DraftStore;
@@ -68,8 +67,7 @@ export function mountDraftLine(options: {
         focusedPane: options.focusedPane,
       }}
       calls={options.calls}
-      // The host owns the holder; a bar mounted alone is one nobody opened, which is
-      // the state every case here but the discovery one is asserting against.
+      // The host owns the holder; a bar mounted alone is one nobody opened.
       commandEnumeration={options.commandEnumeration ?? new ProviderCommandEnumeration()}
     />,
   );
@@ -103,7 +101,7 @@ export function mountLine(options: {
   return { result, line, frameStore };
 }
 
-/** The transport the bar's held state belongs to; every call goes through `calls` instead. */
+/** The transport the bar's held state belongs to; every call goes through `calls`. */
 function inertBridge(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
@@ -126,7 +124,9 @@ function LineAndSend(props: {
   );
 }
 
+/** The first agent in `storeWithTwoTrippedAgents`. */
 export const FIRST_AGENT_ID = "agent-ada";
+/** The second agent in `storeWithTwoTrippedAgents`. */
 export const SECOND_AGENT_ID = "agent-grace";
 
 /** An answering arm that serves a steer and nothing else. */
@@ -134,25 +134,23 @@ export async function answerSteer(call: RecordedDaemonCall): Promise<unknown> {
   return call.method === "run.intervene" ? STEER_APPLIED : undefined;
 }
 
+/** The first agent's steerable run. */
 export const FIRST_RUN_ID = "2c3d4e5f-6071-4182-8293-a4b5c6d7e8f0";
+/** The second agent's steerable run. */
 export const SECOND_RUN_ID = "3d4e5f60-7182-4293-83a4-b5c6d7e8f001";
-// The fixed form `neutralization-tripwire.ts` reads, which is what puts the card
-// on screen at all. Both agents carry one, so re-addressing moves between two
-// tripped targets rather than between a tripped one and no card.
+/**
+ * The fixed form `text-neutralization.ts` reads, which puts the card on screen. Both agents
+ * carry it, so re-addressing moves between two tripped targets.
+ */
 export const TRIPWIRE_DETAIL = "driver.text_neutralization_failed origin=human_text";
 
-/**
- * One mounted bar, and the things a case does to it.
- *
- * Declared rather than inferred because the shape crosses a module boundary: a
- * reader of a case should be able to see what the harness offers without opening it.
- */
+/** One mounted bar and the things a case does to it. */
 export interface AddressableDraftLine {
   /** The mounted tree, for the cases that query it directly. */
   readonly result: RenderResult;
   /** Re-render the same bar focused at another agent, without remounting. */
   address(agentId: string): void;
-  /** The directive line, or a throw naming what was missing. */
+  /** The message line, or a throw naming what was missing. */
   line(): HTMLTextAreaElement;
   /** The window store the bar escalates into, for a case that reads its banners. */
   readonly frameStore: WindowStore;
@@ -191,6 +189,7 @@ export function storeWithTwoTrippedAgents(): SessionStore {
   return sessionStore;
 }
 
+/** The pane address focused on one agent. */
 export function paneFor(agentId: string): PaneAddress {
   return { kind: "agents", entity: { kind: "agent", id: agentId } };
 }

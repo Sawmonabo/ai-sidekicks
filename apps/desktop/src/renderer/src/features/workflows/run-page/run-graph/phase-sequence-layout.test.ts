@@ -1,12 +1,7 @@
-// The own-built layout: the same run draws the same picture, and a run that cannot
-// be drawn without losing a phase is refused rather than drawn short.
-//
-// The assertions below are PROPERTIES rather than restated arithmetic. Checking
-// `y === index * pitch` would be this file computing the layout a second time and
-// agreeing with itself; checking that consecutive ranks are one pitch apart, that
-// the pitch clears the box, and that the same content yields the same object is
-// checking things the implementation could get wrong while still passing a
-// re-derivation.
+// The own-built layout: the same run draws the same picture, and a run that cannot be drawn
+// without losing a phase is refused rather than drawn short. Assertions are properties (pitch
+// spacing, the pitch clearing the box, content-equal input yielding the same object) rather
+// than restated arithmetic.
 
 import { describe, expect, it } from "vitest";
 
@@ -72,16 +67,14 @@ describe("the layered layout", () => {
   });
 
   it("leaves room between the boxes it places", () => {
-    // Independent of the numbers themselves: a pitch that did not clear the box
-    // would overlap every pair of consecutive phases, and the edge between them
-    // would have nowhere to be drawn.
+    // A pitch that did not clear the box would overlap consecutive phases and leave the edge
+    // between them nowhere to be drawn.
     expect(PHASE_RANK_PITCH_PX).toBeGreaterThan(PHASE_NODE_HEIGHT_PX);
   });
 
   it("draws no edge at all when no definition was handed over", () => {
-    // The whole of this fold: a run read carries an ordered array and no
-    // dependencies, so a layout given only that array has nothing to connect. The
-    // previous behavior — an edge per adjacent pair — asserted a chain a parallel
+    // A run read carries an ordered array and no dependencies, so a layout given only that
+    // has nothing to connect.
     // run never declared.
     const layout = drawn(THREE_PHASES);
 
@@ -90,9 +83,8 @@ describe("the layered layout", () => {
   });
 
   it("draws the definition's edges when one was, and marks the picture complete", () => {
-    // The other arm, and the negative control for the case above: handed a topology,
-    // the same phases connect. `topologyAbsence` absent is what tells the caller the
-    // edges it is looking at are the definition's own.
+    // The other arm: handed a topology the same phases connect, and an absent `topologyAbsence`
+    // tells the caller the edges are the definition's own.
     const layout = drawn(THREE_PHASES, THREE_PHASE_TOPOLOGY);
 
     expect(layout.edges.map((edge) => [edge.sourcePhaseId, edge.targetPhaseId])).toStrictEqual([
@@ -108,10 +100,8 @@ describe("the layered layout", () => {
   });
 
   it("names a topology it cannot draw rather than drawing part of it", () => {
-    // A definition that supplies `dependsOn` on some phases and not others is one
-    // the daemon refuses at author time. The picture carries no edges AND says which
-    // of the two reasons applies, so the graph does not report "nothing to read"
-    // for a definition it did read.
+    // A definition with `dependsOn` on some phases and not others is refused at author time.
+    // The picture carries no edges and says why, rather than reporting "nothing to read".
     const layout = drawn(THREE_PHASES, [
       { phaseId: "plan", dependsOn: [] },
       { phaseId: "build" },
@@ -130,9 +120,8 @@ describe("the layered layout", () => {
   });
 
   it("is deterministic: the same sequence twice is the same picture", () => {
-    // Value equality of two independent runs, which is what a second process would
-    // compute. A layout that consulted a clock, a random source or a measured box
-    // would diverge here.
+    // Value equality of two independent runs, as a second process would compute; a clock,
+    // random source or measured box would diverge.
     expect(layoutPhaseSequence(THREE_PHASES, THREE_PHASE_TOPOLOGY)).toStrictEqual(
       layoutPhaseSequence(THREE_PHASES, THREE_PHASE_TOPOLOGY),
     );
@@ -140,8 +129,7 @@ describe("the layered layout", () => {
 
   it("carries the caller's phase through untouched", () => {
     const layout = drawn(THREE_PHASES);
-    // Identity, not shape: the node holds the caller's own object, so no member was
-    // copied, defaulted or invented on the way onto the canvas.
+    // Identity, not shape: no member was copied, defaulted or invented.
     expect(layout.nodes[0]?.phase).toBe(THREE_PHASES[0]);
   });
 });
@@ -169,8 +157,7 @@ describe("a sequence that cannot be drawn", () => {
   });
 
   it("negative control: distinct ids that share every other member still draw", () => {
-    // Without this the refusal above would also fire on two phases that merely look
-    // alike, and a run with two `pending` steps would render as an error.
+    // Without this the refusal above would also fire on two phases that merely look alike.
     const layout = layoutPhaseSequence([
       phase({ phaseId: "first", displayName: "Same words" }),
       phase({ phaseId: "second", displayName: "Same words" }),
@@ -184,8 +171,7 @@ describe("the layout memo", () => {
     const cache = new PhaseSequenceLayoutCache();
     const first = cache.layoutFor([...THREE_PHASES]);
     const second = cache.layoutFor(THREE_PHASES.map((entry) => ({ ...entry })));
-    // Reference identity is the observable: the renderer re-enters its store when
-    // the arrays it is handed move, so a new object here is a rebuild on screen.
+    // Reference identity: the renderer re-enters its store when the arrays it is handed move.
     expect(second).toBe(first);
   });
 
@@ -199,8 +185,7 @@ describe("the layout memo", () => {
   });
 
   it("negative control: two caches do not share one memo", () => {
-    // Without this the case above would pass against module-level state, which is
-    // exactly what the class form exists to avoid.
+    // Without this the case above would pass against module-level state.
     const first = new PhaseSequenceLayoutCache().layoutFor(THREE_PHASES);
     expect(new PhaseSequenceLayoutCache().layoutFor(THREE_PHASES)).not.toBe(first);
   });
@@ -213,9 +198,8 @@ describe("the layout memo", () => {
       { ...base, state: "running" },
       { ...base, gateState: "bypassed" },
       { ...base, parkAttention: "awaiting-person" },
-      // Two parked readings differ from each other and not merely from no park: a
-      // signature that folded the attention into a boolean would hold still while
-      // the picture moved from an amber border to a neutral one.
+      // Two parked readings differ from each other, not only from no park: a boolean
+      // signature would hold still while the border moved from amber to neutral.
       { ...base, parkAttention: "scheduled" },
     ];
     const baseline = phaseSequenceSignature([base]);
@@ -230,8 +214,7 @@ describe("the layout memo", () => {
   });
 
   it("the signature moves when the topology arrives, and the memo follows it", () => {
-    // Without this a graph whose definition lands a commit after its run would hold
-    // the edgeless layout it computed first and never draw a dependency at all.
+    // Without this a definition landing a commit after its run would never draw a dependency.
     const cache = new PhaseSequenceLayoutCache();
     const edgeless = cache.layoutFor(THREE_PHASES);
 

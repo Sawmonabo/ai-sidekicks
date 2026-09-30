@@ -1,20 +1,7 @@
-// The row-lease table — what a row body leased, and what survives the row itself.
-//
-// Its own module because it is a different subject from the window's cap.
-// `window-cap.ts` decides WHICH rows the window keeps; this decides what happens to
-// the renderer-local state a body had leased when one of them goes. The two meet at
-// exactly one call — the cap parks a key it is about to drop — and everything else
-// about parking, the synthetic key, and the eviction bound lives here.
-//
-// TWO PROPERTIES, and both are failures this module exists to make unrepresentable:
-//
-//   • **Leases are parked, not dropped.** A row a person had expanded comes back
-//     expanded when they page to it again, because its state was re-parked under a
-//     synthetic key rather than deleted with the row.
-//   • **The parked table is bounded, evicting the least recently parked.** A person
-//     paging back expects the row they had open a moment ago to still be open, and
-//     nobody expects that of a row pruned an hour ago. Unbounded, this table would
-//     be the memory leak the cap above it exists to prevent.
+// The row-lease table: what a row body leased, and what survives the row itself.
+// `window-cap.ts` decides which rows the window keeps and parks a key it is about to drop;
+// everything else about parking lives here. Leases are parked under a synthetic key rather than
+// deleted, and the parked table is bounded, evicting the least recently parked.
 
 import { TRANSCRIPT_PARKED_LEASE_CAP } from "../frame/frame-caps.js";
 import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
@@ -22,9 +9,8 @@ import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
 /**
  * Renderer-local state a row body leases from the list.
  *
- * `density` is the row renderer's own vocabulary rather than a second collapse enumeration
- * (`transcript-row-renderer.ts`): the list decides a row's collapse state
- * and hands it down, so the table parking that decision has to park the same type.
+ * `density` is the row renderer's own type (`transcript-row-renderer.ts`), so the table parks
+ * exactly what the list decides.
  */
 export interface RetainedRowState {
   readonly density: TranscriptRowDensity;
@@ -43,12 +29,7 @@ export class RetainedRowStateTable {
     this.#parkedLeaseCap = parkedLeaseCap;
   }
 
-  /**
-   * A row body's leased state, live or parked.
-   *
-   * The live table answers first: a row that was pruned and has since been re-read
-   * has both, and the live one is the reader's current truth.
-   */
+  /** A row body's leased state; the live table answers before the parked one. */
   public lease(rowKey: string): RetainedRowState | undefined {
     return (
       this.#leaseByRowKey.get(rowKey) ??
@@ -90,15 +71,8 @@ export class RetainedRowStateTable {
   }
 
   /**
-   * Drop every parked lease, answering how many went.
-   *
-   * The TIME half of the bound this module already states in its header — "nobody
-   * expects that of a row pruned an hour ago". The count cap above is unchanged; the
-   * idle trim (`viewport/cycle/idle-trim.ts`) calls this after a quiet period, by which
-   * point every parked lease is a row nobody has paged back to.
-   *
-   * The LIVE table is deliberately untouched: those leases belong to rows the window
-   * still holds, and taking one would collapse a row a person has open.
+   * Drops every parked lease and returns how many went. The idle trim (`idle-trim.ts`) calls it
+   * after a quiet period; live leases belong to rows the window holds and are untouched.
    */
   public releaseParkedLeases(): number {
     const releasedCount = this.#parkedLeaseBySyntheticKey.size;
@@ -106,12 +80,7 @@ export class RetainedRowStateTable {
     return releasedCount;
   }
 
-  /**
-   * The parked key.
-   *
-   * Prefixed rather than reusing the row key, so a parked lease can never be
-   * mistaken for a live one by a lookup that forgot which table it was reading.
-   */
+  /** The parked key, prefixed so a lookup can never mistake a parked lease for a live one. */
   #syntheticKeyFor(rowKey: string): string {
     return `parked:${rowKey}`;
   }

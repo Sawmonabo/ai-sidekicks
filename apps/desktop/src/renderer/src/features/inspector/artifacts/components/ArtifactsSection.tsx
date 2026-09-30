@@ -1,15 +1,8 @@
-// The artifacts panel: what this session produced, and the manifest re-read a user may
-// attempt on one.
+// The artifacts panel: what this session produced, and the manifest re-read a user may attempt
+// on one.
 //
-// It renders and does not read: the state arrives as a prop. It never renders a payload;
-// its one act is a manifest re-read, named for what comes back ("Read manifest"). The
-// payload is drawn by the repos feature's `ArtifactPayloadSection`.
-//
-// A count is a reading, so only a read may put one on screen. The head figure and the
-// filter counts are derived from the rows a list answered with and render on the `listed`
-// arm alone; while a read is in flight the head is the heading with no figure beside it,
-// and the body's absence card is the whole reading. This module is the session-scoped
-// section; one manifest's face, act and disclosure are `ArtifactRow.tsx`.
+// It renders and does not read, and never renders a payload. A count is a reading, so the
+// head figure and the filter counts render on the `listed` arm alone.
 
 import "./artifacts.css";
 
@@ -33,23 +26,21 @@ import {
   type ArtifactsSectionState,
 } from "../artifact-model.js";
 
+/** The artifacts panel's state and the re-read wiring. */
 export interface ArtifactsSectionProps {
   readonly state: ArtifactsSectionState;
-  /** The instant the section read at. Ages move when it re-reads and never on a timer. */
+  /** The instant the section read at; ages move when it re-reads, never on a timer. */
   readonly nowMilliseconds: number;
   /**
    * Re-read one row's manifest.
    *
-   * Named for what this panel asks for: it sends the manifest-only request, so a control
-   * called "fetch payload" here would promise a download it does not perform.
+   * Named for the manifest-only request it sends; "fetch payload" would promise a download.
    */
   readonly onReadManifest?: ((row: ArtifactManifestRow) => void) | undefined;
   /**
    * The rows whose manifest re-read is on the wire, so each one's control holds.
    *
-   * The mounting view's register and never a second copy: a re-read is single-flight
-   * per row, so a control offered while that row's call is outstanding would send a
-   * second read. Absent means the section performs no re-read at all.
+   * The mounting view's set, not a second copy. Absent means the section performs no re-read.
    */
   readonly manifestReadInFlightArtifactIds?: ReadonlySet<string> | undefined;
 }
@@ -61,8 +52,7 @@ const NO_ROWS: readonly ArtifactManifestRow[] = [];
 export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Element {
   const [typeFilter, setTypeFilter] = useState<ArtifactTypeFilter>(ARTIFACT_TYPE_FILTER_ALL);
 
-  // Absent on every arm but `listed`, and that is what the head and the filter group are
-  // gated on. `NO_ROWS` only keeps the memo inputs stable; it feeds no figure.
+  // Absent on every arm but `listed`; `NO_ROWS` only keeps the memo inputs stable.
   const listedRows = props.state.kind === "listed" ? props.state.rows : undefined;
   const rows = listedRows ?? NO_ROWS;
   const countsByType = useMemo(() => artifactTypeCounts(rows), [rows]);
@@ -81,12 +71,8 @@ export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Elemen
       </header>
 
       {/*
-        Every type is offered, including the ones at zero: six types are one filter over
-        one list, and hiding an empty option would hide the vocabulary exactly when
-        somebody is looking for something that is not in it.
-
-        The whole group is absent until a list has answered, though: an offered filter is
-        a promise that pressing it narrows something, and there is no list yet.
+        Every type is offered, including the ones at zero. The group is absent until a list
+        has answered: an offered filter promises that pressing it narrows something.
       */}
       {listedRows === undefined ? null : (
         <div
@@ -111,12 +97,10 @@ export function ArtifactsSection(props: ArtifactsSectionProps): React.JSX.Elemen
 }
 
 /**
- * The panel's arms. Each absence is its own kind; none stands in for another.
+ * The panel's arms; each absence is its own kind.
  *
- * The two empties are different claims, and the read decides which. The session-empty
- * copy is gated on what the read returned, so a session holding six artifacts is never
- * told it has none because a filter type matched nothing. The filter's own empty names
- * the type it is set to and the count it is hiding.
+ * The session-empty copy is gated on what the read returned, so a filter that matches
+ * nothing never tells a session holding artifacts it has none.
  */
 function renderPanelBody(
   props: ArtifactsSectionProps,
@@ -136,8 +120,7 @@ function renderPanelBody(
         placement="block"
         title="No artifacts of the type this filter is set to."
         detail={`This session holds ${formatCount(props.state.rows.length)} of other types. Every type is on the filter above with its own count.`}
-        // The type is a wire word, so it renders through `WireFigure` rather than as
-        // prose interpolated into the copy above.
+        // The type is a wire word, so it renders through `WireFigure`, not prose.
         action={<WireFigure value={typeFilter} />}
       />
     );
@@ -165,10 +148,7 @@ interface FilterButtonsProps {
   readonly onSelect: (filter: ArtifactTypeFilter) => void;
 }
 
-/**
- * The seven filter buttons: every type, plus the one that selects them all. A render
- * helper rather than a component, because it holds no state and takes no hooks.
- */
+/** The type filter buttons: every type plus the one that selects all. */
 function renderFilterButtons(props: FilterButtonsProps): React.JSX.Element {
   return (
     <>

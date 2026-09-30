@@ -6,6 +6,7 @@ const COPY_LABELS: Readonly<Record<ClipboardCopyStatus, string>> = {
   failed: "Could not copy",
 };
 
+/** What one Copy control puts on the clipboard. */
 export interface CopyButtonProps {
   /** What a press puts on the clipboard, exactly as given. */
   readonly text: string;

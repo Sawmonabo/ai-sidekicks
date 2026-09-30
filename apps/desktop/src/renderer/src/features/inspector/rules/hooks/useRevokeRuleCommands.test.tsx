@@ -1,14 +1,8 @@
 // Revoking from the palette: the same rules, the same two steps, one act.
 //
-// Driven through the real list rather than over the row builder alone, because the
-// claims are about a COINCIDENCE — which rules the palette offers against which rules
-// show a Revoke button, and what a pressed row does to the control beside it. A suite
-// that asserted the builder's output and the component's buttons in separate cases
-// would pass over exactly the drift the shared predicate exists to prevent.
-//
-// The sharpest claim is the one about what a row may NOT do: revocation is
-// irreversible from the rules list, so a palette press that reached the wire would be a
-// weaker second path to an act the list made deliberately two-step.
+// Driven through the real list, since the claims are about which rules the palette offers
+// against which show a Revoke button; separate builder and component cases would pass over
+// drift. A palette press that reached the wire would be a weaker path to a two-step act.
 
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -43,10 +37,7 @@ function revokeCommandFor(ruleId: string) {
 /**
  * Press one contributed row and let the tree settle.
  *
- * A palette press arrives from outside React — the registry holds the callback and
- * the dialog invokes it — so the state it moves is flushed here rather than awaited
- * per case. That is what the palette itself does on a real press; wrapping it once
- * keeps every case below asserting the SETTLED list rather than a frame of it.
+ * The press arrives from outside React, so it is flushed in `act` once here.
  */
 function pressRevokeRow(ruleId: string): void {
   act(() => {
@@ -75,8 +66,7 @@ describe("which rules the palette offers to revoke", () => {
   });
 
   it("offers nothing for a rule whose revocation is already settling", () => {
-    // The control reports the revocation rather than offering a second press, so a
-    // palette row here would be a press with nothing to press.
+    // The control reports the revocation instead of offering a second press.
     renderGrants({ rules: [rule()], revoking: new Set([FIRST_RULE_ID]) });
 
     expect(screen.queryByRole("button", { name: "Revoke" })).toBeNull();
@@ -84,8 +74,7 @@ describe("which rules the palette offers to revoke", () => {
   });
 
   it("negative control: the shared reading is what withholds them", () => {
-    // Without this the case above would pass over a contribution that filtered on its
-    // own copy of the rule — which is the state this predicate replaced.
+    // Without this the case above would pass over a contribution filtering on its own copy.
     expect(offersRevoke(rule(), new Set())).toBe(true);
     expect(offersRevoke(rule(), new Set([FIRST_RULE_ID]))).toBe(false);
   });
@@ -98,8 +87,7 @@ describe("what a contributed row does", () => {
 
     pressRevokeRow(FIRST_RULE_ID);
 
-    // The confirming control is now on screen against this rule, and nothing has
-    // reached the wire: the palette armed the same two-step the button arms.
+    // The confirming control is on screen against this rule and nothing reached the wire.
     expect(screen.getByRole("button", { name: "Revoke it" })).not.toBeNull();
     expect(onRevoke).not.toHaveBeenCalled();
   });
@@ -126,8 +114,7 @@ describe("what a contributed row does", () => {
   });
 
   it("negative control: the row never reaches the wire by itself", () => {
-    // Without this every case above would pass over a row wired straight to the
-    // mutation — which is the one thing a palette entry for this act may not be.
+    // Without this the cases above would pass over a row wired straight to the mutation.
     const onRevoke = vi.fn();
     renderGrants({ rules: [rule()], onRevoke });
 

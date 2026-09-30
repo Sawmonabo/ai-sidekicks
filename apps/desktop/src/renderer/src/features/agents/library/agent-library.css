@@ -1,18 +1,8 @@
-/* The agent library's own sheet: its frame, its saved-row ledger, and its controls.
- *
- * ONE BEM BLOCK, ONE HOME. All of `.meridian-agent-library` — the frame, its head,
- * its rules grid, its columns and its rows — is here, so a rule about this page is in
- * one file. The library's chunk root imports it.
- *
- * Meridian tokens throughout. No literal color, no literal length outside the
- * space scale. */
+/* The agent library's sheet: all of `.meridian-agent-library`, plus the saved-row ledger.
+ * Meridian tokens only. */
 
-/* A page rather than a section: it stands alone, so it carries its own measure and
- * its own padding instead of inheriting a sidebar's. The two columns are the design's
- * "one row per definition with the full record open beside it" — expressed as a grid
- * that collapses to one column under the narrow measure, because the detail side is
- * the wider of the two and a 2-up layout in a torn-off window would leave both
- * unreadable. */
+/* A standalone page carries its own measure and padding. The two columns collapse to one
+ * under the narrow measure, since a 2-up layout in a torn-off window leaves both unreadable. */
 
 .meridian-agent-library {
   display: flex;
@@ -42,9 +32,7 @@
   color: var(--meridian-text-muted);
 }
 
-/* The standing facts read as a ledger, not as a callout: a hairline between rows,
- * no fill, no border box. They are things that are true rather than things that
- * need attention, and a tinted panel would spend color saying otherwise. */
+/* The standing facts read as a ledger: a hairline between rows, no fill and no border box. */
 
 .meridian-agent-library__rules {
   display: grid;
@@ -95,9 +83,8 @@
   min-width: 0;
 }
 
-/* The same treatment the Agents pane gives its column titles, because it is the
- * same construct — a quiet label over a column, not a heading competing with the
- * page's own. A third uppercase scale in one feature would be a third for no reason. */
+/* The same quiet column-title treatment the Agents pane uses, not a heading competing with
+ * the page's own. */
 .meridian-agent-library__column-title {
   margin: 0;
   font-size: var(--meridian-text-sm);
@@ -107,8 +94,7 @@
   color: var(--meridian-text-faint);
 }
 
-/* A ledger of records, not a set of cards: one hairline-bounded block per row, no
- * fill of its own, so a list of eight does not read as eight competing panels. */
+/* A ledger of records, not cards: one hairline-bounded block per row, no fill of its own. */
 
 .meridian-agent-library__rows {
   display: flex;
@@ -131,8 +117,8 @@
   min-width: 0;
 }
 
-/* The label leads and the identifier follows it, because the label is what a person
- * is scanning for and the id is what they copy when something has gone wrong. */
+/* The label leads: it is what a person scans for, and the id is what they copy when
+ * something goes wrong. */
 .meridian-saved-definition-row__head {
   display: flex;
   flex-wrap: wrap;
@@ -156,9 +142,8 @@
   max-width: 68ch;
 }
 
-/* Two tracks, the label quiet and narrow, the reading taking the rest — the same
- * shape the standing-facts grid uses one block up, because it is the same
- * construct: a term and what it says. */
+/* Two tracks, the label quiet and narrow and the reading taking the rest, as in the
+ * standing-facts grid. */
 .meridian-saved-definition-row__axes {
   display: grid;
   grid-template-columns: minmax(6rem, auto) minmax(0, 1fr);
@@ -197,9 +182,8 @@
   gap: var(--meridian-space-2);
 }
 
-/* The question sits with the two answers rather than above them, and takes the whole
- * first line so a person reads what they are about to delete before the control they
- * would press to do it. */
+/* The question takes the whole first line, so a person reads what they are about to delete
+ * before the control that does it. */
 .meridian-saved-definition-row__question {
   flex-basis: 100%;
   margin: 0;
@@ -226,26 +210,23 @@
   cursor: default;
 }
 
-/* Destructive is marked in the red the palette already carries for it, on the text
- * and the edge only — a filled red control reads as the primary act of the row,
- * which deleting a saved record is not. */
+/* Destructive is marked in the palette's red on text and edge only; a filled red control
+ * would read as the row's primary act. */
 .meridian-saved-definition-row__action--destructive {
   color: var(--meridian-red-text);
   border-color: var(--meridian-red-mark);
 }
 
-/* The create control sits with the page's own heading rather than over the list,
- * because what it makes is a record and not a list entry, and it aligns to the end
- * so the lede keeps its measure. */
+/* The create control sits with the heading, since it makes a record rather than a list
+ * entry. */
 .meridian-agent-library__new {
   align-self: flex-start;
   font-size: var(--meridian-text-xs);
   padding: var(--meridian-space-1) var(--meridian-space-3);
 }
 
-/* The row the detail column is holding. A left edge in the accent rather than a
- * fill, so the tie between the two columns is visible at a glance without the row
- * becoming the loudest thing on the page. */
+/* The row the detail column holds: an accent left edge rather than a fill, so the tie is
+ * visible without the row becoming the loudest thing on the page. */
 .meridian-saved-definition-row--open {
   border-inline-start: 2px solid var(--meridian-accent);
 }

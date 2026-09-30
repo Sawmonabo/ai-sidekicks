@@ -1,9 +1,6 @@
-// The run group body, held to the thing it exists to undo: rows that were counted and
-// unreachable.
-//
-// Every case reads the RENDERED body, because the defect this component answers was a
-// figure with nothing behind it — a case over the fold alone would have passed against
-// a console that drew no body at all.
+// The run group body, held to what it undoes: rows that were counted and unreachable. Every case
+// reads the rendered body, since a case over the fold alone would pass against a console that
+// drew no body at all.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -58,7 +55,7 @@ describe("the run group body — the head the outer list left out", () => {
     const body = renderBody(longRun(2));
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");
-    // The rows the outer list mounts are ITS job; the body never draws them twice.
+    // The outer list mounts those rows; the body never draws them twice.
     expect(body?.textContent).not.toContain(`entry ${String(RUN_GROUP_VISIBLE_ROW_CAP + 2)}`);
   });
 
@@ -121,8 +118,8 @@ describe("what the body does not hold", () => {
       ),
     ];
     const body = renderBody(longRun(40), admitted);
-    // Two admitted rows sit outside the ceiling, so the body draws exactly those two —
-    // and not the thirty-eight the unnarrowed run group would have clipped.
+    // Two admitted rows sit outside the ceiling, so the body draws exactly those two, not the
+    // thirty-eight the unfiltered run group would have clipped.
     expect(body?.querySelectorAll(".meridian-run-group-body__row")).toHaveLength(2);
     expect(body?.textContent).toContain("entry 1");
     expect(body?.textContent).toContain("entry 2");

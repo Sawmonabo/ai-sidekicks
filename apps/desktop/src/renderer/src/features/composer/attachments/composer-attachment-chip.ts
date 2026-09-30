@@ -1,22 +1,8 @@
-// What one attachment chip says, folded from the entry the staged list published.
-//
-// A FOLD AND NOT A COMPONENT, so the sentence a chip carries is drivable from a test
-// with no DOM and the render below it is a render. Everything here is derived from one
-// entry plus the instant that entry was published at; nothing reads a clock, calls a
-// wire, or holds state.
-//
-// EVERY READING COMES FROM THE MODULES THAT OWN THE INGEST. The name an entry goes by,
-// which media-type readings it has, what canceling does, and what a refusal recommends
-// are all answered by the attachment modules beside this one — this module composes them
-// into one line and answers none of them itself. The composer's chip and the
-// transcript's attachment card therefore cannot disagree about an upload: one says it as
-// a card and one as a chip, from one set of readings.
-//
-// THE TONE IS THE TWO-HUE RULE AND NOT A PALETTE. A refusal is red because something
-// failed; everything else is neutral, including an upload in flight, which needs nobody.
-// An entry past the byte bound is deliberately NOT amber: the bound is the daemon's and
-// the upload is still attempted, so a color there would report a verdict the console
-// has not been given.
+// What one attachment chip says, folded from the entry the staged list published. Pure: it
+// reads no clock and holds no state, and every reading comes from the attachment modules that
+// own the ingest, so the chip and the transcript card cannot disagree about an upload.
+// A refusal is the only non-neutral tone; the byte bound is the daemon's and the upload is
+// still attempted, so an entry past it gets no color.
 
 import { SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT } from "@ai-sidekicks/contracts";
 
@@ -35,7 +21,7 @@ import { type ChipTone } from "@renderer/components/Chip/Chip.js";
 /** What one chip renders, and which acts it offers. */
 export interface ComposerAttachmentChipModel {
   readonly localId: string;
-  /** The name this entry goes by — `fileName` once the daemon has minted one. */
+  /** The name this entry goes by: `fileName` once the daemon has minted one. */
   readonly name: string;
   /** True while the name is still the caller's own claim rather than the manifest's. */
   readonly nameIsDeclared: boolean;
@@ -50,11 +36,8 @@ export interface ComposerAttachmentChipModel {
   readonly state: AttachmentIngestEntry["state"];
   readonly tone: ChipTone;
   /**
-   * Spooled bytes over declared bytes, 0 to 1, while an upload is in flight.
-   *
-   * Absent on every settled state, which is the difference between "no progress yet"
-   * and "no progress to show": a bar drawn at zero for a refused upload reads as an
-   * upload that is about to start.
+   * Spooled bytes over declared bytes, 0 to 1, while an upload is in flight. Absent on every
+   * settled state: a bar drawn at zero for a refused upload reads as one about to start.
    */
   readonly progressFraction: number | undefined;
   /** True where this upload has gone quiet long enough to say so. */
@@ -65,7 +48,7 @@ export interface ComposerAttachmentChipModel {
   readonly refusal: ComposerAttachmentRefusal | undefined;
   /** Whether a retry may be offered. False for every settled entry, refused excepted. */
   readonly offersRetry: boolean;
-  /** Whether an abandon may be offered, and the sentence that says what it does. */
+  /** Whether an abandon may be offered. */
   readonly offersAbandon: boolean;
   /** What abandoning actually does, for the control that offers it. */
   readonly abandonCopy: string;
@@ -79,22 +62,15 @@ export interface ComposerAttachmentRefusal {
   readonly disposition: string | undefined;
 }
 
-/**
- * Fold one published entry into the line a chip renders.
- *
- * Total over every state: there is no entry this returns nothing for, because a chip
- * that vanished on a state nobody had thought about would drop an attachment from the
- * staged list without saying so.
- */
+/** Fold one published entry into the line a chip renders. Total over every state. */
 export function composerAttachmentChip(
   entry: AttachmentIngestEntry,
   publishedAtMilliseconds: number,
 ): ComposerAttachmentChipModel {
   const nameReading = attachmentNameReading(entry);
   const [leadingMediaType] = attachmentMediaTypeReadings(entry);
-  // The DERIVED length once one exists, because that is what the daemon found; the
-  // declaration is what it was before, and a chip that kept showing the claim after a
-  // finding arrived would report the caller's word as the manifest's.
+  // The derived length once one exists; a chip still showing the claim would report the
+  // caller's word as the manifest's.
   const byteLength = entry.derived?.sizeBytes ?? entry.declared.byteLength;
   const sizeFigure = formatByteQuantity(byteLength);
   return {
@@ -134,13 +110,8 @@ export function composerAttachmentChip(
 }
 
 /**
- * How far along an in-flight upload is, or `undefined` where there is nothing to show.
- *
- * The SPOOLED count over the DECLARED one, which are the two numbers the protocol
- * actually carries: `receivedBytes` is the daemon's acknowledgement and the declaration
- * is the reservation it was admitted under. A zero-length declaration answers
- * `undefined` rather than dividing by it — an empty payload has no progress to draw and
- * a bar pinned at either end would be a figure about nothing.
+ * How far along an in-flight upload is, or `undefined` where there is nothing to show. A
+ * zero-length declaration answers `undefined` rather than dividing by it.
  */
 function ingestProgressFraction(entry: AttachmentIngestEntry): number | undefined {
   if (entry.state !== "ingesting" || entry.declared.byteLength === 0) {

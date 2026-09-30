@@ -1,9 +1,5 @@
-// The rules in force: each row reads what the rule does, and they revoke in two steps.
-//
-// The claims worth a unit are the ones that would be invisible if they broke. A block
-// read as an allow would tell a person a host is open that the daemon refuses, and a
-// revoke control that mutated on the first click would look exactly like one that
-// mutated on the second — until someone canceled.
+// The rules in force: each row reads what the rule does, and they revoke in two steps. A
+// block read as an allow, or a first click that mutated, would be invisible until it mattered.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -36,8 +32,7 @@ describe("only the confirming click mutates", () => {
     expect(onRevoke).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Keep it" }));
     expect(onRevoke).not.toHaveBeenCalled();
-    // Back to idle: the first control is offered again, so a cancel is a return
-    // rather than a dead end.
+    // Back to idle: the first control is offered again.
     expect(screen.getByRole("button", { name: "Revoke" })).not.toBeNull();
   });
 
@@ -58,8 +53,7 @@ describe("what each row reads", () => {
   });
 
   it("reads a block as a block, at this project", () => {
-    // The negative control on the case above: a row that read every rule as an allow
-    // would pass it and fail here.
+    // Negative control: a row reading every rule as an allow would pass the case above.
     renderGrants([
       rule({ scope: { kind: "project", pattern: "api.example.com", sense: "block" } }),
     ]);
@@ -77,9 +71,8 @@ describe("the empty and short reads", () => {
   });
 
   it("says the grants could not be read when every row failed the parse", () => {
-    // The empty list and the unreadable count are both true at once, and only one
-    // of them may speak: rows this build could not read are rows whose existence is
-    // unknown, so the reassuring claim is unavailable here.
+    // Rows this build could not read are of unknown existence, so the reassuring claim is
+    // unavailable.
     renderGrants([], vi.fn(), 3);
     expect(screen.getByText("Standing permissions could not be read.")).not.toBeNull();
     expect(screen.getByText(/not known to be none/u)).not.toBeNull();
@@ -92,8 +85,8 @@ describe("the empty and short reads", () => {
   });
 
   it("negative control: an empty list with nothing unreadable still says none is in force", () => {
-    // Without this the two cases above would pass over a panel that had simply lost
-    // its empty state and reported every empty read as unreadable.
+    // Without this the cases above would pass over a panel reporting every empty read as
+    // unreadable.
     renderGrants([], vi.fn(), 0);
     expect(screen.getByText("No rules yet")).not.toBeNull();
     expect(screen.queryByText("Standing permissions could not be read.")).toBeNull();

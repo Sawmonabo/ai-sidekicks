@@ -1,10 +1,5 @@
-// The transcript's error table: one entry per kind, ranked, so a transient failure never
-// clobbers the durable one a person is about to retry.
-//
-// Four things fail independently and at different rates: a geometry read fails once and
-// clears on the next frame, while a row that cannot be projected fails every render and
-// needs a person to act. A single "last error" field would let the first overwrite the
-// second; one entry per kind, read in a fixed order, makes that unrepresentable.
+// The transcript's error table: one entry per kind, ranked, so a transient failure (a geometry
+// read that clears next frame) never overwrites a durable one (a row that cannot be projected).
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 

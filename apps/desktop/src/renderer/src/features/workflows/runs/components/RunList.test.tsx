@@ -1,12 +1,6 @@
-// The list renders the projection and derives nothing, so the cases below drive it
-// through `RunListProjection` rather than through hand-built rows: a test that
-// constructed its own row values would prove the markup and leave the seam between
-// the two — the part that can actually drift — unchecked.
-//
-// WHAT IS ASSERTED HERE AND WHAT IS ASSERTED BESIDE IT. This suite is the list's own
-// three claims: the absence, the header's counts, and the order the rows come out in.
-// Everything a ROW draws is `RunListItem.test.tsx`, which splits along the same seam
-// the modules do.
+// Driven through `RunListProjection` rather than hand-built rows, so the seam between projection
+// and list stays checked. Claims here: the absence, the header counts, the row order; what a row
+// draws is `RunListItem.test.tsx`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -97,8 +91,6 @@ describe("the counts the header shows", () => {
   });
 
   it("says nothing about parks or frozen pins on a list that has neither", () => {
-    // The negative control for the case above: a header that printed both lines
-    // unconditionally would satisfy it while claiming a park on every list.
     const summary =
       renderList([run({ phaseStates: [] })]).querySelector(".meridian-run-list__summary")
         ?.textContent ?? "";
@@ -109,17 +101,12 @@ describe("the counts the header shows", () => {
 });
 
 /*
- * The start is DISPLAYED under the grammar it is SORTED under. `run-list-rows.ts`
- * declares `workflowInstant` `"utc-only"` so an encoding change arrives as the
- * unreadable value it is, while the figure chokepoint's `formatDateTime` admits a
- * numeric offset by default. A row printed through that formatter would show a run
- * spelled `+02:00` sorted last — under every start `workflowInstant` could read — with
- * a legible time on it and nothing saying its stamp had been refused.
+ * The start is displayed under the grammar it is sorted under: `workflowInstant` is `"utc-only"`
+ * while `formatDateTime` admits a numeric offset, so a `+02:00` start sorted last must not print
+ * a legible time.
  */
 describe("a start spelled with a numeric offset", () => {
-  // 10:00Z, so it is genuinely NEWER than the run below it and belongs above it in a
-  // newest-first list — which is what makes its placement last a visible symptom
-  // rather than a coincidence of the values chosen.
+  // 10:00Z is genuinely newer than the run below it, so placing it last is a visible symptom.
   const offsetSpelled = "2026-01-01T12:00:00+02:00";
   const utcSpelled = "2026-01-01T09:00:00Z";
 
@@ -145,8 +132,6 @@ describe("a start spelled with a numeric offset", () => {
   });
 
   it("negative control: the display formatter alone reads that spelling perfectly well", () => {
-    // The finding. Without it the case above would pass over a row that printed the em
-    // dash for some unrelated reason, and would not name the reader that disagreed.
     expect(formatDateTime(offsetSpelled)).not.toBe("—");
     expect(formatDateTime(offsetSpelled)).toBe(formatDateTime("2026-01-01T10:00:00Z"));
   });
@@ -157,8 +142,6 @@ describe("a start spelled with a numeric offset", () => {
   });
 
   it("negative control: a plain Z start still prints its figure rather than the dash", () => {
-    // Without this the case above would be satisfied by a row that had stopped
-    // rendering a start at all.
     expect(startFigures(renderList([run({ startedAt: utcSpelled })]))).toStrictEqual([
       formatDateTime(utcSpelled),
     ]);

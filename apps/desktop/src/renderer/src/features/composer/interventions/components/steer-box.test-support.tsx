@@ -1,8 +1,5 @@
-// The intervention composer's shared scaffolding.
-//
-// The suites mount the same form against the same run and the same stub calls,
-// because the claims are about one composition: a form that composes against a run
-// reads that run's own comparand and dispatches through the dispatch state it is given.
+// Shared scaffolding for the steer form suites: one form mounted against one run and
+// stub calls.
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
@@ -27,12 +24,8 @@ export const APPLIED_STEER: ScriptedAnswer = () => ({
 });
 
 /**
- * The calls the run control dispatch is given, recording each intervention into the array the CASE
- * holds.
- *
- * The harness below receives the array as a prop and builds these inside itself, so
- * the record a case can read has to be a value it already held before the mount.
- * Only `intervene` answers: no case here presses pause or resume.
+ * The calls the run control dispatch is given, recording each intervention into the case's
+ * own array. Only `intervene` answers; no case here presses pause or resume.
  */
 export function interventionCalls(
   calls: RecordedDaemonCall[],
@@ -70,8 +63,8 @@ export function SteerBoxHarness(props: {
   readonly answer: ScriptedAnswer;
   readonly onDismiss: () => void;
 }): React.JSX.Element {
-  // Pinned for the harness's whole life: the dispatch state keys its holders on the
-  // bridge, so a stub rebuilt on every render would be a new transport each pass.
+  // Pinned: the dispatch state keys its holders on the bridge, so a rebuilt stub would be a
+  // new transport every render.
   const [bridge] = useState(inertBridge);
   const [runControlCalls] = useState(() => interventionCalls(props.calls, props.answer));
   const dispatchState = useRunControlDispatch(bridge, runControlCalls);
@@ -105,6 +98,7 @@ export function renderSteerBox(answer: ScriptedAnswer = APPLIED_STEER): {
   return { container, calls, dismissCount: () => dismissals };
 }
 
+/** The steer form's body text; throws if the form drew no body field. */
 export function bodyValue(container: HTMLElement): string {
   const body = container.querySelector(".meridian-run-composer__body");
   if (!(body instanceof HTMLTextAreaElement)) {
@@ -113,6 +107,7 @@ export function bodyValue(container: HTMLElement): string {
   return body.value;
 }
 
+/** Types into a field through the native setter so React sees the input event. */
 export function typeInto(element: Element | null, value: string): void {
   if (!(element instanceof HTMLInputElement) && !(element instanceof HTMLTextAreaElement)) {
     throw new Error("the composer drew no field to type into");
@@ -129,9 +124,10 @@ export function typeInto(element: Element | null, value: string): void {
   });
 }
 
-// Awaited, because a confirm that reaches the wire settles asynchronously: the
-// state update carrying the outcome lands after the click returns, and an
-// unawaited act() would leave it outside the boundary React asserts on.
+/**
+ * Presses confirm. Awaited because a confirm that reaches the wire settles after the click
+ * returns; an unawaited act() would leave that update outside React's boundary.
+ */
 export async function submit(container: HTMLElement): Promise<void> {
   const confirm = container.querySelector(".meridian-run-composer__confirm");
   if (!(confirm instanceof HTMLButtonElement)) {

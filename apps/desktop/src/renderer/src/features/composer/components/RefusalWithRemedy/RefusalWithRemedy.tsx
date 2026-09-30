@@ -1,24 +1,8 @@
-// A refusal rendered with the operator's next move beside it.
-//
-// `refusal-props.ts` states the grammar and leaves `action` for the caller to fill;
-// `lib/refusal-remedies.ts` is what the console knows to put in it, and
-// `RefusalRemedyContent` is how a remedy is drawn there. This component is the join,
-// and it exists so the join happens once: every view that renders a daemon refusal
-// would otherwise look the code up and pick a shape itself, and three views doing that
-// is three chances to answer one code differently.
-//
-// IT RENDERS TWO OF THE THREE SHAPES AND NEVER THE THIRD. A banner spans the frame
-// and belongs to the frame's own store, so a pane body drawing one would put a
-// whole-room notice inside one pane. The remedy's `banner` rendering therefore
-// draws the CARD here — the refusal still reaches the view that produced it —
-// and the escalation is a separate, explicit act by a view that holds a frame
-// store (`hooks/useRefusalBannerEscalation.ts`). Splitting it that way is what keeps this a
-// pure component and keeps the escalation somewhere a reader can find it.
-//
-// A CODE WITH NO REMEDY RENDERS EXACTLY AS IT DOES WITHOUT THIS COMPONENT: inline,
-// with the daemon's code and sentence and no action. That is the honest default —
-// most registered codes have no next move beyond what the daemon already said, and
-// inventing one would be the console explaining what the daemon meant.
+// A refusal rendered with the operator's next move beside it: the join of `refusal-props.ts`,
+// `lib/refusal-remedies.ts` and `RefusalRemedyContent`, so every view answers a code the same way.
+// A `banner` remedy draws the card here, since a banner spans the frame and belongs to the frame's
+// store; escalating is `hooks/useRefusalBannerEscalation.ts`. A code with no remedy renders inline
+// with the daemon's words and no action, and the console invents no next move.
 
 import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
@@ -26,12 +10,12 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 import { RefusalRemedyContent } from "@renderer/components/Refusal/RefusalRemedyContent.js";
 
+/** Props for `RefusalWithRemedy`. */
 export interface RefusalWithRemedyProps {
   readonly refusal: Refusal;
   /**
-   * Rendered inside the remedy region after the console's own next move, for a caller
-   * that can say something this table cannot — the failed bindings a goal mutation
-   * named, the position a rewind landed at. Absent on most call sites.
+   * Rendered inside the remedy region after the console's own next move, for a caller that can say
+   * something the remedy table cannot, such as the position a rewind landed at.
    */
   readonly detailAction?: React.ReactNode;
 }

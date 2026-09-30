@@ -1,9 +1,6 @@
-// Which control the lease line may draw.
-//
-// The failure this fold prevents is the quiet kind: a control rendered before the
-// console knows which device is asking, so a take comes back as a hold the lease line
-// cannot recognize as its own. Every case below is one identity reading, one holding, and
-// the single control the lease line may draw.
+// Which control the lease line may draw, per holding and identity reading. A control drawn
+// before the console knows which device is asking would produce a take it cannot recognize
+// as its own.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,8 +17,7 @@ function resolve(holding: TerminalLeaseHolder, deviceIdentity: TerminalDeviceIde
 
 describe("the acquisition control is offered on the identity alone", () => {
   it("offers it to any device that knows which device it is", () => {
-    // No entitlement axis, and that is the design: the shell belongs to the one person
-    // using this machine, so there is nothing to ask permission of.
+    // No entitlement axis: the shell belongs to the one person using this machine.
     expect(resolve("unheld", IDENTITY_READ)).toStrictEqual({ control: "acquire" });
     expect(resolve("held-by-another-device", IDENTITY_READ)).toStrictEqual({ control: "acquire" });
     expect(resolve("not-checked", IDENTITY_READ)).toStrictEqual({ control: "acquire" });

@@ -1,10 +1,4 @@
 // What the form is keyed by, and when a dispatch is recorded at all.
-//
-// Split from the comparand's own cases because the premise is different: every case
-// here re-targets or re-keys a form while a send is still open, so the subject is the
-// IDENTITY the dispatch state holds its records under rather than the version it sent.
-// A composer that carried one run's draft into another, or recorded a dispatch the
-// dispatch state never admitted, would be wrong here and nowhere else.
 
 import { useLayoutEffect, useState } from "react";
 import { act, render } from "@testing-library/react";
@@ -30,12 +24,9 @@ describe("the form is keyed by what it is composing against", () => {
   const NEVER_SETTLES: ScriptedAnswer = () => new Promise(() => undefined);
 
   /**
-   * What the DOM held at COMMIT time, before any passive effect could correct it.
-   *
-   * A layout effect, which is the only moment that answers this question: React has
-   * written the frame and no passive effect has run, so a reset implemented as a
-   * `useEffect` has not happened yet and whatever this reads is what a person could
-   * see and press. Mounted after the form so the form's own frame is already there.
+   * What the DOM held at commit time, read in a layout effect: the frame is written and no
+   * passive effect has run, so this is what a person could see and press before any reset
+   * done in `useEffect`.
    */
   function CommitProbe(props: {
     readonly record: (committed: { body: string; isConfirmDisabled: boolean }) => void;
@@ -53,11 +44,8 @@ describe("the form is keyed by what it is composing against", () => {
   }
 
   /**
-   * The composer over a run the case can change, with or without the key.
-   *
-   * Both arms matter: the keyed one is a caller that keys the form by run id, and the
-   * unkeyed one is what a caller that drops the key would render — the arm the component's
-   * own reset has to hold on its own.
+   * The composer over a run the case can change, with or without the key. The unkeyed arm is
+   * the one where the component's own reset has to hold on its own.
    */
   function TargetSwitchHarness(props: {
     readonly runId: string;
@@ -111,7 +99,7 @@ describe("the form is keyed by what it is composing against", () => {
   });
 
   it("carries no body across the key a later caller might drop", () => {
-    // The component's own half of the rule: the same switch with one element reused.
+    // The same switch with one element reused, so only the component's own reset can clear it.
     const { container, retarget } = renderSwitchable(false);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
     retarget(SECOND_RUN_ID);
@@ -139,11 +127,9 @@ describe("the form is keyed by what it is composing against", () => {
   });
 
   it("shows the new target's own empty form in the commit that re-addresses", async () => {
-    // The commit itself, not the settled state after it. A reset implemented as a
-    // passive effect is one commit late by construction: the render that first sees
-    // the new run read the PREVIOUS run's body, refusal and pending
-    // dispatch, nothing disabled the form for that commit, and a submit in it
-    // dispatched text authored for one run against another's comparand.
+    // The commit itself, not the settled state after it: a reset done in a passive effect is
+    // one commit late, and a submit in that commit would send the old run's text against the
+    // new run's comparand.
     const committed: { body: string; isConfirmDisabled: boolean }[] = [];
     const { container, rerender } = render(
       <TargetSwitchHarness
@@ -155,8 +141,8 @@ describe("the form is keyed by what it is composing against", () => {
     );
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
     await submit(container);
-    // The old target's dispatch is parked, so its confirm is latched — which is what
-    // makes the reading after the switch decisive rather than incidental.
+    // The old target's dispatch is parked, so its confirm is latched; that makes the reading
+    // after the switch decisive.
     expect(committed.at(-1)).toStrictEqual({
       body: "stop and re-read the diff",
       isConfirmDisabled: true,
@@ -177,8 +163,7 @@ describe("the form is keyed by what it is composing against", () => {
   });
 
   it("negative control: a re-render at the same target keeps what was typed", () => {
-    // Without this every case above would pass over a form that cleared itself on
-    // every render, which would make it impossible to type into at all.
+    // Without this the cases above would pass over a form that cleared itself every render.
     const { container, retarget } = renderSwitchable(false);
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop and re-read the diff");
     retarget(RUN_ID);
@@ -187,7 +172,6 @@ describe("the form is keyed by what it is composing against", () => {
 });
 
 describe("a dispatch is recorded only where the dispatch state admitted one", () => {
-  /** Answers when the case releases it, so a request can be left in flight. */
   function heldAnswer(): { answer: ScriptedAnswer; release: (settlement: unknown) => void } {
     let settle: (settlement: unknown) => void = () => undefined;
     return {
@@ -202,11 +186,9 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
   }
 
   /**
-   * One dispatch state, one run, and a form the case can close and reopen while the
-   * first request is still in flight.
-   *
-   * The dispatch state is held across the remount — that is the whole point, since the
-   * latch it keeps is what the second form runs into.
+   * One dispatch state, one run, and a form the case can close and reopen while the first
+   * request is in flight. The dispatch state survives the remount; its latch is what the
+   * second form runs into.
    */
   function ReopenableHarness(props: {
     readonly formKey: string;
@@ -257,7 +239,6 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     await submit(container);
     expect(container.textContent).toContain("in-flight");
     expect(container.textContent).toContain("still settling");
-    // The body the user typed is still on screen, and the form is still open.
     expect(bodyValue(container)).toBe("the second body");
     expect(dismissals).toBe(0);
   });
@@ -289,7 +270,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
     });
     typeInto(container.querySelector(".meridian-run-composer__body"), "the second body");
     await submit(container);
-    // The first request lands, applied. It is not this form's settlement.
+    // The first request lands, applied; it is not this form's settlement.
     await act(async () => {
       held.release({
         interventionId: "d5f2c3e4-6071-4182-ac93-1e4f50617283",
@@ -304,8 +285,7 @@ describe("a dispatch is recorded only where the dispatch state admitted one", ()
   });
 
   it("negative control: an admitted dispatch settles and closes the form", async () => {
-    // Without this the two cases above would pass over a form that never read a
-    // settlement at all, which would leave every intervention open forever.
+    // Without this the two cases above would pass over a form that never read a settlement.
     const { container, calls, dismissCount } = renderSteerBox();
     typeInto(container.querySelector(".meridian-run-composer__body"), "keep going");
     await submit(container);

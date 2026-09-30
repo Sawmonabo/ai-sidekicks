@@ -1,11 +1,6 @@
-// Whose draft the address field is holding, when one component instance serves two
-// panes in turn.
-//
-// The pane layout reuses the component: a pane slot that changes subject hands the same instance
-// a different `paneId`, and every case below is about the interval that opens then.
-// The failure it replaces is silent in the worst way — the replacement pane looks
-// like it is offering the operator their own half-typed destination, and Enter sends
-// that destination to a pane they never typed it for.
+// The pane layout reuses the component, handing one instance a different `paneId`. The
+// replacement pane must not offer the previous pane's half-typed destination, since Enter would
+// send it to a pane it was never typed for.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -48,8 +43,7 @@ describe("the address draft belongs to the pane it was typed for", () => {
 
     await rebindTo(SECOND_PANE_ID);
 
-    // Following with nothing reported is the empty field and its placeholder, which
-    // is what a freshly opened pane shows.
+    // Following with nothing reported is the empty field and placeholder of a freshly opened pane.
     expect(addressField().value).toBe("");
     expect(addressField().placeholder).toBe("Type a destination");
   });
@@ -65,9 +59,8 @@ describe("the address draft belongs to the pane it was typed for", () => {
   });
 
   it("negative control: the draft survives a re-render that keeps the same pane", async () => {
-    // Without it every case above would pass against a field that discarded the
-    // draft on any re-render at all — which is a chrome nobody can type a
-    // destination into, since a reported navigation re-renders the pane mid-edit.
+    // Without it the cases above would pass against a field that discarded the draft on any
+    // re-render, and a reported navigation re-renders the pane mid-edit.
     const { rebindTo, dispatched } = await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
 
@@ -79,9 +72,8 @@ describe("the address draft belongs to the pane it was typed for", () => {
   });
 
   it("negative control: the field is still the pane's own, so typing reaches it", async () => {
-    // A stamp compared with the wrong subject would read `following` on every pass
-    // and swallow every keystroke. The Escape path is the witness that the two
-    // states are both reachable under one subject.
+    // A stamp compared with the wrong subject would read `following` on every pass and swallow
+    // every keystroke; Escape shows both states are reachable under one subject.
     await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
     expect(addressField().value).toBe(DRAFT);

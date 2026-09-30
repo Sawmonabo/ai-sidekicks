@@ -1,53 +1,7 @@
-// Answering a phase parked on a person: what a press puts, and what the answer settles
-// to. The call is the caller's, and a rejected call is not caught here.
-//
-// THE REVISION IS CAPTURED WHEN THE ATTEMPT OPENS, AND NEVER RE-READ AT PRESS TIME.
-// Re-reading it is the whole failure the optimistic-concurrency token exists to catch: a
-// submission the daemon has already accepted advances the attempt's revision, and a
-// second press that fetched the new one would overwrite somebody's accepted answer
-// while reporting success.
-//
-// AND THE RESOLVED PHASE'S OWN MEMBER IS NOT ENOUGH TO GET THAT RIGHT, which is why it is
-// held rather than read. The pane re-reads the run whenever anything moves it, and a
-// refresh that finds the SAME waiting attempt at a newer revision hands this hook a new
-// `formRevision` under a form somebody is still typing into — the attempt is keyed on
-// `phaseRunId`, so the draft survives that refresh exactly as it should. Reading the
-// member at the press would then send the answer composed against revision 0 stamped
-// with revision 1, and the daemon's comparison — the one thing that can tell it the
-// answer is stale — would find it current and accept it over whatever moved the run.
-// So the value the form was COMPOSED against is captured beside the outcome, in the same
-// subject-scoped holder and under the same key, and a new `phaseRunId` captures afresh.
-//
-// NOTHING HERE ADJUDICATES. Whether this user may answer, whether the phase is
-// still waiting, whether the revision is stale — every one of those is the daemon's.
-// A form that predicted any of them would be a second authority on a question it
-// cannot see the inputs to.
-//
-// SINGLE FLIGHT IS THE LATCH'S, on `run-control-dispatch.ts`'s own reasoning: a
-// `submitting` value read inside a press handler is the one from the render that
-// produced the handler, so two presses in one frame both find the form idle and both
-// send. Two submissions of one answer is exactly what the revision token refuses at
-// the far end, and refusing the second here — out loud, on the control — is the
-// difference between a form that explains itself and one that reports a stale-revision
-// failure for an answer the operator only gave once. The claim is `claim` and never
-// `supersedeAndClaim`: the first press is already outstanding and cannot be recalled.
-//
-// THE SUBJECT IS THE PHASE RUN AND NOT THE RUN. One run branches into several waits and
-// the pane opens one at a time, so a settlement belongs to the attempt it was made
-// against — a run-keyed holder would carry one branch's refusal onto the next branch's
-// form. The call joins it, so replacing the call retires one made through the previous
-// one.
-//
-// AND A SERVED SUBMISSION RE-ARMS THE RUN READ, which this outcome cannot do for itself.
-// The outcome above is one attempt's settlement; the pane's snapshot is the run, and a
-// daemon that recorded the answer has moved the phase this form is composed against. So
-// a served submission records the act through `served-run-act.ts` — the SAME round a served
-// cancel or resume advances, held by `run-control-dispatch.ts` — and the pane asks the
-// daemon once more. Nothing the reply reported is spliced into that snapshot: the run is
-// read again rather than believed twice, so the parked phase either stands or goes on
-// the daemon's own answer. Without it a submission the daemon accepted left the pane
-// rendering the old park and its form indefinitely, saying in the same breath that the
-// answer had been recorded.
+// Answering a phase parked on a person: what a press puts and what the answer settles to.
+// The call is the caller's and a rejected call is not caught here. The outcome is scoped to
+// `phaseRunId`, not the run, so one branch's refusal never lands on another branch's form.
+// The daemon alone decides eligibility and staleness.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
@@ -66,14 +20,10 @@ import {
 } from "../human-form-submit.js";
 
 /**
- * One attempt at one phase's form: what it was composed against, and where it got to.
+ * One attempt at one phase's form: the revision it was composed against, and where it got to.
  *
- * ONE HELD VALUE AND NOT TWO, because both facts are scoped to the same attempt and a
- * second holder keyed the same way would be a second answer to when an attempt begins.
- * The revision is seeded once, when the holder is addressed at a `phaseRunId` it was not
- * addressed at before, and every later write carries it through untouched — which is what
- * makes "the revision this form was composed against" a fact about the ATTEMPT rather
- * than about whichever run read landed most recently.
+ * Both facts share one holder so a single key decides when an attempt begins; every later
+ * write carries the revision through untouched.
  */
 interface WorkflowHumanFormAttempt {
   /** The `formRevision` the run read carried when this attempt's form opened. */
@@ -88,47 +38,31 @@ const IDLE: WorkflowHumanFormOutcome = { kind: "idle" };
 /**
  * Offer one waiting phase's submit, dispatching it through the caller's call.
  *
- * A rejected or throwing call is not caught here: the key goes back and the failure
- * propagates.
- *
- * The resolved phase is taken whole rather than as four parameters, because every member
- * of the request is read off it and the four have to be ONE answer: composed from
- * separately passed values, a pane retargeted mid-read could pair a new run's id with the
- * phase and the revision still on screen from the run before it.
- *
- * It takes the PANE's resolution and not the body's mount, which is the direction the
- * dependency has to run: the mount is this hook's own `submit` spread over that phase,
- * so a signature naming the mount would be a hook asking for the value it produces.
+ * A rejected or throwing call is not caught: the key goes back and the failure propagates.
+ * A served submission re-arms the run read instead of splicing the reply in.
  */
 export function useHumanFormSubmit(
   submitForm: WorkflowHumanFormSubmitCall,
   phase: HumanFormPhase,
 ): WorkflowHumanFormDispatch {
   const latch = useGenerationLatch();
-  // Seeded on the render that first addresses this attempt, which is where the revision
-  // it is composed against is still the one on screen. A refresh that moves
-  // `phase.formRevision` under a live attempt re-addresses nothing, so this seed does
-  // not run again and the captured number stands until the attempt itself changes.
+  // Seeded once per attempt: a refresh that moves `phase.formRevision` under a live form must
+  // not change the revision the answer is stamped with, or the daemon's stale check is defeated.
   const { value: attempt, publish } = useSubjectScopedState<WorkflowHumanFormAttempt>(
     submitForm,
     phase.phaseRunId,
     () => ({ composedAgainstRevision: phase.formRevision, outcome: IDLE }),
   );
-  // The run pane's own re-arm, reached through `ServedRunActContext` rather than through the mount:
-  // `undefined` where this form is rendered with no run pane above it, which is a form
-  // with no run read behind it to put again.
+  // The run pane's re-arm; `undefined` where no run pane is above this form.
   const recordServedRunAct = useRecordServedRunAct();
-  // Written as a function over the held value rather than as one, so the captured
-  // revision travels through every settlement without this caller restating it — and so
-  // a write from a closure that was composed several renders ago cannot carry a stale
-  // copy of it back into the holder.
+  // A function over the held value, so the captured revision survives every settlement and a
+  // write from an old closure cannot restore a stale copy of it.
   const publishOutcome = (outcome: WorkflowHumanFormOutcome): void => {
     publish((held) => ({ ...held, outcome }));
   };
 
-  // Puts the call and publishes what comes back. Neither a rejection nor a synchronous throw
-  // is caught: the key goes back either way, so a later press is not refused as a duplicate
-  // of a call that ended.
+  // Neither a rejection nor a synchronous throw is caught: the key goes back either way, so
+  // a later press is not refused as a duplicate of a call that ended.
   const putSubmission = async (
     claim: GenerationClaim,
     fields: WorkflowHumanFormFields,
@@ -138,29 +72,19 @@ export function useHumanFormSubmit(
         workflowRunId: phase.workflowRunId,
         phaseId: phase.phaseId,
         fields,
-        // The CAPTURED revision, including the `0` a fresh attempt reads, and never
-        // `phase.formRevision` — which a run read may have moved under the form since.
-        // The daemon decides whether it is still current; this hook never compares
-        // it, and a form composed against a revision the run has left behind is
-        // supposed to be refused rather than quietly re-stamped as current.
+        // The captured revision, never `phase.formRevision`, which a run read may have moved.
+        // The daemon decides whether it is still current; a stale one is refused, not re-stamped.
         expectedRevision: attempt.composedAgainstRevision,
       });
-      // Published through the holder's own handle, which carries the addressing it
-      // was captured under: an answer arriving after the pane moved to another
-      // wait writes nowhere rather than settling one phase's submission under
-      // another's form. The claim's own `settle` is the other guard — it asks
-      // whether this round is still the live one, which the unmount path retires.
+      // The holder's publish carries its own addressing and `settle` checks the round is still
+      // live, so an answer arriving after a retarget or an unmount settles nothing.
       claim.settle(() => {
         publishOutcome(submittedOutcome(reply));
-        // INSIDE THE SAME GUARD, and after the outcome rather than beside it. A
-        // settlement whose round has been retired settles nothing and must re-arm
-        // nothing either — a read put behind an unmounted pane is a call nobody is
-        // waiting for.
+        // Inside the same guard: a retired round re-arms no read.
         recordServedRunAct?.();
       });
     } finally {
-      // Whatever happened, a `publish` that threw included: a key held for the life of
-      // the subject would refuse every later press.
+      // Even when `publish` threw: a key held for the subject's life would refuse every press.
       claim.release();
     }
   };
@@ -173,6 +97,7 @@ export function useHumanFormSubmit(
         publishOutcome({ kind: "refused", refusal: answerNotComposedRefusal() });
         return;
       }
+      // `claim`, never `supersedeAndClaim`: the first press is already outstanding.
       const claim = latch.claim(submitForm, phase.phaseRunId);
       if (claim === undefined) {
         publishOutcome({ kind: "refused", refusal: submitAlreadyInFlightRefusal() });
@@ -187,10 +112,7 @@ export function useHumanFormSubmit(
 /**
  * What one served reply means for the form that asked.
  *
- * The three members are named rather than spread, so a member this outcome does not
- * declare cannot arrive by accident — the reply also carries the `phaseId` the caller
- * supplied, and echoing a request back as though it were news is how a settlement
- * comes to look like a reading.
+ * Names the three members instead of spreading the reply, which also echoes the request.
  */
 function submittedOutcome(
   reply: Awaited<ReturnType<WorkflowHumanFormSubmitCall>>,

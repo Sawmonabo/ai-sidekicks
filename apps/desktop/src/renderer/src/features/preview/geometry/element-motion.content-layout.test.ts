@@ -1,10 +1,7 @@
-// The sixth source, wired: a sibling grows and the pane's position is re-read.
-//
-// `position-ancestry.test.ts` owns the reading — which boxes are watched, what the
-// bound gives up, and what stays asleep. This file owns the only claim that reading
-// cannot make about itself: that the composed position observer actually ARMS it, and
-// that a box it must not watch still reaches nothing. A reading nothing consumes is a
-// module with a test and no effect.
+// Content-driven layout, wired: a sibling grows and the pane's position is re-read.
+// `position-ancestry.test.ts` owns the reading; this file owns the claim it cannot make about
+// itself, that the composed position observer arms it and that a box it must not watch reaches
+// nothing.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,11 +20,9 @@ afterEach(() => {
 });
 
 /**
- * `root > ancestor > (element, sibling)`, in the live document.
- *
- * The shape the finding describes: the ancestor is fixed-size, so it is never relaid;
- * the sibling is auto-sized, so a text-node rewrite or a nested insertion inside it
- * changes ITS box and pushes the element across the screen.
+ * `root > ancestor > (element, sibling)`, in the live document. The ancestor is fixed-size, so
+ * it is never relaid; the sibling is auto-sized, so a text rewrite or nested insertion inside it
+ * changes its box and pushes the element across the screen.
  */
 function attachedNeighborhood(): {
   readonly ancestor: HTMLElement;
@@ -52,8 +47,7 @@ describe("observeElementPosition — content-driven layout", () => {
     const onMove = vi.fn();
 
     const detach = observeElementPosition({ element, clock: new ManualClock(), onMove });
-    // What a rewritten text node or a nested insertion inside that sibling produces:
-    // the sibling's own box changed, and no ancestor's did.
+    // A rewritten text node or nested insertion changes the sibling's box, and no ancestor's.
     resizeObserver.deliverFor(sibling);
 
     expect(onMove).toHaveBeenCalledTimes(1);
@@ -78,9 +72,8 @@ describe("observeElementPosition — content-driven layout", () => {
   });
 
   it("negative control: a box inside the element is content, not placement", () => {
-    // Without this, an observer that watched every descendant to catch the sibling
-    // case would fire on every render of whatever the pane contains — the per-row
-    // layout cost the bounded sibling reading exists to avoid.
+    // Without this, an observer that watched every descendant would fire on every render of
+    // whatever the pane contains.
     const resizeObserver = installFakeResizeObserver();
     const { element } = attachedNeighborhood();
     const child = document.createElement("span");

@@ -1,14 +1,6 @@
-// The chokepoint: both guards on every call, one key per body, and the daemon's answer
-// as the only settlement.
-//
-// The cases drive the real dispatcher over plain stub calls that record what they were
-// handed; the stubs stand in for the daemon, which is the boundary the dispatcher
-// exists to cross.
-//
-// The claim that matters most is the negative one: nothing in this file decides whether
-// the person MAY act. Every dispatch reaches the call and a rejection comes back to the
-// caller untouched, so the case below sends a control at a completed run and asserts
-// the request went out anyway.
+// The chokepoint: both guards on every call, one key per body, and the daemon's answer as the
+// only settlement. The real dispatcher runs over stub calls standing in for the daemon. Nothing
+// here decides whether the person may act: a control sent at a completed run still goes out.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,13 +8,12 @@ import { RunControlDispatcher } from "./run-control-dispatch.js";
 import { RUN_ID, STUB_ACK, appliedIntervention } from "../run-control-commands.test-support.js";
 
 /**
- * A pinned mint, so a case asserts the guard rather than a random value. Named
- * without the wire member's own noun: the secret-scanning screen reads a
- * high-entropy literal beside that noun as a credential.
+ * A pinned mint, so a case asserts the guard rather than a random value. Named without the
+ * wire member's noun because the secret scan reads a high-entropy literal beside it as a
+ * credential.
  */
 const PINNED_IDEMPOTENCY = "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41";
 
-/** One request a stub call was handed, and the method it stands in for. */
 interface RecordedCall {
   readonly method: "run.pause" | "run.resume" | "run.intervene";
   readonly params: unknown;
@@ -37,8 +28,8 @@ function dispatcherOver(answer: (call: RecordedCall) => Promise<unknown>): {
     (method: RecordedCall["method"]) =>
     async (params: unknown): Promise<never> => {
       calls.push({ method, params });
-      // The stub answers with whatever the case scripts; the dispatcher reads only the
-      // members the contract types declare, and the parsed fixtures below carry them.
+      // The stub answers with whatever the case scripts; the parsed fixtures carry the members
+      // the dispatcher reads.
       return (await answer({ method, params })) as never;
     };
   return {
@@ -122,17 +113,15 @@ describe("the comparand is the newer of the two readings", () => {
   it("sends the stream's reading once it has passed the cached one", async () => {
     const { dispatcher, calls } = dispatcherOver(async () => STUB_ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
-    // The run then advances on `run.subscribeState`, which no control caused and
-    // whose advance the cache therefore never saw.
+    // The run then advances on `run.subscribeState`, which no control caused.
     const comparand = dispatcher.comparandFor(RUN_ID, 8);
     await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 8 });
   });
 
   it("negative control: the cached reading alone would have sent the stale version", async () => {
-    // The wrong expression, written out: prefer the cache, fall back to the stream.
-    // Over the same two readings it sends 7 — the version the daemon has already
-    // moved past — and every later guarded control is refused as stale.
+    // The wrong expression, written out: prefer the cache, fall back to the stream. It sends 7,
+    // a version the daemon has moved past, and every later guarded control is refused as stale.
     const { dispatcher } = dispatcherOver(async () => STUB_ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
     expect(dispatcher.freshComparandFor(RUN_ID) ?? 8).toBe(7);
@@ -140,8 +129,8 @@ describe("the comparand is the newer of the two readings", () => {
   });
 
   it("keeps the cached reading when the stream is behind it", async () => {
-    // An applied native steer advances the run and emits no state event, so the
-    // stream's reading is legitimately older than the answer's for a while.
+    // An applied native steer advances the run and emits no state event, so the stream's
+    // reading is legitimately older than the answer's for a while.
     const { dispatcher, calls } = dispatcherOver(async () => STUB_ACK);
     await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
     const comparand = dispatcher.comparandFor(RUN_ID, 6);
@@ -173,9 +162,8 @@ describe("the daemon's answer is the only settlement", () => {
   });
 
   it("dispatches at a completed run rather than deciding eligibility itself", async () => {
-    // Eligibility is the daemon's. The dispatcher holds no run state at all — it is
-    // handed a comparand and a run id — so nothing here could refuse on a run's state:
-    // the call goes out and the daemon's rejection comes back.
+    // Eligibility is the daemon's: the dispatcher holds no run state, so the call goes out and
+    // the daemon's rejection comes back.
     const { dispatcher, calls } = dispatcherOver(async () => {
       throw { code: "run.invalid_transition", message: "the run has already completed" };
     });

@@ -1,59 +1,18 @@
-// The row objects one transcript derivation publishes, held across its own passes.
-//
-// ITS OWN MODULE BECAUSE IT IS ONE JOB — structural sharing, one pass at a time —
-// and because it has two callers: the unfurled projection in `transcript-window.ts` and
-// the fold in `run-group-fold.ts`, each holding an instance of its own. Read
-// inside the derivation it came from, a hundred and forty lines of identity rules sat
-// between the window's shape and the function that builds one, and the module that
-// owned the shape also owned the equality.
+// Row objects one transcript derivation publishes, held across its own passes. Two callers, each
+// with its own instance: the unfurled projection in `transcript-window.ts` and the fold in
+// `run-group-fold.ts`. A pass keeps only what it republishes, so the table never outgrows the
+// window.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";
 
 /**
- * The row objects one derivation publishes, held across its own passes.
- *
- * WHY IT EXISTS, MEASURED. `projectTranscriptRows` rebuilds every `TimelineRow` on
- * every admitted event, and the identity triple beside each one used to be minted
- * fresh with it. Every memo below the feed keys on those identities, so a log that
- * gained one entry handed the viewport a window in which nothing had changed and
- * nothing was recognizable: a ten-row window drew ten row bodies at mount and
- * twenty-one more per admitted event, and none of that work produced a different
- * pixel.
- *
- * WHAT IT DOES. Structural sharing, one pass at a time: the object the PREVIOUS pass
- * published under a key is returned again whenever every member of the candidate
- * equals it. So a row that did not move keeps the identity the tree already holds,
- * and a row that did move takes a new one — which is what keeps this a performance
- * change rather than a stale-content bug.
- *
- * WHY A PASS AND NOT AN ACCUMULATING CACHE. `beginPass` moves what the last pass
- * published into the retained position and starts an empty one, so a row the
- * projection stopped emitting leaves with the pass that dropped it. The table can
- * therefore never outgrow the window it describes, which an accumulating map keyed by
- * row id could — and a table that outgrows its window is a leak wearing a cache's
- * clothes.
- *
- * WHAT IT ALLOCATES ON THE STEADY-STATE PATH: two maps per pass, and NOTHING per
- * retained row. `retainRowIdentity` takes the row and its parent key rather than a
- * built triple, so an unchanged row is answered without first minting the candidate
- * that would have been thrown away. The `TimelineRow` allocation is upstream — the
- * projection mints it before this is asked anything — so what is saved for those is
- * the identity CHANGE and not the object.
- *
- * WHAT IT DEPENDS ON UPSTREAM, STATED RATHER THAN ASSUMED. A row is retained only when
- * every member is identity-equal, and the projection copies the delivered envelope's own
- * `payload` object — which the store holds across revisions, so it is. An envelope
- * delivered WITHOUT a payload projects a fresh empty record on every pass, so its row
- * takes a new identity each time and is redrawn each time. That is a property of the
- * projection rather than of this table, it is correct rather than merely tolerated, and
- * the cost of it is one row.
- *
- * ONE INSTANCE PER DERIVATION AND NEVER SHARED. The unfurled projection files a run
- * row under its run's parent key and the fold files that same row under `undefined`
- * when its run group is live, so a single table would answer one of the two stages with
- * the other's triple and thrash on every pass.
+ * Structural sharing, one pass at a time: the row or identity triple the previous pass published
+ * under a key is returned again when every member is equal, so unchanged rows keep the identity
+ * the memos below the feed key on (measured: without it a ten-row window drew ten row bodies at
+ * mount and twenty-one more per admitted event). One instance per derivation: the projection and
+ * the fold key the same run row differently, so a shared table would thrash.
  */
 export class TranscriptRowRetention {
   #retainedRowsById = new Map<string, TimelineRow>();
@@ -81,21 +40,15 @@ export class TranscriptRowRetention {
     return published;
   }
 
-  /** One projected row's place in the virtualizer's identity list. */
+  /** One projected row's place in the identity list; takes the row and parent key, not a triple. */
   public retainRowIdentity(row: TimelineRow, parentKey: string | undefined): ViewportRow {
     return this.#retainIdentity(row.id, parentKey, cutUnitFor(row));
   }
 
   /**
-   * A GROUP HEADER's place in that list, which no projected row backs.
-   *
-   * ONE METHOD FOR BOTH GROUPS THE FEED FOLDS, because the identity rule is the same
-   * for each: the header IS its group, so it is keyed by the group's own key — the
-   * run id for a run group, which is the key `readRunGroupKey` already hands that
-   * run group's rows as their parent, and `supersededBandKey`'s composite for a
-   * rewound band — and it is its own cut unit, so pruning it takes its subtree with
-   * it. A second method with this body would be one implementation of one job
-   * written twice.
+   * A group header's place in that list, which no projected row backs. The header is its group,
+   * so it is keyed by the group key (a run id, or `supersededBandKey`'s composite for a rewound
+   * band) and is its own cut unit, so pruning it takes its subtree with it.
    */
   public retainGroupHeaderIdentity(groupKey: string): ViewportRow {
     return this.#retainIdentity(groupKey, undefined, groupKey);
@@ -115,33 +68,18 @@ export class TranscriptRowRetention {
 }
 
 /**
- * The cut unit the window cap prunes by.
- *
- * `WindowRow.rootCursor` is the `timeline.read` cursor a row was read at. This
- * console holds one live subscription and reads earlier pages on demand, and every
- * row a page delivers is merged into the same window one at a time. So each row is
- * its own cut unit, which is the FINEST the cap can act on and therefore the least
- * it can over-drop: a single shared cursor would make the cap all-or-nothing over
- * every row that page delivered.
+ * The cut unit the window cap prunes by: each row is its own, the finest the cap can act on. A
+ * cursor shared across a page would make the cap all-or-nothing over every row the page delivered.
  */
 function cutUnitFor(row: TimelineRow): string {
   return row.id;
 }
 
 /**
- * Whether two projections of one row say the same thing, member for member.
- *
- * Asked of the object's OWN KEYS rather than of a list written here, and that is the
- * point: `TimelineRow` is a four-arm union the contracts package owns, and a member
- * added there that this file forgot to compare would make a changed row compare
- * equal — which is a stale card on screen, the one failure a retention table can
- * cause. Reading the keys off the candidate costs two small arrays per row per pass
- * and cannot fall behind the type.
- *
- * Every member is compared by identity, which is exact for the primitives and right
- * for the two object-valued ones: `payload` is the delivered envelope's own object,
- * held by the store across revisions, and `superseded` is rebuilt only when the
- * ranking that produced it moved.
+ * Whether two projections of one row are equal member for member, by identity. Compares the
+ * candidate's own keys, not a list written here, so a member added to `TimelineRow` cannot be
+ * forgotten and make a changed row compare equal (a stale card). `payload` is the delivered
+ * envelope's own object, held by the store across revisions.
  */
 function hasSameMembers(previous: TimelineRow, candidate: TimelineRow): boolean {
   const previousMembers = previous as unknown as Record<string, unknown>;

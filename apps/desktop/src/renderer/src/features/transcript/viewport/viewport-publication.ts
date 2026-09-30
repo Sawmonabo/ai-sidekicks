@@ -1,40 +1,24 @@
-// The one place the transcript frame tells React that something changed.
-//
-// WHY IT IS ITS OWN OBJECT. `viewport-controller.ts` is the wiring: it owns the four
-// objects and decides when each is asked anything. Deciding whether the tree needs
-// to hear about the result is a different job with its own state — the snapshot
-// currently held, and the frame a burst of notifications is coalesced into — and
-// every producer in that file ends by asking for it, which is exactly the shape a
-// collaborator takes over so the wiring reads as wiring.
-//
-// TWO PROPERTIES THIS OBJECT EXISTS TO KEEP:
-//
-//   • **A snapshot is a value, recomputed on change.** `useSyncExternalStore`
-//     demands a stable reference between changes, and recomputing one per render
-//     would tear the tree. So the value is BUILT through the thunk this is
-//     constructed with, held, and replaced only when it differs.
-//   • **A notification that carries no change is not merely waste.** A render
-//     re-runs the virtualizer's layout effects, which can move the offset, which
-//     notifies again — so an unchanged publication is one turn of a loop that does
-//     not settle. The comparison below is the thing that stops it.
-//
-// THE COMPARISON LIVES HERE RATHER THAN IN `viewport-snapshot.ts` BECAUSE IT IS NOT
-// A FACT ABOUT THE VALUE. It encodes which members the controller REBUILDS on change
-// and which it merely re-reads: the three arrays and the prune outcome are compared
-// by identity because each is rebuilt exactly when it changes, and the three reading
-// fields by value because they are copied off the anchor on every build. That is a
-// property of the producer, and it belongs beside the producer's publication point.
+// The one place the transcript frame tells React something changed.
+//   - A snapshot is a value rebuilt through `build` and replaced only when it differs, because
+//     `useSyncExternalStore` needs a stable reference between changes.
+//   - An unchanged publication must not notify: a render re-runs the virtualizer's layout
+//     effects, which can move the offset and notify again, a loop that never settles.
+// The comparison lives here rather than in `viewport-snapshot.ts` because it encodes which
+// members the controller rebuilds on change (rows, row keys, key projection and prune outcome,
+// compared by identity) and which it re-reads (the three reading fields, compared by value).
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type ViewportSnapshot } from "./viewport-snapshot.js";
 
+/** Dependencies of a `ViewportPublication`. */
 export interface ViewportPublicationOptions {
   readonly clock: Clock;
   /** Rebuild the snapshot from the frame's objects. Called once per publication. */
   readonly build: () => ViewportSnapshot;
 }
 
+/** Holds the frame's stable snapshot and notifies subscribers only when it changes. */
 export class ViewportPublication {
   readonly #clock: Clock;
   readonly #build: () => ViewportSnapshot;

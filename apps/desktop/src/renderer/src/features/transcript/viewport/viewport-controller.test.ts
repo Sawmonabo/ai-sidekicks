@@ -1,14 +1,8 @@
-// The wiring, driven end to end: rows in, and the reader held in place.
-//
-// The scroll container is a real detached element. Every geometry read under `happy-dom`
-// answers zero, which is exactly why nothing here asserts a pixel: the claims are
-// about which objects were CALLED and with what — that holding a reading position is
-// one glide named for its caller, and that a scroll costs no reconcile. Where a pixel
-// is the claim, the case lives in `scroll-chokepoint.test.ts` or
-// `row-measurement-table.test.ts`, which drive their subjects without a DOM.
-//
-// What the CAP prunes is `viewport-controller.pruning.test.ts`', which reconciles the
-// same controller against the same conditions through `viewport-controller.test-support.ts`.
+// The wiring driven end to end: rows in, and the reader held in place. The scroll container is a
+// real detached element and `happy-dom` geometry reads answer zero, so no case asserts a pixel;
+// the claims are about which objects were called and with what. Pixel claims live in
+// `scroll-chokepoint.test.ts` and `row-measurement-table.test.ts`; what the cap prunes is
+// `viewport-controller.pruning.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,8 +26,7 @@ describe("the viewport controller — reconcile", () => {
   });
 
   it("hands back the same snapshot reference until something changes", () => {
-    // `useSyncExternalStore` tears the tree if the getter returns a fresh object
-    // per call, so this is a contract rather than an optimization.
+    // `useSyncExternalStore` tears the tree if the getter returns a fresh object per call.
     const { controller } = attachedController();
     controller.reconcile({ rows: syntheticRows(4), ...CALM });
     expect(controller.snapshot()).toBe(controller.snapshot());
@@ -70,8 +63,7 @@ describe("the viewport controller — holding the reading position", () => {
   it("follows the tail while following, and holds the anchor while reading", () => {
     const { controller } = attachedController();
     controller.reconcile({ rows: syntheticRows(20), ...CALM });
-    // The tail glide is ARMED by the reconcile and performed once the new height is
-    // committed — see the group below for why, and for the case that pins it.
+    // The tail glide is armed by the reconcile and performed once the new height is committed.
     controller.commitPendingPositionHold();
     expect(controller.scroll.writeCount("follow-tail")).toBeGreaterThan(0);
 
@@ -127,11 +119,9 @@ describe("the viewport controller — holding the reading position", () => {
 
 describe("the viewport controller — what a scroll does NOT cost", () => {
   it("notifies nothing for a scroll that changes only where the reader is", () => {
-    // The budget claim, driven rather than asserted: a snapshot that carried the
-    // anchor point or the raw geometry would notify React on every pixel, which is
-    // exactly the render `directDomUpdates` exists to avoid — and, because a render
-    // re-runs the virtualizer's layout effects, one turn of a loop that would not
-    // settle.
+    // A snapshot carrying the anchor point or raw geometry would notify React on every pixel,
+    // the render `directDomUpdates` exists to avoid, and each render re-runs layout effects that
+    // can loop.
     const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(scrollContainer);
@@ -163,8 +153,7 @@ describe("the viewport controller — what a scroll does NOT cost", () => {
   });
 
   it("does not re-anchor to a position the transcript itself just wrote", () => {
-    // Anchoring to the result of a glide discards the position the glide was
-    // performed to preserve.
+    // Anchoring to a glide's result discards the position the glide was performed to preserve.
     const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(scrollContainer);
@@ -237,12 +226,10 @@ describe("the viewport controller — the tail glide and the height it lands aga
   const TAIL_AFTER_PX = CONTENT_HEIGHT_AFTER_PX - VIEWPORT_HEIGHT_PX;
 
   /**
-   * A follower at the tail, with rows already reconciled.
-   *
-   * `resizeTo` here stands for the SIZER growing rather than the pane changing size:
-   * the virtualizer writes the container's height directly under `directDomUpdates`,
-   * and what the chokepoint sees of that write is a taller `scrollHeight` under an
-   * unchanged `clientHeight`.
+   * A follower at the tail, with rows already reconciled. `resizeTo` stands for the sizer
+   * growing, not the pane resizing: the virtualizer writes the container height directly under
+   * `directDomUpdates`, so the chokepoint sees a taller `scrollHeight` under an unchanged
+   * `clientHeight`.
    */
   function followerAtTail(): {
     controller: ViewportController;
@@ -266,10 +253,8 @@ describe("the viewport controller — the tail glide and the height it lands aga
     const followsBeforeAppend = controller.scroll.writeCount("follow-tail");
 
     controller.reconcile({ rows: syntheticRows(24), ...CALM });
-    // NO GLIDE HAS BEEN PERFORMED YET, and that is the fix: React has not rendered
-    // the four new rows, so the sizer still carries the old total size and a glide
-    // here would scroll to the bottom of the log as it was BEFORE the append. This is
-    // the reading that fails against the pre-commit glide.
+    // No glide has been performed yet: React has not rendered the four new rows, so the sizer
+    // still has the old total size and a glide now would scroll to the old bottom.
     expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeAppend);
     expect(scrollContainer.scrollTop).toBe(TAIL_BEFORE_PX);
 
@@ -277,15 +262,13 @@ describe("the viewport controller — the tail glide and the height it lands aga
     controller.commitPendingPositionHold();
 
     expect(scrollContainer.scrollTop).toBe(TAIL_AFTER_PX);
-    // The negative control rides the same two readings: the offset the pre-commit
-    // glide would have chosen is a different number, and it is the one the reader was
-    // left at before this fix.
+    // The offset the pre-commit glide would have chosen is a different number.
     expect(TAIL_BEFORE_PX).not.toBe(TAIL_AFTER_PX);
   });
 
   it("performs one glide per append, not one per render", () => {
-    // The binding calls the commit after every render, so a commit that re-glided on
-    // an unarmed pass would write the offset on every frame a streaming lane causes.
+    // The binding calls the commit after every render; re-gliding on an unarmed pass would write
+    // the offset on every frame of a stream.
     const { controller } = followerAtTail();
     controller.reconcile({ rows: syntheticRows(24), ...CALM });
     const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
@@ -298,10 +281,9 @@ describe("the viewport controller — the tail glide and the height it lands aga
   });
 
   it("negative control: a reader who left the tail before the commit is not dragged to it", () => {
-    // The arming says what was true at the reconcile; the commit runs a render later,
-    // and a reader who scrolled in between is no longer following. Without the
-    // re-check the deferral would reintroduce exactly the teleport the anchor exists
-    // to prevent.
+    // The arming says what was true at the reconcile and the commit runs a render later; a reader
+    // who scrolled in between is no longer following, and without the re-check the deferral would
+    // teleport them.
     const { controller, scrollContainer } = followerAtTail();
     controller.reconcile({ rows: syntheticRows(24), ...CALM });
     const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
@@ -316,8 +298,8 @@ describe("the viewport controller — the tail glide and the height it lands aga
   });
 
   it("holds a reader's anchor during the reconcile itself, deferring nothing", () => {
-    // Only the following arm is deferred: the anchor arm's index lookup is measured
-    // in the pre-render offset space on purpose, so moving it would break it.
+    // Only the following arm is deferred: the anchor arm's index lookup is measured in the
+    // pre-render offset space on purpose.
     const scrollContainer = createCountingScrollContainer({
       initialScrollTop: 500,
       clientHeight: VIEWPORT_HEIGHT_PX,

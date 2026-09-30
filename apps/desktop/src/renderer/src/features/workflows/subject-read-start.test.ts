@@ -1,11 +1,6 @@
-// The seed rule, on its own: a subject in hand is a question being put, and no subject
-// is a question that cannot be.
-//
-// Asserted here rather than through a rendered component because that is the whole of
-// what this module decides. What happens to the value afterwards — which frame carries
-// it, which settlement is admitted, what a re-address discards — belongs to
-// `lib/subject-scoped/subject-scoped-holder.ts` and is proved against the holder itself.
-// Every workflow read passes this rule in as the holder's `initial`.
+// The seed rule on its own: a subject in hand is a question being put, and no subject is a
+// question that cannot be. What happens to the value afterwards belongs to the holder in
+// `lib/subject-scoped/subject-scoped-holder.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,23 +8,17 @@ import { subjectReadStart } from "./subject-read-start.js";
 
 describe("subjectReadStart — what a read starts as, given what it is about", () => {
   it("is reading the moment a subject is in scope", () => {
-    // The defect this rule replaces: the three read hooks seeded `unasked` and moved to
-    // `reading` from an effect, which runs after the commit — so one painted frame
-    // claimed nobody had asked about a subject whose request was already out.
+    // Seeding `unasked` and moving to `reading` in an effect paints a frame claiming nobody asked.
     expect(subjectReadStart("run-a")).toEqual({ status: "reading" });
   });
 
   it("negative control: an address with no subject stays unasked", () => {
-    // Without this, the case above passes for a rule that answered `reading` to
-    // everything — including an address with no question in it, where a spinner
-    // promises an answer that is never coming.
+    // Without this, the case above passes for a rule that answered `reading` to everything.
     expect(subjectReadStart(undefined)).toEqual({ status: "unasked" });
   });
 
   it("negative control: the empty string is a subject, not an absence", () => {
-    // A key is a NAME inside one object's key space, and the holder tells "no subject"
-    // from a subject by `undefined` alone. A rule that treated a falsy id as no subject
-    // would render a spinner-free empty region over a read it had in fact put.
+    // The holder tells "no subject" from a subject by `undefined` alone; a falsy id is a subject.
     expect(subjectReadStart("")).toEqual({ status: "reading" });
   });
 });

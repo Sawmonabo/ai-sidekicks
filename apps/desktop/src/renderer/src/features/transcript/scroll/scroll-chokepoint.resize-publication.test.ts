@@ -1,19 +1,9 @@
 // A resize publishes the transcript's box immediately; the row pass behind it still waits.
-//
-// ITS OWN FILE because the subject needs a real DOM element and `scroll-chokepoint.test.ts`
-// deliberately drives a structural stand-in — that file's own header says why, and the two
-// harnesses cannot be one. `OverflowMeasurementBatch.observeResize` narrows its subject
-// with `instanceof Element` and skips anything else, so the stand-in installs no observer
-// and this path is unreachable from there.
-//
-// WHAT IT PINS. The resize trigger used to do two jobs on one coalescing frame: publish the
-// box the virtualizer ranges against, and re-measure clamped rows. Only the second may be
-// late. `ManualClock.advance` excludes frames deliberately — `runFrame` is a separate
-// control so a frozen clock never reports a paint its holder did not release — and
-// a fixture build's window runs on exactly that clock, carried by the bridge resolution,
-// so the deferred publication was not late but indefinite: measured on the endurance tier,
-// the transcript published geometry once, from `attach`, and spent two hundred churn cycles
-// ranging a 149 px viewport against the 32 px box it had at mount.
+// A separate file from `scroll-chokepoint.test.ts`, which drives a structural stand-in: the
+// batch's `observeResize` skips anything that is not an `Element`, so this path needs a real one.
+// `ManualClock.advance` excludes frames deliberately, and a fixture build's clock is exactly
+// that, so a publication riding the coalescing frame never arrived: on the endurance tier the
+// transcript ranged a 149 px viewport against the 32 px box it had at mount for 200 churn cycles.
 
 import { beforeEach, describe, expect, it, onTestFinished } from "vitest";
 
@@ -29,15 +19,9 @@ beforeEach(() => {
 });
 
 describe("the scroll chokepoint — a resize publishes the box without a frame", () => {
-  // THE ELEMENT IS REAL HERE AND A STAND-IN EVERYWHERE ELSE, because this is the one
-  // claim about a path the stand-in cannot reach: `observeResize` narrows its subject
-  // with `instanceof Element` and skips anything else, so a structural stand-in installs
-  // no observer at all. The geometry reads are defined onto it because `happy-dom`
-  // answers zero for every one.
-  //
-  // AND THE BOX HAS TO ACTUALLY GROW. A publication whose sample matches the one the
-  // subscribers already hold wakes nobody, by design — so a case that fired a resize
-  // over an unchanged element would read as starvation whether or not the seam worked.
+  // The element is real because `observeResize` skips a structural stand-in. The geometry reads
+  // are defined onto it because `happy-dom` answers zero for each, and the box has to grow: a
+  // sample matching the one subscribers hold wakes nobody by design.
   interface GrowableScrollContainer {
     readonly scrollContainer: ScrollContainer;
     growTo: (clientHeight: number) => void;
@@ -82,12 +66,8 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
   }
 
   it("publishes the resized box with no frame released at all", () => {
-    // THE DEFECT THIS RULES OUT, measured on the endurance tier before the split: the
-    // publication rode the batch's coalescing frame, `ManualClock.advance` excludes
-    // frames deliberately, and a fixture build hands the console exactly that clock —
-    // so the transcript published geometry once, from `attach`, and then ranged a 149 px
-    // viewport against the 32 px box it had at mount for two hundred churn cycles.
-    // `clock.runFrame()` is never called below, and that is the whole assertion.
+    // The publication once rode the batch's coalescing frame, which a fixture clock never
+    // releases. `clock.runFrame()` is never called below, and that is the assertion.
     const observer = installObserverCapture();
     const controller = new ScrollController({ clock });
     const mounted = growableElement(32, 9000);
@@ -104,9 +84,8 @@ describe("the scroll chokepoint — a resize publishes the box without a frame",
   });
 
   it("negative control: the coalesced pass behind it is still waiting on a frame", () => {
-    // Which is what keeps the split a SPLIT rather than a removal of the batching: the
-    // box escapes the frame and the row measurement does not, so a case that passed by
-    // running the pass eagerly would be reporting the opposite design.
+    // The box escapes the frame and the row measurement does not; passing by running the pass
+    // eagerly would report the opposite design.
     const observer = installObserverCapture();
     const controller = new ScrollController({ clock });
     const measured: number[] = [];

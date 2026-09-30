@@ -1,50 +1,7 @@
-// The one enumeration this composer holds, read by the command list and the send path.
-//
-// The enumeration's lifetime is a rule: it is not persisted, not cached across
-// sessions, and re-read rather than patched. That is what this holder is — one live
-// reading, keyed on the addressed agent, discarded when the key changes and when the
-// command list that opened it closes. It is not a registry and nothing here survives a
-// re-address.
-//
-// WHY IT IS A HOLDER AND NOT A HOOK IN EACH READER. Two readers need the same reading and
-// they need it for different reasons: the popover LISTS what the bound provider
-// publishes, and the send router has to know whether a typed `/name` is one of those
-// entries, because a typed provider command is answered by naming it rather than sent
-// as a message. A second hook in the send button would be a second read of one wire and
-// a second answer to one question; a copy cached in the router would be the stored list
-// the lifetime rule forbids. So one holder is built and both readers are handed it.
-//
-// THE POPOVER IS THE ONLY WRITER. It owns the open state — the leading slash in the
-// line is what opens the command list — and the router only ever reads the snapshot. One
-// writer is what keeps "when is this read live" a question with one answer.
-//
-// THE KEY INCLUDES THE BRIDGE, BECAUSE THE BRIDGE IS PART OF WHICH BINDING THIS IS.
-// `PlatformBridgeProvider` can replace its bridge under a composer that stays addressed
-// to the same session and agent, and a key of session and agent alone reads that as
-// "nothing moved" — so the command list would be served the OLD bridge's catalog, which
-// breaks the routing rule this holder exists to keep. The key is therefore compared by
-// bridge identity as well, and an outstanding read is guarded by the ROUND it was
-// issued on rather than by the key: a key can be re-entered after a close, and a reply
-// from the previous occupancy would pass an identity guard that only compares values.
-//
-// THE ROUND IS ALSO WHAT STOPS THE READ, and that is the half a private generation
-// counter could never have. A counter says which reply may be PUBLISHED; it says
-// nothing to the call itself, so a popover that closed while
-// `driver.listProviderCommands` was in flight would go on waiting for the bindings and
-// parsing them against their registered schema for an owner who had left, and then
-// discard the answer. A round from `console/store`'s read line answers both questions
-// as one value — `settle` orders the settlement, `signal` ends the read — so the
-// enumeration cannot be superseded without also being stopped.
-//
-// ONE SCOPE PER ADDRESS, which is what a scope IS: one view's reads of one subject,
-// living exactly as long as that pairing does. Opening at a new key abandons the
-// previous line and mints a fresh one, and closing abandons the line outright — the
-// terminal ending, because nothing on it will be read again. `close()` stays
-// non-terminal for the HOLDER: a view that comes back opens at its key again and
-// gets a new line, exactly as `lib/reads/read-scope.ts` describes a returning view.
-//
-// LAZY. The read runs when the command list opens, not when the composer mounts: a person who
-// never types a slash never spends a provider round trip.
+// The one enumeration this composer holds, read by the command list and the send path: one live
+// reading keyed on the addressed agent and bridge, never persisted or cached across sessions.
+// The popover is the only writer; the router only reads the snapshot. The read runs when the
+// command list opens, so a person who never types a slash costs no provider round trip.
 
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 import { settleEnumeration, type ProviderCommandReadState } from "./provider-command-read.js";
@@ -64,11 +21,8 @@ export interface ProviderCommandReadKey {
 }
 
 /**
- * Whether two keys name one binding.
- *
- * The bridge is compared by IDENTITY and the other two by value, which is what each
- * one is: a bridge is the live object a call travels over, and two bridges holding the
- * same session are two different wires with two different catalogs behind them.
+ * Whether two keys name one binding. The bridge is compared by identity: two bridges holding the
+ * same session are two wires with different catalogs, so a replaced bridge must re-read.
  */
 function isSameReadKey(held: ProviderCommandReadKey, candidate: ProviderCommandReadKey): boolean {
   return (
@@ -82,19 +36,15 @@ function isSameReadKey(held: ProviderCommandReadKey, candidate: ProviderCommandR
 const NOT_CHECKED: ProviderCommandReadState = { phase: "not-checked" };
 
 /**
- * One composer's live enumeration.
- *
- * A class with private fields rather than a hook's state, because two components read
- * it and only one of them may drive it. The subscription is the plain
- * `useSyncExternalStore` shape: the snapshot is the stored state object, so an
- * observer re-renders when the reading changes and never on a poll.
+ * One composer's live enumeration. A class rather than hook state, because two components read it
+ * and only one may drive it; `snapshot` and `subscribe` fit `useSyncExternalStore`, so observers
+ * re-render on change and never on a poll.
  */
 export class ProviderCommandEnumeration {
   #state: ProviderCommandReadState = NOT_CHECKED;
   #openKey: ProviderCommandReadKey | undefined = undefined;
-  // The line the open key's read is on, or `undefined` while no key is open. Replaced
-  // by every open at a new key and abandoned by every close, so an outstanding read is
-  // both superseded and stopped when the occupancy it was issued under ends.
+  // The read line of the open key: replaced on open at a new key, abandoned on close, so an old
+  // read is both superseded and stopped.
   #readLine: ReadScope | undefined = undefined;
   readonly #listeners = new Set<() => void>();
 
@@ -110,33 +60,25 @@ export class ProviderCommandEnumeration {
   };
 
   /**
-   * Read the addressed agent's commands and skills, or keep the reading already in
-   * hand when the key has not moved.
-   *
-   * A key change DISCARDS before it re-reads, and the intermediate state is
-   * `not-loaded` rather than the previous agent's list: a list that survived a
-   * re-address for one frame would be one frame in which the command list offered the
-   * wrong binding's commands — the routing rule every entry is held to: a command
-   * enumerated under one binding is never offered under another.
+   * Read the addressed agent's commands and skills, or keep the reading in hand when the key has
+   * not moved. A key change discards before it re-reads and the interim state is `not-loaded`, so
+   * a command enumerated under one binding is never offered under another.
    */
   public open(key: ProviderCommandReadKey): void {
     if (this.#openKey !== undefined && isSameReadKey(this.#openKey, key)) {
       return;
     }
     this.#openKey = key;
-    // The previous address's line is over, not superseded: this is a different
-    // pairing, so it gets a different line rather than a further round on that one.
+    // The previous address's line is over, not superseded: a new pairing gets a new line.
     this.#endReadLine();
     const readLine = new ReadScope();
     this.#readLine = readLine;
     const round = readLine.openRound();
     this.#publish({ phase: "not-loaded" });
     void settleEnumeration(key.bridge, key.sessionId, key.agentId, round.signal).then((settled) => {
-      // A reply from a superseded occupancy has nowhere to go: writing it would put
-      // one binding's commands under another binding's address. `settle` is what says
-      // so, and it answers for the abandoned line as well as the replaced one — an
-      // abandonment landing after `callDaemon` settled but before this callback runs is
-      // the microtask gap no signal check placed earlier could have covered.
+      // `settle` drops a reply from a superseded or abandoned occupancy. It guards on the round,
+      // not the key: a key can be re-entered after a close, and an old reply would pass a value
+      // check.
       round.settle(() => {
         this.#publish(settled);
       });
@@ -149,27 +91,17 @@ export class ProviderCommandEnumeration {
       return;
     }
     this.#openKey = undefined;
-    // Closing ENDS an outstanding read rather than only ignoring what it settles as: otherwise the
-    // reply would go on being waited for and parsed for a command list that had gone.
+    // Closing ends an outstanding read, not only its settlement, so the reply is not awaited and
+    // parsed for a list that is gone.
     this.#endReadLine();
     this.#publish(NOT_CHECKED);
   }
 
   /**
-   * The entry the ADDRESSED BINDING published under this exact name, if it published
-   * one.
-   *
-   * Served readings only, and an exact match: the name is what the popover listed and what a person
-   * copied out of it, and a loose match here would have the send path naming an entry the list
-   * never showed them. A reading that has not landed answers `undefined`, which leaves the send
-   * path's ordinary answer for the name in place rather than guessing.
-   *
-   * The binding is an ARGUMENT rather than part of this reading's key. Which of an
-   * agent's runs the composer addresses moves as the daemon settles turns, and folding
-   * that into the key would re-read the enumeration on every turn; what it must move
-   * is which group is READ OUT, which is exactly what selecting here does. Both readers
-   * of this enumeration take the same selection, so the list a person saw and the
-   * name the send path recognizes name one binding.
+   * The entry the addressed binding published under this exact name, if any. Served readings only
+   * and an exact match, so the send path never names an entry the list did not show; a reading
+   * that has not landed answers `undefined`. The binding is an argument, not part of the key: the
+   * addressed run moves as turns settle, and keying on it would re-read on every turn.
    */
   public publishedEntryNamed(
     commandName: string,
@@ -189,14 +121,7 @@ export class ProviderCommandEnumeration {
     );
   }
 
-  /**
-   * Abandon whatever line this holder holds, and hold none.
-   *
-   * One private path so the two endings — re-addressed and closed — are the same act
-   * on the line and differ only in what the holder does next. Dropping the reference
-   * is what makes the next `open` mint a fresh scope rather than reach for an
-   * abandoned one, which can open no live round again.
-   */
+  /** Abandon the held line and hold none, so the next `open` mints a fresh scope. */
   #endReadLine(): void {
     this.#readLine?.abandon();
     this.#readLine = undefined;

@@ -1,4 +1,4 @@
-// One parse per settled block, and `remend` on the tail alone.
+// Parsing a settled block, a block against the body's definitions, and the volatile tail.
 
 import { describe, expect, it } from "vitest";
 
@@ -58,17 +58,15 @@ describe("parsing a block against the whole body's definitions", () => {
   });
 
   it("negative control: the same block alone yields no reference node at all", () => {
-    // This is the whole defect. GFM leaves `[^1]` as literal characters when its
-    // definition is absent from the parse, and no later pass can promote a text node
-    // into a reference — so without the preamble there is nothing to upgrade.
+    // GFM leaves `[^1]` as literal characters when its definition is absent from the parse,
+    // and no later pass can promote a text node into a reference.
     expect(JSON.stringify(parseSettledBlock(CITING_BLOCK).children)).not.toContain(
       "footnoteReference",
     );
   });
 
   it("drops the synthetic definitions and keeps the author's own", () => {
-    // The preamble's `[^1]:` and the block's `[^1]: the note body` carry one identifier,
-    // so identity cannot tell them apart and the offset rule is what does.
+    // Both carry the identifier `1`, so identity cannot tell them apart; the offset rule does.
     const parsed = parseSettledBlock(
       "[^1]: the note body\n",
       footnoteDefinitionPreamble(new Set(["1"])),
@@ -78,8 +76,8 @@ describe("parsing a block against the whole body's definitions", () => {
   });
 
   it("keeps an indented code block out of the preamble's last definition", () => {
-    // A footnote definition takes indented lines after a blank one as its own body, so a
-    // preamble ending in a blank line would swallow this block whole.
+    // A footnote definition takes indented lines after a blank one as its body, so a preamble
+    // ending in a blank line would swallow this block.
     const parsed = parseSettledBlock(
       "    command --flag\n",
       footnoteDefinitionPreamble(new Set(["1"])),
@@ -88,8 +86,8 @@ describe("parsing a block against the whole body's definitions", () => {
   });
 
   it("negative control: a body declaring no footnotes parses and caches exactly as before", () => {
-    // The empty preamble has to be byte-identical to no preamble, or every footnote-free
-    // message in the transcript re-keys its cache and re-parses for a feature it never uses.
+    // The empty preamble must be byte-identical to none, or every footnote-free message
+    // re-keys its cache.
     const source = `unchanged by the preamble ${String(Math.random())}\n`;
     expect(parseSettledBlock(source, footnoteDefinitionPreamble(new Set()))).toBe(
       parseSettledBlock(source),
@@ -108,15 +106,14 @@ describe("parsing the volatile tail", () => {
   });
 
   it("negative control: a lone dollar sign is NOT closed into a formula", () => {
-    // `inlineKatex` stays off because "it cost $5" is ordinary prose, and closing the
-    // first `$` would rewrite a sentence into a formula that never arrives.
+    // `inlineKatex` is off because "it cost $5" is prose, not the start of a formula.
     const rendered = JSON.stringify(parseVolatileTail("it cost $5 and then"));
     expect(rendered).not.toContain("inlineMath");
     expect(rendered).toContain("it cost $5 and then");
   });
 
   it("keeps an unfinished link's text on screen", () => {
-    // Dropping it mid-stream and re-introducing it is the flicker the split forbids.
+    // Dropping it mid-stream and bringing it back would flicker.
     expect(JSON.stringify(parseVolatileTail("see [the note"))).toContain("the note");
   });
 });

@@ -1,17 +1,7 @@
-// Matching a typed definition name against the enumeration, and offering candidates.
-//
-// THE MATCH IS EXACT AND CASE-INSENSITIVE, WITH NO PREFIX ARM. A prefix match would
-// start `deploy-production` for somebody who typed `deploy`, which is the one mistake
-// an accelerator must not make: a run is not a search result, and the act is not
-// undoable by typing more. Case is folded because a definition name is a person's
-// label rather than a wire identifier, and refusing on capitalization would be
-// refusing a name they read correctly.
-//
-// CANDIDATES ARE A DIFFERENT QUESTION AND SO A DIFFERENT FUNCTION. What a person is
-// still typing is a prefix by definition, and a list offered against it is a list —
-// nothing starts from it without the exact name landing on the line first. Both
-// readings fold case the same way and both are here, so the command list that offers a
-// candidate and the path that starts it cannot come apart on what a name matches.
+// Matching a typed definition name against the enumeration, and offering candidates. The match is
+// exact and case-insensitive with no prefix arm: a run is not undoable by typing more, so
+// `deploy` must never start `deploy-production`. Case is folded because a name is a label, not a
+// wire identifier. Candidates are a prefix reading, since an unfinished word is a prefix.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 
@@ -21,22 +11,15 @@ export type WorkflowDefinitionMatch =
   | { readonly status: "none" }
   | { readonly status: "ambiguous"; readonly count: number };
 
-/**
- * Match one typed name against the definitions a session can start.
- *
- * Exported beside the dispatch because it is the whole of the naming rule, and a case
- * that drove it through a bridge would be asserting the rule and the transport at
- * once.
- */
+/** Match one typed name against the definitions a session can start. */
 export function matchWorkflowDefinition(
   definitions: readonly WorkflowDefinitionSummary[],
   typedName: string,
 ): WorkflowDefinitionMatch {
   const wanted = foldName(typedName);
   const matches = definitions.filter((definition) => foldName(definition.name) === wanted);
-  // `resolvesAtThisContext` is the enumeration's own answer to which entry a start
-  // would pick when one name is defined at several scopes, so the narrowing is the
-  // wire's rather than a scope order this module would have to keep in step.
+  // `resolvesAtThisContext` is the wire's answer to which entry a start picks when one name is
+  // defined at several scopes.
   const resolved = matches.filter((definition) => definition.resolvesAtThisContext);
   const candidates = resolved.length > 0 ? resolved : matches;
   const [only] = candidates;
@@ -48,13 +31,7 @@ export function matchWorkflowDefinition(
     : { status: "ambiguous", count: candidates.length };
 }
 
-/**
- * The definitions a partially typed name could still become.
- *
- * A prefix reading, which is what an unfinished word is. The empty prefix offers
- * everything, because a person who has typed the verb and nothing else is asking what
- * there is.
- */
+/** The definitions a partially typed name could still become; an empty prefix offers all. */
 export function workflowDefinitionCandidates(
   definitions: readonly WorkflowDefinitionSummary[],
   typedPrefix: string | undefined,

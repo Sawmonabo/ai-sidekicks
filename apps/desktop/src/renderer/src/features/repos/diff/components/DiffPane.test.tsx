@@ -1,15 +1,7 @@
-// The diff pane while it holds no change set: its chrome, and the one thing its absence
-// must not say.
-//
-// Two claims, and the second is the reason this file exists. The pane names itself by
-// its whole trail and the entity it is a view of arrives wire-verbatim. And an unasked
-// question renders as `not-checked` and never as `empty`, because `empty` is the console
-// asserting that a workspace has no changes. A pane that regressed into `empty` would
-// look identical to a reviewer and would be stating a fact nobody established.
-//
-// WHAT THE PANE DRAWS ONCE IT HOLDS A MODEL is `DiffPane.change-set.test.tsx`, beside
-// this file: the file list, the rows, and the toolbar are read for a different reason
-// and share none of these cases' subjects.
+// The diff pane while it holds no change set: its chrome, and the one thing its absence must
+// not say. The pane is named by its whole trail with the entity wire-verbatim, and an unasked
+// question renders `not-checked`, never `empty`, which asserts the workspace has no changes.
+// Cases with a model are in `DiffPane.change-set.test.tsx`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -32,9 +24,8 @@ installDiffPaneLayout();
 
 describe("diff pane — the chrome it wears", () => {
   it("is named by the whole trail, not by the word Review", () => {
-    // The claim the binding exists for. A body drawing its own header named every diff
-    // pane in a pane layout "Review"; the chrome names it by where it is, so two panes of one
-    // kind are told apart by the subjects they are views of.
+    // A body drawing its own header named every diff pane "Review"; the chrome names it by
+    // where it is, so panes of one kind are told apart by their subjects.
     const { getByRole } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
     const region = getByRole("region", { name: /Review$/u });
     expect(region.textContent).toContain(WORKSPACE_ENTITY.id);
@@ -43,16 +34,13 @@ describe("diff pane — the chrome it wears", () => {
 
   it("renders the subject verbatim as the trail's last address crumb", () => {
     const { container } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
-    // No session store on this context, so the trail is the entity and the pane's own
-    // name — which is what an address carrying one scope should draw, rather than a
-    // placeholder standing in for the session it has not got.
+    // No session store on this context, so the trail is the entity and the pane's own name.
     expect(paneTrailCrumbs(container)).toStrictEqual([WORKSPACE_ENTITY.id, "Review"]);
   });
 
   it("negative control: the subject crumb is read from the address, not fixed", () => {
-    // Without this, the cases above would pass over a chrome that rendered a constant.
-    // A diff address always carries its entity — the arm has no shape in which it is
-    // absent — so the honest control is a second subject rather than none.
+    // Negative control: a chrome that rendered a constant would pass above. A diff address always
+    // carries its entity, so the control is a second subject rather than none.
     const { container } = render(<DiffPane context={diffPaneContextFor(WORKTREE_ENTITY)} />);
     expect(paneSubjectCrumb(container)).toBe(WORKTREE_ENTITY.id);
   });
@@ -60,8 +48,7 @@ describe("diff pane — the chrome it wears", () => {
 
 describe("diff pane — a model handed in", () => {
   it("is drawn in place of the absence", () => {
-    // A caller that already holds a model — a layout composed around one, a tier
-    // measuring the renderer — hands it over and the pane draws it.
+    // A caller that already holds a model hands it over and the pane draws it.
     const { container } = render(
       <DiffPane
         context={diffPaneContextFor(WORKSPACE_ENTITY)}
@@ -82,17 +69,15 @@ describe("diff pane — the absence it renders", () => {
   });
 
   it("negative control: it is not the empty shape", () => {
-    // `empty` asserts that the read came back with nothing, which for a diff means
-    // asserting that a workspace has no changes. The two render as different
-    // shapes and the pane must never reach for the second.
+    // `empty` asserts the read came back with nothing, i.e. that a workspace has no changes;
+    // the pane must never reach for it.
     const { container } = render(<DiffPane context={diffPaneContextFor(WORKSPACE_ENTITY)} />);
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
   });
 
   it("negative control: no subject renders the absence blank", () => {
-    // The rule this pane owes every subject it did not author a reading for. A blank
-    // region is the one answer that says nothing at all, and it is what a body that
-    // fell through its own copy table would render.
+    // A blank region says nothing at all, and is what a body that fell through its copy table
+    // would render.
     for (const entity of [WORKSPACE_ENTITY, WORKTREE_ENTITY]) {
       const { container } = render(<DiffPane context={diffPaneContextFor(entity)} />);
       expect(container.querySelector(".meridian-nothing")?.textContent, entity.kind).not.toBe("");

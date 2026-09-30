@@ -9,26 +9,14 @@ import { TranscriptRowRetention } from "../row-retention.js";
 import { deriveTranscriptWindow, type TranscriptWindowModel } from "../transcript-window.js";
 
 /**
- * Subscribe to one session's log and project it, UNFURLED.
- *
- * The subscription is the store's `timeline` and nothing else, so a
- * change to an entity partition — a run transition the transcript already saw as a row —
- * does not re-project the log. The store replaces the log's identity only when it
- * admits an event, which is what makes the memo fire exactly then.
- *
- * EVERY MEMBER ROW IS IN THE RESULT, including the ones a closed run group will fold
- * away. This is the window a narrowing is applied to, so a facet count and a
- * narrowing both see a finished run's messages, tools and users rather than
- * only the receipt its fold would have left.
+ * Subscribe to one session's log and project it with every run group's member rows unfolded, so
+ * facet counts and narrowing see the rows a closed run group's fold would hide. Subscribes to
+ * `timeline` only, which the store replaces just when it admits an event.
  */
 export function useTranscriptProjection(sessionStore: SessionStore): TranscriptWindowModel {
   const timeline = useSessionStore(sessionStore, readTimeline);
-  // One table per SESSION, so a pass has a predecessor to retain from — and so a
-  // pane that follows a navigation to another session starts that session with an
-  // empty table rather than with the rows of the one it left. Seeded during the
-  // render for the subject-scoped holder's reason: the pass that first sees a new
-  // session already reads that session's own table, which a ref written in the body
-  // could not promise and an effect would deliver one commit late.
+  // One retention table per session, seeded during render so the first pass over a session already
+  // uses that session's table and a navigation never carries the previous session's rows over.
   const bridge = usePlatformBridge();
   const retention = useSessionScopedState(
     bridge,

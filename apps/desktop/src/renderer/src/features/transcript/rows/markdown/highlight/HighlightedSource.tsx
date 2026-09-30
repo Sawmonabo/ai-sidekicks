@@ -1,9 +1,6 @@
-// A code block's source with the daemon's color spans painted over it.
-//
-// Each span is painted as a class that reads a theme token, never as a color written on
-// the element, so a theme or color-scheme switch repaints the same spans in place. The
-// text between spans is left as text, so the block's characters are the same before
-// and after its colors arrive and nothing on the line moves when they do.
+// A code block's source with the daemon's color spans painted over it. Spans paint as classes that
+// read theme tokens, so a scheme switch repaints in place; text between spans stays text, so
+// nothing moves when the colors arrive.
 
 import {
   HIGHLIGHT_SPAN_CLASSES,
@@ -13,11 +10,13 @@ import {
 
 import { useCodeSpans } from "./hooks/useCodeSpans.js";
 
+/** What one colored source is drawn from. */
 export interface HighlightedSourceProps {
   readonly source: string;
   readonly language: HighlightLanguage;
 }
 
+/** The source with its color spans painted, or plain until the spans arrive. */
 export function HighlightedSource(props: HighlightedSourceProps): React.JSX.Element {
   const spans = useCodeSpans(props.source, props.language);
   return <>{spans === undefined ? props.source : paintSpans(props.source, spans)}</>;

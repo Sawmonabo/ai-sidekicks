@@ -1,8 +1,5 @@
-// The answer a question card delivers, over a call whose reply a case decides.
-//
-// THE SUBJECT IS A REPLY THAT MUST NOT BE DISCARDED. A refused answer that stored
-// nothing left a blocked run and an emptied draft. What every case below asks is what a
-// SECOND press does, and what the hook is holding when it is pressed.
+// The answer a question card delivers, over a call whose reply a case decides. Every case asks
+// what a second press does, and what the hook holds when it is pressed.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -19,7 +16,6 @@ const SAMPLE_ANSWERS: QuestionAnswer[] = [
   { kind: "typed", text: "the flaky test is known" },
 ];
 
-/** A call that refuses until `recover` is called, and records every request it took. */
 function resolveFailingUntilCleared(): {
   readonly resolveQuestion: ResolveQuestionCall;
   readonly requests: QuestionResolveRequest[];

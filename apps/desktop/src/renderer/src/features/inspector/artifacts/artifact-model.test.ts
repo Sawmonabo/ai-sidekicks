@@ -1,9 +1,4 @@
 // The artifact vocabularies and the reductions the panel draws from.
-//
-// The claims worth asserting here are the ones the design states as rules rather
-// than as shapes: that the six types are one filter over one list (so the counts are
-// total, zeros included), and that an absent producer is the daemon rather than an
-// unknown.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,17 +27,13 @@ const WIRE_OWNED_VOCABULARY_NAMES = ["ARTIFACT_STATES", "ARTIFACT_TYPES"] as con
 
 describe("artifact-model and artifact-copy — the closed sets", () => {
   it("declares three states and six types", () => {
-    // Counted off the presentation table, which is typed `Record<Vocabulary, …>` and so
-    // is total over the wire's own set by the compiler rather than by a second array
-    // this module would have had to keep in step.
+    // Counted off the presentation table, which the compiler holds total over the wire's set.
     expect(Object.keys(ARTIFACT_STATE_PRESENTATION)).toHaveLength(3);
     expect(ARTIFACT_FILTER_TYPES).toHaveLength(6);
   });
 
   it("carries `diff` as a type rather than as a separate collection", () => {
-    // Every diff artifact is an artifact and appears in artifact listings, so the
-    // diff pane is a view onto this list and never a second store. Membership here
-    // is what makes that structural rather than a convention.
+    // The diff pane is a view onto this list, never a second store.
     expect(ARTIFACT_FILTER_TYPES).toContain("diff");
   });
 
@@ -84,9 +75,7 @@ describe("artifact-model — the type filter", () => {
       design: 0,
       workflow_output: 0,
     });
-    // Total over the six, so the filter can offer a type nothing has produced yet —
-    // hiding it would hide the vocabulary exactly when somebody is looking for
-    // something that is not there.
+    // Total over the six, so the filter can offer a type nothing has produced yet.
     expect(Object.keys(counts)).toHaveLength(ARTIFACT_FILTER_TYPES.length);
   });
 
@@ -122,10 +111,8 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   }
 
   it("renders a value JSON refuses to serialize rather than taking the pane down", () => {
-    // `metadata` is freeform provenance typed `unknown` on the wire, so a `BigInt` or a
-    // structure that refers to itself is a value the daemon can send. Thrown from the row
-    // builder it would escape the render, and one provenance entry would take the whole
-    // pane with it.
+    // `metadata` is typed `unknown` on the wire, so a `BigInt` or a self-referencing structure
+    // can arrive; thrown from the row builder it would take the whole pane down.
     const selfReferential: Record<string, unknown> = { name: "cycle" };
     selfReferential["itself"] = selfReferential;
     const hostile = {
@@ -147,9 +134,8 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   });
 
   it("renders a value JSON serializes to nothing rather than writing a hole", () => {
-    // The other half, and the quieter one. `JSON.stringify` ANSWERS `undefined` for
-    // these three — no throw — so the value went into a `Record<string, string>`
-    // unchecked and the row carried a hole the compiler had been told was a string.
+    // `JSON.stringify` answers `undefined` for these three without throwing, which would put a
+    // hole in a `Record<string, string>`.
     const row = rowWithMetadata({
       absent: undefined,
       callable: () => "provenance",
@@ -163,9 +149,8 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   });
 
   it("negative control: an ordinary value is still its own JSON, and a string is verbatim", () => {
-    // Without this the fix could route everything through the total stringifier, and
-    // a nested object would render as `[object Object]` — provenance the row exists to
-    // show, replaced by a sentence about JavaScript.
+    // Without this everything could go through the total stringifier, and a nested object
+    // would render as `[object Object]`.
     const row = rowWithMetadata({
       producer: "codex-driver",
       counts: { added: 4, removed: 1 },
@@ -178,28 +163,23 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   });
 
   it("draws a row with no provenance when the member itself is not there", () => {
-    // `Object.entries` THROWS on `null` and on `undefined`, and the member is typed
-    // present rather than proven present — so a summary that arrived without it took
-    // the whole list read down through `.map`, and the user lost every OTHER
-    // row to one row's missing provenance. A row with nothing to show shows nothing.
+    // `Object.entries` throws on `null` and `undefined`; one row's missing provenance must not
+    // take down the list read.
     expect(rowWithMetadata(null).metadata).toStrictEqual({});
     expect(rowWithMetadata(undefined).metadata).toStrictEqual({});
-    // The row itself is still a row: the members that DID arrive are read.
     expect(rowWithMetadata(null).digest).toBe("sha256:3b1f0c");
   });
 
   it("negative control: a member that IS there is still read", () => {
-    // Without this the guard above could be widened to skip every metadata read, and
-    // the rows a deployment does send provenance for would draw none of it.
+    // Without this the guard above could be widened to skip every metadata read.
     expect(rowWithMetadata({ producer: "claude-driver" }).metadata).toStrictEqual({
       producer: "claude-driver",
     });
   });
 
   it("reads `annotations` by the same rule as its sibling map", () => {
-    // Its wire type says `Record<string, string>`, and nothing parses it at the port
-    // boundary, so an absent map or an object value would take the whole panel down. Three
-    // shapes the declared type forbids, each read rather than trusted.
+    // Nothing parses this map at the port boundary, so an absent map or an object value must
+    // be read, not trusted.
     expect(rowWithAnnotations(undefined).annotations).toStrictEqual({});
     expect(rowWithAnnotations(null).annotations).toStrictEqual({});
     expect(rowWithAnnotations({ title: { nested: true } }).annotations).toStrictEqual({
@@ -209,8 +189,7 @@ describe("artifact manifest row — free-form maps a daemon can send and JSON ca
   });
 
   it("negative control: an annotation that IS a string is still verbatim", () => {
-    // Without this the reader could stringify every value, and an ordinary annotation
-    // would render quoted — the wire's own text replaced by its JSON form.
+    // Without this every value could be stringified, and a plain annotation would render quoted.
     expect(rowWithAnnotations({ title: "Rebind the repos list" }).annotations).toStrictEqual({
       title: "Rebind the repos list",
     });

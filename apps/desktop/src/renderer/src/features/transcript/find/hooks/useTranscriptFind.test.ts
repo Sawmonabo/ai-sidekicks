@@ -1,9 +1,5 @@
-// The find field: the walk when the window moves under it, and its own open act.
-//
-// Both subjects are about state the field HOLDS rather than about matching, which
-// `find-model.test.ts` owns: a walk held by ordinal survived into a shorter result
-// and read "10 of 2", and an open folded into the query setter reset a walk
-// somebody was in the middle of.
+// The find field's held state: the walk when the window moves under it, and its own open
+// act. Matching is `find-model.test.ts`'s.
 
 import { act, renderHook, type RenderHookResult } from "@testing-library/react";
 import type { TimelineRow } from "@ai-sidekicks/contracts";
@@ -23,19 +19,16 @@ import {
 } from "../../window/visible-window.test-support.js";
 
 describe("the walk when the result moves under it", () => {
-  /** A visible window over exactly these rows, with nothing outside it. */
   function windowOver(rows: readonly TimelineRow[]): VisibleTranscriptWindow {
     return {
       rows,
       prunedAwayRows: [],
       hasEarlierRows: false,
-      // Nothing outside this window, so the stage membership is the rows
-      // themselves — the identity the partition would have produced.
+      // Nothing outside this window, so stage membership is the rows themselves.
       heldRowKeys: new Set(rows.map((row) => row.id)),
     };
   }
 
-  /** The find state over a window a case can swap for a different one. */
   function findOver(
     rows: readonly TimelineRow[],
   ): RenderHookResult<TranscriptFindState, { readonly rows: readonly TimelineRow[] }> {
@@ -53,12 +46,8 @@ describe("the walk when the result moves under it", () => {
   const wholeLog = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT)).rows;
 
   /**
-   * The find state over two stages of one pipeline, the folded one a prefix of the other.
-   *
-   * The fold REPORTS what it removed, which is what the hook counts, so a prefix models
-   * the pipeline exactly at this seam: the rows the fold took are the unfurled log's tail
-   * past the folded one. Building a terminal run group would produce the same set and
-   * nothing else.
+   * Two stages of one pipeline, the folded one a prefix of the other. The fold reports what
+   * it removed, so a prefix models the seam exactly.
    */
   function findOverPipeline(stages: {
     readonly unfurled: number;
@@ -87,14 +76,13 @@ describe("the walk when the result moves under it", () => {
     }
     expect(result.current.currentMatchIndex).toBe(LOG_EVENT_COUNT - 1);
 
-    // The same query over a window the cap has cut down to two rows,
-    // neither of which is the selected one. A held ordinal read "10 of 2" here.
+    // Same query over a window the cap cut to two rows, neither selected: a held ordinal
+    // would read "10 of 2".
     rerender({ rows: wholeLog.slice(0, 2) });
     expect(result.current.result.matches).toHaveLength(2);
     expect(result.current.currentMatchIndex).toBe(-1);
 
-    // And the next step ENTERS the shorter list rather than resuming from an
-    // ordinal the new result cannot hold.
+    // The next step enters the shorter list rather than resuming from an ordinal it cannot hold.
     let walked: ReturnType<TranscriptFindState["step"]>;
     act(() => {
       walked = result.current.step("next");
@@ -121,8 +109,7 @@ describe("the walk when the result moves under it", () => {
   });
 
   it("counts matches a folded run group is holding", () => {
-    // Every finished run folds by default, so on a completed session most of the log is
-    // behind a run group header and this is most of the matches.
+    // Finished runs fold by default, so this is most of the matches on a completed session.
     const { result } = findOverPipeline({ unfurled: 10, folded: 8 });
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
@@ -133,8 +120,7 @@ describe("the walk when the result moves under it", () => {
   });
 
   it("negative control: an unfolded transcript counts nothing folded away", () => {
-    // Without this the case above would pass over a count that reported the whole log
-    // every time, which is the same lie in the other direction.
+    // Guards against a count that reports the whole log every time.
     const { result } = findOverPipeline({ unfurled: 10, folded: 10 });
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
@@ -145,8 +131,7 @@ describe("the walk when the result moves under it", () => {
   });
 
   it("negative control: a new query still restarts the walk", () => {
-    // Without this the retention above could have been written as "never reset",
-    // which would resume a walk inside a match list built from a different question.
+    // Guards against "never reset", which would resume a walk inside a list from another question.
     const { result } = findOver(wholeLog);
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
@@ -163,7 +148,6 @@ describe("the walk when the result moves under it", () => {
 });
 
 describe("the find field's own open act", () => {
-  /** The find state over one whole window, with nothing pruned. */
   function findOverWholeLog(): RenderHookResult<TranscriptFindState, void> {
     const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
     return renderHook(() =>
@@ -185,9 +169,8 @@ describe("the find field's own open act", () => {
   });
 
   it("leaves the query and the walk exactly where they were", () => {
-    // Which is why it is not `setQuery("")`: the palette row opens a field somebody
-    // is about to type into, and resetting a walk they were in the middle of is a
-    // different act wearing the same name.
+    // Not `setQuery("")`: the palette row opens a field somebody is about to type into, and must
+    // not reset a walk in progress.
     const { result } = findOverWholeLog();
     act(() => {
       result.current.setQuery(EVERY_ROW_QUERY);
@@ -204,8 +187,7 @@ describe("the find field's own open act", () => {
   });
 
   it("negative control: a field nobody opened stays closed", () => {
-    // Without this the case above would pass over a hook that reported `isOpen`
-    // true from its first render, which is a find field nobody asked for.
+    // Guards against a hook that reports `isOpen` true from its first render.
     const { result, rerender } = findOverWholeLog();
     rerender();
     expect(result.current.isOpen).toBe(false);

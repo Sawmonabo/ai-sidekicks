@@ -1,7 +1,5 @@
-// The round is what puts the run read again, and nothing else does.
-//
-// Counting the calls is the instrument: statuses alone cannot tell a re-read from a
-// re-render, and a hook that re-read on every render would report the same statuses.
+// The round is what puts the run read again, and nothing else does. Counting calls is the
+// instrument: statuses alone cannot tell a re-read from a re-render.
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -27,8 +25,8 @@ describe("useWorkflowRunSnapshot — the round is the re-arm", () => {
     expect(readRun).toHaveBeenCalledTimes(1);
 
     probe.renderAtRound(PARKED_RUN.workflowRunId, FIRST_REFRESH + 1);
-    // A new round is a new question: the frame that brings it reads, it does not present
-    // the previous round's snapshot as the answer.
+    // A new round is a new question: the frame that brings it reads, it does not present the
+    // previous round's snapshot as the answer.
     expect(probe.observed.at(-1)?.status).toBe("reading");
 
     await settle();

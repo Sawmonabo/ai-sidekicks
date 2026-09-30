@@ -1,18 +1,9 @@
-// The mount point: the chunk it waits for, one adapter per mount, and disposal.
-//
-// WHAT THIS FILE IS FOR AND WHAT IT IS NOT. The emulator's behavior is
-// `xterm-adapter.test.ts`'s subject; this one owns what the COMPONENT decides about the
-// emulator's LIFE — that its code is fetched rather than statically linked, so the box
-// stands in as a read-in-flight absence until it lands; that an adapter is built once
-// per mount and never in a render pass; that unmounting disposes it, which is what gives
-// up its hold on the renderer; that the lifetime belongs to the terminal id rather than
-// to the identities of the callbacks the parent hands down; and that the one moment the
-// component can build an emulator and never get a disposer — a parent whose
-// `onRendererMode` throws inside the effect body — tears it down anyway.
-//
-// The write gate is `XtermMountPoint.write-gate.test.tsx`'s and the renderer fallback is
-// `XtermMountPoint.renderer-mode.test.tsx`'s. The readers every one of them takes are in
-// `XtermMountPoint.test-support.tsx`.
+// The mount point: the chunk it waits for, one adapter per mount, and disposal. The emulator's
+// behavior is `xterm-adapter.test.ts`'s; this file owns the component's decisions about its
+// life: code fetched not linked, an adapter built once per mount and never in a render pass,
+// disposal on unmount, a lifetime that follows the terminal id rather than callback identities,
+// and disposal even when `onRendererMode` throws in the effect body. The write gate and the
+// renderer fallback have their own files; the readers are in `XtermMountPoint.test-support.ts`.
 
 import { act, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -38,9 +29,8 @@ describe("the emulator's code is fetched, not linked", () => {
     const { container } = render(
       <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
-    // Synchronously after the mount there is no mount element, because the module
-    // that draws into one has not arrived. The box is still there and still says which
-    // gate it is under — only its contents are absent.
+    // Synchronously after the mount there is no mount element, because the module that draws
+    // into one has not arrived; the box still says which gate it is under.
     expect(container.querySelector(".meridian-terminal-mount-point")).not.toBeNull();
     expect(container.querySelector(".meridian-terminal-mount-point__mount-element")).toBeNull();
     const absence = container.querySelector(".meridian-nothing");
@@ -49,9 +39,8 @@ describe("the emulator's code is fetched, not linked", () => {
 
     await settleEmulatorLoad();
 
-    // And once it lands the absence is replaced by the emulator rather than joined
-    // by it: a skeleton left beside a live grid would read as a second terminal
-    // still loading.
+    // Once it lands the absence is replaced, not joined: a skeleton beside a live grid would
+    // read as a second terminal still loading.
     expect(emulatorElementOf(container).childElementCount).toBeGreaterThan(0);
     expect(container.querySelector(".meridian-nothing")).toBeNull();
   });
@@ -60,9 +49,8 @@ describe("the emulator's code is fetched, not linked", () => {
     const { container } = render(
       <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
-    // `empty` would claim the shell printed nothing and `not-checked` would claim
-    // nobody asked. Both are claims about the SESSION made by a component that is
-    // only waiting on its own bytes.
+    // `empty` would claim the shell printed nothing and `not-checked` that nobody asked; both
+    // are claims about the session from a component only waiting on its own bytes.
     const absence = container.querySelector(".meridian-nothing");
     expect(absence?.className).not.toContain("meridian-nothing--empty");
     expect(absence?.className).not.toContain("meridian-nothing--not-checked");
@@ -79,9 +67,8 @@ describe("the emulator's code is fetched, not linked", () => {
         onRendererMode={observed}
       />,
     );
-    // Closed inside the fetch. The promise is still in flight over a component
-    // React has already dropped, and settling it into state would be a write
-    // against a disposed component.
+    // Closed inside the fetch: settling it into state would be a write against a disposed
+    // component.
     unmount();
     await settleEmulatorLoad();
     expect(observed).not.toHaveBeenCalled();
@@ -112,9 +99,8 @@ describe("the mount point — one adapter per mount", () => {
     const { container } = await renderSettledMountPoint(
       <XtermMountPoint terminalId="terminal-1" isWriteEnabled={false} label="Terminal output" />,
     );
-    // The library writes its own grid into the box it was opened against, so a
-    // non-empty mount element is evidence a real emulator attached rather than that a
-    // ref was set.
+    // The library writes its grid into the box it was opened against, so a non-empty mount
+    // element shows a real emulator attached and not just a ref set.
     expect(emulatorElementOf(container).childElementCount).toBeGreaterThan(0);
   });
 
@@ -179,9 +165,8 @@ describe("the emulator outlives the parent's callback identities", () => {
       );
     });
 
-    // Three new functions and the same terminal. A mount effect that depended on
-    // their identities would have disposed this emulator and built another, taking
-    // the operator's scrollback and everything the shell had printed with it.
+    // Three new functions and the same terminal: a mount effect depending on their identities
+    // would dispose the emulator and drop the scrollback.
     expect(emulatorElementOf(container).firstElementChild).toBe(emulatorBefore);
     expect(observedAtMount).toHaveBeenCalledTimes(1);
     expect(observedAfterRerender).not.toHaveBeenCalled();
@@ -211,9 +196,8 @@ describe("the emulator outlives the parent's callback identities", () => {
 
     typeOneCharacter(emulatorElementOf(container));
 
-    // Keeping the emulator is only half of it: an adapter still holding the mount
-    // pass's function would send keystrokes to a handler the parent has replaced,
-    // which is a keystroke silently going nowhere.
+    // An adapter still holding the mount pass's function would send keystrokes to a handler
+    // the parent has replaced.
     expect(latestKeystrokeHandler).toHaveBeenCalledWith("a");
     expect(firstKeystrokeHandler).not.toHaveBeenCalled();
   });
@@ -248,17 +232,11 @@ describe("the emulator outlives the parent's callback identities", () => {
   });
 });
 
-// The one moment the component can construct an emulator and never get a disposer.
-//
-// `subscribeToRendererMode` delivers the settled mode SYNCHRONOUSLY, inside the
-// effect body and before its cleanup exists. A parent whose `onRendererMode` throws
-// therefore threw out of the effect with the adapter already attached and its hold
-// already taken, and React had nothing to dispose: the terminal, its observers, and
-// its renderer allocation outlived the tree that made them.
-//
-// The adapter class is the real one the loader resolves — the spy observes it rather
-// than standing in for it — so the claim is about what the component does to the
-// emulator it actually built.
+// The one moment the component can construct an emulator and never get a disposer:
+// `subscribeToRendererMode` delivers the settled mode synchronously inside the effect body,
+// before its cleanup exists, so a throwing `onRendererMode` would leave the terminal, its
+// observers and its renderer allocation behind. The adapter class is the real one the loader
+// resolves; the spy observes it.
 describe("a renderer-mode consumer that throws during the first delivery", () => {
   it("disposes the adapter, leaves no hold taken, and still raises the failure", async () => {
     const dispose = vi.spyOn(XtermTerminalAdapter.prototype, "dispose");
@@ -282,9 +260,8 @@ describe("a renderer-mode consumer that throws during the first delivery", () =>
   });
 
   it("negative control: a consumer that returns leaves the emulator running", async () => {
-    // Without this, a component that disposed the adapter on every mount would
-    // satisfy the case above and would tear the terminal down the moment it
-    // reported which renderer it had settled on.
+    // Without this, a component that disposed the adapter on every mount would satisfy the case
+    // above.
     const dispose = vi.spyOn(XtermTerminalAdapter.prototype, "dispose");
     const modes: string[] = [];
     const { container } = await renderSettledMountPoint(

@@ -1,10 +1,6 @@
-// The run group fold, held to the three things `run-groups.ts` says it must never do.
-//
-// Each case below pins a rule whose violation is SILENT: a heuristic grouping
-// still renders run groups, a re-ordered fold still renders rows, and a collapsed
-// live run group still renders a header. Nothing goes red on its own, which is why
-// each clean assertion here is paired with a negative control that fails when the
-// rule is removed.
+// The run group fold, held to what `run-groups.ts` must never do. Each rule fails silently (a
+// heuristic grouping or a collapsed live run group still renders), so each clean assertion is
+// paired with a negative control that fails when the rule is removed.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,9 +17,8 @@ describe("run groups — rows join a run group by runId and by nothing else", ()
   });
 
   it("negative control: a window of only unattributed rows produces no run group at all", () => {
-    // The case above would pass over a fold that swept every row into one run group
-    // by proximity — this one would not, because there is no run to sweep them
-    // into and a heuristic fold would have to invent one.
+    // The case above would pass over a fold that swept every row into one run group by
+    // proximity; with no run to sweep them into, a heuristic fold would have to invent one.
     const fold = groupRowsByRun([
       generalRow({ id: "s1", sequence: 1, type: "session.renamed", category: "session_lifecycle" }),
       generalRow({ id: "s2", sequence: 2, type: "session.notice", category: "session_lifecycle" }),
@@ -37,8 +32,8 @@ describe("run groups — rows join a run group by runId and by nothing else", ()
       runRow({ id: "a2", sequence: 9, type: "run.running", runId: "run-a", position: 2 }),
       runRow({ id: "a1", sequence: 4, type: "run.queued", runId: "run-a", position: 1 }),
     ]);
-    // Delivery order, not sequence order: the fold never re-orders rows, so the
-    // fold partitions and leaves the ordering to whatever handed it the window.
+    // Delivery order, not sequence order: the fold partitions and leaves the ordering to
+    // whatever handed it the window.
     expect(findRunGroup(fold.runGroups, "run-a").rowIds).toStrictEqual(["a2", "a1"]);
     expect(findRunGroup(fold.runGroups, "run-a").firstSequence).toBe(4);
     expect(findRunGroup(fold.runGroups, "run-a").lastSequence).toBe(9);
@@ -54,9 +49,8 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("negative control: a rewind is not a terminal", () => {
-    // `run.rolled_back` is a forward, non-state event — the run continues from the
-    // boundary. A fold that treated any run-lifecycle row as an ending would fold
-    // this run group and stop showing what happened after the rewind.
+    // `run.rolled_back` is a forward, non-state event: the run continues from the boundary. A
+    // fold treating any run-lifecycle row as an ending would fold this run group.
     const fold = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.queued", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.rolled_back", runId: "run-a", position: 2 }),
@@ -65,11 +59,9 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("reopens a run group the run came back from", () => {
-    // A rollback accepted from a finished run appends a pause and a rewind for that
-    // same run before it can resume. An accumulator that only ever SET the terminal
-    // kept the completion forever: the run group stayed folded by default, its header
-    // went on reading "Completed", and every row appended after the rewind was
-    // hidden behind a receipt for an ending that had been undone.
+    // A rollback accepted from a finished run appends a pause and a rewind before it resumes.
+    // An accumulator that only set the terminal would keep the completion, leaving the run
+    // group folded with rows hidden behind a receipt for an ending that had been undone.
     const fold = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.queued", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.completed", runId: "run-a", position: 2 }),
@@ -81,15 +73,12 @@ describe("run groups — what makes a run group terminal", () => {
     const runGroup = findRunGroup(fold.runGroups, "run-a");
     expect(runGroup.lifecycle).toBe("live");
     expect(runGroup.terminalEventType).toBeUndefined();
-    // And the receipt goes with it: a folded run group renders its header and the row
-    // that ended it, and that row no longer ends anything.
+    // The receipt goes with it: that row ends nothing now.
     expect(runGroup.terminalRowId).toBeUndefined();
   });
 
   it("seals a reopened run group again at its next ending", () => {
-    // The clearing is not final either. A run that came back and then
-    // failed is a finished run, and its header says which ending it reached — the
-    // second one.
+    // A run that came back and then failed is finished, and its header names the second ending.
     const fold = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.completed", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.rolled_back", runId: "run-a", position: 2 }),
@@ -103,10 +92,8 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("negative control: an ordinary teardown after an ending reopens nothing", () => {
-    // Without this the two cases above would pass over a fold that cleared the
-    // terminal on any later run row at all — and a worker shutting down after a
-    // completion says nothing about the run's state, so a run group that went live
-    // again there would unfold every finished run in the session.
+    // Without this, the cases above would pass over a fold that cleared the terminal on any
+    // later run row; a worker shutting down after a completion says nothing about the run.
     const fold = groupRowsByRun([
       runRow({ id: "a1", sequence: 1, type: "run.completed", runId: "run-a", position: 1 }),
       runRow({ id: "a2", sequence: 2, type: "run.worker_shutdown", runId: "run-a", position: 2 }),
@@ -132,10 +119,8 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("clears the marker when a later row summarizes that same child as complete", () => {
-    // The card beside this header already replaces its summary with the latest reading,
-    // so an accumulated marker left the header claiming a child was not fully expanded
-    // beside a card saying its summary was complete — permanently, because no later row
-    // could ever clear a monotonic flag.
+    // The card beside this header replaces its summary with the latest reading, so an
+    // accumulated marker would claim a child was not fully expanded after its card said complete.
     const fold = groupRowsByRun([
       runRow({
         id: "a1",
@@ -158,9 +143,8 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("marks it again when the latest reading of that child is the incomplete one", () => {
-    // Row ORDER decides, not the set of readings: the same two observations the other
-    // way round leave the child partly expanded, and a fold that took the last row it
-    // liked rather than the last row would answer both cases the same way.
+    // Row order decides, not the set of readings: the same two observations the other way
+    // round leave the child partly expanded.
     const fold = groupRowsByRun([
       runRow({
         id: "a1",
@@ -183,9 +167,7 @@ describe("run groups — what makes a run group terminal", () => {
   });
 
   it("marks a run group while ANY of its children is still incomplete", () => {
-    // Per child rather than per run group: one child completing says nothing about
-    // another, so a fold holding one reading for the whole run group would clear the
-    // marker the moment either child finished.
+    // Per child, not per run group: one child completing says nothing about another.
     const fold = groupRowsByRun([
       runRow({
         id: "a1",
@@ -221,9 +203,8 @@ describe("run groups — the index folds once and answers from the fold", () => 
   });
 
   it("negative control: a fresh fold builds fresh objects", () => {
-    // The case above would pass over a class that re-folded and happened to return
-    // deep-equal values; `toBe` is identity, and this shows the identity claim is
-    // about the CACHE rather than about the fold being pure.
+    // The case above would pass over a class that re-folded to deep-equal values; `toBe` is
+    // identity, which shows the claim is about the cache rather than about a pure fold.
     const rows = mixedWindow();
     expect(groupRowsByRun(rows).runGroups).not.toBe(groupRowsByRun(rows).runGroups);
   });
@@ -242,8 +223,8 @@ describe("the run state — the daemon's newest word, and nothing after a rewind
   });
 
   it("negative control: a live run group used to have no state to say at all", () => {
-    // The header drew `terminalEventType`, which is undefined for every run that has
-    // not ended — so this is the member that makes a live run group's line non-empty.
+    // A live run has no terminal, so `terminalEventType` is undefined while the state above
+    // is still set.
     expect(findRunGroup(groupRowsByRun(mixedWindow()).runGroups, "run-a").terminalEventType).toBe(
       undefined,
     );

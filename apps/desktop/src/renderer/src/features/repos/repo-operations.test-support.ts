@@ -1,12 +1,8 @@
-// What every test that hands a component its repository calls builds them from.
-//
-// Every call rejects until a case scripts it, with an error that names the call, so a
-// component that reaches for a call the case did not expect fails on a sentence instead of on
-// an `undefined`. A case scripts only the calls it is about and reads what they were asked
-// from the arguments its own stubs receive.
+// The repository calls a component is handed, all rejecting with an error that names the call
+// until a case scripts it; a case scripts only what it is about.
 import type { RepoOperations } from "./repo-operations.js";
 
-/** The repository calls with the ones a case scripts replaced, and the rest rejecting. */
+/** The repository calls with the scripted ones replaced and the rest rejecting. */
 export function scriptedRepoOperations(script: Partial<RepoOperations> = {}): RepoOperations {
   return {
     readMount: unscriptedCall("readMount"),
@@ -24,7 +20,7 @@ export function scriptedRepoOperations(script: Partial<RepoOperations> = {}): Re
   };
 }
 
-/** A call that rejects with a sentence naming it, for every call a case did not script. */
+/** A call that rejects with a sentence naming it. */
 function unscriptedCall(name: keyof RepoOperations): () => Promise<never> {
   return () => Promise.reject(new Error(`${name} was not scripted for this case.`));
 }

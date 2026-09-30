@@ -1,18 +1,10 @@
-// The four ways a pane moves while its own box stays exactly the shape it was.
-//
-// Each source here is a case a size observer on the element reports as nothing at all:
-// the pane layout reorders its panes, a sibling shrinks and the flex line redistributes, a
-// rail slides in carrying everything inside it, and a fixed-size box beside it is given
-// a new width in one step by a class. The pane's rectangle is wrong for the whole of
-// each of them and the platform never says so on the element itself.
-//
-// This file owns which SOURCES reach the observer at all. What the observer then does
-// with one — the frame loop it arms, what it costs at rest, and what survives the
-// disposer — is `element-motion.sampling.test.ts`'s.
-//
-// The size seam's OWN cases are not here. `observeElementResize` lives in
-// `primitives/element-resize.ts` and its test moved beside it; this suite still installs
-// the fake, because the composed observer arms that seam over every ancestor it watches.
+// The ways a pane moves while its own box keeps its shape, which a size observer on the element
+// reports as nothing: the pane layout reorders its panes, a sibling shrinks and the flex line
+// redistributes, a rail slides in carrying everything inside it, and a fixed-size neighbor gets a
+// new width in one step by a class. This file owns which sources reach the observer; the frame
+// loop it then arms is `element-motion.sampling.test.ts`'s. The size seam's own cases are beside
+// `lib/element-resize.ts`; this suite installs the fake because the observer arms that seam over
+// every ancestor.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -47,8 +39,8 @@ describe("observeElementPosition — the sources that reach it", () => {
   });
 
   it("negative control: the element's OWN children changing is content, not placement", async () => {
-    // Watching the element's child list instead of its ancestors' would fire on every
-    // render of whatever the pane contains and never once on the pane layout reordering it.
+    // Watching the element's own child list would fire on every render of whatever the pane
+    // contains and never on the pane layout reordering it.
     installFakeResizeObserver();
     const { element } = attachedPair();
     const onMove = vi.fn();
@@ -62,9 +54,8 @@ describe("observeElementPosition — the sources that reach it", () => {
   });
 
   it("reports a sibling's relayout, which the platform reports on the ancestor", () => {
-    // A sibling that shrinks moves this element and resizes neither it nor, in the
-    // reading a naive observer takes, anything else. What actually changes is the
-    // ancestor's own content box, which is why the ancestors are what is observed.
+    // A shrinking sibling resizes neither this element nor, to a naive observer, anything else;
+    // what changes is the ancestor's content box, which is why ancestors are observed.
     const resizeObserver = installFakeResizeObserver();
     const { ancestor, element } = attachedPair();
     const onMove = vi.fn();
@@ -77,9 +68,8 @@ describe("observeElementPosition — the sources that reach it", () => {
   });
 
   it("negative control: the element's own size belongs to the other seam", () => {
-    // `observeElementResize` is armed over the host separately and reports
-    // `resize-observer`. If this arm also claimed it, one relayout would be counted
-    // as two different facts and the diagnostic reason would stop meaning anything.
+    // The host's own size is reported by a separate `observeElementResize` arm as
+    // `resize-observer`; claiming it here too would count one relayout as two facts.
     const resizeObserver = installFakeResizeObserver();
     const { element } = attachedPair();
     const onMove = vi.fn();

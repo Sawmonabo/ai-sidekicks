@@ -1,8 +1,5 @@
-// What the repos feature registers in the inline card registry it is handed.
-//
-// The cases drive the REGISTRY rather than the component: a descriptor that was built and
-// never registered renders identically to one that was never built, and it is the
-// registration that the transcript's rows depend on.
+// What the repos feature registers in the inline card registry it is handed. The cases drive
+// the registry: a descriptor built but never registered renders like one never built.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,9 +18,7 @@ describe("repos — the inline cards", () => {
   });
 
   it("survives being registered twice, as a hot reload does it", () => {
-    // Owner-scoped: the same owner re-claiming replaces. A feature that changed its
-    // owner string between registrations would raise here, which is correct — the
-    // owner is what the policy is about.
+    // Owner-scoped: the same owner re-claiming replaces; a changed owner string would raise.
     const cards = new InlineCardRegistry();
     expect(() => {
       registerReposInlineCards(cards);
@@ -32,9 +27,8 @@ describe("repos — the inline cards", () => {
   });
 
   it("keeps two compositions apart", () => {
-    // The property the singleton could never have. Registering into one composition
-    // must be invisible to another, which is what lets an auxiliary window compose a
-    // subset without the main window seeing it.
+    // Registering into one composition must be invisible to another, so an auxiliary window
+    // can compose a subset without the main window seeing it.
     const first = new InlineCardRegistry();
     const second = new InlineCardRegistry();
     registerReposInlineCards(first);

@@ -57,8 +57,7 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
   });
 
   it("falls back to the session path when the agent has no run this store has seen", () => {
-    // The negative control for the arm above: same focused pane, no run — so the
-    // composer addresses the session rather than guessing which run to steer.
+    // The negative control for the arm above: same pane, no run, so the session is addressed.
     const target = resolveComposerTarget(
       input({
         focusedPane: { kind: "agents", entity: { kind: "agent", id: AGENT.id } },
@@ -98,10 +97,8 @@ describe("resolveComposerTarget — never guesses, and never sends with no targe
   });
 
   it("addresses the session once every run this agent has is terminal", () => {
-    // The steer path would resolve to a run the daemon will not move again, so every
-    // send would be refused and the new-turn path would be unreachable for the rest
-    // of the session. The negative control is the case above: the same pane and the
-    // same agent, with one run still going, still takes the provider-bound path.
+    // The steer path would resolve to a run the daemon will not move again, so every send would be
+    // refused. The negative control is the case above: one run still going takes provider-bound.
     const settled: StoredEntity = { ...RUN, state: "failed" };
     const target = resolveComposerTarget(
       input({

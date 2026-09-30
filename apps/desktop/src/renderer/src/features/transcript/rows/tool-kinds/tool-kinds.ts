@@ -1,27 +1,11 @@
 // The tool kind vocabulary and the reader over a row's own payload.
-//
-// `row-kind.ts` refuses to read a tool kind out of the tool's name:
-// `ToolActivityPayload` carries `toolName`, `toolCallId` and `durationMs`, and no member
-// says what kind of tool ran, so deciding "this one is an MCP call" from the string would
-// assert a fact the daemon never sent. The design names six tool treatments, so the
-// vocabulary is declared here as data and the reading is one function over the payload.
-//
-// The reader is fail-closed in both directions. An ABSENT declaration reads as no
-// tool kind, which is the tool layout this console already draws. An UNRECOGNIZED one
-// reads as unrecognized and says so: an unknown enum member renders as the explicit
-// unrecognized badge and never as a guess, and collapsing it into "no tool kind" would
-// be that guess wearing an absence's clothes.
+// `ToolActivityPayload` carries no member saying what kind of tool ran, so the kind is never
+// inferred from `toolName`. The reader is fail-closed both ways: an absent declaration reads as
+// no tool kind, and an unrecognized one reads as unrecognized rather than as absent.
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 
-/**
- * The tool treatments the design names. Closed.
- *
- * Data rather than prose, so the set can be counted and a seventh treatment is an
- * edit here rather than a sentence somebody has to notice. The tuple is the
- * declaration and the union is derived from it — `row-kind.ts`' rule about its own
- * kind set, for its reason.
- */
+/** The six tool treatments. Closed; the union derives from the tuple. */
 export const TOOL_KINDS = [
   "command-output",
   "file-edit",
@@ -37,18 +21,14 @@ export type ToolKind = (typeof TOOL_KINDS)[number];
 /**
  * The payload member that would declare a row's tool kind.
  *
- * NO REGISTERED PAYLOAD CARRIES IT. `ToolActivityPayload` declares `toolName`,
- * `toolCallId` and `durationMs` and nothing else, so the reader below answers
- * `undefined` for every row this console can receive today. The value is this
- * console's own name for the member until the timeline read's contract declares one,
- * and it is a constant rather than a comment because a constant is checkable.
+ * No registered payload carries it, so the reader answers `undefined` for every row today.
  */
 export const TOOL_KIND_PAYLOAD_KEY = "toolKind";
 
-/** The member carrying an MCP call's server label, on the same footing. */
+/** The member carrying an MCP call's server label. */
 export const TOOL_SERVER_LABEL_PAYLOAD_KEY = "mcpServerLabel";
 
-/** The member carrying the call's typed argument summary, on the same footing. */
+/** The member carrying the call's typed argument summary. */
 export const TOOL_ARGUMENT_SUMMARY_PAYLOAD_KEY = "toolArgumentSummary";
 
 /** What one row declares about its own treatment. Two arms and no third. */
@@ -78,10 +58,7 @@ export type ToolKindRenderer = (props: ToolKindRendererProps) => React.ReactNode
 /**
  * What one row declares about its treatment, or `undefined` for a row declaring none.
  *
- * Over the PROJECTED PAYLOAD rather than over the row, so the caller reads the
- * payload once and both this and the tool's name come out of the same object — the
- * card already holds it, and a second projection per row would walk the same record
- * twice on every frame of a scrolling log.
+ * Takes the already-projected payload so the card reads it once for both this and the name.
  */
 export function readDeclaredToolKind(
   payload: Readonly<Record<string, unknown>>,
@@ -109,10 +86,8 @@ function isToolKind(candidate: string): candidate is ToolKind {
 /**
  * The argument summary the wire supplied, as strings.
  *
- * Every element read through the same wire-string reader the rest of this module
- * uses, and an element that is not a string is DROPPED rather than stringified: a
- * summary is what the daemon composed, and `String(value)` on an object would put
- * `[object Object]` on the page as though the daemon had sent it.
+ * A non-string element is dropped, not stringified: `String({})` would put `[object Object]`
+ * on the page as though the daemon had sent it.
  */
 function readArgumentSummary(candidate: unknown): readonly string[] {
   if (!Array.isArray(candidate)) {

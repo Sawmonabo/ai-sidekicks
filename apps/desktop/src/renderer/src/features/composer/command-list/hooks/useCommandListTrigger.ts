@@ -1,39 +1,7 @@
-// Watching the composer's own line, without owning a second copy of it.
-//
-// The command list opens on a leading slash in the message input. That input is
-// the send bar's — its text is the send controller's single source of truth, and the
-// controller is what clears it, walks its history, and locks it while a dispatch is
-// in flight. A popover that held its own copy would be a second answer to "what is in
-// the line", and the two would disagree the first time either side changed it.
-//
-// So this hook OBSERVES rather than owns: it reads the composer's draft and never
-// writes to it. `use-composer-draft-text.ts` is the shape for exactly that — the snapshot
-// is the value, and a value read between render and subscription is not missed the
-// way an effect-written state would miss it.
-//
-// AND WHAT IT OBSERVES IS THE DRAFT STORE, NOT THE DOM. It used to subscribe to the
-// line element's native `input` event, which fires for typing and for nothing else.
-// The controlled line's value comes from the draft store, and several composer paths
-// write there without a keystroke: ArrowUp history recall replaces the draft, a send
-// clears it, and a command run by clicking the button clears it too. Each of those
-// left the command list reading a value the line no longer held — a recalled slash
-// command with the list still shut, a recalled ordinary line with a stale popover
-// standing over it, and a cleared line with the popover for the command that had
-// just run. The store is the one source every path writes through and it notifies
-// per draft key, so subscribing there covers all of them and leaves NO path needing
-// a DOM event beside it: the line is `value`-controlled from this same store, so its
-// displayed text cannot change without a write the store announces. The listener the
-// hook still installs is for KEYS, which the store knows nothing about.
-//
-// THREE KEYS PRESSED IN THE LINE ARE THE COMMAND LIST'S AND THE REST ARE THE LINE'S.
-// Escape dismisses the popover; ArrowDown steps into the list; Enter belongs to Send
-// and is treated as a dismissal so a sent line never leaves a popover standing over a
-// cleared input. Only the first two stop propagating — Enter is passed straight
-// through, because a command list that swallowed Send would be a command list
-// that broke the composer. And all three are scoped to keystrokes whose
-// target IS the line: the listener sits on the region because that is the node this
-// zone was handed, and a region-wide arrow interception would swallow the keys of the
-// list it just opened.
+// Watches the composer's draft to decide what the command list opens, without owning a copy of it.
+// It observes the draft store, not the DOM: history recall, send and a button-run command all
+// write the store without a keystroke. Keydown is for keys only, and only ones aimed at the line:
+// Escape dismisses, ArrowDown steps into the list, and Enter (Send's) dismisses and passes on.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -60,12 +28,9 @@ export interface DraftLineSource {
 }
 
 /**
- * Read the composer's line and decide what it opens.
- *
- * The dismissal is keyed on the TEXT it was raised at rather than on a boolean, so it
- * lifts by itself the moment the person types anything else — including the moment a
- * send clears the line. A boolean would need someone to remember to clear it, and the
- * arm nobody remembers is the one a person meets.
+ * Read the composer's line and decide what it opens. The dismissal is keyed on the text it was
+ * raised at, not a boolean, so it lifts by itself once the text changes, including when a send
+ * clears the line.
  */
 export function useCommandListTrigger(
   region: React.RefObject<HTMLElement | null>,
@@ -84,12 +49,10 @@ export function useCommandListTrigger(
   const dismiss = useCallback(() => {
     const element = region.current;
     const line = lineElementWithin(element);
-    // Keyed on the same reading the open decision is made from, so a dismissal and
-    // the text it was raised at can never be two different strings.
+    // Keyed on the same reading the open decision uses, so a dismissal and its text cannot differ.
     setDismissedAtText(readLineText());
-    // Focus follows the command list that closed. A list dismissed while it held focus
-    // would otherwise drop focus onto the document body, which leaves a keyboard
-    // reader nowhere — and the place they were is the line they were typing in.
+    // Focus follows the closed list: otherwise it drops to the body and a keyboard reader has
+    // nowhere.
     if (line !== null && element !== null && element.contains(document.activeElement)) {
       line.focus();
     }
@@ -106,10 +69,8 @@ export function useCommandListTrigger(
       return;
     }
     const onKeyDown = (event: KeyboardEvent): void => {
-      // The LINE's keys only. The listener is on the region because that is the one
-      // node this zone was handed, but the popover mounted inside that region owns
-      // its own arrows — and a listener that stopped them here would swallow the
-      // keystrokes of the list it exists to open.
+      // The line's keys only: the popover inside this region owns its own arrows, and stopping
+      // them here would swallow the list's keystrokes.
       if (event.target !== lineElementWithin(element)) {
         return;
       }

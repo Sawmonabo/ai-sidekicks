@@ -1,9 +1,5 @@
-/* The box a steer is written in: every rule `SteerBox` draws. Send and Cancel wear the
-   shared action button at its small size in the raised face, from
-   `styles/action-buttons.css`.
-
-   Every value here is a Meridian token: no color literal, no font stack, and no
-   spacing number. */
+/* The box a steer is written in. Send and Cancel use the shared action button
+   (`styles/action-buttons.css`); every value is a Meridian token. */
 
 .meridian-run-composer {
   display: flex;

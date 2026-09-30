@@ -1,29 +1,15 @@
-// What a park badge says about the end of the wait, for one classified schedule.
-//
-// A SIBLING RATHER THAN A SECOND COMPONENT IN `ParkBadge.tsx`, which is the package's
-// one-component-per-`.tsx` rule: a module holding three components is a module whose
-// name answers for one of them, and the other two are reached only by reading the
-// file. The badge imports it by relative path and the feature's `index.ts` does not
-// export it, because nothing outside the workflows feature composes it.
-//
-// THE UNSCHEDULED REMEDIES TRAVEL WITH IT. That table has exactly one reader and it is
-// the component below; a remedy sentence in one module and the only line that renders
-// it in another is a closed set split across two files.
+// What a park badge says about the end of the wait, for one classified schedule. A sibling of
+// `ParkBadge.tsx` (one component per `.tsx`) that owns the unscheduled remedies, whose only
+// reader is here.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { WorkflowParkReason, WorkflowParkSchedule } from "../runs/run-list-rows.js";
 
 /**
- * What ends the wait, when nothing is scheduled to.
- *
- * Total over the closed reason set, so a third reason is a compile error here rather
- * than a phase that parks and is told the wrong way out. One sentence per reason
- * because the ways out are genuinely different: a human phase advances when the
- * user submits the form the run pane mounts for exactly this phase, so telling
- * that operator to reach for a run control points them away from the act the engine
- * is waiting on. A usage-limit park with no reported reset boundary really does wait
- * for an operator.
+ * What ends the wait when nothing is scheduled to. Total over the closed reason set, so a new
+ * reason is a compile error. The ways out differ: a human phase advances when the user submits
+ * its form, not through a run control.
  */
 const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = {
   "waiting-human":
@@ -33,15 +19,8 @@ const UNSCHEDULED_PARK_REMEDIES: Readonly<Record<WorkflowParkReason, string>> = 
 };
 
 /**
- * What the badge says about the end of the wait, for one classified schedule.
- *
- * THE ARMED INSTANT CARRIES ITS DATE. A badge stands wherever a parked phase does —
- * in a run row, in the run pane's stack of cards — and none of those places carries a
- * day divider, which is the only thing that makes the transcript's date-free reading
- * unambiguous. In that reading a resume armed for tomorrow morning and one armed for
- * next week's would be the same four digits on screen, with the wire instant behind
- * them reachable only by hovering. `formatDateTime`
- * is the figure chokepoint's reading for exactly this position.
+ * What the badge says about the end of the wait, for one classified schedule. The armed instant
+ * carries its date because a badge stands where no day divider disambiguates a bare time.
  */
 export function ParkSchedule(props: {
   readonly schedule: WorkflowParkSchedule;
@@ -60,9 +39,8 @@ export function ParkSchedule(props: {
     <p className="meridian-park__schedule">
       {UNSCHEDULED_PARK_REMEDIES[props.parkReason]}
       {schedule.kind === "unreadable" ? (
-        // The malformed value is shown rather than swallowed. It is the only evidence
-        // a daemon armed something, and a badge that dropped it would report this park
-        // as identical to one that armed nothing at all.
+        // The malformed value is shown, not swallowed: it is the only evidence a daemon armed
+        // something.
         <span className="meridian-park__unreadable">
           {" "}
           The engine sent a resume instant this console could not read:{" "}

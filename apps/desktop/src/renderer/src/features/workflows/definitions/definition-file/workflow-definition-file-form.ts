@@ -1,65 +1,12 @@
-// The definition file itself: the bytes an export writes, and the reading of the bytes
-// an import was handed.
-//
-// ONE MODULE FOR BOTH SIDES, which is `apps/desktop/AGENTS.md`'s rule for a producer
-// and a consumer of one encoding: the marker, the top-level parts, and the target a
-// caller supplies are stated once, so a file this console wrote is a file this console
-// reads. `workflow-definition-file-body.ts` beside this one owns what goes INSIDE the
-// hashed part, on the same terms and for the same reason.
-//
-// AND IT IS A MODULE OF ITS OWN, APART FROM THE VIEWS, BECAUSE THE IMPORT SIDE IS A
-// VALIDATOR. What arrives is text a person pasted, and what has to come out is a typed
-// request body — so this reads an untyped value against closed sets and refuses what
-// does not fit, at the boundary where the text crosses in. A pane consumes the ANSWER,
-// here a parsed body or a reason, and never the reading that produced one.
-//
-// WHAT THE FILE IS. YAML, and one dialect of it. The definition file form gives a
-// definition exactly one canonical file form and
-// requires the round trip to close in both directions — builder to file to CLI, and CLI
-// to file back to the builder — so a file the SDK writes as ordinary block mappings has
-// to import here, and a file written here has to parse in a conforming CLI. JSON is
-// valid YAML, so a JSON-shaped document still reads; the reverse was not true while
-// this parsed JSON, which is what made the console incompatible with one of the form's
-// primary producers.
-//
-// AND THE DOCUMENT HAS EXACTLY TWO TOP-LEVEL PARTS, plus the marker that says which
-// schema they are in: the hashed definition body, and an optional `layout` section that
-// is outside the hash and is IGNORED here — an importer that does not want canvas
-// geometry loses nothing executable. There is no third section. Provenance a read
-// carries — the version id, the content hash, where a file came from — is a fact about
-// the SERVER's copy, and writing it into the portable dialect would make every file
-// this console exported unreadable to a conforming parser, which treats an unknown
-// top-level key as a refusal. A view that wants to show where a version came from
-// reads it from the version read it already holds.
-//
-// THE MARKER IS A STRING THAT YAML WOULD OTHERWISE MAKE A NUMBER. `1.0` unquoted
-// resolves to the number 1 under the core schema — the minor is gone, and `1.10` and
-// `1.1` become the same value — so an export writes it double-quoted and an import
-// reads it off the scalar NODE rather than off the resolved value, which is what lets a
-// hand-written or CLI-written file that left it unquoted still read as `1.0`.
-//
-// AND THE MARKER IS CHECKED FOR SHAPE, NEVER AGAINST A CONSTANT. The daemon stores the
-// schema version as an `N.N` string under a CHECK of that shape, so that shape is what
-// a file can carry; a parser comparing against a literal would instead reject the
-// daemon's own files the first time it revised the marker. What the check is for is
-// telling a workflow definition from the other text a person might paste, and telling a
-// marker apart from a version string nothing could have stored.
-//
-// AND THE MARKER IS NOT SENT. `WorkflowDefinitionCreateBody` carries no schema member:
-// it is a property of the FILE, so it is read to recognize one and then dropped, and a
-// parser that smuggled it into the request would be widening a registered shape.
-//
-// AND THIS MODULE IS OFF THE INITIAL IMPORT GRAPH, which is why the parser is imported
-// statically here. Callers import `workflow-definition-file-codec.ts` beside this one,
-// and that module reaches this one through `import()` — so this module, its YAML
-// parser, the body reader and the tool-binding reader under it are all emitted into one
-// chunk that a launch which never opens a definition never fetches. Deferring the parser
-// a second time from in here would split a chunk that is already only fetched on demand,
-// and would make two of the four calls below asynchronous for no reader's benefit.
-//
-// SO THE TWO ENTRIES ARE SYNCHRONOUS. Everything they need is in the chunk they were
-// fetched in; the one thing that can fail before them is the fetch, and that is the
-// codec's to reject.
+// The definition file itself: the bytes an export writes and the reading of an import, in one
+// module so a file this console wrote is a file it reads. It is YAML (JSON reads too, being
+// YAML), so a file the CLI or SDK writes imports here and the reverse. The document is a schema
+// marker plus the hashed body and an optional `layout` that is ignored; any other top-level key
+// is refused, as a conforming reader does. The marker is written double-quoted because unquoted
+// `1.0` resolves to the number 1, is read off the scalar node, is checked for the `N.N` shape
+// and never against a constant, and is not sent in the create request. The parser is imported
+// statically because the codec reaches this module through `import()`, keeping it in one
+// on-demand chunk; the two entries are synchronous.
 
 import { Document, Scalar, isScalar, parseAllDocuments } from "yaml";
 
@@ -80,11 +27,8 @@ import { isWireRecord } from "@renderer/lib/wire-record.js";
 const SCHEMA_MARKER_KEY = "ai-sidekicks-schema";
 
 /**
- * The shape a stored schema version has, and the whole of what is checked.
- *
- * `N.N`, which is the store's own `GLOB '[0-9]*.[0-9]*'` CHECK read as a pattern: a
- * marker outside it is a string the daemon could not have stored and this console could
- * not have been sent, whatever it says.
+ * The shape a stored schema version has, and the whole of what is checked: `N.N`, the store's
+ * own CHECK read as a pattern.
  */
 const SCHEMA_MARKER_STORAGE_SHAPE = /^[0-9]+\.[0-9]+$/;
 
@@ -92,10 +36,8 @@ const SCHEMA_MARKER_STORAGE_SHAPE = /^[0-9]+\.[0-9]+$/;
 const LAYOUT_KEY = "layout";
 
 /**
- * Every top-level key a definition file may carry, added up rather than restated.
- *
- * The marker, the hashed body's own members, and the optional layout section — so the
- * body's membership stays declared in one place and this set moves when it does.
+ * Every top-level key a definition file may carry: the marker, the hashed body's members and
+ * the optional layout, so the body's membership stays declared in one place.
  */
 const FILE_TOP_LEVEL_KEYS: readonly string[] = [
   SCHEMA_MARKER_KEY,
@@ -104,13 +46,9 @@ const FILE_TOP_LEVEL_KEYS: readonly string[] = [
 ];
 
 /**
- * How the document is read, and every option is a decision.
- *
- * `1.2` and the `core` schema are the dialect the form is written in — 1.1's octal and
- * sexagesimal resolutions and its timestamp type would make a value's meaning depend on
- * which YAML a producer used. `uniqueKeys` turns a repeated key into a document error
- * rather than a silent last-one-wins, which on a phase record would change what runs.
- * `prettyErrors` is what puts a line and a column in the sentence a person reads.
+ * How the document is read. `1.2` and the `core` schema avoid 1.1's octal, sexagesimal and
+ * timestamp resolutions. `uniqueKeys` makes a repeated key an error instead of a silent
+ * last-one-wins. `prettyErrors` puts a line and column in the sentence a person reads.
  */
 const YAML_READER_OPTIONS = {
   version: "1.2",
@@ -120,12 +58,9 @@ const YAML_READER_OPTIONS = {
 } as const;
 
 /**
- * How the document is written: a fixed key order, two-space indentation, no folding.
- *
- * `lineWidth: 0` disables the writer's line folding. A folded long instruction is legal
- * YAML that reads back identically, and it also moves every following line whenever an
- * unrelated word changes — which is the diff of a file people are meant to keep in a
- * repository.
+ * How the document is written: a fixed key order, two-space indentation, no folding. Folding
+ * would move every following line when an unrelated word changes, which muddies the diff of a
+ * file kept in a repository.
  */
 const YAML_WRITER_OPTIONS = { indent: 2, lineWidth: 0 } as const;
 
@@ -142,20 +77,13 @@ export interface WorkflowDefinitionImportTarget {
 }
 
 /**
- * Serialize one served version body into the file form.
- *
- * The VERSION body and not the definition read, because a file is one version's bytes:
- * the definition read carries the identity and the phase sequence and no schema marker,
- * so a file written from it could not say which schema it is in.
- *
- * SYNCHRONOUS, AND THE CODEC'S CALL IS NOT — see the header. The writer is in the chunk
- * this module was fetched in, so the only thing that can fail ahead of a serialization
- * is the fetch itself, which `workflow-definition-file-codec.ts` owns.
+ * Serialize one served version body into the file form. Takes the version body, not the
+ * definition read, which carries no schema marker. Synchronous: only the chunk fetch, owned by
+ * the codec, can fail ahead of it.
  */
 export function serializeDefinitionFile(body: WorkflowVersionBody): string {
   const fileDocument = new Document({}, { version: "1.2", schema: "core" });
-  // Double-quoted deliberately and not left to the writer's own judgment: the value is
-  // a string, and the quoting is what keeps it one on the way back in.
+  // Double-quoted so the value stays a string on the way back in.
   const marker = new Scalar(body.schemaVersion);
   marker.type = Scalar.QUOTE_DOUBLE;
   fileDocument.set(SCHEMA_MARKER_KEY, marker);
@@ -167,19 +95,10 @@ export function serializeDefinitionFile(body: WorkflowVersionBody): string {
 }
 
 /**
- * Read pasted text as a definition file, and compose the create body it stands for.
- *
- * THE TARGET IS THE CALLER'S AND NOT THE FILE'S. A file carries no session and no
- * scope — it is bytes that traveled between machines — and a parser that took a scope
- * out of one would let a pasted file decide where it lands, which is the decision the
- * daemon's operator-scope authorization is keyed on. So the caller states the target
- * and the file states the definition.
- *
- * EVERY REFUSAL IS A SENTENCE AND NEVER A THROW. The caller renders this beside the
- * paste box, so what a person needs is which member is wrong; an exception would reach
- * a boundary that can only say that something failed. The one thing that still rejects
- * is the chunk fetch in `workflow-definition-file-codec.ts` above it, which is not a
- * fact about the text at all.
+ * Read pasted text as a definition file, and compose the create body it stands for. The target
+ * is the caller's and not the file's: a file that chose its own scope would decide where it
+ * lands, which the daemon's operator-scope authorization is keyed on. Every refusal is a
+ * sentence, never a throw, so the caller can render which member is wrong beside the paste box.
  */
 export function parseDefinitionFile(
   text: string,
@@ -233,13 +152,11 @@ export function parseDefinitionFile(
       sessionId: target.sessionId,
       name: definitionBody.name,
       scope: target.scope,
-      // Spread on the arm that has one: `scopeRef` is optional under
-      // `exactOptionalPropertyTypes`, and a `shared` target refers to nothing narrower
-      // rather than to an empty path.
+      // Spread only on the arm that has one: `scopeRef` is optional under
+      // `exactOptionalPropertyTypes`, and a `shared` target has no narrower reference.
       ...(target.scopeRef === undefined ? {} : { scopeRef: target.scopeRef }),
-      // Carried only where the file states one. An absent entry is not a refusal: the
-      // daemon materializes the one V1 start mode, and inventing it here would be this
-      // console answering a question the file deliberately left open.
+      // Only where the file states one: the daemon materializes the only start mode, and
+      // inventing it here would answer a question the file left open.
       ...(definitionBody.entry === undefined ? {} : { entry: definitionBody.entry }),
       phaseDefinitions: definitionBody.phaseDefinitions,
     },
@@ -247,16 +164,9 @@ export function parseDefinitionFile(
 }
 
 /**
- * The document's own value as a record with keys, or the sentence refusing it.
- *
- * THE CONVERSION IS GUARDED because it is the one step of the read that can throw:
- * resolving aliases is where a document with an anchor referenced from an anchor
- * expands, and the library's alias cap raises rather than returning a value. A caller
- * pasting that gets a sentence like every other refusal here.
- *
- * The parameter is STRUCTURAL — the one method this read needs — so the guard is
- * stated here rather than trusted to a caller, and the helper says exactly what it asks
- * of the document it is handed.
+ * The document's value as a keyed record, or the sentence refusing it. Guarded because
+ * resolving aliases is the one step that can throw: the library's alias cap raises on a
+ * document whose anchors expand from anchors.
  */
 function readDocumentContents(parsedDocument: {
   toJS: () => unknown;
@@ -267,21 +177,15 @@ function readDocumentContents(parsedDocument: {
       ? contents
       : "A definition file is a document of named sections; this one is not.";
   } catch {
-    // The value is not read, so nothing is stringified out of it: what a person needs
-    // is that the document could not be resolved, and the reason it could not be is
-    // that resolving it was refused.
+    // Nothing is stringified from the value; a person needs only that it could not be resolved.
     return "This document could not be resolved — it refers to itself more times than a file is read for.";
   }
 }
 
 /**
- * The marker a scalar node states, as the file wrote it.
- *
- * THE RESOLVED VALUE FIRST, AND THE SOURCE TEXT WHERE THERE IS NO STRING TO TAKE. A
- * quoted `"1.0"` resolves to the string `1.0`, which is exactly the marker and is
- * already unescaped; an unquoted `1.0` resolves to the NUMBER 1 under the core schema,
- * and only the source text still says which minor was written. Taking the source first
- * would read an escaped spelling back as its escape.
+ * The marker a scalar node states. The resolved string comes first, since it is already
+ * unescaped; an unquoted `1.0` resolves to the number 1 under the core schema, so only the
+ * source text says which minor was written.
  */
 function schemaMarkerOf(node: Scalar): string | undefined {
   if (typeof node.value === "string") {
@@ -291,11 +195,8 @@ function schemaMarkerOf(node: Scalar): string | undefined {
 }
 
 /**
- * The first line of a parser error, which is the sentence in it.
- *
- * The library's pretty errors carry the sentence, then a blank line, then an excerpt of
- * the source with a caret under the offending column. The excerpt is the text the
- * person just pasted, so what travels is the sentence and the position it names.
+ * The first line of a parser error, which is the sentence in it. The rest is an excerpt of the
+ * pasted text with a caret under the offending column.
  */
 function firstLineOf(message: string): string {
   const [sentence] = message.split("\n");

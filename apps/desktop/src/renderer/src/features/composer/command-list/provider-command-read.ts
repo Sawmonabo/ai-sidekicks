@@ -1,30 +1,7 @@
-// One enumeration request, and the states one can settle into.
-//
-// The REQUEST and its readings live here; the lifetime rule that decides when one is
-// live — keyed on the addressed agent, discarded before a re-read, discarded when the
-// command list closes — is `provider-command-enumeration.ts`'s, because two zones observe that
-// decision and only one of them may make it. Splitting them keeps this module a pure
-// round trip a test can drive without a component, and keeps the holder free of the
-// parsing.
-//
-// THE READ GOES THROUGH `callDaemon` AND HOLDS NO PARSE OF ITS OWN. `callDaemon`
-// parses the request before it is sent and the reply against the shape the corpus
-// registers for `driver.listProviderCommands`, and answers `served` or `refused`
-// without ever rejecting — so a reply this console cannot read, a request it could
-// not build, and the daemon's own `driver.unavailable` all arrive as one refusal
-// carrying its own code verbatim. What is left here is the pair of identifiers,
-// parsed through their registered schemas, and the three settled states the command
-// list renders.
-//
-// AND THE ROUND'S SIGNAL GOES THROUGH `callDaemon` WITH IT. The command list owns this read:
-// the popover that opened it closes, or the composer addresses another agent, and
-// nobody is waiting for the bindings any more. Without the signal `callDaemon` went on
-// waiting for the reply and parsing the whole `ProviderCommandListResult` against its
-// registered schema for an owner who had left — the holder in
-// `provider-command-enumeration.ts` superseded what
-// came back, which discards the answer and pays for it anyway. The signal is a
-// PARAMETER rather than something this module opens, because whose read this is and
-// when it ends are the holder's to say.
+// One enumeration request and the states it settles into. When a reading is live is decided by
+// `provider-command-enumeration.ts`; this stays a pure round trip through `callDaemon`, which
+// parses request and reply and never rejects: an unreadable reply and `driver.unavailable` alike
+// arrive as a refusal. The round's signal is a parameter, since the holder owns the read.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
@@ -37,25 +14,17 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 export const PROVIDER_COMMAND_READ_ORIGIN = "composer-command-discovery";
 
 /**
- * Why the console refused an enumeration on its own side.
- *
- * One code, closed, and it is NOT the unreadable reply — that one belongs to
- * `callDaemon`, which owns the whole `DaemonReplyRefusalCode` vocabulary, and a second
- * spelling of it here would be a second name for one failure. What remains is the
- * question `callDaemon` cannot answer: this composer is addressed at something whose
- * identifiers the registered request would not accept, so nothing was asked.
+ * The console-side refusal codes. Not the unreadable reply, which `callDaemon` owns: this one
+ * covers a composer addressed at identifiers the registered request would not accept.
  */
 export const PROVIDER_COMMAND_READ_REFUSAL_CODES = ["addressed-agent-unparseable"] as const;
 
-/** One such code. Derived, so the vocabulary is declared exactly once. */
+/** One such code, derived so the vocabulary is declared once. */
 export type ProviderCommandReadRefusalCode = (typeof PROVIDER_COMMAND_READ_REFUSAL_CODES)[number];
 
 /**
- * Where the enumeration read has got to.
- *
- * `not-checked` is a first-class arm and not an empty list: a composer addressed at the
- * session has no agent to enumerate, so nobody asked — which renders differently
- * from a provider that answered with nothing, because the next move differs.
+ * Where the enumeration read has got to. `not-checked` is not an empty list: a composer addressed
+ * at the session has no agent to enumerate, and that renders differently from an empty answer.
  */
 export type ProviderCommandReadState =
   | { readonly phase: "not-checked" }
@@ -64,12 +33,10 @@ export type ProviderCommandReadState =
   | { readonly phase: "refused"; readonly refusal: Refusal };
 
 /**
- * One enumeration request, resolved into exactly one settled state. Never throws.
- *
- * `signal` is the round's, from the read line the holder opened for this address. An
- * already-abandoned line puts nothing on the wire and one abandoned mid-flight parses
- * nothing — both settle as `callDaemon`'s own `read-abandoned` refusal, which the holder
- * never publishes because the round it was opened on is no longer the live one.
+ * One enumeration request, resolved into exactly one settled state. Never throws. `signal` is the
+ * round's: an already-abandoned line puts nothing on the wire and one abandoned mid-flight parses
+ * nothing, both settling as `callDaemon`'s `read-abandoned` refusal, which the holder never
+ * publishes.
  */
 export async function settleEnumeration(
   bridge: PlatformBridge,
@@ -90,8 +57,8 @@ export async function settleEnumeration(
     },
     { signal },
   );
-  // The daemon's own refusal reads as itself. `driver.unavailable` is the ordinary
-  // one here — an agent holding no live binding has nothing to enumerate.
+  // The daemon's own refusal reads as itself; `driver.unavailable` is the ordinary one (an agent
+  // with no live binding).
   return reply.status === "refused"
     ? { phase: "refused", refusal: reply.refusal }
     : { phase: "served", groups: reply.value.bindings };

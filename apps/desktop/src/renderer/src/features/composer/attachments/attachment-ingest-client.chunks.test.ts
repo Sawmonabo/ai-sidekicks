@@ -1,9 +1,6 @@
-// The chunk loop: which bytes go, in which order, and that they GO rather than being
-// described.
-//
-// The client is driven directly against the scripted ingest port beside it, which records
-// every chunk request — the only vantage point from which "the daemon received the file"
-// is a checkable claim rather than an intention.
+// The chunk loop: which bytes go, in which order, and that they go rather than being described.
+// The scripted port records every chunk request, the only place "the daemon received the file"
+// is checkable.
 
 import { ARTIFACT_CHUNK_MAX_BYTES, MAX_MESSAGE_BYTES } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -20,7 +17,7 @@ import {
 } from "@test/helpers/scripted-ingest-port.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
-/** Whether one recorded request actually carried bytes, rather than describing them. */
+/** Whether one recorded request carried bytes rather than describing them. */
 function carriesAPayload(request: Readonly<Record<string, unknown>>): boolean {
   return readWireString(request["chunk"]) !== undefined;
 }
@@ -44,11 +41,9 @@ describe("ingest client — the payload reaches the daemon", () => {
     client.attach(sourceOver("attachment-three", "capture.bin", byteLength));
     await crossMacrotaskBoundary();
 
-    // Three requests, consecutively numbered from zero, each carrying exactly the slice
-    // at its own offset — the chunks tile the file with nothing dropped, repeated, or
-    // reordered. The expectation is built with the encoder rather than read back through
-    // a decoder, because what is under test is WHICH bytes went; that the encoding is
-    // RFC 4648 is `core/base64.test.ts`'s claim, made there against the platform's own.
+    // Three consecutively numbered requests, each carrying the slice at its own offset. The
+    // expectation is built with the encoder because what is under test is which bytes went;
+    // the encoding itself is checked in `base64.test.ts`.
     expect(port.chunkCalls.map((call) => call.sequenceNumber)).toStrictEqual([0, 1, 2]);
     expect(port.chunkCalls.every((call) => carriesAPayload({ ...call }))).toBe(true);
     expect(port.chunkCalls.map((call) => call.chunk)).toStrictEqual([
@@ -57,17 +52,15 @@ describe("ingest client — the payload reaches the daemon", () => {
       encodeBase64(payload.subarray(ARTIFACT_CHUNK_MAX_BYTES * 2)),
     ]);
     for (const call of port.chunkCalls) {
-      // The cap binds the decoded bytes and the ceiling binds what is written, which is
-      // why the cap sits where it does rather than at the ceiling.
+      // The cap binds the decoded bytes and the ceiling binds what is written.
       expect(call.chunk.length).toBeLessThan(MAX_MESSAGE_BYTES);
     }
     expect(client.snapshot[0]?.state).toBe("complete");
   });
 
   it("negative control: an offset and a claimed length carry no payload", () => {
-    // A request that describes a size and carries no bytes: the daemon could not receive
-    // one byte of the file from it. Without this control, the assertion above would pass
-    // over a predicate that answered true for anything at all.
+    // A request that describes a size and carries no bytes cannot deliver the file. Without
+    // this control the assertion above would pass for anything.
     expect(carriesAPayload({ ingestId: "ingest-1", offset: 0, byteLength: 300 })).toBe(false);
     expect(carriesAPayload({ ingestId: "ingest-1", sequenceNumber: 0, chunk: "" })).toBe(false);
   });
@@ -75,9 +68,8 @@ describe("ingest client — the payload reaches the daemon", () => {
 
 describe("ingest client — the ledger advances on what the daemon acknowledged", () => {
   it("charts the reply's running total rather than the bytes it sent", async () => {
-    // Exercised through the real loop: a ledger that added the local slice length and
-    // never read the reply would record what went on the wire rather than what the
-    // daemon spooled, and could not tell the two apart.
+    // Through the real loop: a ledger adding the local slice length without reading the reply
+    // would record what went on the wire, not what the daemon spooled.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     const byteLength = ARTIFACT_CHUNK_MAX_BYTES + 7;
@@ -99,15 +91,13 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
     expect(port.chunkCalls).toHaveLength(1);
     expect(client.snapshot[0]?.state).toBe("refused");
     expect(client.snapshot[0]?.refusal?.code).toBe(CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE);
-    // `restart` and not the retry-in-place default: that default assumes the two sides
-    // still share an offset, which is what this reply has broken.
+    // `restart`, not retry-in-place: that default assumes the two sides still share an offset.
     expect(client.snapshot[0]?.disposition).toBe("restart");
   });
 
   it("refuses a total that did not advance rather than re-slicing forever", async () => {
-    // The offset IS the ledger, so a client that accepted a standing total would send
-    // the same chunk for as long as the daemon kept answering. The refusal is what makes
-    // the loop terminate on the daemon's own answer, and the call count is the proof.
+    // The offset is the ledger's, so a client accepting a standing total would resend the same
+    // chunk forever; the refusal ends the loop and the call count proves it.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
@@ -120,9 +110,8 @@ describe("ingest client — the ledger advances on what the daemon acknowledged"
   });
 
   it("negative control: the daemon's own partial total is taken verbatim and the stream goes on", async () => {
-    // Without this, a check that refused whenever the reply disagreed with the local
-    // count would pass both cases above while making every lawful partial spool a
-    // refusal — which is precisely the daemon's answer this change exists to trust.
+    // Without this, a check refusing whenever the reply disagreed with the local count would
+    // turn every lawful partial spool into a refusal.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-four", "notes.md", 300));

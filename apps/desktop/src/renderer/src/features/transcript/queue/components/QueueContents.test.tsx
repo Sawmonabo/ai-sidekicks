@@ -1,7 +1,4 @@
-// The queue's rows, drawn from a feed the case builds by hand.
-//
-// The feed is the component's whole input, so each case states exactly the reading it
-// renders: no bridge, no subscription, and nothing that has to settle first.
+// The queue's rows, drawn from a feed the case builds by hand: no bridge, no subscription.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -12,7 +9,6 @@ import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 import type { QueueFeed } from "../queue-reading.js";
 import { QueueContents } from "./QueueContents.js";
 
-/** One row of the registered shape in the given state. */
 function queueItem(rawId: string, state: QueueItemSummary["state"]): QueueItemSummary {
   const id = readQueueItemId(rawId);
   if (id === undefined) {
@@ -28,7 +24,6 @@ function queueItem(rawId: string, state: QueueItemSummary["state"]): QueueItemSu
   };
 }
 
-/** A fully read feed over the given rows, with nothing pending. */
 function readFeed(items: QueueFeed["items"]): QueueFeed {
   return {
     items,
@@ -60,15 +55,13 @@ describe("the queue renders the rows it is given", () => {
   });
 
   it("keeps a row that is no longer waiting rather than dropping it", () => {
-    // A queue row is durable and never-evented — drained but never deleted — so the
-    // `admitted` row is a row here, unlike on the composer's shelf.
+    // A queue row is durable and never deleted, so the `admitted` row is still a row.
     const container = renderQueue();
     expect(container.textContent).toContain("admitted");
   });
 
   it("negative control: the empty state is not what rendered", () => {
-    // Without this the assertions above would pass over a component that rendered
-    // its empty state and happened to contain the word "queued" in the copy.
+    // Guards against a component that rendered its empty state and happened to contain "queued".
     const container = renderQueue();
     expect(container.querySelector(".meridian-nothing--empty")).toBeNull();
     expect(container.querySelectorAll(".meridian-queue__row")).toHaveLength(3);

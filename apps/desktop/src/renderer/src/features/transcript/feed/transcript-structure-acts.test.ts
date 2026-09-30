@@ -1,10 +1,5 @@
-// The acts the feed publishes, driven with no render at all.
-//
-// Every case below invokes an act and watches what it reached. That is the whole
-// property: the palette and the session header both resolve their target at press time,
-// so the only thing that can be wrong is which of the feed's own callbacks an act
-// runs — and none of them needs a DOM to check. No act refuses, so the refusal channel
-// is watched too: a press that raised a banner over work it did would pass a trace alone.
+// The acts the feed publishes, driven with no render. The refusal channel is watched too:
+// a press that raised a banner over work it did would pass a trace alone.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -17,19 +12,13 @@ import {
   type TranscriptStructureActInputs,
 } from "./transcript-structure-acts.js";
 
-/** What one case watched happen, in the order it happened. */
 type ActTrace = string[];
 
 /** The row a stubbed walk lands on, so a jump can be told from a walk that found nothing. */
 const WALKED_ROW_ID = "row-the-walk-found";
 
-/**
- * A find state whose members record rather than derive.
- *
- * `useTranscriptFind`'s real behavior is `useTranscriptFind.test.ts`'; what matters
- * here is which member an act calls, which a recording stand-in answers and a real
- * hook would only obscure.
- */
+// A find state whose members record rather than derive: what matters is which member an
+// act calls.
 function recordingFindState(trace: ActTrace, walkedRowId?: string): TranscriptFindState {
   return {
     isOpen: false,
@@ -57,7 +46,6 @@ function recordingFindState(trace: ActTrace, walkedRowId?: string): TranscriptFi
   };
 }
 
-/** One window's act inputs, with every seam recording into `trace`. */
 function actInputs(
   trace: ActTrace,
   options: {
@@ -78,7 +66,6 @@ function actInputs(
   };
 }
 
-/** Every refusal raised on the frame's channel for the length of one case. */
 function collectRaisedRefusals(): {
   readonly raised: Refusal[];
   readonly withdraw: () => void;
@@ -111,9 +98,7 @@ describe("the transcript's acts — what each one reaches", () => {
   });
 
   it("negative control: a walk that found nothing scrolls nowhere", () => {
-    // Without this the case above would pass over an act that jumped on every
-    // press — which, with no match to land on, is a scroll to a row id nobody
-    // produced and a reader moved for no reason.
+    // Guards against an act that jumps on every press, with no match to land on.
     const trace: ActTrace = [];
     buildTranscriptStructureActs(actInputs(trace)).stepFindNext();
     expect(trace).toStrictEqual(["step:next"]);
@@ -147,9 +132,6 @@ describe("the transcript's acts — none of them refuses", () => {
   });
 
   it("folds the run groups rather than refusing over a control that now exists", () => {
-    // The refusal this replaces said every finished run group was already folded and
-    // no control opened one. Both halves are false now that a run group header is a
-    // disclosure, so the press does the fold and raises nothing.
     const trace: ActTrace = [];
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
@@ -159,8 +141,7 @@ describe("the transcript's acts — none of them refuses", () => {
   });
 
   it("negative control: the acts that CAN act raise nothing", () => {
-    // Without this the case above would pass over a build that answered every
-    // press with a banner, which would state a refusal over work that was done.
+    // Guards against a build that answers every press with a banner.
     const { raised, withdraw } = collectRaisedRefusals();
     withdrawSink = withdraw;
     const acts = buildTranscriptStructureActs(actInputs([], { walkedRowId: WALKED_ROW_ID }));

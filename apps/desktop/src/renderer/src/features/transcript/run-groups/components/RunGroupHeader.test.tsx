@@ -1,9 +1,5 @@
-// The run group header, held to what a person can read off one folded run.
-//
-// The two cases that matter are the ones a fold-level suite cannot make: a live
-// run group had NOTHING on its line but an actor and a count, and the clipped figure
-// named rows nothing could reach. Both are rendering claims, so both are read off the
-// rendered line.
+// The run group header, held to what a person can read off one folded run. These are rendering
+// claims, so they are read off the rendered line rather than off the fold model.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

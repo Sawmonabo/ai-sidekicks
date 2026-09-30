@@ -1,23 +1,6 @@
-// The wrapper earns its name on one case: the schema reader THROWS, and a form that let
-// it would take the pane down over a definition somebody authored.
-//
-// So the negative case is the point of this file. The positive ones establish that the
-// verdict is real — that an answer is checked, that the issues carry the member path as
-// segments, and that a valid answer comes back clean — because a wrapper that swallowed
-// everything would pass the throwing case and be useless.
-//
-// AND ONE CASE IS ABOUT THE PATHS THIS WRAPPER PRODUCES. A path joined with a dot is not
-// injective, so the case below pins that the reader's own findings come back addressed
-// apart: a property whose name reads like an array position, and that position, are two
-// members and arrive as two paths. What the REPRESENTATION guarantees — the encoding and
-// the comparison — is `schema-member-path.test.ts`, beside the module that declares them;
-// this file uses the encoder to spell a path and asserts nothing about it.
-//
-// AND ONE PAIR IS ABOUT WHAT A CLEAN VERDICT IS ABOUT. Checking reads an answer rather
-// than inspecting it, so a schema with a `default` accepts `{}` and accepts it as
-// something else; the clean arm therefore carries the value it accepted, and the pair
-// below pins both halves — that a supplied member arrives, and that an answered one is
-// not overwritten by the schema's own value for it.
+// The negative case is the point: the schema reader throws, and the wrapper must answer with a
+// reason instead. The positive cases show the verdict is real, so a wrapper that swallowed
+// everything would not pass. The path encoding itself is tested in `schema-member-path.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -59,7 +42,6 @@ describe("the schema validator wrapper", () => {
       "/count",
       "/title",
     ]);
-    // The library's own sentence, carried rather than paraphrased.
     expect(report.issues.every((issue) => issue.message.length > 0)).toBe(true);
   });
 
@@ -79,9 +61,8 @@ describe("the schema validator wrapper", () => {
   });
 
   it("keeps a dotted property name and an array position apart, which one string cannot", () => {
-    // The whole reason a path is segments. Joined with a dot, the property literally named
-    // `items.0` and the first entry of the array named `items` are the same string, so a
-    // control keyed on that string draws one member's finding under the other's control.
+    // Joined with a dot, the property `items.0` and the first entry of `items` are one string, so
+    // a control keyed on it would draw one member's finding under the other's control.
     const validator = compileSchemaValidator({
       type: "object",
       properties: {
@@ -99,8 +80,6 @@ describe("the schema validator wrapper", () => {
       "/items.0",
       "/items/0",
     ]);
-    // The position is a NUMBER and the property name is a string, which is the distinction
-    // any single-string spelling of a path throws away.
     expect(report.issues.map((issue) => issue.memberPath).sort()).toEqual([
       ["items", 0],
       ["items.0"],
@@ -108,9 +87,8 @@ describe("the schema validator wrapper", () => {
   });
 
   it("carries the value the schema accepted, which is not the value it was handed", () => {
-    // The whole reason the clean arm carries a value: the reader SUPPLIES a member that
-    // declares a default, so `{}` is valid and is valid as something else. A report that
-    // said only "valid" would be a verdict on a value its caller had no way to send.
+    // The reader supplies a member that declares a default, so `{}` is valid as something else;
+    // a report saying only "valid" would describe a value its caller cannot send.
     const validator = compileSchemaValidator({
       type: "object",
       properties: { approver: { type: "string", default: "ada" }, note: { type: "string" } },
@@ -130,8 +108,7 @@ describe("the schema validator wrapper", () => {
   });
 
   it("negative control: an answer the schema changes nothing about comes back unchanged", () => {
-    // Without this, the case above would hold over a wrapper that returned the schema's
-    // defaults for every answer, ignoring what it was given.
+    // Without this, the case above would hold over a wrapper that always returned the defaults.
     const validator = compileSchemaValidator({
       type: "object",
       properties: { approver: { type: "string", default: "ada" } },
@@ -158,8 +135,7 @@ describe("the schema validator wrapper", () => {
     if (validator.status !== "uncompilable") {
       return;
     }
-    // The reason travels, because an editor that said only "could not check" leaves an
-    // author with nothing to change.
+    // The reason travels so an author has something to change.
     expect(validator.detail).toContain("only the JSON itself is checked");
     expect(validator.detail.length).toBeGreaterThan("only the JSON itself is checked".length);
   });
@@ -171,12 +147,9 @@ describe("the schema validator wrapper", () => {
   });
 });
 
-// A REQUIRED MEMBER NOBODY ANSWERED IS THE ONE FINDING THE LIBRARY CANNOT PHRASE FOR A
-// FORM. It reports the absent member as a wrong value — "Invalid option", "expected
-// string, received undefined" — which reads as though the person picked badly when they
-// have not picked at all. The wrapper says what the form needs instead, and ONLY for the
-// absent class: a member that is present and wrong keeps the library's sentence verbatim,
-// which the negative control pins.
+// The library words an unanswered required member as a wrong value ("Invalid option", "received
+// undefined"). The wrapper says what the form needs instead, and only for a member the answer does
+// not hold: a present, wrong member keeps the library's sentence.
 describe("a required member nobody answered", () => {
   const DECISION_SCHEMA = {
     type: "object",

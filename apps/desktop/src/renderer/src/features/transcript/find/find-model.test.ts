@@ -1,10 +1,5 @@
-// The find matcher, and the boundary that is the feature.
-//
-// A find field that searched what it had and said nothing would let a person
-// conclude a session does not contain something it does. So the boundary members
-// are asserted here beside the matching, and the cap is asserted together with the
-// honest uncapped total — a count that silently equalled the cap would tell a
-// person their query is narrower than it is.
+// The find matcher and its boundary: the cap is asserted beside the uncapped total, so a
+// capped count cannot understate how broad the query is.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -59,8 +54,7 @@ describe("find — the boundary is a member of the result", () => {
   });
 
   it("negative control: the count is the window's and not a constant", () => {
-    // Without this the two cases above would pass over a result that reported the
-    // three-row fixture's length whatever it was handed.
+    // Guards against a result that reports the fixture's length whatever it is handed.
     expect(findInTranscript([], "deploy").searchedRowCount).toBe(0);
   });
 });
@@ -78,8 +72,7 @@ describe("find — what a query matches", () => {
   });
 
   it("negative control: the payload is not searched", () => {
-    // `g1`'s payload contains "deploy war room". A substring hit inside an open
-    // record would rank a row a person cannot see the match in.
+    // `g1`'s payload contains "deploy war room"; a hit inside an open record shows nothing.
     const matchedRowIds = findInTranscript(searchWindow(), "war room").matches.map(
       (match) => match.rowId,
     );
@@ -96,8 +89,7 @@ describe("find — what a query matches", () => {
   });
 
   it("negative control: an empty query does not silently match everything", () => {
-    // Highlighting every row the moment the field is focused is the failure this
-    // guards; "everything" is what the transcript already shows.
+    // Highlighting every row when the field is focused is the failure this guards.
     expect(findInTranscript(searchWindow(), "").matches.length).not.toBe(3);
   });
 
@@ -107,7 +99,6 @@ describe("find — what a query matches", () => {
 });
 
 describe("find — the cap bounds the walk and never the count", () => {
-  /** One more row than the walk can hold, plus five, all matching. */
   function oversizedWindow(): readonly TimelineRow[] {
     return Array.from({ length: FIND_MATCH_CAP + 5 }, (_unused, index) =>
       runRow({
@@ -129,8 +120,7 @@ describe("find — the cap bounds the walk and never the count", () => {
   });
 
   it("negative control: under the cap the two numbers agree", () => {
-    // Which is what shows the divergence above is the cap reporting itself rather
-    // than the counter being wrong.
+    // Shows the divergence above is the cap reporting itself, not the counter being wrong.
     const result = findInTranscript(searchWindow(), "e");
     expect(result.totalMatchCount).toBe(result.matches.length);
   });
@@ -168,8 +158,7 @@ describe("find — stepping the walk", () => {
   );
 
   it("walks forward and wraps at the end", () => {
-    // Find wraps — the counter shows "3 of 3" turning into "1 of 3", so the wrap is
-    // visible rather than a jump with no explanation.
+    // Find wraps; "3 of 3" turning into "1 of 3" makes the wrap visible.
     expect(stepFindMatch(result, 0, "next")?.index).toBe(1);
     expect(stepFindMatch(result, 2, "next")?.index).toBe(0);
   });
@@ -188,11 +177,8 @@ describe("find — stepping the walk", () => {
   });
 
   it("walks every direction the closed set declares, and they disagree", () => {
-    // Quantified over the declaration rather than over the two names written here,
-    // so a third direction arrives as a red case in the module that owns the walk
-    // instead of as an arm nothing exercises. The disagreement is the control: two
-    // directions that landed on one index would satisfy a totality claim while
-    // proving the walk had stopped distinguishing them.
+    // Quantified over the declaration, so a third direction arrives as a red case here. The
+    // disagreement is the control: two directions landing on one index would satisfy totality.
     const landed = FIND_STEP_DIRECTIONS.map((direction) => stepFindMatch(result, 0, direction));
     expect(landed.every((step) => step !== undefined)).toBe(true);
     expect(new Set(landed.map((step) => step?.index)).size).toBe(FIND_STEP_DIRECTIONS.length);
@@ -218,7 +204,6 @@ describe("find — the first step, before anything is selected", () => {
     return findInTranscript(windowOfMatches(count), "hit");
   }
 
-  /** Every match count a walk can be entered over, and where each direction lands. */
   const entries: readonly {
     readonly matchCount: number;
     readonly forwardRowId: string | undefined;
@@ -239,8 +224,8 @@ describe("find — the first step, before anything is selected", () => {
   });
 
   it("reports the entry position as an index the counter can render", () => {
-    // "1 of 7" and "7 of 7" — the index is what the field counts from, so an entry
-    // that landed on the right ROW under the wrong index would still read wrong.
+    // The index drives the counter's "1 of 7" and "7 of 7"; the right row under the wrong index
+    // would still read wrong.
     const result = resultOver(7);
     expect(stepFindMatch(result, -1, "next")?.index).toBe(0);
     expect(stepFindMatch(result, -1, "previous")?.index).toBe(6);

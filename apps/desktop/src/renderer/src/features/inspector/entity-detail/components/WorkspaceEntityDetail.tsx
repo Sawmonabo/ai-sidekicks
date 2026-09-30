@@ -1,11 +1,7 @@
-// A workspace's record — the durable side of a repo mount.
+// A workspace's record: the durable side of a repo mount.
 //
-// The three members are the repo / workspace lifecycle payload's own:
-// `repoMountId`, `workspaceId`, and `actor`. The mount's health is deliberately not
-// among them: the wire's mount health is a two-member union read through a
-// different view, and a record that showed a health it never read would draw a
-// "not checked" absence as if it were a reading, and the console keeps every kind of
-// absence distinct because each one asks for a different next move.
+// The mount's health is deliberately not a facet: a record showing a health it never read
+// would draw a "not checked" absence as if it were a reading.
 
 import { EntityRecord } from "./EntityRecord.js";
 import {
@@ -15,6 +11,7 @@ import {
   type EntityDetailProps,
 } from "../entity-facets.js";
 
+/** The workspace record body: repo mount, workspace, actor and last touch. */
 export function WorkspaceEntityDetail(props: EntityDetailProps): React.JSX.Element {
   return (
     <EntityRecord

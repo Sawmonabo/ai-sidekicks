@@ -1,31 +1,7 @@
-// What a render of the FEED'S PARENT costs the rows that did not change in it.
-//
-// `TranscriptViewport.tsx` memoizes its row mount and says in the prop's own doc that
-// the memo "only holds if the caller's `renderRow` is stable". This feed's row
-// renderer listed the whole `props` object among its dependencies, and React hands a
-// component a fresh props object whenever its parent renders — so a pane-level
-// render with every value inside it unchanged moved the callback's identity and
-// re-rendered every mounted row for a change none of them could see. Four lanes
-// streaming is the workload `budgets.json`'s `frame-time-p95-four-lanes` row bounds,
-// and this was main-thread work inside those frames that produced no different
-// pixel.
-//
-// WHY THE PARENT AND NOT THE FEED'S OWN STATE. React reuses the props object across
-// a render the component schedules for itself, so opening the find field or typing a
-// query never moved that dependency and pinning either would pin nothing. The defect
-// was reachable only from above, which is where this case drives it from.
-//
-// AND WHAT ONE ADMITTED EVENT COSTS THEM, which is the second describe below. The
-// projection used to rebuild every row and every identity triple per pass, so an
-// event that changed nothing visible re-rendered the whole mounted window TWICE —
-// measured on a ten-row window, ten bodies at mount and twenty-one more per event.
-// `transcript-window.ts`'s retention table holds those objects across passes and
-// `TranscriptFeedRow`'s memo is what spends the stability, so what an event costs now is
-// the rows it actually changed.
-//
-// The mount is composed here rather than taken from `TranscriptFeed.test-support.tsx`
-// because this case needs the PARENT in its hands, which that helper deliberately
-// does not expose.
+// What a render of the feed's parent, and one admitted event, cost the rows that did not change.
+// `TranscriptViewport` memoizes its row mount and needs a stable `renderRow`; a fresh props object
+// from a parent render must not move it, or every mounted row re-renders inside the frames that
+// `frame-time-p95-four-lanes` bounds. The mount is composed here because it needs the parent.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -55,11 +31,8 @@ interface FeedParentProps {
   readonly sessionStore: SessionStore;
   readonly renderTranscriptRow: (mount: TranscriptRowProps) => React.JSX.Element;
   /**
-   * Moved to make the parent render, and read by nothing.
-   *
-   * A pane above this feed re-renders for its own reasons — a tab change, a
-   * neighboring dock, a resize — and every one of them hands the feed a fresh props
-   * object while the three values inside it stay the same.
+   * Moved to make the parent render, and read by nothing. A pane above re-renders for its own
+   * reasons and hands the feed a fresh props object while the three values in it stay the same.
    */
   readonly renderNudge: number;
 }
@@ -79,11 +52,8 @@ function FeedParent(props: FeedParentProps): React.JSX.Element {
 }
 
 /**
- * One bridge for every case in this file.
- *
- * Minted once rather than per render: a fresh bridge is a fresh context value, which
- * re-renders the whole subtree and would make every count below move for a reason
- * that is this file's own doing.
+ * One bridge for every case: a fresh bridge is a fresh context value, which re-renders the
+ * subtree and would move every count below.
  */
 const FIXTURE = createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO });
 
@@ -92,8 +62,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
     withLaidOutViewport();
     let rowBodyRenders = 0;
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
-    // Stable across the re-render below, so the only thing that can move the
-    // callback's identity is the dependency this case is about.
+    // Stable across the re-render, so only the dependency under test can move the callback.
     const renderTranscriptRow = (mount: TranscriptRowProps): React.JSX.Element => {
       rowBodyRenders += 1;
       return <p>{mount.row.summary}</p>;
@@ -107,8 +76,7 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
       />,
     );
     const rendersAtMount = rowBodyRenders;
-    // The floor the case rests on: rows were drawn at all, so a frozen count is a
-    // memo holding rather than a feed that mounted nothing.
+    // The floor: rows were drawn at all, so a frozen count is a memo holding.
     expect(rendersAtMount).toBeGreaterThan(0);
 
     rerender(
@@ -123,9 +91,8 @@ describe("the transcript feed — what a parent's render costs the rows", () => 
   });
 
   it("negative control: a parent that hands down a new renderer draws them again", () => {
-    // Without this the case above would pass over a counter nothing increments and a
-    // row mount that never draws twice for any reason. The memo is keyed on the
-    // renderer, so moving the renderer is what must move the count.
+    // Without this the case above would pass over a counter nothing increments; the memo is keyed
+    // on the renderer, so moving the renderer must move the count.
     withLaidOutViewport();
     let rowBodyRenders = 0;
     const sessionStore = openSessionStoreWithGeneralLog(SHORT_LOG_EVENT_COUNT);
@@ -180,8 +147,7 @@ describe("the transcript feed — what one admitted event costs the rows", () =>
       drawsByRowId.set(mount.row.id, (drawsByRowId.get(mount.row.id) ?? 0) + 1);
     });
     const rowIdsAtMount = [...drawsByRowId.keys()];
-    // The floor the case rests on: rows were drawn at all, so a frozen count below is
-    // a memo holding rather than a feed that mounted nothing.
+    // The floor: rows were drawn at all, so a frozen count is a memo holding.
     expect(rowIdsAtMount.length).toBeGreaterThan(0);
     const drawsAtMount = new Map(drawsByRowId);
 
@@ -192,16 +158,14 @@ describe("the transcript feed — what one admitted event costs the rows", () =>
         drawsAtMount.get(rowId),
       );
     }
-    // And the event's own row WAS drawn, so the counter is live and the window did
-    // admit the entry rather than quietly ignoring it.
+    // The event's own row was drawn, so the counter is live and the window admitted the entry.
     expect([...drawsByRowId.keys()].length).toBe(rowIdsAtMount.length + 1);
   });
 
   it("draws again exactly the row whose density the list changed", () => {
-    // The other half, and the one that separates this memo from a memo that never
-    // updates: the lease write moves the row renderer's identity, so every mounted row
-    // is re-rendered and every one of them is compared — and exactly the row whose
-    // density moved is drawn.
+    // The other half, separating this memo from one that never updates: the lease write moves the
+    // renderer's identity, so every mounted row is compared and only the row whose density moved
+    // is drawn.
     withLaidOutViewport();
     const drawsByRowId = new Map<string, number>();
     const feed = renderFeed(

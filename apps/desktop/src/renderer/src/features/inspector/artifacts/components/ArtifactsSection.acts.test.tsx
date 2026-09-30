@@ -1,8 +1,5 @@
-// The panel's act: what the re-read control does.
-//
-// What the panel draws before any press is `ArtifactsSection.test.tsx`: the absences, the
-// count, the row's face and the type filter. Every case here is about a control and the
-// consequence it names.
+// The panel's act: what the re-read control does. What it draws before any press is
+// `ArtifactsSection.test.tsx`.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -10,8 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import { artifactRow } from "@test/helpers/artifact-summaries.js";
 import { ArtifactsSection } from "./ArtifactsSection.js";
 
-// Built rather than parsed: a fixture instant is this suite's own decision, and the
-// console's one reader of a wire stamp is `parseInstant`, not this line.
+// Built rather than parsed, so the suite does not depend on `parseInstant`.
 const NOW_MILLISECONDS = Date.UTC(2026, 0, 1, 9, 30, 0);
 
 describe("ArtifactsSection — the acts", () => {
@@ -27,9 +23,8 @@ describe("ArtifactsSection — the acts", () => {
   });
 
   it("asks for the manifest rather than rendering a payload", () => {
-    // The hard rule: payloads are explicit-fetch downloads, and nothing in the
-    // product executes one. The affordance is a control that ASKS — and it asks for
-    // exactly what the registered read answers with, which is the manifest.
+    // Payloads are explicit-fetch downloads: the control asks for what the registered read
+    // answers with, the manifest.
     const onReadManifest = vi.fn();
     const { container } = render(
       <ArtifactsSection
@@ -43,8 +38,7 @@ describe("ArtifactsSection — the acts", () => {
   });
 
   it("holds the re-read control on a row whose read is on the wire", () => {
-    // The re-read is single-flight per row, so offering the control while that row's call
-    // is outstanding would offer a second read of one manifest.
+    // A control offered while the row's call is outstanding would send a second read.
     const { container } = render(
       <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow()] }}
@@ -58,9 +52,8 @@ describe("ArtifactsSection — the acts", () => {
   });
 
   it("negative control: a row nobody is reading keeps its control, and a sibling's read does not take it", () => {
-    // Without this, a control disabled unconditionally would pass the case above
-    // while making the act unreachable — and a register read per PANEL rather than
-    // per row would hold one row's control because another row was waiting.
+    // Without this an always-disabled control would pass above, and a panel-wide register
+    // would hold one row because another was waiting.
     const { container } = render(
       <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow(), artifactRow({ id: "artifact-02" })] }}
@@ -77,9 +70,8 @@ describe("ArtifactsSection — the acts", () => {
   });
 
   it("negative control: no control claims to fetch a payload", () => {
-    // The read serves a manifest summary and no registered reply member carries
-    // bytes or a handle, so a control named for a payload fetch would promise a
-    // download nothing on this port can produce.
+    // No registered reply member carries bytes or a handle, so a payload-fetch control would
+    // promise a download nothing on this port can produce.
     const { queryByRole } = render(
       <ArtifactsSection
         state={{ kind: "listed", rows: [artifactRow()] }}

@@ -11,8 +11,6 @@ describe("terminal feature — claiming the pane layout's terminal pane", () => 
     const descriptor = registry.descriptorFor("terminal");
     expect(descriptor?.kind).toBe("terminal");
     expect(descriptor?.owner).toBe("terminal");
-    // Kind and owner are the whole registration: whether the kind may be torn off
-    // is the window model's answer, and `routing/panes/pane-kinds.test.ts` holds it.
   });
 
   it("claims the terminal kind and no other", () => {

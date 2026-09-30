@@ -13,8 +13,6 @@ describe("preview — claiming the pane layout's browser pane", () => {
     const descriptor = registry.descriptorFor("browser");
     expect(descriptor?.kind).toBe("browser");
     expect(descriptor?.owner).toBe("preview");
-    // Kind and owner are the whole registration: whether the kind may be torn off
-    // is the window model's answer, and `routing/panes/pane-kinds.test.ts` holds it.
   });
 
   it("composes into the registry it is handed, never a module-scope one", () => {
@@ -34,9 +32,8 @@ describe("preview — claiming the pane layout's browser pane", () => {
   });
 
   it("negative control: a second owner claiming the kind is refused, not swapped", () => {
-    // Without this, every case above would pass over a registry whose duplicate
-    // policy was "last writer wins" — and which body mounted would then depend on
-    // module evaluation order rather than on anyone's decision.
+    // Without this, every case above would pass over a "last writer wins" registry, and which
+    // body mounted would depend on module evaluation order.
     const registry = new PaneRegistry();
     registerPreviewPanes(registry);
     expect(() => {

@@ -1,13 +1,6 @@
-// What the context meter puts on screen, and what it refuses to put there.
-//
-// The claims worth a unit are the ones that would rot silently: that a session with
-// no usage telemetry renders the "nobody asked" absence rather than a zeroed meter,
-// that a session WITH telemetry renders the daemon's own figures, that the meter
-// reads the conversation the composer is ADDRESSED to rather than the session's
-// newest row anywhere, and that a compaction boundary moves it off a stale figure.
-//
-// The store is the real `SessionStore` with real events applied — a stand-in would
-// let the rail read a shape the store cannot actually produce.
+// What the context meter puts on screen: the "nobody asked" absence without telemetry, the daemon's
+// own figures with it, the reading for the addressed conversation rather than the session's newest
+// row, and a compaction boundary moving it off a stale figure. Uses the real `SessionStore`.
 
 import { describe, expect, it } from "vitest";
 
@@ -42,8 +35,7 @@ describe("ComposerToolbar — absence before assertion", () => {
   });
 
   it("is never colored and adds no hint at 80% or past the window", () => {
-    // The ring is one figure and one meter, gray on gray: fullness changes the figure
-    // and never the color or the copy beside it.
+    // Fullness changes the figure and never the color or the copy beside it.
     const nearFull = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     const pastTheWindow = mountToolbar(
       [
@@ -77,9 +69,7 @@ describe("ComposerToolbar — absence before assertion", () => {
   });
 
   it("states the provenance the row carried, and what an estimate means", () => {
-    // The meter draws the same bar for all three grades and says which one it is.
-    // A bar whose numbers were estimated and a bar whose numbers the provider
-    // measured are different readings, and the difference is invisible in the bar.
+    // The bar looks the same for all three grades, so the difference must be stated.
     const container = mountToolbar(
       [
         {
@@ -104,8 +94,7 @@ describe("ComposerToolbar — absence before assertion", () => {
   });
 
   it("negative control: a provider-reported reading carries no grade sentence", () => {
-    // Without this the case above would hold over a meter that explained itself on
-    // every reading, which would make the two grades that matter invisible.
+    // Without this the case above would hold over a meter that explained every reading.
     const container = mountToolbar([contextWindowEvent(1)], ADDRESSED);
     expect(container.querySelector(".meridian-context-ring__source-note")).toBeNull();
     expect(container.querySelector(".meridian-context-ring__source")?.textContent).toContain(
@@ -133,7 +122,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
     body: { agentId: SECOND_AGENT_ID, runVersion: 2 },
   };
 
-  /** Two conversations metered in one session, the SECOND run's row the newer. */
+  // Two conversations in one session, the second run's row the newer.
   const BOTH_METERED: readonly ProjectedSessionEvent[] = [
     {
       ...contextWindowEvent(3),
@@ -164,8 +153,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   }
 
   it("draws the addressed run's fullness while another run meters later and higher", () => {
-    // A fold over the newest row anywhere in the session would draw Priya's 90% on the
-    // composer addressed to Ada.
+    // A fold over the session's newest row would draw Priya's 90% on the composer addressed to Ada.
     const container = mountToolbar(BOTH_METERED, {
       entities: BOTH_AGENTS,
       focusedPane: paneOn(AGENT_ID),
@@ -177,8 +165,7 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   });
 
   it("negative control: the other run's composer draws the higher reading", () => {
-    // Without this the case above would hold over a meter that had simply stopped
-    // reading the timeline at all.
+    // Without this the case above would hold over a meter that had stopped reading the timeline.
     const container = mountToolbar(BOTH_METERED, {
       entities: BOTH_AGENTS,
       focusedPane: paneOn(SECOND_AGENT_ID),
@@ -190,9 +177,8 @@ describe("ComposerToolbar — the meter reads the conversation it is addressed t
   });
 
   it("renders the not-checked absence, not a session-wide figure, with no run addressed", () => {
-    // A composer addressed to the session meters no provider conversation, so there is
-    // no fullness for it to report — and the session's newest row is some run's, not
-    // this composer's.
+    // A composer addressed to the session meters no provider conversation, and the session's
+    // newest row belongs to some run, not to it.
     const container = mountToolbar(BOTH_METERED, { entities: BOTH_AGENTS });
 
     expect(container.querySelector(".meridian-context-ring")).toBeNull();

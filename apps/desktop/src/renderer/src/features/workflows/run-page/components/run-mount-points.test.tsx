@@ -1,7 +1,7 @@
-// The two mount points this directory owns: each draws only its empty frame while it has no body,
-// and hands a supplied body exactly what its mount promised. A supplied body is rendered
-// and never called, so its hooks belong to it; the last describe drives that across the
-// transition where a called body's hooks would first join the wrapper's list.
+// The two mount points this directory owns: each draws only its empty frame while it has no body
+// and hands a supplied body exactly what its mount promised. A body is rendered, never called, so
+// its hooks belong to it; the last describe drives that across the transition where a called
+// body's hooks would first join the wrapper's list.
 
 import { render } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -25,8 +25,7 @@ const OPEN_PHASE: HumanFormPhase = {
   workflowRunId: "019b7a10-0280-7b33-8100-4011115a0002",
   phaseRunId: "phase-run-01",
   phaseId: "review",
-  // `0` on purpose: it is the value a falsy discriminator would drop, and the one a
-  // fresh attempt actually carries.
+  // `0` on purpose: a falsy discriminator would drop it, and a fresh attempt carries it.
   formRevision: 0,
 };
 
@@ -39,7 +38,6 @@ const UNFILLED_MOUNT_POINTS: readonly (readonly [string, React.JSX.Element])[] =
   ],
 ];
 
-// Resolved once so every case renders a loaded form whose submit is armed.
 beforeAll(resolveSchemaFormChunks);
 
 describe("an unfilled mount point draws only its frame", () => {
@@ -52,15 +50,11 @@ describe("an unfilled mount point draws only its frame", () => {
 });
 
 describe("a filled mount point receives exactly what the mount promised", () => {
-  // Read off the first call's first argument rather than through
-  // `toHaveBeenCalledWith`: React owns the argument list of a component it renders,
-  // and an assertion on its ARITY would be a claim about React rather than about the
-  // mount this file is checking.
+  // Read off the first call's first argument, not `toHaveBeenCalledWith`: React owns the
+  // argument list of a component it renders, so its arity is not what this file checks.
   it("hands the run detail the run and, on an unserved read, no snapshot key at all", async () => {
-    // Absent rather than present-and-empty: the key's PRESENCE is the arm the pane
-    // was on, so a body reading it can never be shown a run the daemon never
-    // described. `toStrictEqual` is what makes that bite — it separates an absent
-    // key from one carrying `undefined`.
+    // Absent rather than present-and-empty: the key's presence is the arm the pane was on.
+    // `toStrictEqual` separates an absent key from one carrying `undefined`.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     const { container } = render(<RunDetailMountPoint workflowRunId="wfr-01" body={body} />);
     expect(body.mock.calls[0]?.[0]).toStrictEqual({ workflowRunId: "wfr-01" });
@@ -68,10 +62,8 @@ describe("a filled mount point receives exactly what the mount promised", () => 
   });
 
   it("hands the run detail the served snapshot beside the run", async () => {
-    // The obligation this mount point is under is that the run pane supplies the run
-    // snapshot. Handed over rather than left for the body to re-read: a body that
-    // issued its own run read would put one question twice and hold two answers to
-    // it on one screen.
+    // The pane supplies the snapshot rather than leaving the body to re-read it, which would
+    // hold two answers to one question on one screen.
     const body = vi.fn((_mount: RunDetailMount) => <p>run detail body</p>);
     render(
       <RunDetailMountPoint
@@ -84,15 +76,13 @@ describe("a filled mount point receives exactly what the mount promised", () => 
       workflowRunId: PARKED_RUN.workflowRunId,
       snapshot: PARKED_RUN,
     });
-    // The same object and not a copy of it: the phases, retries and outputs a body
-    // renders are the ones the pane is rendering its parks from.
+    // The same object, not a copy: a body renders the phases the pane renders its parks from.
     expect(body.mock.calls[0]?.[0].snapshot).toBe(PARKED_RUN);
   });
 
   it("hands the human form the open phase, revision included, and the bound submit", async () => {
-    // The resolved phase VERBATIM, plus the one member the pane cannot resolve: the
-    // bound submit the pane keeps. `toStrictEqual` is what makes that exact — a body
-    // handed a member this mount point did not promise is as much a defect as a missing one.
+    // The resolved phase verbatim plus the bound submit the pane keeps; `toStrictEqual` makes a
+    // member the mount point did not promise as much a defect as a missing one.
     const body = vi.fn((_mount: HumanFormMount) => <p>form body</p>);
     await renderSwitchableMountPoint({ phase: OPEN_PHASE, body });
     expect(body.mock.calls[0]?.[0]).toStrictEqual({
@@ -102,9 +92,8 @@ describe("a filled mount point receives exactly what the mount promised", () => 
   });
 
   it("calls no human-form body while no phase is open", async () => {
-    // A form rendered against a phase nobody resolved would be answerable in
-    // appearance and unsubmittable in fact, so the body is not called at all rather
-    // than called with a placeholder.
+    // The body is not called at all rather than called with a placeholder: a form against an
+    // unresolved phase would look answerable and be unsubmittable.
     const body = vi.fn(() => <p>form body</p>);
     const { container } = await renderSwitchableMountPoint({ phase: undefined, body });
     expect(body).not.toHaveBeenCalled();
@@ -121,11 +110,8 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
   };
 
   /**
-   * A body with state and an effect, which is what makes the boundary observable.
-   *
-   * Declared once rather than inside a case, because a component composed on each
-   * render is a new type each time and React remounts it. The effect's teardown is the
-   * fact under test: a real workflow-engine body opens a subscription there.
+   * A body with state and an effect, which makes the boundary observable. Declared once because
+   * a component composed on each render is a new type and React remounts it.
    */
   function statefulFormBody(recordTeardown: () => void) {
     return function StatefulFormBody(mount: HumanFormPhase): React.JSX.Element {
@@ -154,13 +140,9 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
   });
 
   /**
-   * The shape the wrappers no longer use, reconstructed here and nowhere in `src/`.
-   *
-   * Calling the body inline puts its hooks into the WRAPPER's list, which is what the
-   * two controls below read off from opposite sides. The wrapper carries one hook of
-   * its own because that is what makes the mixing observable at all: React reads a
-   * render that calls no hook as a mount, so a wrapper with no hooks hides the
-   * violation until it grows one — precisely the state these wrappers were in.
+   * The shape the wrappers avoid, reconstructed here only. Calling the body inline puts
+   * its hooks into the wrapper's list. The wrapper carries one hook of its own because React
+   * reads a render that calls no hook as a mount, hiding the violation until it grows one.
    */
   function directCallHumanFormMountPoint(body: (mount: HumanFormPhase) => React.JSX.Element) {
     return function DirectCallHumanFormMountPoint(props: {
@@ -178,10 +160,9 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
   }
 
   it("negative control: the direct-call shape refuses the render the phase clears on", async () => {
-    // Without this, the case above would pass over a wrapper that had never been at
-    // risk. The body's `useState` sits in the wrapper's own hook list, which is two
-    // long while a phase is open and one long when it clears — and React refuses the
-    // shorter render rather than guessing which hook went missing.
+    // Without this, the case above would pass over a wrapper never at risk. The body's
+    // `useState` sits in the wrapper's own hook list, two long while a phase is open and one
+    // when it clears, and React refuses the shorter render.
     const recordTeardown = vi.fn();
     const DirectCallMountPoint = directCallHumanFormMountPoint(statefulFormBody(recordTeardown));
     const { rerender } = render(<DirectCallMountPoint phase={OPEN_PHASE} />);
@@ -198,16 +179,12 @@ describe("a body that uses hooks keeps its own hook boundary", () => {
 
 describe("the human-form mount composes the registered submit on its own", () => {
   // The mount carries `workflowRunId`, `phaseId` and `formRevision` because the submit is
-  // addressed by run and phase; `phaseRunId` is opaque and cannot be turned back into
-  // either, so a mount without them would hand a body a form it cannot send.
+  // addressed by run and phase; `phaseRunId` is opaque and cannot be turned back into either.
 
   /**
-   * The request a body composes, out of the mount and the person's answers.
-   *
-   * `satisfies` rather than an annotation, so the composition is checked against the
-   * registered request while the literal keeps its own type — and so this function is
-   * the compile-time half of the claim: it does not build if the mount stops carrying
-   * what the submit is addressed by.
+   * The request a body composes, out of the mount and the person's answers. `satisfies` checks
+   * it against the registered request, so it stops compiling if the mount stops carrying what
+   * the submit is addressed by.
    */
   function submitRequestFor(
     mount: HumanFormPhase,
@@ -234,18 +211,16 @@ describe("the human-form mount composes the registered submit on its own", () =>
         workflowRunId: OPEN_PHASE.workflowRunId,
         phaseId: OPEN_PHASE.phaseId,
         fields: { approved: true },
-        // Carried through verbatim, including the `0` a fresh attempt reads: the
-        // daemon decides whether it is still current and the body never re-reads it.
+        // Carried through verbatim, including the `0` a fresh attempt reads.
         expectedRevision: 0,
       },
     ]);
   });
 
   it("negative control: the mount without the run id cannot compose that request", async () => {
-    // Without this the case above would pass over any mount at all — it reads the
-    // members it was given and asserts them back. This is the shape the mount HAD:
-    // reading the run off it is a type error, so the directive below is what fails
-    // the build the day the member is dropped again.
+    // Without this the case above would pass over any mount at all. This is the shape the mount
+    // once had: reading the run off it is a type error, so the directive below fails the build if
+    // the member is dropped again.
     const mountWithoutTheRun: Omit<HumanFormPhase, "workflowRunId"> = {
       phaseRunId: OPEN_PHASE.phaseRunId,
       phaseId: OPEN_PHASE.phaseId,

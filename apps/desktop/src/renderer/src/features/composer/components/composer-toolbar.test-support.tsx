@@ -1,8 +1,5 @@
-// What every accessory-rail suite needs before it can mount the rail.
-//
-// The mount and the session it is mounted over, once: a store with real events applied,
-// a real fixture bridge, and the two entities a composer has to be addressed to before
-// any run-scoped reading exists at all.
+// Mounts the accessory rail over a real session store with events applied, a fixture bridge, and
+// the two entities a composer must be addressed to before any run-scoped reading exists.
 
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -34,9 +31,12 @@ const TOOLBAR_SCENARIO: Scenario = {
   replies: [],
 };
 
+/** The id of the seeded agent. */
 export const AGENT_ID = "agent-implementer";
+/** The id of the seeded run. */
 export const RUN_ID = "9f8e7d6c-5b4a-4392-8170-6f5e4d3c2b1a";
 
+/** A running agent entity. */
 export const AGENT: StoredEntity = {
   kind: "agent",
   id: AGENT_ID,
@@ -44,6 +44,7 @@ export const AGENT: StoredEntity = {
   body: { name: "Ada", driverName: "claude" },
 };
 
+/** A running run of the seeded agent, at run version 4. */
 export const RUNNING_RUN: StoredEntity = {
   kind: "run",
   id: RUN_ID,
@@ -64,13 +65,7 @@ export interface ToolbarAddressing {
   readonly sessionId?: string;
 }
 
-/**
- * The addressing every meter case needs: a composer pointed at a run.
- *
- * Both usage folds are run-scoped, so an unaddressed rail reports no fullness at
- * all — which is its own case and not the state a case about the METER wants to be
- * in.
- */
+/** A composer pointed at a run; usage folds are run-scoped, so an unaddressed rail is blank. */
 export const ADDRESSED: ToolbarAddressing = {
   entities: [AGENT, RUNNING_RUN],
   focusedPane: ON_THE_AGENT,

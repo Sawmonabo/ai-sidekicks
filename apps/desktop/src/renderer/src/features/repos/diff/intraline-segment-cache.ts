@@ -1,54 +1,7 @@
-// When a changed line's word-level highlight is computed, and what happens when it is
-// too expensive to compute at all.
-//
-// IT USED TO BE COMPUTED AT PARSE TIME, FOR EVERY PAIRED LINE IN THE CHANGE SET, WITH
-// NO BOUND. `parseUnifiedPatch` walked every hunk and ran `diffWordsWithSpace` over
-// each delete/insert pair before it returned — so opening a forty-file change set paid
-// for five thousand word diffs before the virtualizer had placed a single row, and one
-// pathological line paid far more than the rest of the diff put together: a single
-// 18,889-character pair inside a 5,000-line patch measured 831 ms on its own
-// (2026-09-02), on the main thread, before anything was drawn.
-//
-// SO IT IS COMPUTED WHEN A ROW IS MATERIALIZED, WHICH IS THE ONE MOMENT IT IS NEEDED.
-// `diff-row-index.ts` answers which rows exist; the virtualizer asks for the ones
-// a scroll position needs; the row renderer asks this module for that row's
-// segmentation. A diff nobody scrolls to the bottom of never computes the bottom's
-// highlights, and a diff nobody opens computes none.
-//
-// AND NOT ON A WORKER. A worker adds a process, a message copy of the patch in each
-// direction, and a second copy of the model to hold the answers — for a computation
-// virtualization has already made both lazy and small. The cost this module removes is
-// the whole change set's; what is left is one pair per row a person is looking at.
-//
-// MEMOIZED PER PAIR, BOUNDED BOTH WAYS. A scroll re-renders its window on every tick,
-// so a row asked for twice must not be computed twice — and a reader who scrolls a
-// large change set end to end must not accumulate one segment list per changed line.
-// The register below is keyed by hunk and PAIR and holds
-// `DIFF_INTRALINE_CACHE_ENTRY_CAP` entries, dropping the least recently read.
-//
-// THE PAIR AND NOT THE LINE, which for a while it was not. Keyed by line index the
-// delete row and its insert row were two entries, each running its own comparison and
-// discarding the half it did not need: double the word-diff work for every changed
-// pair on screen, and two of the register's entries per pair, halving the scrollback
-// its cap buys. One comparison produces both sides — that is what makes the two sides
-// agree at all — so one comparison is what is held, under the pair's own key.
-//
-// WHICH COSTS ONE RUN WALK ON A CACHE HIT, because the pair's key is not known until
-// `pairedLineIndexFor` has answered. That walk is bounded by the run the line sits in
-// and was already paid by every line the register did not hold; paying it on the hit
-// too is what buys the halved compute and the doubled effective scrollback.
-//
-// THE SIZE BOUND IS A FALLBACK AND NEVER A FAILURE. Past
-// `DIFF_INTRALINE_LINE_CHARACTER_CAP` on either line, or
-// `DIFF_INTRALINE_PAIR_CHARACTER_PRODUCT_CAP` across the pair, the row keeps its
-// whole-line highlight and SAYS the comparison was skipped for size — because a row
-// drawn with no highlight and no note is indistinguishable from a row whose two
-// versions differ everywhere, which is a diff quietly lying about what changed.
-//
-// THE MODEL IS THE TEXT'S ONE SOURCE. `DiffLine.segments` carries the line as the
-// parser produced it — one whole-line segment — and this module derives a SPLIT of that
-// text rather than a second copy of it, so `diffLineText` and every reading here
-// reassemble to the same characters.
+// Word-level highlights are computed when a row is materialized, not at parse time (one
+// 18,889-character pair in a 5,000-line patch measured 831 ms) and not on a worker, and are
+// memoized per delete/insert pair in a bounded register. Past the character caps a row keeps
+// its whole-line highlight and reports `skipped`, so a missing highlight never reads as a diff.
 
 import {
   DIFF_INTRALINE_CACHE_ENTRY_CAP,
@@ -67,12 +20,9 @@ import type { DiffLineRow } from "./diff-row-model.js";
 import { intralineSegments } from "./patch-parse.js";
 
 /**
- * One line's segmentation, and whether it is the comparison or the fallback.
- *
- * `skipped` is rendered rather than inferred: a whole-line reading is what an unpaired
- * line, a context line, AND an over-bound pair all produce, and only the last of those
- * is a comparison the console declined to make. A renderer that could not tell them
- * apart would either annotate every context line or annotate none.
+ * One line's segmentation, and whether it is the comparison or the fallback. `skipped` is
+ * explicit because a whole-line reading is also what an unpaired or context line produces,
+ * and only an over-bound pair is a comparison the console declined to make.
  */
 export interface IntralineReading {
   readonly segments: readonly DiffIntralineSegment[];
@@ -80,37 +30,28 @@ export interface IntralineReading {
 }
 
 /**
- * Both sides of one comparison, which is what one comparison produces.
- *
- * HELD AS A PAIR RATHER THAN AS TWO ENTRIES: `intralineSegments` answers about an
- * alignment, and the deleted line's reading and the inserted line's are two views of
- * that one answer. Splitting them across two register entries made them two answers.
+ * Both sides of one comparison. They are two views of one alignment, so they are held as a
+ * pair rather than two register entries that could disagree.
  */
 interface IntralinePairReading {
   readonly deleted: IntralineReading;
   readonly inserted: IntralineReading;
 }
 
-/** The line a missing address reads as. Declared once so no branch builds its own. */
+/** The line a missing address reads as. */
 const EMPTY_LINE: DiffLine = { kind: "context", segments: [{ text: "", changed: false }] };
 
 /**
- * The intraline segmentations of one diff, computed on demand and held bounded.
- *
- * PER MODEL AND NOT PER ROW INDEX. A gap expansion and a view-mode toggle both build a
- * new `DiffRowIndex`, and neither changes a single line's text — so a cache tied to the
- * index would be thrown away by an expansion and recomputed for rows that had not
- * moved. It is keyed by the model instead, which is the thing whose change actually
- * invalidates a segmentation.
+ * The intraline segmentations of one diff, computed on demand and held bounded. Keyed per
+ * model, not per row index: a gap expansion or view-mode toggle builds a new `DiffRowIndex`
+ * without changing any line's text, and must not discard the segmentations.
  */
 export class IntralineSegmentCache {
   readonly #model: DiffModel;
   /**
-   * The computed readings, least recently read first.
-   *
-   * A `Map` rather than a second ordering structure: insertion order IS the recency
-   * order as long as a read re-inserts, which is what `#remember` does. Held on the
-   * instance and never at module level, so two diffs open at once cannot share one.
+   * The computed readings, least recently read first. A `Map`, since insertion order is the
+   * recency order as long as a read re-inserts (`#remember`). Held on the instance so two
+   * open diffs never share one.
    */
   readonly #readingByPair = new Map<string, IntralinePairReading>();
   #computeCount = 0;
@@ -120,23 +61,18 @@ export class IntralineSegmentCache {
   }
 
   /**
-   * How many word diffs this cache has actually run.
-   *
-   * The laziness assertion, not an inference — `DiffRowIndex.bodyLayoutBuildCount`'s
-   * rule. A correct cache runs one per materialized pair and none at parse time, and a
-   * renderer that recomputed per scroll tick would grow this while handing back
-   * identical segments, which no segment-level assertion can see.
+   * How many word diffs this cache has actually run: one per materialized pair and none at
+   * parse time. A renderer that recomputed per scroll tick would grow this while returning
+   * identical segments.
    */
   public get computeCount(): number {
     return this.#computeCount;
   }
 
   /**
-   * The segmentation of one line a row addresses.
-   *
-   * Total: a line at an address this model does not hold reads as the empty line, which
-   * is unreachable while the index and the model agree — `DiffRowView.tsx` draws a blank
-   * row for exactly that disagreement and never reaches this.
+   * The segmentation of one line a row addresses. Total: a line at an address this model
+   * does not hold reads as the empty line, which is unreachable while the index and model
+   * agree.
    */
   public readingFor(row: DiffLineRow, lineIndex: number): IntralineReading {
     const hunk = this.#model.files[row.fileIndex]?.hunks[row.hunkIndex];
@@ -144,8 +80,7 @@ export class IntralineSegmentCache {
       return wholeLineReading("");
     }
     if (row.source === "preceding-context") {
-      // A gap's revealed lines are context by construction, so there is no counterpart
-      // to compare against and nothing to cache.
+      // A gap's revealed lines are context, so there is no counterpart and nothing to cache.
       return wholeLineReading(diffLineText(hunk.precedingContext[lineIndex] ?? EMPTY_LINE));
     }
     const line = hunk.lines[lineIndex];
@@ -156,13 +91,12 @@ export class IntralineSegmentCache {
     const text = diffLineText(line);
     const paired = pairedIndex === undefined ? undefined : hunk.lines[pairedIndex];
     if (paired === undefined || pairedIndex === undefined) {
-      // Unpaired: a plain addition or removal, which is what a whole-line highlight
-      // already says. Not cached — deriving it is one string join.
+      // Unpaired: a plain addition or removal, which a whole-line highlight already says.
+      // Not cached; deriving it is one string join.
       return wholeLineReading(text);
     }
-    // The pair's own key, which is the lower of the two indices — the delete line's,
-    // since a delete run always precedes the insert run it pairs with. Written as the
-    // minimum rather than as the delete index so the key states the rule it depends on.
+    // The pair's key is the lower index (the delete line's, since a delete run precedes the
+    // insert run it pairs with).
     const pairStart = Math.min(lineIndex, pairedIndex);
     const key = `${String(row.fileIndex)}:${String(row.hunkIndex)}:${String(pairStart)}`;
     const remembered = this.#readingByPair.get(key);
@@ -189,12 +123,8 @@ export class IntralineSegmentCache {
       };
     }
     this.#computeCount += 1;
-    // ONE COMPARISON ANSWERS BOTH SIDES, which is why the deleted line is always the
-    // first argument: the two sides of an intraline diff are two readings of the same
-    // alignment, and computing them from two comparisons would let the deleted line's
-    // highlight disagree with the inserted line's about which words survived. Both
-    // readings are RETURNED rather than one of them selected, which is what makes that
-    // sentence true of the register as well as of this call.
+    // The deleted line is always the first argument so one comparison yields both sides;
+    // two comparisons could disagree about which words survived.
     const pair = intralineSegments(deletedText, insertedText);
     return {
       deleted: { segments: pair.deleted, skipped: false },
@@ -215,7 +145,7 @@ export class IntralineSegmentCache {
   }
 }
 
-/** One line's own text, unsplit. What a line with no counterpart reads as. */
+/** One line's own text, unsplit: what a line with no counterpart reads as. */
 function wholeLineReading(text: string): IntralineReading {
   return { segments: wholeLineSegments(text), skipped: false };
 }

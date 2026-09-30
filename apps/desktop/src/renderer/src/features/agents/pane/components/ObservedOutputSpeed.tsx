@@ -2,11 +2,9 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { type AgentListEntry } from "@ai-sidekicks/contracts";
 
 /**
- * The mode the provider declared, beside the one that was requested.
- *
- * Never folded into the requested value and never substituted for it. Absence has
- * exactly three causes and none of them is "the mode is off", so the card reads NOT
- * YET OBSERVED and names the three rather than implying a fourth.
+ * The mode the provider declared, beside the one requested; never folded into or substituted for
+ * it. Absence has three causes, none of them "off", so the card says "not yet observed" and
+ * names all three.
  */
 export function ObservedOutputSpeed(props: { readonly agent: AgentListEntry }): React.JSX.Element {
   const observed = props.agent.observedOutputSpeed;

@@ -1,26 +1,10 @@
-// The preview feature's pane contribution.
+// The preview feature's pane contribution: registers the `browser` kind, whose body
+// (`preview-pane-body.ts`) loads as its own chunk.
 //
-// The feature owns the embedded browser: the pane's content (the tab strip, the address
-// line and the viewport a native view is placed over), the geometry that positions that
-// view, and the keyboard handback. The pane's registration in the pane layout is here, and
-// the body it names is `preview-pane-body.ts`, loaded as its own chunk.
-
-// NONE OF THIS FEATURE'S STYLESHEETS ENTERS HERE, and that is a fact about the graph
-// rather than about the folder. `app/registrations.ts` calls `registerPreviewPanes`
-// from the entry chunk, so every module this file reaches is on the initial import graph
-// and a sheet named here lands on every launch, including the sessions that never open a
-// page. Every one dresses a pane nothing on that graph can render: the pane opens from
-// the sidebar or the palette, never on first paint.
-//
-// SO EACH ENTERS BEHIND THE BODY'S CHUNK BOUNDARY. `preview-pane-body.ts` names
-// `controls.css`, which the pane's controls share, and `PreviewPaneContent.tsx` and
-// `PageTabStrip.tsx` each import their own sheet.
-//
-// A sheet may only travel behind a chunk boundary when no other feature declares any
-// class it declares: two features declaring one class at equal specificity are resolved
-// by load order, so deferring such a sheet silently restyles the other feature's views.
-// Every class in this feature's three sheets carries the `meridian-preview-` prefix, and
-// no other feature's sheet declares one of them.
+// None of the feature's stylesheets is imported here: the entry chunk calls
+// `registerPreviewPanes`, so a sheet named here would load on every launch. They enter behind
+// the body's chunk boundary instead, which is safe because every class carries the
+// `meridian-preview-` prefix and no other feature's sheet declares one.
 
 import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
@@ -34,21 +18,15 @@ export {
 } from "../handback/chord-mirror.js";
 
 /**
- * Register the preview pane's kind in the pane registry.
- *
- * Takes the registry rather than reaching for the module-scope singleton, for
- * `registerFeatureContributions`' reason: a test composes into a registry it owns, and an
- * auxiliary window composes a different subset without a second code path.
+ * Registers the preview pane's kind. Takes the registry rather than a module-scope singleton so
+ * a test, or an auxiliary window with a different subset, composes into its own.
  */
 export function registerPreviewPanes(registry: PaneRegistry): void {
   registry.register({
     kind: "browser",
     owner: "preview",
-    // A LOADER AND NOT A `render`. Nothing this feature draws is on the flagship first
-    // paint — the pane opens from the sidebar or the palette — so the whole subtree
-    // travels as its own chunk and the launch does not pay for it. The specifier is
-    // written here, at the registration, so the boundary is visible where the claim is
-    // made rather than hidden inside the body module.
+    // A loader, not a `render`: nothing here is on first paint, so the subtree is its own chunk.
+    // The specifier sits at the registration so the boundary is visible where it is claimed.
     body: () => import("../preview-pane-body.js"),
   });
 }

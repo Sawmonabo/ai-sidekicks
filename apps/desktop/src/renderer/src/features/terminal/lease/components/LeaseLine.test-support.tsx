@@ -1,9 +1,6 @@
-// What every `LeaseLine` suite needs before it asserts anything.
-//
-// The lease STATE is a value here, built directly rather than folded from a scenario,
-// because `lease-model.test.ts` already holds the fold to the wire and these suites'
-// subject is what each state renders. The device identity is a value for the same
-// reason, and every case renders under a read one unless it is about the other arm.
+// What every `LeaseLine` suite needs before it asserts anything. The lease state and the device
+// identity are values built directly, since `lease-model.test.ts` holds the fold to the wire;
+// every case renders under a read identity unless it is about the other arm.
 
 import { render, type RenderResult } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -22,29 +19,17 @@ import type { TerminalDeviceIdentity } from "../hooks/useTerminalDeviceIdentity.
 import { UNREAD_TERMINAL_LEASE, type TerminalLeaseState } from "../lease-model.js";
 
 /**
- * The lease's own subject on the wire, read off the scenario rather than invented.
- *
- * `session.takeControl` takes `{ sessionId }`, and the scenario's session id is a
- * wire-declared UUID, so the request the cases below assert on is the one a daemon
- * would actually be handed.
+ * The lease's subject on the wire, read off the scenario: its session id is a wire-declared
+ * UUID, so the requests the cases assert on are ones a daemon would actually be handed.
  */
 export const SESSION_ID: string = TERMINAL_LEASE_SCENARIO.sessionId;
 
-/**
- * The other session this pane can be rebound to, read off another scenario.
- *
- * A second wire-declared id rather than a readable placeholder, for the reason the
- * first one is read off a scenario: the take's whole subject is the session it was
- * made under, so the id it is compared against has to be one a daemon could emit.
- */
+/** The other session this pane can be rebound to, read off another scenario for the same reason. */
 export const OTHER_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
 /**
- * The take call, held until a case settles it by name.
- *
- * A class because the state is the point: the rebind cases need more than one call out
- * at once, and a held promise is the only way to have a call genuinely still out across
- * a rerender.
+ * The take call, held until a case settles it by name. A class because the rebind cases need
+ * more than one call out at once across a rerender.
  */
 export class HeldLeaseCalls {
   readonly #heldSessionIds: string[] = [];
@@ -94,11 +79,8 @@ export function leaseState(overrides: Partial<TerminalLeaseState>): TerminalLeas
 }
 
 /**
- * The identity every case below renders under unless it is about the other arms.
- *
- * Read, and read as this device: the take control is gated on the identity having
- * landed, so a default of anything else would make every case in this file about the
- * withheld state instead of about the state it names.
+ * The identity every case renders under unless it is about the other arms: read, as this
+ * device. Any other default would make every case about the withheld state.
  */
 export const DEVICE_IDENTITY_READ: TerminalDeviceIdentity = {
   status: "read",

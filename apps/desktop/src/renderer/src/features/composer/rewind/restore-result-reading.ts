@@ -1,9 +1,7 @@
-// What an undo says in the flow: one row for one undo. The row names what went back in the
-// words the undo's own entry points use (`Restored to before <…>`, `Files restored to before
-// <…>`, `Restored to <snapshot name>`), then each asked-for part that did not go back with the
-// daemon's reason, verbatim. When nothing went back the row says the undo failed and why. A
-// resend that failed after its undo applied leads with the failed send and its cause, then
-// says what went back.
+// What an undo says in the flow: one row naming what went back in the words of the undo's
+// entry points, then each asked-for part that did not go back with the daemon's reason
+// verbatim. A resend that failed after its undo applied leads with the failed send and its
+// cause.
 
 import type {
   SessionRestoreFinished,
@@ -43,7 +41,7 @@ export function readRestoreResult(result: SessionRestoreResult, target: RestoreT
   }
 }
 
-/** The words for what went back: files alone read `Files restored`, anything with the conversation `Restored`. */
+/** The words for what went back: `Files restored` for files alone, else `Restored`. */
 function restoredWords(target: RestoreTarget, restored: SessionRestoreScope): string {
   const verb = restored === "files" ? "Files restored to" : "Restored to";
   if (target.kind === "message") {
@@ -78,10 +76,8 @@ function distinctReasons(
 }
 
 /**
- * The daemon's reason for one part that did not go back.
- *
- * The result carries a reason for every asked-for part that did not apply; one without it
- * would draw a row that hides why, so it throws instead.
+ * The daemon's reason for one part that did not go back. Throws when the result carries none,
+ * since a row that hides why would mislead.
  */
 function reasonFor(result: SessionRestoreFinished, part: SessionRestorePart): string {
   const failure = result.failures?.[part];

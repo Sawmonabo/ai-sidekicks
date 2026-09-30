@@ -1,18 +1,8 @@
-// The zone's executor runs the handlers of the render that is ON SCREEN.
-//
-// The executor outlives every re-render while its handlers close over the session the
-// composer is addressed at. A composer re-addressed from "no session" to a session must
-// run the accelerator against THAT session, not the one the executor was built in.
-//
-// Asserted through the recorded calls rather than the outcome text, because the defect
-// is a call that never happens: an executor holding the first render's handlers
-// refuses locally and starts nothing.
-//
-// THE ROOT IS REGISTERED HERE BECAUSE THE ZONE DOES NOT REGISTER IT. The console
-// command that carries this id is registered by `useWorkflowStartPrefill`, which the
-// command list mounts and this zone does not — and the executor refuses a name the
-// composer's commands do not list before any handler is reached. Registering it is therefore
-// scaffolding for the claim rather than part of it.
+// The executor outlives every re-render while its handlers close over the addressed session, so a
+// composer re-addressed from no session to a session must run the handler against that session.
+// Asserted through recorded calls: an executor holding the first render's handlers refuses locally
+// and starts nothing, so the failure is a call that never happens. The workflow root is registered
+// here because the hook does not register it and the executor refuses unlisted names first.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -36,29 +26,20 @@ import {
   type WorkflowCalls,
 } from "../workflow-command/workflow-command.test-support.js";
 
-/** The target the zone reads a binding's published names for. */
 const SESSION_TARGET: ComposerTarget = {
   path: "session-message",
   sessionId: WORKFLOW_TEST_SESSION_ID,
 };
 
-/**
- * Stub calls recording which session each definition read named.
- *
- * Its default enumeration is empty, so a start settles as a local refusal about the
- * typed name and nothing is started; the question here is which session id reached the
- * call at all rather than what came back.
- */
+/** Stub calls recording which session each definition read named; enumeration starts empty. */
 function operationsRecording(calls: WorkflowCalls): WorkflowStartOperations {
   return fixtureWorkflowStartOperations({ calls });
 }
 
-/** Which session each definition read named, in call order. */
 function readSessionIds(calls: WorkflowCalls): (string | undefined)[] {
   return calls.listed.map((request) => request.sessionId);
 }
 
-/** The zone under a composer whose addressed session can change between renders. */
 function ComposerCommandZoneHost(props: {
   readonly sessionId: string | undefined;
   readonly operations: WorkflowStartOperations;
@@ -78,7 +59,6 @@ function ComposerCommandZoneHost(props: {
   return <span />;
 }
 
-/** The line a person types to start a workflow by name. */
 const START_LINE = {
   commandName: WORKFLOW_COMMAND_ROOT,
   text: `${WORKFLOW_START_COMMAND_PREFILL}nightly-review`,
@@ -89,7 +69,6 @@ describe("the composer command zone reads the committed render's handlers", () =
     commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
   });
 
-  /** Put the root on the command set the recognizer reads, as the prefill hook does. */
   function registerWorkflowRoot(): void {
     commandRegistry.register({
       id: WORKFLOW_COMMAND_ROOT,
@@ -113,8 +92,8 @@ describe("the composer command zone reads the committed render's handlers", () =
         executor={executor}
       />,
     );
-    // Re-addressed after the executor was built. The executor object is memoized on
-    // the composer-commands thunk and so does not change; only what its handlers close over does.
+    // Re-addressed after the executor was built; the memoized executor does not change, only what
+    // its handlers close over.
     const builtInFirstRender = executor.current;
     rerender(
       <ComposerCommandZoneHost
@@ -132,10 +111,8 @@ describe("the composer command zone reads the committed render's handlers", () =
   });
 
   it("negative control: the first render's handlers reach no call at all", async () => {
-    // Without this the case above would pass over a ref that is never refreshed only
-    // by luck of ordering. A stale handler carries `sessionId: undefined`, which the
-    // accelerator refuses locally — so nothing is recorded and the failure is a
-    // silent absence rather than a wrong id.
+    // A stale handler carries `sessionId: undefined`, which is refused locally, so the failure
+    // is a silent absence of calls rather than a wrong id.
     registerWorkflowRoot();
     const calls = recordedWorkflowCalls();
     const executor: { current: CommandExecutor | undefined } = { current: undefined };

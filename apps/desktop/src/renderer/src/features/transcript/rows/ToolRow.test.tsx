@@ -72,8 +72,7 @@ describe("a collapsed tool row", () => {
   });
 
   it("negative control: an ordinary result takes neither hue", () => {
-    // Without this, a card that colored every chip would pass the case above while
-    // making the two-hue rule meaningless.
+    // Without this, a card that colored every chip would pass the case above.
     const container = renderToolCard({ type: "tool.result" });
     expect(container.textContent).toContain("Ok");
     expect(container.querySelector(".meridian-chip--failure")).toBeNull();
@@ -87,10 +86,9 @@ describe("an opened tool row", () => {
   });
 
   it("renders a result body as prose, which is what the wire leaves undeclared", () => {
-    // A tool result carries no content type — the tool payload has no member for one —
-    // so nothing on the wire says this is terminal output. Rendering every result
-    // through the ANSI renderer put an MCP reply, a web-search answer, and every other
-    // ordinary textual result in a raw block with its markdown showing.
+    // A tool result carries no content type, so nothing on the wire says it is terminal output;
+    // the ANSI renderer would show an MCP reply or web-search answer in a raw block with its
+    // markdown visible.
     const container = renderToolCard({
       type: "tool.result",
       density: "expanded",
@@ -106,8 +104,7 @@ describe("an opened tool row", () => {
   });
 
   it("renders an error body the same way", () => {
-    // The two differ in the header's mark, not in what the body is: an error result is
-    // a tool's message about what went wrong, and nothing declares that one ANSI
+    // The two differ in the header's mark, not the body: nothing declares an error result ANSI
     // either.
     const container = renderToolCard({
       type: "tool.error",
@@ -121,9 +118,8 @@ describe("an opened tool row", () => {
   });
 
   it("negative control: the prose renderer really is the one being reached", () => {
-    // Without this the two cases above would pass over a body that rendered as plain
-    // text under any renderer at all — no heading, no emphasis, nothing to tell them
-    // apart.
+    // Without this the two cases above would pass over a body rendered as plain text by any
+    // renderer at all.
     const container = renderToolCard({
       type: "tool.result",
       density: "expanded",

@@ -1,8 +1,5 @@
-// The output subscription belongs to the shell it was opened for.
-//
-// A rebind to a different bridge or terminal addresses a different shell, so the
-// previous shell's stream is closed and never read as the replacement's. The call is a
-// plain stub, and each case says which subscription is served and when.
+// The output subscription belongs to the shell it was opened for: a rebind closes the previous
+// stream and never reads it as the replacement's. Each case serves the subscription by hand.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

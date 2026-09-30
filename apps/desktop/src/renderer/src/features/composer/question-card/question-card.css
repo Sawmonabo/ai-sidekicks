@@ -41,8 +41,8 @@
 }
 
 /*
- * TWO PARTS ON ONE ROW: the label, which is what the answer carries, and the
- * description the agent wrote for it. The row wraps rather than truncating either.
+ * The label is what the answer carries; the description is the agent's. The row wraps
+ * rather than truncating either.
  */
 .meridian-input-ask__option {
   display: flex;
@@ -66,9 +66,8 @@
 }
 
 /*
- * Every answer control dims together while one answer is on the wire or has already
- * reached the daemon. A refusal is deliberately not one of those states: the control
- * that produced a refusal stays on screen and pressable.
+ * Every answer control dims while an answer is on the wire or taken; a refusal leaves its
+ * control pressable.
  */
 .meridian-input-ask__option:disabled {
   cursor: default;

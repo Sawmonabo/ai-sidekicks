@@ -1,37 +1,12 @@
-// The reveal gate — which characters may be published, and under which commit mode.
-//
-// BOTH ARE THIS MODULE'S, because no committed document states them: two closed commit
-// modes, `direct` and `authoritative`, and a literal-safety predicate — the character
-// class, the predecessor rule, and the carve-outs (digit-period, in-word apostrophe).
-// The committed-and-volatile split in `markdown-rules.ts` is the reason both exist: an
-// incomplete construct never mounts.
-//
-// THE PROBLEM THIS SOLVES. A stream arrives one token at a time, so at any moment
-// the revealed tail may end mid-construct: `**bol` is not bold yet, and `[link`
-// is not a link yet. Publishing that tail means either rendering a half-open
-// construct — which the parser then closes at the end of the block, italicizing
-// the rest of the message — or rendering the raw markers, which then vanish a
-// frame later. Both read as a glitch.
-//
-// THE ANSWER IS A CEILING, NOT A PARSER. The gate does not parse; it decides how
-// far back from the revealed cursor the last SAFE character is, and the engine
-// publishes to there. A volatile character is safe as literal text when it cannot
-// open a construct at that position — which is what the predecessor rule decides —
-// and the carve-outs are the two cases where the predecessor rule gets it wrong:
-//
-//   • **digit-period.** `1.` at the start of a line opens an ordered list even
-//     though a digit is a perfectly ordinary predecessor, so the period is
-//     withheld until the character after it settles the question.
-//   • **in-word apostrophe.** `don't` has a letter on both sides and opens
-//     nothing, so withholding it would stall a lane on ordinary prose.
+// The reveal gate: which characters may be published. A stream can end mid-construct (`**bol`,
+// `[link`); publishing that either renders a half-open construct the parser closes at block end
+// or shows raw markers that vanish a frame later. The gate does not parse: it finds how far
+// back from the revealed cursor the last safe character is, and the engine publishes to there.
 
 /**
- * How a delta claims to relate to what the lane already holds. Closed.
- *
- *   • `direct` — the delta is an append. The engine trusts it and queues it.
- *   • `authoritative` — the delta is the whole source as the producer now sees it.
- *     The engine checks that what it holds is a prefix of it, and says so loudly
- *     when it is not, rather than concatenating two disagreeing histories.
+ * How a delta relates to what the lane holds. `direct` is a trusted append; `authoritative` is
+ * the producer's whole source, checked to extend what the lane holds and reported when it does
+ * not, rather than concatenated onto a disagreeing history.
  */
 export const REVEAL_COMMIT_MODES = ["direct", "authoritative"] as const;
 
@@ -39,11 +14,8 @@ export const REVEAL_COMMIT_MODES = ["direct", "authoritative"] as const;
 export type RevealCommitMode = (typeof REVEAL_COMMIT_MODES)[number];
 
 /**
- * The characters that can open a markdown construct.
- *
- * A string rather than a `RegExp` so the class is readable and so the membership
- * test is a lookup rather than a match: this predicate runs once per candidate
- * ceiling per lane per frame.
+ * The characters that can open a markdown construct. A `Set`, so membership is a lookup: this
+ * runs once per candidate ceiling per lane per frame.
  */
 const VOLATILE_CHARACTERS = new Set([
   "*",
@@ -74,8 +46,7 @@ export function isLiteralSafeAt(text: string, index: number): boolean {
   }
   const predecessor = index === 0 ? undefined : text[index - 1];
   if (character === "'") {
-    // In-word apostrophe: a letter on the left and a letter on the right is
-    // `don't`, which opens nothing in any dialect the console renders.
+    // In-word apostrophe: a letter on each side is `don't`, which opens nothing.
     const successor = text[index + 1];
     return (
       predecessor !== undefined &&
@@ -85,32 +56,28 @@ export function isLiteralSafeAt(text: string, index: number): boolean {
     );
   }
   if (character === ".") {
-    // Digit-period: safe everywhere EXCEPT after a digit that begins a line,
-    // where it is an ordered-list marker whose meaning depends on what follows.
+    // Digit-period: safe except after a digit that begins a line, where it is an ordered-list
+    // marker whose meaning depends on what follows.
     return !(
       predecessor !== undefined &&
       DIGIT_CHARACTER.test(predecessor) &&
       startsLine(text, index - 1)
     );
   }
-  // The predecessor rule: a construct opens at a boundary. A volatile character
-  // whose predecessor is a word character cannot open one, so it is ordinary text.
+  // The predecessor rule: a construct opens at a boundary, so a volatile character after a
+  // word character cannot open one and is ordinary text.
   return predecessor !== undefined && WORD_CHARACTER.test(predecessor);
 }
 
 /**
- * The furthest position at or below `candidateCeiling` that is safe to publish.
- *
- * Walks back at most `REVEAL_LITERAL_BACKTRACK_CAP` characters. Past that the
- * ceiling stands: withholding more than a construct's worth of text to avoid a
- * marker would stall the lane, and a stalled lane is the failure `reveal-engine.ts`
- * forbids in the same breath as the flicker.
+ * The furthest position at or below `candidateCeiling` that is safe to publish. Walks back at
+ * most `REVEAL_LITERAL_BACKTRACK_CAP` characters; past that the ceiling stands, since a stalled
+ * lane is as bad as flicker.
  */
 export function safeRevealCeiling(text: string, candidateCeiling: number): number {
   const ceiling = Math.min(Math.max(0, candidateCeiling), text.length);
   if (ceiling === 0 || ceiling === text.length) {
-    // A settled block has nothing to withhold: the construct either closed or it
-    // never was one, and the parser sees the whole of it either way.
+    // A settled block has nothing to withhold: the construct closed or never was one.
     return ceiling;
   }
   const floor = Math.max(0, ceiling - REVEAL_LITERAL_BACKTRACK_CAP);

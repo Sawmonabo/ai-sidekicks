@@ -1,8 +1,5 @@
-// The transcript claims the session screen and keys it on the route's session.
-//
-// The elements are inspected rather than rendered, because the claim is about WIRING
-// — which screen, which owner, and what the screen hands its body — and a React element
-// carries all of that before anything renders it.
+// The transcript claims the session screen and keys it on the route's session. Elements are
+// inspected rather than rendered because the claim is wiring, which an element carries.
 
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
@@ -14,12 +11,8 @@ import { SessionScreenContainer } from "../SessionScreenContainer.js";
 import { registerTranscriptScreens } from "./screens.js";
 
 /**
- * The members the session screen passes through, and nothing else.
- *
- * Cast rather than constructed: a real context carries three stores, one of which opens
- * a database on construction, and building all of that to hand a handful of fields to a
- * function that copies them
- * would make the setup the subject.
+ * The members the session screen passes through, cast rather than constructed: a real context
+ * carries three stores, one of which opens a database on construction.
  */
 function screenContext(sessionId = "session-7"): ScreenContext {
   return {
@@ -34,12 +27,8 @@ function screenContext(sessionId = "session-7"): ScreenContext {
 }
 
 /**
- * The session screen body the composition root names, stood in for by a marker.
- *
- * A component rather than the real `SessionScreen`: what these cases check is the WIRING
- * — which screen, which owner, and what the screen hands the body — and the real
- * session screen opens stores to render. Its identity is asserted below, so a screen that
- * mounted something else would fail here rather than render a plausible frame.
+ * The session screen body, stood in for by a marker. Its identity is asserted below, so a
+ * screen that mounted something else fails here.
  */
 function TestSessionScreenBody(): null {
   return null;
@@ -63,13 +52,8 @@ function renderedElement(node: ReactNode): {
 }
 
 /**
- * The session screen body, picked out of the screen's children.
- *
- * The screen mounts TWO things — the resume absence above the room and the session screen
- * itself — so `children` is a list and the body is the last of it. Read by position
- * from the end rather than by index from the start, because the absence renders `null`
- * on every arm but the refused one and a fixed index would read that `null` as the
- * body on exactly the ordinary case.
+ * The session screen body, picked out of the screen's children. The resume banner renders
+ * `null` on every arm but the refused one, so the body is read from the end of the list.
  */
 function sessionScreenBodyIn(screenContainer: { props: Record<string, unknown> }): {
   type: unknown;
@@ -91,8 +75,7 @@ describe("the transcript — which screens it holds", () => {
   });
 
   it("negative control: a fresh registry claims nothing on its own", () => {
-    // The case above reads `registeredScreenNames`, and would pass over a registry that
-    // reported screens nobody registered.
+    // Guards against a registry that reports screens nobody registered.
     expect(new ScreenRegistry().registeredScreenNames()).toStrictEqual([]);
   });
 
@@ -121,15 +104,9 @@ describe("the transcript — what it mounts", () => {
 });
 
 describe("the transcript — what decides the mounted subtree's lifetime", () => {
-  // The session screen holds per-session state nothing else resets, and the app window
-  // deliberately OPENS session stores without closing them on navigation — so moving between two
-  // already-open sessions RE-RENDERS this position rather than unmounting it. A key on
-  // the route's session is what makes the subtree's lifetime match the thing it holds
-  // state about; without it the second session inherits the first's panes, run-group
-  // disclosure, reading anchor and retained rows, and nothing says so.
-  //
-  // Read off the element rather than through a render, on this file's own reasoning:
-  // a key is carried by the element, and asserting it here is asserting the wiring.
+  // A key on the route's session makes the subtree's lifetime match the state it holds. Without
+  // it, moving between two already-open sessions re-renders this position and the second
+  // inherits the first's panes, run-group disclosure, reading anchor and retained rows.
 
   it("keys the session screen subtree on the route's session", () => {
     const registry = registeredTranscript();
@@ -141,8 +118,7 @@ describe("the transcript — what decides the mounted subtree's lifetime", () =>
 
   it("negative control: a re-render of the SAME session keys identically, so it is not a remount", () => {
     // Without this, the case above would pass over a key that changed on every render,
-    // which remounts the session screen on every keystroke and loses the state the key
-    // exists to scope.
+    // remounting the session screen on every keystroke.
     const registry = registeredTranscript();
     const sessionDescriptor = registry.descriptorFor("session");
     const firstWorkspaceKey = sessionScreenBodyIn(

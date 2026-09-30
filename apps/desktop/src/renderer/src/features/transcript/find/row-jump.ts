@@ -1,18 +1,14 @@
-// Sending the reader to one row: find it in the loaded window, and name which narrowing
-// between the loaded log and the viewport keeps it out of view.
+// Sends the reader to one row: finds it in the loaded window and names the narrowing that
+// keeps it out of view.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 /**
- * The narrowings a row passes through between the loaded log and the viewport, in
- * the order the feed applies them.
+ * The narrowings a row passes through between the loaded log and the viewport, in the order
+ * the feed applies them.
  *
- * DECLARED AS A TUPLE BECAUSE THE ORDER IS THE VALUE. A row absent from the
- * viewport is absent for exactly one reason — the FIRST stage that did not admit
- * it — and the stages are strictly nested, so any other order would report a later
- * cause for an earlier one. The set the classifier walks and the set a renderer
- * must have words for are therefore the same set, derived from this line rather
- * than restated beside it.
+ * The order is the value: a row is absent for the first stage that did not admit it, and the
+ * stages nest, so any other order would report a later cause for an earlier one.
  */
 export const ROW_JUMP_ABSENCES = ["folded-into-run-group", "outside-window"] as const;
 
@@ -22,9 +18,8 @@ export type RowJumpAbsence = (typeof ROW_JUMP_ABSENCES)[number];
 /**
  * What one stage kept, asked by row id.
  *
- * An interface rather than `ReadonlySet<string>` so a caller passes whichever
- * lookup it already holds — the projection's `rowsByKey` map, the viewport's key
- * set — instead of copying one into the other shape on every keystroke.
+ * An interface rather than `ReadonlySet<string>` so a caller passes whichever lookup it
+ * already holds instead of copying it on every keystroke.
  */
 export interface RowIdMembership {
   readonly has: (rowId: string) => boolean;
@@ -33,22 +28,17 @@ export interface RowIdMembership {
 /**
  * What each stage admitted, for one classification.
  *
- * Total over the absence tuple by construction: a narrowing added to
- * `ROW_JUMP_ABSENCES` fails to compile at every caller until that caller says
- * what the new stage kept, which is the whole reason the stages arrive as a record
- * rather than as an array a caller could pass short or out of order.
+ * A record over the absence tuple, so a narrowing added to `ROW_JUMP_ABSENCES` fails to
+ * compile at every caller until that caller says what the new stage kept.
  */
 export type RowJumpStages = Readonly<Record<RowJumpAbsence, RowIdMembership>>;
 
 /**
  * Where a jump lands, or why it did not.
  *
- * A discriminated result rather than `TimelineRow | undefined`, because each failure
- * calls for different words and a different act: a folded row is reached by opening its
- * run group, and a row the cap took by nothing this build can press.
- *
- * `not-in-loaded-log` is the one absence that is not a stage of the pipeline: no
- * narrowing dropped the row, because this window never held it.
+ * Each failure calls for different words and a different act: a folded row is reached by
+ * opening its run group, a row the cap took by nothing. `not-in-loaded-log` is the one
+ * absence that is not a pipeline stage: this window never held the row.
  */
 export type RowJumpOutcome =
   | { readonly status: "found"; readonly row: TimelineRow }
@@ -56,12 +46,10 @@ export type RowJumpOutcome =
   | { readonly status: "not-in-loaded-log" };
 
 /**
- * Find a row by id, and which narrowing keeps it out of the viewport.
+ * Finds a row by id, and which narrowing keeps it out of the viewport.
  *
- * Takes the loaded rows and what every stage between them and the viewport kept,
- * which is the only reason it takes more than one window: the answer is not
- * whether the row is on screen but WHICH narrowing is the reason it is not, and
- * that is a question about the stages rather than about either end of them.
+ * Takes what every stage kept, not one window, because the answer is which narrowing is the
+ * reason the row is not on screen.
  */
 export function jumpToEventId(
   loadedRows: readonly TimelineRow[],

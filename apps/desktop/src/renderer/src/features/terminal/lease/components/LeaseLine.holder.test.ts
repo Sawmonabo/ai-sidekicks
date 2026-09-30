@@ -1,13 +1,7 @@
-// The holding line — every state the fold can settle into, and the sentence each one
-// renders.
-//
-// The lease STATE is a value here rather than a fold from a scenario, because
-// `lease-model.test.ts` already holds the fold to the wire and this file's subject is
-// what each state RENDERS. Its bridges and its render call come from
-// `LeaseLine.test-support.tsx`, which every suite in this split shares.
-//
-// The take CALL is `LeaseLine.take-shell.test.tsx`, and the one gate on the control — this
-// device's identity — is `LeaseLine.device-identity.test.ts`.
+// The holding line: every state the fold can settle into, and the sentence each renders. The
+// lease state is a value here, since `lease-model.test.ts` holds the fold to the wire. Bridges
+// and the render call come from `LeaseLine.test-support.tsx`; the take call is
+// `LeaseLine.take-shell.test.tsx` and the identity gate is `LeaseLine.device-identity.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -35,9 +29,8 @@ describe("the holding line — every state the fold settles into", () => {
   });
 
   it("says a hold this device does not have is held elsewhere, and names nobody", () => {
-    // The shell belongs to the one person using this machine, so a hold this device
-    // does not have is one of their other devices. The identifier the wire sent is not
-    // rendered: it answers a question nobody asked with a value nobody can act on.
+    // The shell belongs to one person, so a hold this device lacks is another of their devices;
+    // the identifier the wire sent is not rendered.
     const { container } = renderLease(
       leaseState({
         holding: "held-by-another-device",
@@ -60,8 +53,8 @@ describe("the holding line — every state the fold settles into", () => {
     );
     expect(container.textContent).toContain("You hold it");
     expect(container.textContent).toContain("You may type into the shared shell.");
-    // The idempotent self-take is not reachable from the lease line, so there is no
-    // transition for it to animate; and there is no release control to hand back with.
+    // The self-take is not reachable from the lease line, so there is no transition to animate
+    // and no release control.
     expect(container.querySelector(".meridian-lease-line__take")).toBeNull();
   });
 
@@ -74,7 +67,7 @@ describe("the holding line — every state the fold settles into", () => {
         holderCommandId: COMMAND_ID,
       }),
     );
-    // The design's sentence alone, with no chip beside it.
+    // The sentence alone, with no chip beside it.
     expect(container.textContent).toContain("Running command holds the shell.");
     expect(container.querySelector(".meridian-chip")).toBeNull();
     // The run's machine is the holding device, and that may be this one; the line
@@ -117,9 +110,7 @@ describe("the holding line — every state the fold settles into", () => {
   });
 
   it("negative control: every holding renders its own sentence", () => {
-    // Counted off the closed set rather than written down, so a holding added
-    // without a sentence of its own fails here instead of quietly reading like one
-    // of the others.
+    // Counted off the closed set, so a holding added without a sentence fails here.
     const sentences = new Set(
       (
         [

@@ -1,16 +1,7 @@
-// Removing a worktree: one act, one call, and one settlement.
-//
-// A person removing an execution root consents and sees what happened.
-//
-// The settlement is handed to a recorder rather than published as a snapshot of its own. A
-// snapshot here names what a wire reading publishes, and every class that publishes one is
-// held to a scheduler and the members a trigger set needs. A removal settlement is the
-// record of one act somebody took, it does not go stale, and no refresh policy would
-// re-send it. So the settlement goes back to the confirmation that asked, and this class
-// publishes nothing.
-//
-// A call that rejects is not caught here: the guard is still given back, and the rejection
-// propagates to the caller.
+// Sends one worktree removal. The settlement goes to a recorder (the confirmation that asked)
+// rather than a published snapshot: it records one act, never goes stale, and no refresh would
+// re-send it. A rejected call is not caught here: the in-flight guard is released and the
+// rejection propagates to the caller.
 
 import type { WorktreeId, WorktreeRetireResponse } from "@ai-sidekicks/contracts";
 
@@ -57,16 +48,14 @@ export class RootRemovalController {
     return this.#disposed;
   }
 
-  /** Terminal. A reply still on the wire reports into nothing rather than onto a torn-down confirmation. */
+  /** Terminal. A reply still on the wire is dropped, not reported to a torn-down confirmation. */
   public dispose(): void {
     this.#disposed = true;
   }
 
   /**
-   * Send this root's removal.
-   *
-   * Does not overlap itself: a second press while one call is on the wire would send a
-   * second removal for one intent.
+   * Send this root's removal. A second press while a call is on the wire is ignored, so one
+   * intent never sends two removals.
    */
   public async send(): Promise<void> {
     if (this.#inFlight || this.#disposed) {
@@ -75,8 +64,8 @@ export class RootRemovalController {
     this.#inFlight = true;
     this.#recorder.recordRemoval({ status: "sending" });
     try {
-      // The ordinary removal: this confirm offers no discard, so a tree that changed since
-      // its risks were read is refused with the current ones rather than removed.
+      // The ordinary removal: this confirm offers no discard, so a tree that changed since its
+      // risks were read is refused with the current ones rather than removed.
       const reply = await this.#operations.retireWorktree({
         worktreeId: this.#rootId as WorktreeId,
         discard: false,
@@ -84,13 +73,10 @@ export class RootRemovalController {
       if (this.#disposed) {
         return;
       }
-      // The reply carries `state` and no cleanup instant, which lands on the status read
-      // afterwards.
+      // The reply carries `state` and no cleanup instant; that lands on the status read later.
       this.#recorder.recordRemoval({ status: "settled", state: reply.state });
     } finally {
-      // Released on every exit, rejection included. A guard that survived a failed send
-      // would refuse every later press for the life of the confirmation, which is exactly
-      // the state a person retries from.
+      // Released on every exit: a guard that survived a failed send would refuse every retry.
       this.#inFlight = false;
     }
   }

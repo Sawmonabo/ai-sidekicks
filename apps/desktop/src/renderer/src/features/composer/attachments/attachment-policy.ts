@@ -1,44 +1,30 @@
-// What the daemon's two ingest refusals mean for the next act, and the sentence each
-// puts in front of the control that acts on it.
-//
-// THE SEAM, IN ONE SENTENCE: this module changes when the daemon's ingest refusals
-// change, and for no other reason. The codes are the contract's `ArtifactRefusalCode`
-// values, and the staging limits, the default allow-list and the unresolved causes are
-// the contract's too (`session-draft.ts`); the console chooses none of them. So nothing
-// here reads an entry, renders a figure, or knows that a `Blob` exists, and this module
-// imports nothing from the other attachment modules.
-//
-// IT DOES HOLD THE COPY, and that is deliberate rather than a leak of presentation. A
-// disposition and the sentence in front of the control that acts on it are two halves of
-// one seam: the disposition is only meaningful as the act it recommends, and separating
-// them would let a code's classification and its explanation drift apart in two files.
+// What the daemon's ingest refusals mean for the next act, and the sentence put in front of the
+// control that acts on it. The codes, staging limits and allow-list are the contract's. The copy
+// lives here beside the disposition so a code's classification and its explanation cannot drift
+// apart. Imports nothing from the other attachment modules.
 
 import type { ArtifactRefusalCode } from "@ai-sidekicks/contracts";
 
 /**
- * What a refusal means for the NEXT act, which is the only thing a user can use.
- *
- * Every call of the ingest trio is retry-safe — a replayed chunk is acknowledged
- * without re-appending, and a replayed completion
- * replays its original response verbatim — so a lost response is retried in place and
- * never restarted. The two named codes are the exceptions and they are deliberately
- * distinct: `artifact.ingest_stream_invalid` (409) is terminal for the stream and means
- * begin again, `artifact.ingest_capacity_exhausted` (429) is transient with no stream
- * state created and means wait and retry. Collapsing them would tell a user to
- * re-upload a hundred megabytes because the daemon was momentarily busy.
+ * What a refusal means for the next act. Every ingest call is retry-safe (a replayed chunk or
+ * completion is answered without re-appending), so a lost response is retried in place. Two codes
+ * differ: `artifact.ingest_stream_invalid` (409) is terminal, so begin again;
+ * `artifact.ingest_capacity_exhausted` (429) is transient with no stream state, so wait and retry.
+ * Collapsing them would tell a user to re-upload a hundred megabytes because the daemon was busy.
  */
 export const INGEST_REFUSAL_DISPOSITIONS = ["retry-in-place", "wait-and-retry", "restart"] as const;
 
-/** One disposition. Derived. */
+/** One disposition. */
 export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[number];
 
 /**
- * The two daemon codes whose disposition differs from the retry-safe default, typed by
- * the contract's refusal codes so a renamed code fails to compile here. A code the
- * console does not recognize takes the retry-in-place arm, which is the contract's own
- * default rather than a guess.
+ * The two daemon codes whose disposition differs from the retry-safe default, typed by the
+ * contract's refusal codes so a renamed code fails to compile. An unrecognized code takes
+ * retry-in-place.
  */
+/** The daemon code for an invalid ingest stream, which takes restart. */
 export const INGEST_STREAM_INVALID_CODE: ArtifactRefusalCode = "artifact.ingest_stream_invalid";
+/** The daemon code for a full ingest capacity, which takes wait-and-retry. */
 export const INGEST_CAPACITY_EXHAUSTED_CODE: ArtifactRefusalCode =
   "artifact.ingest_capacity_exhausted";
 

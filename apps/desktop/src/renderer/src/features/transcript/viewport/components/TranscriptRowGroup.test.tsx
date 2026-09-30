@@ -1,8 +1,5 @@
-// A row that names its own failure, instead of leaving a gap in the log.
-//
-// The subject is the boundary and nothing else: a single row that throws must not
-// blank the log around it, and what stands in its place has to say WHY rather than
-// being an empty band a reader scrolls past as an entry with nothing in it.
+// A row that throws names its failure instead of leaving a gap, and does not blank the log
+// around it.
 
 import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -15,7 +12,7 @@ describe("a row group that fails to project", () => {
 
   beforeEach(() => {
     // The registry throws in a development build, and the boundary reports from
-    // `componentDidCatch` — a second failure inside React's own error handling.
+    // `componentDidCatch`: a second failure inside React's own error handling.
     restoreThrowOnReport = import.meta.env.DEV;
     windowTripwires.setThrowOnReport(false);
     windowTripwires.reset();

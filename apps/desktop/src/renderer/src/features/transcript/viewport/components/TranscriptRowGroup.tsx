@@ -1,15 +1,11 @@
-// One row group's error boundary.
-//
-// Its own module for the one-component rule, and the split separates two different
-// jobs that shared a file: the strip beside it reports refusals the PANE collected,
-// and this catches a row that threw while being drawn. A pane-level strip and a
-// per-group boundary answer to different failures and neither can stand in for the
-// other.
+// One row group's error boundary: catches a row that threw while being drawn. The pane-level
+// strip (`TranscriptErrors.tsx`) reports refusals the pane collected, a different failure.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
+/** Props for `TranscriptRowGroup`. */
 export interface TranscriptRowGroupProps {
   /** What failed, in the person's words: "a run group", "the streaming message". */
   readonly groupLabel: string;
@@ -17,15 +13,9 @@ export interface TranscriptRowGroupProps {
 }
 
 /**
- * One row group's boundary.
- *
- * A group rather than the whole feed: a single row that throws must not blank the
- * log around it, which is the same reasoning `components/ErrorBoundary/ErrorBoundary.tsx`
- * gives for one boundary per region rather than one per window, applied one level down.
- *
- * The failure is rendered RED and NAMED, as every failure in the console is, through its one refusal
- * grammar — the row's own place in the log, holding the reason it could not be
- * drawn, rather than a gap a reader would read as the session having nothing there.
+ * One row group's boundary. A group rather than the whole feed, so a single row that throws
+ * does not blank the log around it. The failure renders as a named refusal in the row's own
+ * place, not a gap a reader would take for an empty session.
  */
 export function TranscriptRowGroup(props: TranscriptRowGroupProps): React.JSX.Element {
   return (
@@ -50,13 +40,8 @@ export function TranscriptRowGroup(props: TranscriptRowGroupProps): React.JSX.El
 }
 
 /**
- * A render failure, as a refusal.
- *
- * Built through `refuse` rather than an object literal so this failure carries the
- * same three fields as every daemon refusal and reaches the same three renderers.
- * The code is renderer-local and says so in its own name: nothing here came off a
- * wire, and dressing it as a wire code would make a console defect look like the
- * daemon's answer.
+ * A render failure, as a refusal. Built through `refuse` so it carries the same fields as a
+ * daemon refusal; the code is renderer-local by name because nothing here came off a wire.
  */
 function rowProjectionRefusal(groupLabel: string, error: Error): Refusal {
   return refuse(

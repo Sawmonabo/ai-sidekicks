@@ -1,16 +1,7 @@
-// What the window cap prunes, and what a prune costs the reader holding the log.
-//
-// Its own file beside `viewport-controller.test.ts` because the subject is a
-// different one: that suite asks where the reading position lands, and these cases
-// ask which rows survive a reconcile at all — the veto the scroll controller holds,
-// the pin the anchor holds, the prior a pruned row takes with it, and the refusal
-// that has to be re-asked rather than remembered. Both drive the same controller
-// against the same conditions, which is what `viewport-controller.test-support.ts` is
-// for.
-//
-// The scroll container is a real detached element and no case asserts a pixel: every geometry
-// read under `happy-dom` answers zero, so the claims are about which objects were
-// CALLED and with what.
+// What the window cap prunes and what a prune costs the reader, driven through the controller
+// with `viewport-controller.test-support.ts`. The scroll container is a real detached element
+// and no case asserts a pixel: geometry reads under `happy-dom` answer zero, so the claims are
+// about which objects were called and with what.
 
 import { describe, expect, it } from "vitest";
 
@@ -52,13 +43,12 @@ describe("the viewport controller — pruning under a reader", () => {
 
     controller.reconcile({ rows: syntheticRows(LOADED_ROW_COUNT), ...CALM });
 
-    // Contiguous, and all of it above the reader: the ten rows before them, in order.
     expect(controller.snapshot().lastPrune?.prunedKeys).toStrictEqual(
       Array.from({ length: READER_ROW_INDEX }, (_unused, index) => `row-${String(index)}`),
     );
     expect(controller.snapshot().rowKeys[0]).toBe(READER_ROW_KEY);
-    // And the reader keeps their pixel, by arithmetic rather than by a virtualizer
-    // read that would still answer in the pre-prune index space.
+    // The reader keeps their pixel by arithmetic, not by a virtualizer read that would still
+    // answer in the pre-prune index space.
     expect(controller.scroll.writeCount("prune-compensation")).toBe(1);
     expect(scrollContainer.scrollTop).toBe(
       INITIAL_SCROLL_TOP_PX - READER_ROW_INDEX * TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
@@ -134,10 +124,8 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   }
 
   it("takes the rows the reading floor held back, with no second reconcile", () => {
-    // THE CASE THE ROW SET COULD NOT REPORT. Nothing about the log changes when a
-    // reader comes back to the tail, so the reconcile that would have re-asked never
-    // arrives on a quiet session — and the window stayed over its cap for as long as
-    // nobody typed. `reconcile` is deliberately not called again here.
+    // Nothing about the log changes when a reader returns to the tail, so no reconcile arrives
+    // on a quiet session to re-ask; `reconcile` is deliberately not called again here.
     const { controller, scrollContainer } = readerAboveTheTail();
 
     scrollContainer.moveTo(TAIL_OFFSET_PX);
@@ -152,11 +140,9 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   });
 
   it("takes the rest after a pass that APPLIED and stopped at the reader's row", () => {
-    // The commonest shape of the same failure, and the one an `applied` reading
-    // hides. The reader is on row 10, so the pass takes ten rows and stops — applied,
-    // no deferral named, and 4 390 rows still resident against a cap of 400. Read
-    // through the deferral alone the re-ask saw nothing owed and never fired, and on
-    // a session that had gone quiet those rows stayed for the life of the mount.
+    // The commonest shape: the reader is on row 10, so the pass takes ten rows and stops,
+    // applied with no deferral named and thousands of rows still over the cap. Read through the
+    // deferral alone, the re-ask never fired.
     const scrollContainer = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
@@ -181,9 +167,8 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   });
 
   it("negative control: the same partial pass is not re-asked while the reader stays", () => {
-    // Without this the residual could be a re-ask that ignores the reading floor,
-    // which is the promise the floor exists to keep — and, because every pass
-    // publishes a new outcome, one that re-armed itself on its own result.
+    // Without this the residual could be a re-ask that ignores the reading floor, or one that
+    // re-arms itself on its own result (every pass publishes a new outcome).
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(
       createCountingScrollContainer({
@@ -217,10 +202,9 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   });
 
   it("takes them when the write that vetoed the prune has finished", () => {
-    // The veto is raised and dropped inside ONE synchronous glide, so the only way to
-    // reconcile under it is from a subscriber the glide itself wakes — which is
-    // exactly how the effect that reconciles reaches it in a tree. Nothing observes
-    // the veto lifting, which is why the retry is keyed on the refusal instead.
+    // The veto is raised and dropped inside one synchronous glide, so the only way to reconcile
+    // under it is from a subscriber the glide wakes, as the reconciling effect does in a tree.
+    // Nothing observes the veto lifting, so the retry is keyed on the refusal.
     const scrollContainer = createCountingScrollContainer({
       initialScrollTop: READER_SCROLL_TOP_PX,
       clientHeight: VIEWPORT_HEIGHT_PX,
@@ -248,8 +232,7 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
   });
 
   it("negative control: re-asking changes nothing while the reader is still above the tail", () => {
-    // Without this the retry could be a cap that ignores the reading floor outright,
-    // which is the promise the floor exists to keep.
+    // Without this the retry could be a cap that ignores the reading floor outright.
     const { controller } = readerAboveTheTail();
 
     controller.retryDeferredPrune();
@@ -269,8 +252,8 @@ describe("the viewport controller — a prune the window refused, re-asked", () 
 
     controller.retryDeferredPrune();
 
-    // Identity, not length: a retry that re-ran the fold would publish a new snapshot
-    // for a window nothing had changed, and every memo below the frame keys on these.
+    // Identity, not length: a retry that re-ran the fold would publish a new snapshot for an
+    // unchanged window, and memos below the frame key on these.
     expect(controller.snapshot()).toBe(settled);
   });
 });
@@ -308,8 +291,8 @@ describe("the viewport controller — a page landing in front of the window", ()
   });
 
   it("negative control: an append at the tail pins nothing", () => {
-    // The pin suppresses prune wholesale, so arming it on any growth at all would
-    // stop a busy session's window from ever trimming again.
+    // The pin suppresses prune wholesale, so arming it on any growth would stop a busy session's
+    // window from ever trimming.
     const { controller } = attachedController();
     controller.reconcile({ rows: rowsFrom(["c", "d"]), ...CALM });
 
@@ -319,10 +302,9 @@ describe("the viewport controller — a page landing in front of the window", ()
   });
 
   it("keeps the rows the page brought, over the cap, rather than pruning them away", () => {
-    // THE CASE THE WHOLE PIN EXISTS FOR. A backward page lands over the row cap by
-    // exactly its own length and the cap prunes oldest-first, so without the pin this
-    // reconcile would take all fifty rows that had just arrived: the press would cost
-    // a round trip and leave the window exactly as it was, forever.
+    // A backward page lands over the row cap by exactly its length and the cap prunes
+    // oldest-first, so without the pin this reconcile would take all fifty rows that just arrived
+    // and leave the window as it was.
     const { controller } = attachedController();
     const earlier = rowsFrom(Array.from({ length: 50 }, (_unused, index) => `earlier-${index}`));
     controller.reconcile({ rows: syntheticRows(400), ...CALM });
@@ -335,10 +317,9 @@ describe("the viewport controller — a page landing in front of the window", ()
   });
 
   it("negative control: re-supplying a trimmed set pins nothing and keeps pruning", () => {
-    // The cap takes rows from the oldest end and the surrounding feed keeps handing
-    // over the whole projection, so the rows it took lead the very next set. Read as a
-    // page landing at the head, this pins history on an ordinary reconcile and the cap
-    // never trims again for the life of the session.
+    // The cap takes rows from the oldest end and the feed hands over the whole projection, so
+    // those rows lead the next set. Read as a page landing at the head, that would pin history
+    // and stop the cap for the session.
     const { controller } = attachedController();
     const whole = syntheticRows(4000);
     controller.reconcile({ rows: whole, ...CALM });
@@ -351,9 +332,9 @@ describe("the viewport controller — a page landing in front of the window", ()
   });
 
   it("defers the hold to the commit rather than writing in the pre-insert space", () => {
-    // The offsets a hold reads are the virtualizer's, and it has not re-answered them
-    // when `reconcile` runs in its passive effect. A write here would put the reader
-    // where the row it named USED to be, which is above every row the page delivered.
+    // The virtualizer has not re-answered offsets when `reconcile` runs in its passive effect; a
+    // write here would put the reader where the named row used to be, above every row the page
+    // delivered.
     const { controller } = attachedController();
     controller.reconcile({ rows: rowsFrom(["c", "d"]), ...CALM });
     const writesBefore = controller.scroll.writeCount("hold-reading-position");

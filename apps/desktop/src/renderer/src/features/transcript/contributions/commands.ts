@@ -1,11 +1,7 @@
-// What the transcript contributes to the command registry: its commands, built from the
-// acts of whichever transcript is mounted when one is pressed.
-//
-// The commands are contributed when the window composes, so they are in the palette and
-// their chords in the binding table from the first frame. What they act on is resolved at
-// press time through `mounted-transcript.ts`; with none mounted the act states its refusal
-// on the frame's banner rather than doing nothing. Every command closes over an act the
-// caller supplies and reaches no store, bridge or DOM, so invoking `run` is the test.
+// The transcript's commands for the command registry, built from the acts of whichever
+// transcript is mounted when one is pressed. They are contributed at composition so they and
+// their chords exist from the first frame; with no transcript mounted an act states its refusal
+// on the frame's banner. Each command closes over a supplied act, so invoking `run` is the test.
 
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
@@ -19,19 +15,14 @@ import {
 import { TRANSCRIPT_KEY_BINDINGS, WHEN_SESSION_ACTIVE } from "./keybindings.js";
 
 /**
- * The palette group every one of these rows sits under.
- *
- * One binding rather than a literal per command: the group is also a secondary
- * match field, so two spellings of it would split the transcript's commands across
- * two categories in the palette's category list.
+ * The palette group every transcript command sits under. One binding because the group is also
+ * a match field, and two spellings would split the palette's category list.
  */
 export const TRANSCRIPT_COMMAND_GROUP = "Transcript";
 
 /**
- * Build this window's transcript commands.
- *
- * A function of the acts rather than a constant, because every `run` closes over
- * one window's transcript.
+ * Build this window's transcript commands. A function of the acts, not a constant, because
+ * every `run` closes over one window's transcript.
  */
 export function createTranscriptCommands(acts: TranscriptActs): readonly CommandDefinition[] {
   return [
@@ -77,19 +68,15 @@ export function createTranscriptCommands(acts: TranscriptActs): readonly Command
 }
 
 /**
- * The owner string the transcript's command contribution carries.
- *
- * The same string its screen and pane claims carry, and for the same reason: the
- * command registry is owner-scoped, so composing twice — a hot reload, a second
- * test — replaces the transcript's rows instead of raising on their ids.
+ * The owner string of the transcript's command contribution, shared with its screen and pane
+ * claims. The registry is owner-scoped, so composing twice replaces the rows instead of
+ * raising on their ids.
  */
 export const TRANSCRIPT_COMMAND_OWNER = "transcript";
 
 /**
- * Contribute the transcript's commands and chords to a window.
- *
- * Takes the registry rather than reaching for the module-scope one, so a test contributes
- * into a registry it owns.
+ * Contribute the transcript's commands and chords to a window. Takes the registry so a test
+ * contributes into one it owns.
  */
 export function registerTranscriptCommands(
   registry: CommandContributionRegistry,
@@ -103,11 +90,8 @@ export function registerTranscriptCommands(
 }
 
 /**
- * The act set every contributed command runs through.
- *
- * Written out rather than derived from a name list, so an act added to
- * `TranscriptActs` fails to compile here, at `MountedTranscript`'s forwarder and at the feed's
- * builder together, instead of being contributed as a command that reaches nothing.
+ * The act set every contributed command runs through. Written out rather than derived from a
+ * name list, so an act added to `TranscriptActs` fails to compile here.
  */
 function actsOnTheMountedTranscript(transcript: MountedTranscript): TranscriptActs {
   const perform = (act: TranscriptActName): void => {
@@ -133,10 +117,8 @@ function actsOnTheMountedTranscript(transcript: MountedTranscript): TranscriptAc
 }
 
 /**
- * Perform one act, and state the refusal where a person can see it.
- *
- * The banner is the only place a transcript command pressed from a window with no
- * transcript can say so, since no transcript is on screen to show it.
+ * Perform one act, and state a refusal on the frame's banner: the only place a window with no
+ * transcript can show it.
  */
 function performOnMountedTranscript(transcript: MountedTranscript, act: TranscriptActName): void {
   const outcome = transcript.perform(act);

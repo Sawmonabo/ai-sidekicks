@@ -1,6 +1,5 @@
-// The stores and bridges the pane's suites share: a real `SessionStore` fed the terminal
-// scenario's own beats, so the pane is never tested against events the fixture does not
-// produce.
+// Shared stores and bridges for the pane suites: a real `SessionStore` fed the terminal
+// scenario's own beats, so the pane is never tested against events the fixture does not produce.
 
 import { PTY_CONTROL_CHANGED_EVENT } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -27,18 +26,12 @@ export const leaseBeats: readonly (typeof TERMINAL_LEASE_SCENARIO.beats)[number]
   TERMINAL_LEASE_SCENARIO.beats.filter((beat) => beat.event.kind === PTY_CONTROL_CHANGED_EVENT);
 
 /**
- * A store holding the scenario's events through its `transitionOrdinal`-th lease
- * transition — 1 for the first, and so on.
+ * A store holding the scenario's events through its `transitionOrdinal`-th lease transition
+ * (1 for the first).
  *
- * Addressed by ORDINAL rather than by sequence number, because the scenario is a
- * sibling lane's file and its numbering moves when a beat is inserted ahead of a
- * transition. What the pane's cases are about is the state after the first take,
- * after the release that follows it, and after all of them — none of which is a
- * claim about which sequence number those land on.
- *
- * The beats are applied directly rather than played through the engine's clock: the
- * subject is what the pane renders for a given log, and waiting on a timer would make
- * every case a race without making any of them truer.
+ * Addressed by ordinal rather than sequence number so inserting a beat ahead of a transition
+ * does not move what a case means. The beats are applied directly, not through the engine's
+ * clock, which would make every case a race.
  */
 export function storeThrough(transitionOrdinal: number): SessionStore {
   const lastLeaseBeat = leaseBeats[transitionOrdinal - 1];
@@ -57,13 +50,8 @@ export function storeThrough(transitionOrdinal: number): SessionStore {
 }
 
 /**
- * The pane's region, or a raise. One reader, because three suites reach for it.
- *
- * The section is `components/PaneFrame`'s, so the query stays on the element
- * rather than moving to an accessible name: the chrome names a pane by its whole
- * address trail, and a suite mounting the pane with no session and one with a session
- * would then be looking the region up under two different names for the same reason
- * they mount it — which is not what any of them is about.
+ * The pane's `section` region, or a throw. The query stays on the element because the chrome
+ * names a pane by its whole address trail, which differs between suites.
  */
 export function paneRegionOf(container: HTMLElement): HTMLElement {
   const region = container.querySelector("section");
@@ -74,16 +62,9 @@ export function paneRegionOf(container: HTMLElement): HTMLElement {
 }
 
 /**
- * The context the pane layout hands this pane, over the shared builder.
- *
- * Exported because two suites outside this module mount the pane themselves rather
- * than through `renderPane`: the browser tier's box measurement and its pane layout fill
- * check, which mount the pane inside a sized box.
- *
- * The address arm carries no `entity` member: `terminal` is session-scoped, so the
- * union's arm has none and the type refuses one at this call site. The pane id is the
- * shared builder's own derivation — `pane-terminal` — because no case here is about which pane
- * this is.
+ * The context the pane layout hands this pane, over the shared builder. Exported because the
+ * browser-tier suites mount the pane themselves inside a sized box. `terminal` is
+ * session-scoped, so its address carries no `entity`.
  */
 export function terminalPaneContext(
   sessionStore: SessionStore | undefined,

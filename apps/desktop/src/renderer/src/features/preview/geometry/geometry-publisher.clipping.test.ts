@@ -6,13 +6,9 @@ import { PaneGeometryPublisher } from "./geometry-publisher.js";
 import type { PaneRect } from "./pane-geometry.js";
 import { elementWithRect, RecordingPageHost, rect } from "./geometry-publisher.test-support.js";
 
-// What the publisher DOES with a clipping ancestor, which is the only half of this
-// question that is still the preview's.
-//
-// WHICH ancestors clip moved to `lib/clipping-ancestors.ts` and its suite — the
-// vocabulary, the per-member cases, and the closed-union foil are there, beside the
-// declaration they are about. What could not move is this: that the sample the publisher
-// hands its page host is narrowed by the ancestor's box rather than being the pane's own.
+// What the publisher does with a clipping ancestor: the sample it hands the page host is
+// narrowed by the ancestor's box rather than being the pane's own. Which ancestors clip is
+// `lib/clipping-ancestors.ts`'s suite.
 describe("PaneGeometryPublisher — a clipping ancestor narrows the published rect", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -20,12 +16,9 @@ describe("PaneGeometryPublisher — a clipping ancestor narrows the published re
   });
 
   /**
-   * Report one computed `overflow` for ONE element and `visible` for every other.
-   *
-   * Scoped rather than blanket, because the walk runs to the document root: a blanket
-   * answer makes `body` and the document element clippers too, and both report the
-   * zero box an unlaid-out environment gives them — so every case would read a pane
-   * clipped to nothing whichever value it named, which is no test at all.
+   * Reports one computed `overflow` for one element and `visible` for every other. Scoped,
+   * because the walk runs to the document root and a blanket answer would make `body` clip too,
+   * to the zero box an unlaid-out environment reports.
    */
   function withComputedOverflow(clipper: Element, overflow: string): void {
     vi.spyOn(window, "getComputedStyle").mockImplementation(
@@ -36,10 +29,7 @@ describe("PaneGeometryPublisher — a clipping ancestor narrows the published re
     );
   }
 
-  /**
-   * The pane's published rectangle under one ancestor whose box is half its width,
-   * with that ancestor reporting the named `overflow`.
-   */
+  /** The published rectangle under one half-width ancestor reporting the named `overflow`. */
   function publishedRectUnder(overflow: string): PaneRect | undefined {
     const clipper = elementWithRect(rect(0, 0, 50, 100));
     const hostElement = elementWithRect(rect(0, 0, 100, 100));
@@ -64,8 +54,7 @@ describe("PaneGeometryPublisher — a clipping ancestor narrows the published re
   });
 
   it("negative control: an ancestor that does not clip leaves the pane's own box", () => {
-    // Without this, the case above would pass over a publisher that intersected with
-    // every ancestor it walked, which would report a pane narrowed for having a parent.
+    // Without this, the case above would pass over a publisher that intersected every ancestor.
     expect(publishedRectUnder("visible")).toStrictEqual(rect(0, 0, 100, 100));
   });
 });

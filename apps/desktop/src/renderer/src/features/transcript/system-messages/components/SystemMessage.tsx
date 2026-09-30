@@ -1,35 +1,8 @@
-// The seam, drawn: one line across the transcript, and every part of it wire-sourced.
-//
-// WHY THIS EXISTS AS ITS OWN ROW RATHER THAN AS A CARD. A seam is not a message and
-// not a receipt — it is a change in the run's condition, and `system-message-classifier.ts` already
-// decomposes it into named parts precisely so that the layout is decided here and
-// the meaning is decided there. Without it, a rollback, a compaction or a provider
-// switch would fall through to the generic row renderer and read as an ordinary
-// one-line receipt: the boundary position, the continuity, the declared losses and the
-// failed switch's reason would be derived on every pass and shown nowhere.
-//
-// WHERE THE BOUNDARY BETWEEN THIS AND THE ROW RENDERER SITS. Seams are the TRANSCRIPT's
-// rows, not the row renderer's. The registered row renderer (`transcript-row-renderer.ts`)
-// draws a session's row BODIES, and a seam has no body: it has a glyph, a label, and a
-// handful of wire members laid on one line. So the feed dispatches a seam row here
-// BEFORE it delegates to the row renderer, and the row renderer's contract stays as it
-// is — this is a row the transcript draws itself, and widening that contract to carry
-// it would make every future row owner responsible for a vocabulary that is the
-// transcript's own.
-//
-// THE FOUR PARTS ARE RENDER HELPERS AND NOT FOUR COMPONENTS. Each is a stateless,
-// hook-free fragment of ONE line, rendered from one place, and naming four components
-// for four spans of a sentence would put four fibers and four files where the transcript
-// has one row. `apps/desktop/AGENTS.md` puts one component in a `.tsx` module and this
-// module has one; what sits beside it is the shape `MessageContent.tsx`'s `renderBodyText`
-// already uses — a plain function returning markup, called rather than mounted.
-//
-// NOTHING HERE COMPOSES A SENTENCE. Each part is rendered as itself: the label from
-// the binding table, the wire type in mono, the boundary position as a figure, the
-// continuity and every declared loss verbatim. A producer that wrote prose here
-// would have decided the layout, and a renderer that mapped an unrecognized
-// `continuity` or loss value onto a fallback phrase would silently stop reporting
-// the newest kind of loss.
+// The seam, drawn: one line across the transcript, every part wire-sourced.
+// The feed dispatches a seam row here before the row renderer, which draws row bodies; a seam
+// has only a glyph, a label and a few wire members. Parts are rendered as themselves (label
+// from the binding table, wire type in mono, continuity and losses verbatim), so an
+// unrecognized value is still reported rather than mapped onto a fallback phrase.
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { TranscriptRowLayout } from "../../components/TranscriptRowLayout/TranscriptRowLayout.js";
@@ -40,6 +13,7 @@ import { type SystemMessageReading } from "../system-message-classifier.js";
 
 import "./system-messages.css";
 
+/** Props for `SystemMessage`. */
 export interface SystemMessageProps {
   readonly seam: SystemMessageReading;
   /** The actor's allocated hue, or `undefined` on an unattributed seam. */
@@ -78,11 +52,8 @@ export function SystemMessage(props: SystemMessageProps): React.JSX.Element {
 }
 
 /**
- * The boundary the seam landed at, for the two kinds that carry one.
- *
- * Rendered as an ABSENCE where the row named none rather than as a zero: a rewind
- * to turn zero and a rewind whose floor nobody recorded are different facts, and a
- * `0` on screen is indistinguishable between them.
+ * The boundary the seam landed at, for the two kinds that carry one. Absent renders as an
+ * explicit empty marker, not `0`: a rewind to turn zero differs from one with no recorded floor.
  */
 function seamBoundaryPosition(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.kind !== "rollback" && seam.kind !== "compaction") {
@@ -102,11 +73,8 @@ function seamBoundaryPosition(seam: SystemMessageReading): React.JSX.Element | n
 }
 
 /**
- * The switch's continuity, and the losses it declared.
- *
- * An empty list is the switch's own claim that nothing was lost, so it draws no clause.
- * Each loss is the string the wire sent: the vocabulary is widened by amendment, and a
- * fallback phrase would go quiet on the newest kind of loss.
+ * The switch's continuity and declared losses. An empty list is the switch's claim that nothing
+ * was lost, so it draws no clause. Losses render verbatim so a newly added kind is not hidden.
  */
 function seamContinuity(seam: SystemMessageReading): React.JSX.Element | null {
   if (seam.continuity === undefined) {

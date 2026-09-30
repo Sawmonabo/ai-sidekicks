@@ -1,11 +1,6 @@
 // Which driver each run in one session is bound to: the session's runs joined to their
-// agents' declared drivers.
-//
-// NEITHER HALF IS GUESSED. A run whose body names no agent, an agent the session's birth
-// record does not name, and a birth record naming another session all contribute NOTHING
-// rather than a default — the map's absence is `boundDriverNameForRun`'s "the console cannot say",
-// which takes a gated control off screen rather than offering one the daemon would
-// refuse or hiding one it would have honored.
+// agents' declared drivers. A run whose agent cannot be resolved contributes nothing rather
+// than a default, so a gated control is taken off screen instead of guessed.
 
 import {
   readAgentDriverNames,
@@ -17,10 +12,8 @@ import {
 } from "@renderer/store/session/entities/entities.js";
 
 /**
- * Join the session's runs to their agents' declared drivers.
- *
- * Pure and total: a run this cannot resolve is absent from the answer, which is the same
- * fact as a read that has not landed and is rendered the same way.
+ * Joins the session's runs to their agents' declared drivers. A run this cannot resolve is
+ * absent from the answer, the same fact as a read that has not landed.
  */
 export function foldRunDriverBindings(
   runs: Readonly<Record<string, StoredEntity>>,

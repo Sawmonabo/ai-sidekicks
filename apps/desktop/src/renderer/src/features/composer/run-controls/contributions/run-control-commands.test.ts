@@ -1,9 +1,5 @@
-// What the palette is handed for the run controls, and what pressing one does.
-//
-// Asserted on the two pure halves rather than through a mounted hook: which rows
-// exist is arithmetic over the offer reading, and what a row dispatches is a call
-// into the dispatch state the caller already owns. The hook's own suites cover the
-// registration.
+// What the palette is handed for the run controls, and what pressing one does, asserted on
+// the two pure halves; the hook's own suites cover the registration.
 
 import { describe, expect, it, vi } from "vitest";
 

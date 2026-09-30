@@ -8,9 +8,7 @@ import { WORKFLOW_COMMAND_ROOT } from "../workflow-command-grammar.js";
 import { startWorkflowFromLine, type WorkflowStartInput } from "../start-workflow-from-line.js";
 
 /**
- * The command-line handler this composer's executor prefers over `invoke`.
- *
- * Keyed by the ROOT id, which is the id the recognizer claims and the palette lists,
+ * The command-line handler this composer's executor prefers over `invoke`, keyed by the root id
  * so the map cannot claim a name the console has never heard of.
  */
 export function useWorkflowStartHandlers(input: WorkflowStartInput): ComposerCommandLineHandlers {

@@ -1,13 +1,7 @@
-// The registry projection: what a row says, in what order, and what it refuses to
-// turn an absence into.
-//
-// The properties worth the most are the ones a screen cannot show you are missing.
-// A row that silently dropped an axis would look complete; a list whose order came
-// out of the daemon's iteration would look sorted until two reads disagreed; and an
-// allowlist of `null` rendered as "no tools" would state the opposite of the truth
-// in words that read fine. Each of those is asserted here against the real
-// projection, with a negative control that fails on the shape it would otherwise
-// pass over.
+// The registry projection: what a row says, in what order, and what it refuses to turn an
+// absence into. A silently dropped axis, an order taken from the daemon's iteration, and an
+// allowlist of `null` rendered as "no tools" all look fine on screen, so each is asserted
+// against the real projection with a negative control.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,8 +17,8 @@ import {
 
 describe("the registry projection — what a row carries", () => {
   it("reads the driver, model, account and effort off the default binding", () => {
-    // A definition may carry a binding per further provider; the row says what it runs
-    // on when a caller names no driver, which is the default and never an override.
+    // A definition may carry a binding per further provider; the row says what it runs on when
+    // no driver is named, which is the default and never an override.
     const codexOverride: AgentProviderBinding = {
       driverName: "codex",
       modelId: "gpt-5.6",
@@ -60,8 +54,8 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("says whose default an unpinned axis takes, in the console's own voice", () => {
-    // `null` is the materialized inherit state, and the sentence that explains it is
-    // ours — rendering it as a wire figure would attribute our words to the daemon.
+    // `null` is the materialized inherit state, and the sentence explaining it is ours;
+    // rendering it as a wire figure would attribute our words to the daemon.
     const [row] = projectDefinitionRows([
       definition({
         defaultBinding: { providerAccountId: null, effort: null },
@@ -80,8 +74,8 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("negative control: a pinned axis is not described as a default", () => {
-    // Without this, the case above would pass over a projection that ignored the
-    // value and always said "default".
+    // Otherwise the case above would pass for a projection that ignored the value and always
+    // said "default".
     const [row] = projectDefinitionRows([definition({ defaultBinding: { effort: "low" } })]);
     const effort = row?.axes.find((axis) => axis.key === "effort");
     expect(effort?.reading).toBe("low");
@@ -89,8 +83,8 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("keeps the allowlist's three states three", () => {
-    // `null` is the driver's defaults and `[]` is no tools at all. They read alike
-    // and mean opposite things, which is why the stored shape keeps them apart.
+    // `null` is the driver's defaults and `[]` is no tools at all. They read alike and mean
+    // opposite things, so the stored shape keeps them apart.
     const readingFor = (allowlist: string[] | null): string | undefined =>
       projectDefinitionRows([definition({ toolAllowlist: allowlist })])[0]?.axes.find(
         (axis) => axis.key === "tools",
@@ -102,8 +96,8 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("reports whether there is prose, and never the prose itself", () => {
-    // The text belongs to the editor. A clamped passage in a list row would be a
-    // third rendering of a body that already has two homes.
+    // The text belongs to the editor; a clamped passage in a row would be one more rendering
+    // of it.
     const [row] = projectDefinitionRows([
       definition({ instructions: "Be exact and terse.", goal: null }),
     ]);
@@ -115,9 +109,8 @@ describe("the registry projection — what a row carries", () => {
   });
 
   it("carries both timestamps verbatim rather than through a clock format", () => {
-    // A saved record's instants span days, and the console's transcript clock format
-    // drops the date because a transcript has a day divider. This list has none, so a
-    // formatted reading would be wrong rather than merely terse.
+    // The console's transcript clock format drops the date because a transcript has a day
+    // divider; a saved record's instants span days and this list has none.
     const [row] = projectDefinitionRows([definition()]);
     expect(row?.axes.find((axis) => axis.key === "created")?.reading).toBe(
       "2026-01-01T10:00:00.000Z",
@@ -142,9 +135,9 @@ describe("the registry projection — the order", () => {
   });
 
   it("breaks a tie on the identifier, so two reads of one registry agree", () => {
-    // The registry holds the name unique per node, so a tie should be unreachable —
-    // but an order resting on a guarantee it cannot check stops being stable the day
-    // the guarantee slips, and an unstable list reshuffles under a person's cursor.
+    // The registry holds the name unique per node, so a tie should be unreachable, but an
+    // order resting on a guarantee it cannot check reshuffles under a person's cursor the day
+    // the guarantee slips.
     const rows = projectDefinitionRows(
       [
         definition({ definitionId: "definition-9", name: "Same" }),
@@ -156,8 +149,8 @@ describe("the registry projection — the order", () => {
   });
 
   it("negative control: it does not simply hand back the order it was given", () => {
-    // Without this, both cases above would pass over a projection that returned its
-    // input untouched whenever the input happened to arrive sorted.
+    // Otherwise both cases above would pass for a projection that returned its input untouched
+    // whenever it arrived sorted.
     const rows = projectDefinitionRows(
       [
         definition({ definitionId: "definition-z", name: "Zeta" }),
@@ -211,8 +204,8 @@ describe("the registry projection — what a settlement says out loud", () => {
   });
 
   it("negative control: the two settlements do not say one thing", () => {
-    // Without this, the cases above would pass over a describer that returned a
-    // constant that happened to match one of them.
+    // Otherwise the cases above would pass for a describer that returned a constant matching
+    // one of them.
     const spoken = new Set([
       describeDefinitionSettlement({ kind: "empty" }),
       describeDefinitionSettlement({ kind: "rows", rows: projectDefinitionRows([definition()]) }),

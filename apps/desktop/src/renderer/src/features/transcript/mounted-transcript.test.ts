@@ -1,9 +1,5 @@
-// The holder between a chord and a mounted feed.
-//
-// Two questions decide whether a transcript command acts on the right thing: which
-// mount a press reaches when more than one is up, and what happens when none is.
-// Both are driven here against the holder itself, with no palette and no window —
-// the command side is `contributions/commands.test.ts`'.
+// The holder between a chord and a mounted feed: which mount a press reaches when more than one
+// is up, and what happens when none is. The command side is `contributions/commands.test.ts`.
 
 import { render } from "@testing-library/react";
 import { createElement } from "react";
@@ -16,7 +12,6 @@ import {
 } from "./mounted-transcript.js";
 import { useMountedTranscript } from "./hooks/useMountedTranscript.js";
 
-/** An act set that records which of its members ran, tagged with the mount's name. */
 function namedActs(name: string, fired: string[]): TranscriptActs {
   return {
     openFind: () => fired.push(`${name}:openFind`),
@@ -40,8 +35,7 @@ describe("mounted transcript — which feed an act reaches", () => {
   });
 
   it("acts on the newest mount while both are up", () => {
-    // Two transcript panes in one window are two feeds, and the chord acts on the one
-    // that was mounted last rather than on whichever the list happens to start with.
+    // Two panes are two feeds, and the chord acts on the one mounted last, not the list's first.
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
     mountedTranscript.adopt(namedActs("first", fired));
@@ -71,8 +65,7 @@ describe("mounted transcript — which feed an act reaches", () => {
   });
 
   it("negative control: an act performs on nobody once every mount has gone", () => {
-    // Which is what shows the cases above are reading the adoption rather than a
-    // set of acts the holder kept a copy of.
+    // Shows the cases above read the adoption, not a set of acts the holder copied.
     const fired: string[] = [];
     const mountedTranscript = new MountedTranscript();
     const release = mountedTranscript.adopt(namedActs("pane", fired));
@@ -84,7 +77,6 @@ describe("mounted transcript — which feed an act reaches", () => {
 });
 
 describe("mounted transcript — a component fills the holder for its lifetime", () => {
-  /** A stand-in for the feed: it fills the holder and renders nothing. */
   function TranscriptMountProbe(props: {
     readonly name: string;
     readonly fired: string[];
@@ -108,8 +100,8 @@ describe("mounted transcript — a component fills the holder for its lifetime",
   });
 
   it("acts through the latest render's callbacks rather than the first render's", () => {
-    // A feed rebuilds its acts every pass, and a holder keeping the first pass would
-    // call into a window's state as it was when the transcript opened.
+    // A feed rebuilds its acts every pass; a holder keeping the first pass would call into
+    // window state as it was when the transcript opened.
     const firstPass: string[] = [];
     const laterPass: string[] = [];
     const mountedTranscript = new MountedTranscript();

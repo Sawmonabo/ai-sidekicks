@@ -1,41 +1,7 @@
-// The definitions a session can see, as the definitions list can honestly know them.
-//
-// The paging hook for the definitions list, so a reader can tell a console that asked
-// and found none from one that never asked. The call that enumerates is the caller's,
-// and a rejected call reaches whoever supplied it.
-//
-// THE READ IS SESSION-SCOPED, AND THAT IS THE WIRE'S RULE RATHER THAN A CHOICE.
-// The enumeration's request carries a required session id — resolution walks
-// `session` then `project` then `shared` FROM somewhere, and the somewhere is a
-// session. So a caller with no session has not got a narrower answer; it has no
-// question to put, which is what `unasked` is. Rendering that as an empty list
-// would be the console asserting that this context sees no definitions, which is a
-// claim about the daemon nothing established.
-//
-// ONE READ PER MOUNT, AND NO POLLING, for the same reason as the session directory:
-// a directory that refreshed itself on a timer is a second source of truth running
-// beside the event stream, and the cheapest way to hold two answers to one question
-// is to keep asking it. A navigation back to the list remounts and re-reads,
-// which is the moment a person expects a fresh list.
-//
-// THE THREE STATES ARE THREE FACTS AND NO OTHERS — nobody could ask, a read is in
-// flight, and an answer came back (possibly with no rows, which is a real answer).
-// Collapsing any two is the conflation the five kinds of nothing exist to prevent.
-//
-// THE CURSOR IS KEPT, AND FOLLOWED ONLY WHEN A PERSON ASKS. The reply's
-// `nextCursor` is the enumeration's own continuation token, and dropping it made
-// every definition past the daemon's first-page limit unreachable — not slow to
-// reach, unreachable, with nothing on screen saying so. Draining it on mount is the
-// opposite mistake: an unbounded loop of reads for a list nobody has scrolled, on a
-// wire whose page size no console controls. So the cursor is held and the hook
-// hands its caller a control; the caller renders it while a cursor exists and not
-// otherwise, which is the "absent, not disabled" rule.
-//
-// A CONTINUATION IS ITS OWN STATE, BESIDE THE PAGES AND NOT INSTEAD OF THEM. A
-// second page that is in flight changes nothing about the rows already on screen:
-// those were served and are still true. So the served arm carries a continuation with
-// its own three facts — there is no more, there is more and you may ask, the asking is
-// in flight — and the pages survive all three.
+// The definitions visible from one session, paged, so a reader can tell a console that asked and
+// found none from one that never asked. The list call is the caller's, and a rejected call reaches
+// whoever supplied it. With no session there is no question to put (`unasked`, never an empty
+// list). One read per mount, no polling: a timer would be a second source of truth.
 
 import { useCallback } from "react";
 
@@ -55,12 +21,10 @@ export type WorkflowDefinitionListCall = (request: {
 }) => Promise<WorkflowDefinitionPage>;
 
 /**
- * What lies beyond the pages held, and whether it can be asked for.
- *
- * Three facts and no others: the daemon said this was the last page, it said there is
- * more and here is the handle, or that handle is in flight. A boolean would conflate
- * the last two, and each of them is a different thing for the list to draw — nothing,
- * a control, a wait.
+ * What lies beyond the pages held: the daemon said this was the last page, said there is more
+ * and gave a handle, or that handle is in flight. The cursor is followed only when a person
+ * asks, since draining it on mount would be an unbounded read loop over a page size no console
+ * controls. Pages already served survive every state.
  */
 export type WorkflowDefinitionContinuation =
   | { readonly status: "exhausted" }
@@ -68,13 +32,9 @@ export type WorkflowDefinitionContinuation =
   | { readonly status: "reading"; readonly cursor: string };
 
 /**
- * What the list knows about the definitions visible from here, at one moment.
- *
- * Three states and no others, and the two unsettled ones come from the shared shape in
- * `features/workflows/subject-read-start.ts` — the rule this hook established and the runs
- * directory and the run snapshot now hold to as well, written once so the three
- * cannot drift about which frame is allowed to claim nobody asked, or about which
- * frame is allowed to hold the previous call's answer.
+ * What the list knows about the definitions visible from here, at one moment. The two unsettled
+ * states come from `features/workflows/subject-read-start.ts`, shared with the runs directory
+ * and the run snapshot so they cannot drift.
  */
 export type WorkflowDefinitionDirectoryState = SubjectRead<SettledDefinitionDirectory>;
 
@@ -82,37 +42,24 @@ export type WorkflowDefinitionDirectoryState = SubjectRead<SettledDefinitionDire
 export interface WorkflowDefinitionDirectory {
   readonly state: WorkflowDefinitionDirectoryState;
   /**
-   * Ask the daemon for the page after the ones held.
-   *
-   * Does nothing at all unless a cursor is in hand and no continuation is already in
-   * flight, so a caller may wire it to a control without also encoding the rule for
-   * when the control exists — which would be the same decision made twice.
+   * Ask the daemon for the page after the ones held. Does nothing unless a cursor is in hand
+   * and no continuation is in flight, so a caller can wire it to a control without encoding
+   * that rule.
    */
   readonly continueReading: () => void;
 }
 
 /**
- * Read the definitions visible from one session, one page at a time.
- *
- * The effect is keyed on the call and the session id: the call is stable for the life
- * of a window, so a re-render never re-reads, while a different call and a move to a
- * different session both do.
+ * Read the definitions visible from one session, one page at a time. It re-reads when the
+ * call or the session changes; the call is stable for a window's life, so a re-render never
+ * re-reads.
  */
 export function useWorkflowDefinitionDirectory(
   listDefinitions: WorkflowDefinitionListCall,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory {
-  // The state is held against the CALL AND THE SESSION it is about, and the
-  // disagreement is settled DURING the render that brings a new pair rather than in an
-  // effect after the commit. An effect would commit one render of `unasked` under a
-  // session the caller had already asked about, which paints as a served-looking empty
-  // list and reads to assistive technology as an answer.
-  //
-  // THE PUBLISHER IS THE READ'S OWN GUARD, which is why this hook counts nothing and
-  // why the continuation below can publish through the same handle: a page that comes
-  // back after the session changed belongs to a list nobody is looking at, and
-  // `publish` carries the addressing it was captured under, so exactly those answers
-  // write nowhere.
+  // Settled during the render that brings a new call or session, not in an effect, which would
+  // commit an `unasked` frame under a session already asked about. `publish` drops stale answers.
   const { value: state, publish } = useSubjectRead<
     WorkflowDefinitionPage,
     WorkflowDefinitionDirectoryState
@@ -133,8 +80,8 @@ export function useWorkflowDefinitionDirectory(
     }
     publish({ ...state, continuation: { status: "reading", cursor } });
     void listDefinitions({ sessionId, cursor }).then((page) => {
-      // Folded over whatever is current rather than over the state this call closed
-      // on, so a page cannot resurrect a list that has since been replaced.
+      // Folded over the current state, not the closed-over one, so a page cannot resurrect a
+      // replaced list.
       publish((current) => appendedPageState(current, cursor, page));
     });
   }, [listDefinitions, sessionId, publish, state]);
@@ -156,10 +103,8 @@ interface SettledDefinitionDirectory {
 }
 
 /**
- * The cursor a continuation can be asked with, if any.
- *
- * Only `available` carries one to ask with. `reading` withholds it so a second request
- * is not put for a page already in flight, and `exhausted` has none.
+ * The cursor a continuation can be asked with, if any. `reading` withholds it so no second
+ * request is put for a page in flight.
  */
 function askableCursorOf(continuation: WorkflowDefinitionContinuation): string | undefined {
   return continuation.status === "available" ? continuation.cursor : undefined;
@@ -182,11 +127,9 @@ function firstPageState(page: WorkflowDefinitionPage): WorkflowDefinitionDirecto
 }
 
 /**
- * The directory, given a continuation's settlement folded onto what is on screen.
- *
- * Pure, and total over a state that has moved on: a page whose request is no longer
- * the one in flight is dropped rather than appended, because the alternative is a
- * list holding two answers to one question.
+ * The directory with a continuation's settlement folded onto what is on screen. A page whose
+ * request is not the one in flight is dropped, so the list never holds two answers to one
+ * question.
  */
 function appendedPageState(
   current: WorkflowDefinitionDirectoryState,
@@ -210,11 +153,9 @@ function appendedPageState(
 /**
  * The held rows plus the arriving ones this list has not seen, in arrival order.
  *
- * Keyed on the definition id because the wire's paging guarantees no disjointness a
- * console may rely on — a definition authored between two page reads shifts the
- * window, and the same row arriving twice would render twice and give React two
- * children with one key. Dropping the duplicate rather than replacing it keeps the
- * first page's position stable under the reader's eye.
+ * Keyed on id because paging guarantees no disjointness: a definition authored between page
+ * reads shifts the window, and a repeated row would give React two children with one key. The
+ * duplicate is dropped so the first page's position stays stable.
  */
 function withUnseenDefinitions(
   held: readonly WorkflowDefinitionRow[],

@@ -1,21 +1,7 @@
-// What the git host says about a change request that already exists there, as the
-// console presents it.
-//
-// THE VOCABULARIES ARE THE CONTRACT'S, IMPORTED AND NEVER RESTATED. Each table below is
-// a `Record` keyed by a wire union from `@ai-sidekicks/contracts`, so a member added
-// there fails to compile here before it reaches a chip with no meaning. Two absences
-// carry a reading a host-shaped string would lose: an absent `mergeable` means the host
-// has not settled it, never a conflict and never an error, and an absent
-// `reviewDecision` means no decision yet rather than a rejection. Neither has a table
-// row, so neither can be drawn as a value the host never sent.
-//
-// THE REQUEST'S DECISION AND A REVIEWER'S VERDICT ARE TWO SETS. A reviewer can comment
-// without deciding, and a request can need a review nobody has given, so each has its
-// own table.
-//
-// NO SECOND HOST ADAPTER. Every value here is the host's own word, arriving as a wire
-// string this module never picks; the hosting adapter owns which host is talked to,
-// and nothing here branches on which one answered.
+// Presentation of what the git host reports about a change request. Each table is a `Record`
+// keyed by a contract union, so a new wire member fails to compile here. An absent `mergeable`
+// (not settled yet) and an absent `reviewDecision` (no decision yet) have no row, so they are
+// never drawn as a value the host did not send.
 
 import type {
   ChangeRequestCheck,
@@ -84,11 +70,8 @@ export const CHECK_STATUS_PRESENTATION: Readonly<
 };
 
 /**
- * Total over `ChangeRequestReviewDecision` by construction.
- *
- * There is no member for "nobody decided" — that is the absence of a decision and it
- * renders as an absence, not as a fourth value. Adding one here would let the console
- * assert a verdict the host never gave.
+ * Total over `ChangeRequestReviewDecision` by construction. "Nobody decided" is an absence,
+ * not a fourth value, so the console cannot assert a verdict the host never gave.
  *
  * @consumedBy the pull request tab's header
  */
@@ -136,12 +119,8 @@ export interface CheckRollup {
 }
 
 /**
- * Fold a check list into the rollup the gate opens on.
- *
- * WORST-FIRST TONE, and it is a decision rather than an ordering accident: one failure
- * among fifty passes is the fact a person acts on, so a single `failure` takes the
- * rollup red and any remaining `pending` takes it neutral rather than amber — a check
- * that is still running needs nobody.
+ * Fold a check list into a count per status and a worst-first tone: any failure is red, else
+ * neutral, since a check still running needs nobody.
  */
 export function checkRollup(checks: readonly Pick<ChangeRequestCheck, "status">[]): CheckRollup {
   const countByStatus: Record<ChangeRequestCheckStatus, number> = {

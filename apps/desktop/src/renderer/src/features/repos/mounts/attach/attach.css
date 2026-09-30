@@ -1,18 +1,7 @@
 /*
- * Attaching a repository, and re-attaching one whose identity has drifted.
- *
- * The shape these two components share with the bind and execution-root dialogs is in
- * `../mount-controls.css`, which is imported first; what is here is what only these two
- * wear.
- *
- * THE BLOCK IS `meridian-repo-attach` AND NOT `meridian-attach`, because
- * the agents feature's attach sheet declares that block for its own attach dialog and both
- * sheets load into one document. Two features sharing a BEM block silently restyle each
- * other, last sheet wins — so the agents block keeps the name and this one carries its
- * feature in it.
- *
- * Imported by both components it dresses, `AttachRepositoryDialog.tsx` and
- * `ReattachControl.tsx`.
+ * Attaching a repository, and re-attaching one whose identity has drifted. The shared dialog
+ * shape is in `../mount-controls.css`, imported first. The block name carries its feature
+ * (`meridian-repo-attach`), so sheets loaded into one document never share a BEM block.
  */
 
 .meridian-repo-attach__minted,

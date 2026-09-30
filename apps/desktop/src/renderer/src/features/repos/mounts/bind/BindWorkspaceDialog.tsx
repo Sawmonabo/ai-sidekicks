@@ -1,16 +1,7 @@
-// Binding a workspace on a mount the session already holds.
-//
-// A BIND IS HOW A WORKSPACE ARRIVES. Attach mints a mount and no workspace, so a person
-// who attached a repository binds one, in the mode they want, to put a run on it.
-//
-// IT IS `Dialog` AND NOT `AlertDialog`. This is data entry a person may abandon at no
-// cost; the alert variant is for a consequence being consented to, which is what the
-// re-attach and the root removal use.
-//
-// IT IS OFFERED ONLY WHERE THE CARD OFFERS BIND CONTROLS AT ALL, which the card decides
-// from the mount's lifecycle and health axes — so a detached, unreachable, or drifted
-// mount renders the withheld sentence rather than this trigger. The daemon would refuse
-// such a bind anyway; the point is that the reason is already on screen.
+// Binding a workspace on a mount the session already holds: attach mints a mount and no
+// workspace, so a bind is how a workspace arrives. A plain `Dialog`, not `AlertDialog`, since
+// this is abandonable data entry. The card offers the trigger only where the mount's lifecycle
+// and health admit a bind, so the reason is already on screen otherwise.
 
 import "./bind.css";
 
@@ -33,6 +24,7 @@ import { EMPTY_BIND_FORM, resolveBindForm, type BindFormState } from "./bind-for
 /** The radio group's name. One dialog is open at a time, so one constant serves it. */
 const MODE_GROUP_NAME = "meridian-bind-mode";
 
+/** Props for the bind dialog. */
 export interface BindWorkspaceDialogProps {
   readonly bridge: PlatformBridge;
   /** The pre-bind read and the bind the dialog sends. */
@@ -47,6 +39,7 @@ export interface BindWorkspaceDialogProps {
   readonly onBound: () => void;
 }
 
+/** The dialog that binds a workspace on one mount, in an execution mode the mount admits. */
 export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.Element {
   const { reading, requestCapabilities, bind, clearAct } = useBindController(
     props.bridge,
@@ -55,11 +48,9 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
     props.operations,
   );
   const [form, setForm] = useState<BindFormState>(EMPTY_BIND_FORM);
-  // WHAT THIS MOUNT ADMITS IS AN INPUT TO BOTH HALVES OF THIS DIALOG. The daemon's own
-  // default arrives through the same reading that opens the control, so a dialog
-  // reopened on this mount gets it again; and a refresh that withdraws the held mode
-  // clears the radio and shuts the control in one act, rather than drawing the row
-  // excluded beside a button that would still send it.
+  // What this mount admits feeds both halves of the dialog: the daemon's default arrives
+  // through the reading that opens the control, and a refresh that withdraws the held mode
+  // clears the radio and shuts the control together.
   const servedCapabilities =
     reading.prerequisite.status === "read" ? reading.prerequisite.value : undefined;
   const { selectedMode, verdict } = resolveBindForm(form, servedCapabilities);
@@ -70,17 +61,16 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
         requestCapabilities();
         return;
       }
-      // A dialog reopened to bind a second workspace must not greet its user
-      // with the first one's directory, mode, or settlement. The capabilities reading
-      // is deliberately untouched — it is the same answer.
+      // A reopened dialog must not greet its user with the previous directory, mode or
+      // settlement. The capabilities reading is untouched; it is the same answer.
       setForm(EMPTY_BIND_FORM);
       clearAct();
     },
     [requestCapabilities, clearAct],
   );
 
-  // ONE READ PER BOUND WORKSPACE: the id is what changes when a bind settles, and a ref
-  // keeps a re-render from asking again.
+  // One read per bound workspace: the id changes when a bind settles, and a ref stops a
+  // re-render asking again.
   const announcedWorkspaceId = useRef<string | undefined>(undefined);
   const boundWorkspaceId =
     reading.act.status === "bound" ? reading.act.response.workspaceId : undefined;
@@ -107,10 +97,8 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   return (
     <Dialog.Root onOpenChange={openChanged} modal="trap-focus">
       <Dialog.Trigger className="meridian-bind__trigger">Bind a workspace</Dialog.Trigger>
-      {/* The portal, backdrop and popup are the primitive's, which is also what puts
-          this dialog in the window's airspace: a native browser-pane view yields to
-          whatever is registered there, and a form that mounted its own portal would be
-          a dialog the view paints over. */}
+      {/* The portal, backdrop and popup are the primitive's, which registers this dialog in
+          the window's airspace so a native browser-pane view yields to it. */}
       <OverlayDialogPopup
         backdropClassName="meridian-bind__backdrop"
         className="meridian-bind__dialog"
@@ -135,9 +123,9 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
             autoComplete="off"
             placeholder="the mount root"
             onChange={(event) => {
-              // WHAT WAS TYPED, UNCHANGED. The wire takes a subtree relative to the
-              // canonical root or an absolute path naming a registered working tree,
-              // over one member — this console splits neither and joins nothing.
+              // Keep what was typed: the wire takes a subtree relative to the canonical root or
+              // an absolute path naming a registered working tree, and this console splits and
+              // joins nothing.
               setForm((current) => ({ ...current, directory: event.target.value }));
             }}
           />
@@ -167,7 +155,7 @@ export function BindWorkspaceDialog(props: BindWorkspaceDialogProps): React.JSX.
   );
 }
 
-/** The mode half, per arm of the pre-bind read. */
+/** The mode half of the dialog, per arm of the pre-bind read. */
 function renderModes(
   reading: BindReading,
   selectedMode: string | undefined,
@@ -183,9 +171,7 @@ function renderModes(
         <BindModePicker
           options={executionModeRows(reading.prerequisite.value)}
           // Already resolved against these capabilities by `resolveBindForm`: the daemon's
-          // default arrives checked and a withdrawn mode arrives as nothing checked. A
-          // pre-fill written into form state instead needed a memory of having run, and
-          // that memory outlived the form it was taken about.
+          // default arrives checked and a withdrawn mode arrives as nothing checked.
           selectedMode={selectedMode}
           groupName={MODE_GROUP_NAME}
           onSelect={onSelect}
@@ -195,11 +181,9 @@ function renderModes(
 }
 
 /**
- * What the bind did.
- *
- * The bind answers with the mode it bound and the workspace's state, and no root: a
- * `preparing` answer is a bind that worked, and the card reports the root from the
- * workspace list once it exists.
+ * What the bind did. The answer carries the mode and workspace state but no root: a
+ * `preparing` answer is a bind that worked, and the card reports the root once the workspace
+ * exists.
  */
 function renderSettlement(reading: BindReading): React.JSX.Element | null {
   const { act } = reading;

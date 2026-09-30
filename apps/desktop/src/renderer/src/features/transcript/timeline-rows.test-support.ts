@@ -1,22 +1,6 @@
-// Timeline-row builders for this subtree's co-located tests.
-//
-// NAMED `.test-support.ts`, WHICH IS WHAT IT IS: the tools that classify a module by
-// suffix then treat it as test scaffolding rather than production source.
-//
-// WHY IT SITS HERE AND NOT UNDER `tests/helpers/`. That home is for scaffolding shared
-// across test tiers — the render harness, the spawn-and-scan harness, a path resolver.
-// This is one feature's fixture vocabulary, used by the co-located tests beside it and
-// by nothing else, and hoisting it into a shared home would make a private fixture look
-// like a contract every tier may build on.
-//
-// The dead-code gate still reaches it, because the Vitest plugin makes every test file
-// an entry point.
-//
-// WHAT THE BUILDERS GUARANTEE. Every row they produce is a real `TimelineRow`
-// under the contract's own discriminated union — the arms are selected by `kind`
-// and their required members are supplied, so a test can never assert against a
-// shape the daemon could not send. The one cast is `SessionId`, whose brand is a
-// compile-time nominal tag over `string` with no runtime witness.
+// Timeline-row builders for this subtree's co-located tests. Every row is a real `TimelineRow`
+// under the contract's discriminated union, so a test never asserts against a shape the daemon
+// cannot send. The one cast is the `SessionId` brand, which has no runtime witness.
 
 import {
   TIMELINE_ROLLBACK_BOUNDARY_TYPE,
@@ -43,12 +27,8 @@ export interface FixtureRowInput {
 }
 
 /**
- * A wall-clock instant derived from the sequence.
- *
- * One second per sequence step from a fixed epoch, so a fixture's rows are ordered
- * the same way by sequence and by `occurredAt` unless a case deliberately says
- * otherwise — which is what lets an ordering test assert ordering without every case
- * hand-writing timestamps.
+ * A wall-clock instant derived from the sequence: one second per step from a fixed epoch, so
+ * rows order the same way by sequence and by `occurredAt` unless a case says otherwise.
  */
 export function fixtureTimestamp(sequence: number): string {
   return new Date(Date.UTC(2026, 0, 1, 9, 0, sequence)).toISOString();
@@ -67,13 +47,10 @@ export function runRow(
     readonly epoch?: number;
     readonly supersededTargetPosition?: number;
     /**
-     * A child run this row summarizes, and how complete that reading is.
-     *
-     * CHILD-FIRST rather than a per-row boolean, because the fold it drives keys per
-     * child: one child observed twice, and two children observed once each, are the
-     * shapes that separate a latest-reading derivation from an accumulated flag, and
-     * neither can be written against a flag at all. The child's own id defaults to one
-     * derived from the parent, which is the single-child case every earlier case wanted.
+     * A child run this row summarizes, and how complete that reading is. Child-first because
+     * the fold keys per child: one child observed twice and two children observed once each
+     * cannot be written against a per-row flag. The child id defaults to one derived from the
+     * parent.
      */
     readonly childRun?: {
       readonly childRunId?: string;
@@ -102,10 +79,8 @@ export function runRow(
             parentRunId: input.runId as RunId,
             state: "running",
             eventCount: 1,
-            // The incomplete arm requires a cause and an observation time and the
-            // complete arm refuses both, so the two are built rather than spread: a
-            // summary carrying a cause while claiming completeness is a row the
-            // contract's own strict arms reject.
+            // The incomplete arm requires a cause and an observation time and the complete
+            // arm refuses both, so the two are built rather than spread.
             completeness:
               input.childRun.completeness === "complete"
                 ? { state: "complete" }
@@ -127,11 +102,8 @@ export function rollbackBoundaryRow(
     readonly epoch?: number;
     readonly runVersion?: number;
     /**
-     * The rewind cutoff, which is NOT the boundary row's own position.
-     *
-     * Defaulted to the row's position so the common case reads short, and
-     * overridable because the interesting cases are exactly the ones where a
-     * boundary sits later in the log than the turn it rewound to.
+     * The rewind cutoff, which is not the boundary row's own position. Defaults to the row's
+     * position; cases override it where the boundary sits later than the turn it rewound to.
      */
     readonly targetPosition?: number;
   },

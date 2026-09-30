@@ -1,16 +1,9 @@
-// What an artifact is to this console: the vocabularies, the row type, and the pure
-// reductions the panel draws from.
+// What an artifact is to this console: the vocabularies, the row type, and the pure reductions
+// the panel draws from.
 //
-// The sentences the console may say about one are in `artifact-copy.ts`; copy names these
-// types and nothing here names a sentence.
-//
-// `ArtifactManifestRow` is a console view model, not a wire type: it copies the contract's
-// `ArtifactManifest`, field for field. The state and type vocabularies are the contract's
-// own unions, so a member the wire drops leaves the row type, the filter and the copy
-// tables in the same compile.
-//
-// This module models no payload preview and never nulls a derivative's `subject`. Payloads
-// are explicit-fetch downloads, and nothing in the product executes one.
+// `ArtifactManifestRow` is a console view model that copies the contract's `ArtifactManifest`.
+// The state and type vocabularies are the contract's own unions, so a member the wire drops
+// fails the row type, the filter and the copy tables in the same compile.
 
 import type {
   ArtifactId,
@@ -24,20 +17,14 @@ import { lossyStringify } from "@renderer/lib/wire-errors.js";
 /** One artifact state: an alias of the wire's union, so a dropped member fails the compile. */
 export type ArtifactState = ManifestState;
 
-/**
- * One artifact type, a filter over one list and never six lists.
- *
- * `diff` is a member of the set, so the diff pane is a view onto this list rather than a
- * second store.
- */
+/** One artifact type: a filter over one list, so the diff pane is a view onto it. */
 export type ArtifactType = ManifestType;
 
 /**
  * The manifest envelope a row renders from.
  *
- * `digest` and `size` are always present. The three optional members are optional for
- * three different reasons, and each renders as its own fact rather than as a shared
- * "unknown".
+ * `digest` and `size` are always present. The three optional members are absent for three
+ * different reasons, and each renders as its own fact rather than a shared "unknown".
  */
 export interface ArtifactManifestRow {
   readonly id: ArtifactId;
@@ -57,7 +44,7 @@ export interface ArtifactManifestRow {
   readonly createdAt: string;
 }
 
-/** Zero rows of every type. A total record, so the compiler holds it to the wire's union. */
+/** Zero rows of every type. Total, so the compiler holds it to the wire's union. */
 const NO_ARTIFACTS_BY_TYPE: Readonly<Record<ArtifactType, number>> = {
   file: 0,
   diff: 0,
@@ -73,15 +60,14 @@ export const ARTIFACT_FILTER_TYPES = Object.keys(NO_ARTIFACTS_BY_TYPE) as readon
 /** The filter's "every type" member, which is not an artifact type. */
 export const ARTIFACT_TYPE_FILTER_ALL = "all";
 
-/** What the type filter can be set to: every type, or one of the six. */
+/** What the type filter can be set to: every type, or one. */
 export type ArtifactTypeFilter = typeof ARTIFACT_TYPE_FILTER_ALL | ArtifactType;
 
 /**
  * What the panel is showing.
  *
- * `loading` and `listed` with an empty array are different arms on purpose: one says the
- * read has not answered and the other says it found none, and the operator's next move
- * differs.
+ * `loading` and `listed` with no rows differ on purpose: the read has not answered, or it
+ * found none.
  */
 export type ArtifactsSectionState =
   | { readonly kind: "loading" }
@@ -99,10 +85,7 @@ export function filterArtifactRows(
 }
 
 /**
- * How many rows each type has, total over the six.
- *
- * Total rather than sparse so the filter can offer every type, including the ones at
- * zero.
+ * How many rows each type has, zeros included, so the filter can offer every type.
  */
 export function artifactTypeCounts(
   rows: readonly ArtifactManifestRow[],
@@ -117,10 +100,8 @@ export function artifactTypeCounts(
 /**
  * Read one served manifest as a row.
  *
- * The two free-form maps, `annotations` and `metadata`, are read through
- * `renderableStringMap` rather than copied, because a `metadata` value may be any JSON
- * value and a row draws strings: an object-valued entry would otherwise throw in the row
- * and take the whole panel down.
+ * The free-form `annotations` and `metadata` maps go through `renderableStringMap`: a value
+ * may be any JSON value, and an object-valued entry would otherwise throw in the row.
  */
 export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactManifestRow {
   return {
@@ -142,19 +123,17 @@ export function artifactManifestRowFrom(manifest: ArtifactManifest): ArtifactMan
 /**
  * Every entry of one free-form wire map, as the string a row draws for it.
  *
- * A value is always rendered in some form, because a row that silently showed fewer
- * entries than the daemon sent would misreport the provenance it exists to show.
- * `JSON.stringify` throws on a `BigInt`, a cycle and a hostile `toJSON`, and answers
- * `undefined` for `undefined`, a function and a symbol; both cases land on
- * `lossyStringify`, the console's total stringifier.
+ * Every value is rendered, since a row showing fewer entries than the daemon sent would
+ * misreport provenance. `JSON.stringify` throws on a `BigInt`, a cycle and a hostile
+ * `toJSON`, and answers `undefined` for `undefined`, a function and a symbol; both land on
+ * `lossyStringify`.
  */
 function renderableStringMap(
   entries: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, string>> {
   const rendered: Record<string, string> = {};
-  // `Object.entries` throws on `null` and `undefined`, and the member is typed present
-  // but not proven present. A row missing its provenance draws no entries, the same as
-  // a row with an empty map.
+  // `Object.entries` throws on `null` and `undefined`, and the member is typed present but not
+  // proven present; such a row draws no entries.
   if (typeof entries !== "object" || entries === null) {
     return rendered;
   }
@@ -170,7 +149,7 @@ function renderableMapValue(value: unknown): string {
   try {
     serialized = JSON.stringify(value);
   } catch {
-    // A `BigInt`, a cycle, or a `toJSON` that threw. The value is still shown.
+    // A `BigInt`, a cycle, or a `toJSON` that threw.
     return lossyStringify(value);
   }
   // `undefined`, a function or a symbol serialize to nothing.

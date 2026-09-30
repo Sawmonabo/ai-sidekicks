@@ -1,17 +1,7 @@
-// The Agents pane's body: what each agent in the session is running under.
-//
-// THE FRAME IS NOT THIS MODULE'S, AND THAT IS WHY THIS FILE IS A BODY RATHER THAN A
-// PANE. The pane layout mounts it inside `components/PaneFrame`, which draws the section,
-// the kind glyph, the breadcrumb trail, the control strip and the body box. This
-// module draws no heading of its own: a second name inside the body would be a second
-// answer to what this pane is called. The column keeps its own heading, because it
-// names a part of this body rather than the body itself.
-//
-// EVERY PROP THE FRAME HAS TO RESOLVE IS OPTIONAL, AND THAT IS NOT LAZINESS. An auxiliary address
-// resolves to a session and may name no agent; a bare route resolves to no session at
-// all, and both contexts type `sessionStore` as possibly absent for exactly that
-// reason. A pane that demanded them would be unmountable in the states the frame can
-// actually produce, so the column states which half it is missing instead.
+// The Agents pane body: what each agent in the session is running under. It draws no heading of
+// its own; the pane frame names the pane. Every prop the frame resolves is optional because a
+// bare route resolves no session and an auxiliary address may name no agent, so the column
+// states which half is missing.
 
 import type { ReactNode } from "react";
 
@@ -22,16 +12,11 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { AgentBindingColumn } from "./components/AgentBindingColumn.js";
 
-/** What the console body needs to read one session's agents. */
+/** What the body needs to read one session's agents. */
 export interface AgentsPaneProps {
   /**
-   * The agent this console is about, wire-verbatim.
-   *
-   * `undefined` is reachable and is not a fault: the frame's context picker resolves
-   * a bare auxiliary address by choosing a SESSION, and the Agents pane grammar
-   * carries its agent with its session or not at all, so a picked session arrives
-   * here with no agent named. The binding column answers it by showing the whole
-   * roster rather than one card.
+   * The agent this pane is about, wire-verbatim. `undefined` is not a fault: a picked session
+   * arrives with no agent named, and the column then shows the whole roster.
    */
   readonly agentId: string | undefined;
   /** Absent where the mount could not resolve one; the column says so. */

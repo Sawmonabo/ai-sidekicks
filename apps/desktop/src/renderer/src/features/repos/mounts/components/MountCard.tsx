@@ -1,42 +1,8 @@
-// One repo mount, on two axes that never collapse into one.
-//
-// THIS CARD'S OWN JOB, decided here because each view's composition — what it
-// renders, offers, refuses, and folds — lives in the console's code: the card says
-// which repository this is and whether it is still the repository it was attached as.
-// Its rules are structural rather than cosmetic, and each is visible in the markup
-// below:
-//
-//   • TWO PATHS, BOTH SURFACED. `canonicalRoot` is the resolver's output and the key
-//     the trust envelope and the dedupe index are built on; `localPath` is the
-//     user-entered path kept as provenance. Both are required, because attaching from
-//     a nested subdirectory is the case that separates them.
-//   • `canonicalRoot` VERBATIM. No home-directory abbreviation, no basename
-//     shortening, no prettifying. It is middle-truncated by the STYLESHEET at the
-//     measure, with the full string recoverable through the element's title and the
-//     copy control beside it — so the renderer is never the reason two different
-//     roots look identical.
-//   • TWO AXES, TWO CHIPS. Lifecycle (`attached` / `detached` / `archived`) and
-//     health (`healthy` / `unreachable`) are separate facts and wear separate chips,
-//     with `checkedAt` beside the health one because a probe instant is information.
-//   • THE BIND ENTRY POINT SITS ON THE CARD, AND ONLY WHERE BINDS ARE OFFERED.
-//     A workspace in a chosen mode comes from `repo.workspaceBind`, and the mount is what
-//     that call is scoped to. It is drawn on exactly the posture that admits it, so a
-//     detached, unreachable, or drifted mount shows its withheld sentence instead of a
-//     control the daemon would refuse.
-//   • ONE VERDICT CARRIES A CONTROL, AND IT IS THE PERMANENT ONE. `identity_mismatch`
-//     refuses every bind and every run on this mount until someone acts, and
-//     re-attaching is the named recovery — so that verdict, and no other, is drawn
-//     with the re-attach beside it.
-//     `unreachable` is transient and gets none: its remedy is to make the path
-//     reachable, and a control here would invite a second row for a repository that is
-//     about to answer for itself.
-//
-// WHAT THE CARD DOES NOT DO. It never resolves, canonicalizes, or compares a path —
-// containment, symlink resolution, case folding, and working-tree-boundary awareness
-// are the daemon's trust-envelope rules, so the console sends the string and renders
-// `repo.outside_trust_envelope` if it comes back. It never computes health and never
-// softens `unreachable`. And it never re-attaches: re-attach mints a new mount row and is a
-// user-confirmed act.
+// One repo mount, with lifecycle and health as separate chips. `canonicalRoot` is shown
+// verbatim (the stylesheet truncates it; the title and copy control recover it) and never
+// resolved or compared here, because containment and symlink rules belong to the daemon.
+// The bind entry shows only where the posture admits it; re-attach only on `identity_mismatch`,
+// the permanent verdict, since `unreachable` is transient.
 
 import type {
   ExecutionMode,
@@ -64,6 +30,7 @@ import { OpenDiffControl, type OpenDiffSubject } from "./OpenDiffControl.js";
 import { WorkspaceCard } from "./WorkspaceCard.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
+/** A mount's read, its workspaces, and the handlers every control on the card passes through. */
 export interface MountCardProps {
   readonly mount: RepoMountReadResponse;
   /** This mount's workspaces, in the order the list read returned them. */
@@ -84,19 +51,14 @@ export interface MountCardProps {
   /** Read the section again, because a user's act minted a mount it has not seen. */
   readonly onRequestRead: () => void;
   readonly onSelectExecutionMode: (workspaceId: WorkspaceId, executionMode: ExecutionMode) => void;
-  /**
-   * Open a change set over one of this card's rows.
-   *
-   * Takes the subject rather than being bound to a workspace: a workspace and an
-   * execution root open the same pane at different addresses.
-   */
+  /** Open a change set over one of this card's rows; takes the subject, not a workspace. */
   readonly onOpenDiff: (subject: OpenDiffSubject) => void;
 }
 
+/** One mount: root, lifecycle and health chips, bind entry, provenance, and its workspaces. */
 export function MountCard(props: MountCardProps): React.JSX.Element {
   const { mount } = props;
-  // The lifecycle axis supplies this card's first chip; its SENTENCE reaches the
-  // screen through the withheld line, which `readBindControlAvailability` composes.
+  // The lifecycle sentence reaches the screen through the withheld line.
   const lifecycle = mountLifecycleReading(mount.state);
   const health = mountHealthReading(mount.health);
   const posture = readBindControlAvailability(mount);
@@ -112,8 +74,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
     >
       <header className="meridian-mount-card__head">
         <Glyph name="repo" size={GLYPH_SIZE_CHROME} />
-        {/* The resolved root, verbatim and recoverable: the title carries the whole
-            string the stylesheet truncates, and the copy control carries it out. */}
+        {/* The title carries the whole string the stylesheet truncates. */}
         <WireFigure value={mount.canonicalRoot} title={mount.canonicalRoot} truncate />
         <button
           type="button"
@@ -130,20 +91,14 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
       <div className="meridian-mount-card__axes">
         <Chip label={lifecycle.label} mono tone={lifecycle.tone} />
         <Chip label={health.label} mono tone={health.tone} />
-        {/* The probe instant the health verdict came from. Beside the chip rather
-            than folded into it: the verdict and when it was taken are two facts. */}
+        {/* Beside the chip, not in it: the verdict and when it was probed are two facts. */}
         <span className="meridian-mount-card__checked-at">
           probed {formatClockTime(mount.health.checkedAt)}
         </span>
       </div>
 
-      {/*
-        ONE state sentence, never two. A withheld card's reason IS one of the axis
-        sentences — `readBindControlAvailability` picks which, lifecycle before health, so a
-        detached row never reads as a path to go and fix — and rendering the axis
-        sentence beside it would print the same words twice under different styling,
-        which reads as two facts.
-      */}
+      {/* One state sentence, never two: a withheld card's reason is one of the axis sentences
+          (lifecycle before health), so rendering the axis sentence too would print it twice. */}
       {posture.offered ? (
         <p className="meridian-mount-card__sentence">{health.sentence}</p>
       ) : (
@@ -204,8 +159,7 @@ export function MountCard(props: MountCardProps): React.JSX.Element {
                   props.onSelectExecutionMode(workspace.id, executionMode);
                 }}
               />
-              {/* Beside the card and not inside it: a card renders what its own read
-                  said, and opening a pane is the pane layout's act rather than a column. */}
+              {/* Beside the card, not inside it: opening a pane is the pane layout's act. */}
               <OpenDiffControl
                 subject={{ kind: "workspace", id: workspace.id }}
                 onOpenDiff={props.onOpenDiff}

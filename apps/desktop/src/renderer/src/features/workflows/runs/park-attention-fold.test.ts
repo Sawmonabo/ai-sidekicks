@@ -1,11 +1,6 @@
-// The fold's four claims: what folds, what does not, what the count counts, and what
-// order the entries come out in.
-//
-// Driven through `RunListProjection` rather than through `foldParkAttention` alone
-// wherever the claim is about ORDER or about the badge, because those are properties
-// of the pair — the fold walks rows the projection has already sorted, and a suite
-// that fed it a hand-built array would prove the fold and leave the seam unchecked.
-// The two claims that are purely about the fold's own arithmetic take it directly.
+// The fold's claims: what folds, what does not, what the count counts, and the entry order.
+// Order and badge cases go through `RunListProjection`, since they are properties of the pair; the
+// two purely arithmetic cases take the fold directly.
 
 import { describe, expect, it } from "vitest";
 
@@ -58,17 +53,12 @@ describe("the park attention fold — what folds", () => {
       parkAttentionKey: "account-1",
       affectedRunCount: 3,
       parkReasons: ["provider-usage-limited"],
-      // No park in this fold armed a resume, so every one of them ends when a person
-      // ends it — which is what the amber says, and the fold agrees with each badge
-      // under it rather than deciding separately.
+      // No park in this fold armed a resume, so each ends when a person ends it.
       awaitsPerson: true,
     });
   });
 
   it("counts DISTINCT runs, so one run's two parked branches are one affected run", () => {
-    // The defect this exists to prevent: a fan-out parks two phases against one
-    // account, and an entry reporting "2 runs affected" is a figure an operator
-    // cannot reconcile against the single row underneath it.
     const entries = foldOf([
       run({
         workflowRunId: "run-a",
@@ -115,8 +105,6 @@ describe("the park attention fold — what folds", () => {
 
 describe("the park attention fold — what does not fold", () => {
   it("gives an uncorrelated park its own entry rather than a no-key bucket", () => {
-    // Fails open toward more entries: the engine declined to correlate these, and a
-    // renderer that grouped them anyway would invent a correlation nobody stated.
     const entries = foldOf([
       run({ workflowRunId: "run-a", phaseStates: [uncorrelatedPark("sign-off")] }),
       run({ workflowRunId: "run-b", phaseStates: [uncorrelatedPark("sign-off")] }),
@@ -149,8 +137,6 @@ describe("the park attention fold — what does not fold", () => {
 
 describe("the park attention fold — the badge count", () => {
   it("counts entries and not the runs they stand for", () => {
-    // The claim the badge exists for. Three runs on one account are ONE thing to
-    // look at; the parked-run count beside it is the other question and answers 3.
     const projection = new RunListProjection([
       run({ workflowRunId: "run-a", phaseStates: [correlatedPark("draft", "account-1")] }),
       run({ workflowRunId: "run-b", phaseStates: [correlatedPark("draft", "account-1")] }),
@@ -164,8 +150,7 @@ describe("the park attention fold — the badge count", () => {
 
 describe("the park attention fold — the amber", () => {
   it("spends amber on a fold where ANY park needs a person", () => {
-    // Fail-closed: an entry standing for two waits, one of which nobody will end on
-    // its own, needs somebody. The armed park alone would have earned no color.
+    // Fail-closed: the armed park alone would have earned no color.
     const entries = foldOf([
       run({
         workflowRunId: "run-a",
@@ -199,9 +184,8 @@ describe("the park attention fold — the amber", () => {
   });
 
   it("treats an unreadable resume instant as a wait on a person", () => {
-    // The projection classifies a present-but-malformed instant `unreadable`, which
-    // `parkAwaitsPerson` folds in with `unscheduled` — nothing legible says this
-    // resumes itself, so the fold must not report it as a machine waiting.
+    // `parkAwaitsPerson` folds `unreadable` in with `unscheduled`: nothing legible says it resumes
+    // itself.
     const entries = foldOf([
       run({
         workflowRunId: "run-a",
@@ -217,8 +201,6 @@ describe("the park attention fold — the amber", () => {
 
 describe("the park attention fold — order", () => {
   it("places a fold where its FIRST park was met, in the list's own order", () => {
-    // The rows arrive newest first, so an entry
-    // folding several runs sits where the run an operator meets first sits.
     const entries = foldOf([
       run({
         workflowRunId: "run-old",
@@ -237,7 +219,6 @@ describe("the park attention fold — order", () => {
       }),
     ]);
 
-    // `account-1` first because the newest run carries it, and it holds two runs.
     expect(entries.map((entry) => entry.kind === "folded" && entry.parkAttentionKey)).toStrictEqual(
       ["account-1", "account-2"],
     );
@@ -245,8 +226,6 @@ describe("the park attention fold — order", () => {
   });
 
   it("negative control: a fold is settled AFTER the whole walk, not at its first park", () => {
-    // Without the settle-at-the-end rule the first entry would carry the count as it
-    // stood when its entry was placed — one — while the rows below it showed three.
     const entries = foldOf([
       run({ workflowRunId: "run-a", phaseStates: [correlatedPark("draft", "account-1")] }),
       run({ workflowRunId: "run-b", phaseStates: [correlatedPark("draft", "account-1")] }),
@@ -259,8 +238,7 @@ describe("the park attention fold — order", () => {
 
 describe("the park attention fold — taken directly", () => {
   it("reads a run's identity off the caller and its parks off the projection", () => {
-    // The one case that drives `foldParkAttention` alone: it takes parked phases and
-    // a run id rather than snapshots, so a caller holding neither builds neither.
+    // The one case that drives `foldParkAttention` alone: it takes parked phases and a run id.
     const parkedPhases = projectParkedPhases([correlatedPark("draft", "account-1")]);
 
     expect(foldParkAttention([{ workflowRunId: "run-a", parkedPhases }])).toStrictEqual([

@@ -8,12 +8,9 @@ import type { ProviderCommandEnumeration } from "../provider-command-enumeration
 import type { ProviderCommandReadState } from "../provider-command-read.js";
 
 /**
- * Drive one composer's enumeration from the command list that opens it, and read it back.
- *
- * The COMMAND LIST calls this: opening is its decision, because the leading
- * slash in the line is what makes the reading live. Every other reader observes the
- * same holder without opening anything, so the composer never asks twice and never
- * asks because somebody wanted to look at the answer.
+ * Drive one composer's enumeration from the command list that opens it, and read it back. Opening
+ * is the command list's decision, since the leading slash makes the reading live; other readers
+ * observe the same holder without opening it, so the composer never asks twice.
  */
 export function useProviderCommandEnumeration(options: {
   readonly enumeration: ProviderCommandEnumeration;

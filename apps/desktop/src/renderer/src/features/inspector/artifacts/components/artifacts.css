@@ -1,6 +1,4 @@
-/* The artifacts panel and its rows: the filter and each row's act. */
-
-/* ------------------------------------------------------- artifacts panel */
+/* The artifacts panel and its rows. */
 
 .meridian-artifacts {
   display: flex;
@@ -31,11 +29,7 @@
   gap: var(--meridian-space-1);
 }
 
-/*
- * Quiet until pressed. The filter is chrome around the content: a pressed state carried by
- * the accent edge alone is enough to find, and a row of filled buttons would out-shout
- * every artifact behind them.
- */
+/* Quiet until pressed: the accent edge alone marks the selection. */
 .meridian-artifacts__filter-button {
   display: inline-flex;
   align-items: center;
@@ -78,7 +72,6 @@
   background: var(--meridian-surface);
 }
 
-/* Type, state, visibility, size, producer, age — the six the design puts on a face. */
 .meridian-artifact-row__face {
   display: flex;
   flex-wrap: wrap;
@@ -114,7 +107,6 @@
   cursor: pointer;
 }
 
-/* One primary act per row: the payload is what a user came for. */
 .meridian-artifact-row__act--primary {
   border-color: var(--meridian-accent);
   color: var(--meridian-accent-text);
@@ -134,7 +126,7 @@
   gap: var(--meridian-space-2);
 }
 
-/* The pair is a grid subgrid row: label in the first column, value in the second. */
+/* A subgrid row: label in the first column, value in the second. */
 .meridian-artifact-row__pair {
   display: grid;
   grid-column: 1 / -1;

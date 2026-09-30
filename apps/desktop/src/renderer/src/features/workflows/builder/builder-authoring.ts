@@ -10,37 +10,21 @@ import { misaddressedPane } from "../pane-addressing.js";
 export const WORKFLOW_BUILDER_ORIGIN = "workflow-builder";
 
 /**
- * The one entity kind this pane authors.
- *
- * `ENTITY_KINDS` registers `workflow-definition` and `workflow-run` as two
- * kinds on purpose — a definition is authored, versioned and scoped and outlives
- * every run of it — and this pane edits the first. A binding rather than a
- * literal at the guard, so the kind the pane accepts and the kind its refusal names
- * cannot come apart.
+ * The one entity kind this pane authors. A binding, not a literal at the guard, so the kind the
+ * pane accepts and the kind its refusal names cannot come apart.
  */
 export const WORKFLOW_BUILDER_SUBJECT_KIND: EntityRef["kind"] = "workflow-definition";
 
 /**
- * The state of a pane handed an entity it does not author.
- *
- * REFUSED AND NEVER THROWN, and never quietly read either. Both of the other
- * dispositions are worse than this one: a throw takes the whole pane layout down over one
- * mis-addressed pane, and treating any id as a definition id is what this guard
- * replaces — the pane would compose a read for a definition that does not exist and
- * present whatever came back as the definition a person asked to edit.
- *
- * The sentence is `workflows/pane-addressing.ts`'s, bound here to this pane's
- * origin and to the one kind it authors: the run view raises the same refusal about
- * its own kind, and two copies of one sentence are two sentences the day either is
- * reworded.
+ * The refusal for a pane handed an entity it does not author: returned, never thrown (a throw
+ * would take the pane layout down) and never read as a definition id. The sentence is
+ * `misaddressedPane`'s, bound to this pane's origin and kind.
  */
 export function misaddressedBuilderPane(addressedKind: EntityRef["kind"]): Refusal {
   return misaddressedPane(WORKFLOW_BUILDER_ORIGIN, WORKFLOW_BUILDER_SUBJECT_KIND, addressedKind);
 }
 
-/**
- * The state of a pane opened with no definition to author.
- */
+/** The state of a pane opened with no definition to author. */
 export function unaddressedBuilderPane(): WorkflowStripState {
   return { kind: "empty", title: "This pane was opened without a definition to author." };
 }

@@ -1,8 +1,5 @@
-// What the run-control suites are handed: a run to contribute for, and a dispatch state
-// that records what a pressed row dispatched.
-//
-// One recording dispatch state, so every suite that drives the palette hook answers "what did
-// the palette dispatch" the same way; a test file may not import another test file.
+// What the run-control suites are handed: a run to contribute for, and one recording dispatch
+// state, so every suite driving the palette hook answers "what did it dispatch" the same way.
 
 import type { InterventionRequestResponse, RunControlAck, RunState } from "@ai-sidekicks/contracts";
 
@@ -68,8 +65,8 @@ export function recordingRunControlDispatch(): {
       return Promise.resolve({ kind: "acknowledged", control: verb, ack: STUB_ACK });
     };
   const dispatcher = {
-    // The comparand is the dispatcher's own reconciliation; the stub answers with
-    // the reading it was handed so an assertion can see WHICH version traveled.
+    // The comparand is the dispatcher's own reconciliation; the stub returns the reading it
+    // was handed so an assertion can see which version traveled.
     comparandFor: (_runId: string, streamReading: number) => streamReading,
     pause: record("pause"),
     resume: record("resume"),

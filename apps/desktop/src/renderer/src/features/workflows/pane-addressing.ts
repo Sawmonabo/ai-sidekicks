@@ -1,49 +1,22 @@
-// The question both workflows panes answer before they answer their own: is this
-// pane pointed at a subject it opens?
-//
-// TWO PANES, ONE MISTAKE. The pane layout hands a pane a `EntityRef`, and the entity
-// set registers `workflow-definition` and `workflow-run` as two kinds deliberately —
-// a definition is authored, versioned and scoped and outlives every run of it. The
-// builder opens the first and the run view the second, and neither may read an id off
-// the other: a definition id carried into a run read, or a run id into a definition
-// read, composes a WELL-FORMED request about something that does not exist, and
-// whatever comes back is then presented as the subject the person asked for.
-//
-// ONE SENTENCE, TWO PRODUCERS, AND THAT IS WHY IT IS HERE. The two refusals differ
-// only in which subsystem raised one and which kind the pane opens, so the sentence
-// is composed once and each pane binds its own two values. Written twice, the copies
-// say different things about one mistake and the drift is invisible: a mis-addressed
-// pane is rare by construction, so nobody reads either sentence often enough to
-// notice they have come apart. `core/refusal.ts`'s rule still holds — each producer
-// keeps its own closed code set and widens into the shared shape at its boundary —
-// so the CODE is declared once here and each pane's own vocabulary lists it.
-//
-// REFUSED, NEVER THROWN, AND NEVER QUIETLY READ. Both of the other dispositions are
-// worse: a throw takes the whole pane layout down over one mis-addressed pane, and reading
-// the id anyway is the defect this replaces. The refusal is a `Refusal` rather
-// than a boolean so the two panes render one grammar — the refusal code in mono and
-// the sentence verbatim — instead of each writing its own words for the same state.
+// The address check both workflows panes make first: a pane pointed at a kind it does not open
+// is refused, never thrown (a throw would take the whole pane layout down) and never read (a
+// definition id read as a run id composes a well-formed request about something that does not
+// exist). The sentence is composed once so the two panes cannot drift; each pane binds its own
+// origin and kinds and lists the code in its own closed code set.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 
 /**
- * The code a pane raises when its address names a kind it does not open.
- *
- * A const assertion rather than a widening annotation: each pane's refusal-code
- * tuple names this constant through `typeof`, and a widened `string` would turn
- * those closed sets into `string[]` — the set no longer being closed at all.
+ * The code a pane raises when its address names a kind it does not open. It is a const
+ * assertion so each pane's refusal-code tuple can name it through `typeof` without widening
+ * to `string[]`.
  */
 export const PANE_ADDRESS_INVALID_CODE = "pane-address-invalid" as const;
 
 /**
- * The state of a pane handed an entity of a kind it does not open.
- *
- * The kinds are named in the detail because they are the whole content of the
- * refusal: a person looking at a pane that will not open needs to know it was pointed
- * at the wrong thing, and the pane layout's own address is what there is to fix. Neither id
- * appears — `core/refusal.ts` fixes `detail` as one actionable sentence that is never
- * the refused value.
+ * The refusal for a pane handed an entity of a kind it does not open. The detail names both
+ * kinds and never an id: `detail` is one actionable sentence that is never the refused value.
  */
 export function misaddressedPane(
   origin: string,

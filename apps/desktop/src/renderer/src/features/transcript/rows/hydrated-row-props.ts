@@ -1,34 +1,24 @@
-// What every transcript card is handed.
-//
-// `TranscriptRowProps` is the row renderer's contract — the row plus the three decisions
-// the LIST makes about it (hue, supersession, density). A card needs those and two more
-// things the row renderer's props cannot carry, because neither is a property of the row's position in
-// a list: the hydrated body, and the footnote registry the message it belongs to shares.
-//
-// EXTENDING THE CONTRACT RATHER THAN RESTATING IT is the point. A member added to
-// `TranscriptRowProps` reaches both cards without either one being edited, and no card
-// can quietly disagree with the row renderer about what a row is.
+// The props every transcript card is handed: the row renderer's contract plus the hydrated body
+// and the footnote registry the message shares. Extending that contract means a member added
+// to it reaches every card.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
 import type { TranscriptRowProps } from "../transcript-row-renderer.js";
 import type { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 
+/** What one transcript card is drawn from. */
 export interface HydratedRowProps extends TranscriptRowProps {
   /**
-   * The row's machine-authored body, as the read projection reports it.
-   *
-   * Optional because asking for a body is a separate act from projecting a row: a
-   * collapsed tool row a reader never opens costs no decryption, and `undefined` says
-   * "not asked" rather than "not there". `MachineBody` renders all three states.
+   * The row's machine-authored body, as the read projection reports it. Optional because asking
+   * for a body is a separate act from projecting a row: a collapsed tool row a reader never
+   * opens costs no decryption, and `undefined` says "not asked" rather than "not there".
    */
   readonly content?: HydratedSessionEventContent | undefined;
   /**
-   * Text the reveal engine is publishing for this row right now, while it streams.
-   *
-   * A PROP rather than a subscription: `features/transcript/reveal/reveal-engine.ts` publishes per
-   * lane and the viewport is what reads it, so a card that subscribed would be a second
-   * subscriber to one fact and would re-render on frames its own text did not change in.
+   * Text the reveal engine is publishing for this row while it streams. A prop rather than a
+   * subscription: the viewport is what reads the engine, so a card that subscribed would be a
+   * second subscriber to one fact.
    */
   readonly liveText?: string | undefined;
   /** Where this message's footnote definitions are registered. */

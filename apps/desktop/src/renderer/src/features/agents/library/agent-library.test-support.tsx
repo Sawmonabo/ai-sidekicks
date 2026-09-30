@@ -1,17 +1,6 @@
-// What a test of the agent library needs before it can assert anything.
-//
-// Extracted rather than repeated, and extracted rather than left in one file: the
-// page has six properties worth asserting and the scaffolding for them — a registry
-// that answers and counts, an announcer on a clock that only runs when a test runs
-// it, and the presses that reach a row's delete — is longer than any one of them.
-// Kept in a `.test-support` module beside the page, on the `bridge/` precedent, so
-// the file that holds the cases holds only cases.
-//
-// THE CLOCK IS HANDED BACK because the announcer HOLDS one message and queues the
-// rest behind a deadline: on a frozen clock a second announcement is invisible in
-// the live region, so a test that only read that region could not tell one
-// announcement from two. Advancing past the hold is what makes the difference
-// observable.
+// What a test of the agent library needs before it can assert anything: a registry stub that
+// answers and counts, an announcer on a frozen clock, and the presses that reach a row's
+// delete. Kept beside the page so the case files hold only cases.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -34,12 +23,9 @@ import { AgentLibrary } from "./AgentLibrary.js";
 import type { AgentRegistryCalls } from "./library-view.js";
 
 /**
- * A registry that answers, and counts what it was asked.
- *
- * The list replies are consumed in order and the last one repeats, so a test can
- * say what the registry looked like BEFORE a delete and what it looks like after
- * without scripting a whole engine. The counts are what let the re-read be
- * asserted at all: "the row is gone" is also true of a page that removed it itself.
+ * A registry that answers, and counts what it was asked. List replies are consumed in order
+ * and the last repeats; the counts let a re-read be asserted, since "the row is gone" is also
+ * true of a page that removed it itself.
  */
 export class RegistryStub {
   public readonly bridge: PlatformBridge;
@@ -55,12 +41,8 @@ export class RegistryStub {
   public constructor(options: {
     readonly lists: readonly (readonly AgentDefinition[])[];
     /**
-     * Hold every delete open until {@link releaseDeletes} is called.
-     *
-     * What a second press while the first is still running can only be driven
-     * against: with an immediate reply there is no moment at which two deletes are
-     * both in flight, so a page that ran them both would look identical to one that
-     * ran them in turn.
+     * Hold every delete open until {@link releaseDeletes} is called, so two deletes can be in
+     * flight at once (an immediate reply never has two).
      */
     readonly holdsDeletes?: boolean;
   }) {
@@ -87,8 +69,7 @@ export class RegistryStub {
         });
       },
     };
-    // Recorded so {@link settle} can reach the frozen clock the reads are scheduled
-    // against — see that function.
+    // Recorded so {@link settle} can reach the frozen clock the reads run on.
     clockUnderTest = this.clock;
   }
 
@@ -144,14 +125,10 @@ export function definition(overrides: DefinitionOverrides = {}): AgentDefinition
 }
 
 /**
- * Mount inside the announcer the page speaks through, on a clock that never runs
- * unless a test runs it.
- *
- * The clock is handed back because the announcer HOLDS one message and queues the
- * rest behind a deadline: on a frozen clock a second announcement is invisible in
- * the live region, so a test that only read that region could not tell one
- * announcement from two. Advancing past the hold is what makes the difference
- * observable.
+ * Mounts inside the announcer the page speaks through, on a clock that never runs unless a
+ * test runs it. The clock is handed back because the announcer holds one message and queues
+ * the rest behind a deadline; advancing past the hold is what makes a second announcement
+ * visible.
  */
 export function renderAgentLibrary(stub: RegistryStub): {
   readonly container: HTMLElement;
@@ -176,34 +153,25 @@ export async function releaseAnnouncementHold(clock: ManualClock): Promise<void>
   });
 }
 
-/** What a case changes on {@link definition}: any member, the id as plain text, and the default binding's members. */
+/**
+ * What a case changes on {@link definition}: any member, the id as plain text, and the
+ * default binding's members.
+ */
 interface DefinitionOverrides extends Partial<Omit<AgentDefinition, "definitionId">> {
   readonly definitionId?: string;
   readonly defaultBinding?: Partial<AgentProviderBinding>;
 }
 
 /**
- * The window's clock the page or the view under test schedules its reads on.
- *
- * Module state rather than a parameter because {@link settle} is called from forty-odd
- * places across this page's suites, and threading a clock through every one of them
- * would state nothing a reader needs: exactly one page is mounted at a time here, over
- * the clock the stub just minted.
+ * The window's clock the page under test schedules its reads on. Module state because
+ * {@link settle} is called from many places and exactly one page is mounted at a time.
  */
 let clockUnderTest: Clock | undefined;
 
 /**
- * Let the read, the delete, and the re-read the delete schedules all land.
- *
- * TWO WAITS, BECAUSE THE PAGE HAS TWO KINDS OF READ. The opening read goes through
- * the registry view's `RefreshScheduler`, so the frozen clock has to reach the
- * window's deadline before anything is on the wire at all; the re-read a delete
- * performs is taken directly and only needs its own chain to settle. Doing the first
- * without the second leaves the reply uncommitted, and the second without the first
- * asserts against a page that was never given a chance to ask.
- *
- * No depth is stated, which is the point: `core/`'s settle crosses a boundary instead of
- * counting links — see that module.
+ * Lets the read, the delete, and the re-read the delete schedules all land. Two waits: the
+ * opening read goes through the view's `RefreshScheduler`, so the frozen clock must reach its
+ * deadline first, while the delete's re-read only needs its own chain to settle.
  */
 export async function settle(): Promise<void> {
   if (clockUnderTest !== undefined) {
@@ -212,6 +180,7 @@ export async function settle(): Promise<void> {
   await settleReactWork();
 }
 
+/** The saved-sidekicks region; throws where the page rendered none. */
 export function savedRegionOf(container: HTMLElement): Element {
   const region = container.querySelector('[aria-label="Saved sidekicks"]');
   if (region === null) {
@@ -220,6 +189,7 @@ export function savedRegionOf(container: HTMLElement): Element {
   return region;
 }
 
+/** The button with this aria-label; throws where none exists. */
 export function buttonNamed(container: HTMLElement, label: string): HTMLButtonElement {
   const control = container.querySelector<HTMLButtonElement>(`button[aria-label="${label}"]`);
   if (control === null) {
@@ -228,6 +198,7 @@ export function buttonNamed(container: HTMLElement, label: string): HTMLButtonEl
   return control;
 }
 
+/** Presses a control and lets the page settle. */
 export async function press(control: HTMLButtonElement | null | undefined): Promise<void> {
   await pressWithoutSettling(control);
   await settle();

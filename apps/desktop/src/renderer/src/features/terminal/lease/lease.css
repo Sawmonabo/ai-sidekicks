@@ -1,19 +1,11 @@
 /*
  * The lease line: who holds the write lease and the control that asks for it.
  *
- * Hand-authored, like `primitives/shared.css`, and on the same terms: no literal color,
- * every value read back out of a custom property.
+ * No literal color; every value comes from a custom property. One of the terminal feature's
+ * three sheets, each imported only from `pane/terminal-pane-body.ts`, so the bundler sees one
+ * edge into each and the styles stay out of the initial document.
  *
- * One of the terminal feature's three sheets, one per sub-module directory and named
- * for that directory. Every one is imported from `pane/terminal-pane-body.ts` and from
- * nowhere else, so the bundler sees exactly one edge into each — which is what keeps
- * this feature out of the document the operator waits for.
- *
- * The console's design rules govern every rule here:
- *   • one desaturated cyan on the interactive thing, and nothing else. The take
- *     control is that thing.
- *   • motion settles. The control spends `--meridian-motion-quick` and nothing
- *     overshoots.
+ * Cyan is spent only on the interactive take control, and motion settles with no overshoot.
  */
 
 .meridian-lease-line {
@@ -45,14 +37,9 @@
   gap: var(--meridian-space-2);
 }
 
-/* The one interactive thing on the lease line, so the one place cyan is spent — and it
-   is spent on the control's BOUNDARY rather than behind its label.
-   `--meridian-accent` is a NON-TEXT token: `styles/tokens.ts` holds it to the 3:1
-   control-boundary floor and to nothing more, so a label sitting on it was a text
-   pair no floor in the palette covers, and the accessibility tier measured it as a
-   serious contrast failure in the light scheme. `--meridian-accent-text` is the
-   accent's text-floor sibling, cleared at 4.5:1 against every ground. The control
-   still reads as the primary one — it is the only accent-bordered thing on the line. */
+/* The one accent-bordered control on the line. Cyan goes on its boundary, not behind its
+   label: `--meridian-accent` is a non-text token held only to the 3:1 boundary floor, so the
+   label uses `--meridian-accent-text`, which clears 4.5:1 against every ground. */
 .meridian-lease-line__take {
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);

@@ -1,12 +1,6 @@
-// The deferred edge into the graph renderer: one fetch per loader, and the real
-// component at the end of it.
-//
-// The BUNDLING half of this module's claim — that `@xyflow/react` lands in a lazy
-// chunk rather than in the initial document — is not assertable from here; it is the
-// renderer initial-bundle budget's subject, measured against Vite's own chunk
-// manifest by the bundle tier. What is assertable here is the contract that makes
-// that split safe to depend on: the module a caller gets is the real canvas, and two
-// callers share one fetch.
+// The deferred edge into the graph renderer: one fetch per loader, and the real component at
+// the end of it. That `@xyflow/react` lands in a lazy chunk is the bundle tier's subject and
+// is not assertable here.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,8 +10,8 @@ import { RunGraphLoader, runGraphLoader } from "./run-graph-loader.js";
 describe("the graph loader", () => {
   it("resolves the real canvas component, not a stand-in for it", async () => {
     const { RunGraphCanvas: loaded } = await new RunGraphLoader().load();
-    // Identity, not shape: a wrapper that merely looked like the component would let
-    // a caller draw a graph this directory does not own.
+    // Identity, not shape: a look-alike wrapper would let a caller draw a graph this directory
+    // does not own.
     expect(loaded).toBe(RunGraphCanvas);
   });
 
@@ -30,14 +24,12 @@ describe("the graph loader", () => {
 
   it("memoizes: two graphs mounting together share one fetch", () => {
     const loader = new RunGraphLoader();
-    // Promise identity is the observable. Two distinct promises would mean two
-    // entries into the module, which is the race the memo exists to prevent.
+    // Promise identity is the observable: two promises would mean two entries into the module.
     expect(loader.load()).toBe(loader.load());
   });
 
   it("negative control: two loaders do not share one memo", () => {
-    // Without this the case above would pass against a module-level promise, which
-    // is exactly the shared state the class form exists to avoid.
+    // Without this the case above would pass against a module-level promise.
     expect(new RunGraphLoader().load()).not.toBe(new RunGraphLoader().load());
   });
 

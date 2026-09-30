@@ -1,21 +1,7 @@
-// A phase's tool bindings in the definition file: the reference a definition may carry,
-// and the policy it may not.
-//
-// ONE MODULE FOR BOTH SIDES, which is the rule the file form's other two modules keep
-// for the same reason: the member names and the arm shapes are stated once, so a
-// binding this console wrote is a binding this console reads.
-//
-// IT IS ITS OWN MODULE BECAUSE THE RULE IS ITS OWN. Tool bindings are references
-// and never inline policy — a rule about what a definition may not
-// say, and it is enforced HERE rather than at launch: a binding carrying `enabled`,
-// `approvalMode` or `idempotencyClass` is refused at parse, so a definition exported
-// from one machine cannot import a weakened posture onto another. Holding that beside
-// the phase sequence would bury a security rule inside a shape reader.
-//
-// THE THREE ARMS ARE READ AS THREE ARMS. `McpServerBindingRef` is a discriminated
-// union on the scope: `user` carries no `scopeRef` at all, and `project` and `local`
-// require one. Every scope exists on both providers, so the reader dispatches on the
-// scope and composes the arm it landed on.
+// A phase's tool bindings in the definition file: the reference a definition may carry, and
+// the policy it may not. A binding with `enabled`, `approvalMode` or `idempotencyClass` is
+// refused at parse, so an exported definition cannot import a weakened posture onto another
+// machine. `user` bindings carry no `scopeRef`; `project` and `local` require one.
 
 import {
   MCP_CONFIG_SCOPES,
@@ -32,11 +18,8 @@ import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 
 /**
- * The members one tool binding carries, in the order a file writes them.
- *
- * One tuple for the write order and the admitted set, because they are the same fact:
- * a member the writer does not write is a member the reader must not accept, and two
- * spellings of one closed shape drift the first time either grows.
+ * The members one tool binding carries, in write order. The same tuple is the admitted set: a
+ * member the writer does not write is one the reader must not accept.
  */
 const TOOL_BINDING_KEYS = ["binding", "toolName"] as const;
 
@@ -47,12 +30,9 @@ const USER_SCOPED_BINDING_KEYS = ["provider", "scope", "serverName"] as const;
 const REF_SCOPED_BINDING_KEYS = ["provider", "scope", "scopeRef", "serverName"] as const;
 
 /**
- * The three facets a definition may never carry, named so a refusal can say which.
- *
- * They are already refused by the admitted-key check above — neither tuple carries one
- * — so this exists for the SENTENCE and not for the decision. A person who pasted a
- * binding with an `approvalMode` in it needs to read that the facet is the node
- * operator's and not that a key was unrecognized.
+ * The facets a definition may never carry, named so a refusal can say which. The admitted-key
+ * check already refuses them; this exists for the sentence, so a person reads that the facet
+ * is the node operator's rather than that a key was unrecognized.
  */
 const GOVERNANCE_FACET_KEYS = ["enabled", "approvalMode", "idempotencyClass"] as const;
 
@@ -67,12 +47,8 @@ export function toolBindingFileRecords(
 }
 
 /**
- * One phase's bindings, or the sentence naming what is wrong with one of them.
- *
- * A STRING FOR THE FAILURE ARM rather than a second result type, which is the shape
- * every reader of this file form takes: the caller widens whichever it gets into the
- * one reading a view renders, and a result type per level would be four unions
- * describing one outcome.
+ * One phase's bindings, or the sentence naming what is wrong with one of them. A string is the
+ * failure arm, as in every reader of this file form.
  */
 export function readToolBindings(
   value: unknown,
@@ -95,9 +71,8 @@ export function readToolBindings(
 
 /** One binding reference as a file writes it: the arm's own members, in order. */
 function bindingReferenceRecord(binding: McpServerBindingRef): Readonly<Record<string, unknown>> {
-  // The `scopeRef` member is spread on the arms that HAVE one rather than written as
-  // `undefined`: a YAML writer handed an undefined value writes a null, and a null
-  // `scopeRef` is a binding that names a scope reference and leaves it empty.
+  // `scopeRef` is spread only on the arms that have one: a YAML writer turns `undefined` into
+  // null, which would name a scope reference and leave it empty.
   return {
     provider: binding.provider,
     scope: binding.scope,
@@ -133,9 +108,8 @@ function readBindingReference(value: unknown, bindingProse: string): McpServerBi
   }
   const facet = GOVERNANCE_FACET_KEYS.find((key) => key in value);
   if (facet !== undefined) {
-    // The rule, in the sentence rather than only in the code: these three are set
-    // through the node's own governance settings and resolved live at phase launch, so
-    // a definition carrying one is refused rather than imported and ignored.
+    // The rule in the sentence: these three are set through the node's governance settings and
+    // resolved live at phase launch, so a definition carrying one is refused, not ignored.
     return `${bindingProse} carries \`${facet}\`, which is the node operator's setting and never a definition's.`;
   }
   const provider = readVocabularyMember(value["provider"], PROVIDER_NAMES);

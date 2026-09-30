@@ -1,20 +1,7 @@
-// What the agent library HOLDS: the registry read, the delete in flight, and which
-// record the editor is open on.
-//
-// It is a module of its own rather than a class at the top of `AgentLibrary.tsx`
-// because the two are different jobs — one owns a state machine over the registry calls,
-// the other renders whatever that machine settled on — which is the seam the
-// module-shape rule in `apps/desktop/AGENTS.md` splits on. The page imports the hook
-// and reads a snapshot; it never makes the calls itself.
-//
-// ONE CLASS RATHER THAN THREE PIECES OF COMPONENT STATE, because the three move
-// together: a delete the daemon applied clears the row, re-reads the list, and
-// closes the editor if it was open on the record that just stopped existing. Three
-// `useState` calls updated in sequence is that same machine with its illegal
-// intermediate states reachable and unnamed.
-//
-// A REJECTED CALL IS NOT CAUGHT HERE. It reaches whoever pressed or mounted; the delete
-// gives its lock back on the way out so the page does not stay disabled.
+// What the agent library holds: the registry read, the delete in flight, and which record the
+// editor is open on. One class because the three move together: an applied delete clears the
+// row, re-reads, and closes an editor open on that record. A rejected call is not caught here;
+// it reaches the caller, and the delete gives its lock back on the way out.
 
 import { type Clock } from "@renderer/lib/clock.js";
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
@@ -28,9 +15,7 @@ import { RefreshScheduler, type RefreshReason } from "@renderer/lib/reads/refres
 import type { ListAgentDefinitions } from "../agent-reads.js";
 import { readDefinitions, type AgentDefinitionReading } from "./definition-rows.js";
 
-/**
- * Deletes one saved definition. Rejects when the daemon refuses.
- */
+/** Deletes one saved definition. Rejects when the daemon refuses. */
 export type DeleteAgentDefinition = (request: {
   readonly definitionId: string;
 }) => Promise<unknown>;
@@ -42,12 +27,8 @@ export interface AgentRegistryCalls {
 }
 
 /**
- * Which record the editor is open on.
- *
- * A closed two-arm union rather than an optional id, because "edit this stored
- * definition" and "compose one that does not exist yet" are different acts with
- * different daemon verbs behind them. `definitionId` and never `name`: the name is a
- * mutable label a person may change at any time.
+ * Which record the editor is open on: a stored definition (by id, never by its mutable name) or
+ * a new one. Two arms because editing and composing use different daemon verbs.
  */
 export type AgentDefinitionEditorSubject =
   | { readonly kind: "stored"; readonly definitionId: string }
@@ -82,31 +63,18 @@ export const AGENT_LIBRARY_REFUSAL_ORIGIN = "agent-registry-view";
 const REGISTRY_READ_KEY = "registry-read";
 
 /**
- * The carrier.
+ * Holds the registry read, the delete lock and the editor subject behind one snapshot.
  *
- * THE READ HAS A LATCH KEY AND THE DELETE HAS A LOCK, and the two stay apart. They
- * are independent calls, and one round shared between them would let a delete
- * pressed while the first read was still in flight discard that read's own reply.
- *
- * A READ SUPERSEDES AND A DELETE DOES NOT. A re-read asked while one is in flight is
- * the newer question, so the older reply writes nothing — which is what the latch
- * key is for. A delete is the one act on this page with no undo, so a second confirm
- * while one is running is refused rather than run: under a superseding round, the
- * second delete's settlement would win and the first's re-read would be skipped, so a
- * record the daemon really did remove would sit on screen for the life of the page
- * with the OTHER row's refusal as the only thing explaining it. `deletingId` is
- * therefore both the lock and the record of which delete is running — one field, so
- * the guard and the page's own disabled controls cannot disagree.
+ * The read has a latch key and the delete has a lock, kept apart: a delete pressed while the
+ * first read is in flight must not discard that read's reply. A re-read supersedes an older
+ * one; a delete does not, and a second confirm while one runs is refused. Under supersession
+ * the second delete's settlement would win and skip the first's re-read, leaving a removed
+ * record on screen. `deletingId` is both the lock and the record of which delete is running.
  */
 export class AgentLibraryView implements ReadTriggerTarget {
   /**
-   * No terminal event refreshes this read, and the empty set states it.
-   *
-   * The definition registry is node-local and nothing on the session stream announces a
-   * change to it, so there is no kind a store could admit and none this view could
-   * listen for. The window triggers are therefore the whole refresh story — which is why
-   * the read goes through a scheduler rather than firing once from `start` and never
-   * again.
+   * No terminal event refreshes this read: the registry is node-local and nothing on the
+   * session stream announces a change to it. Window triggers are the whole refresh story.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #calls: AgentRegistryCalls;
@@ -114,13 +82,7 @@ export class AgentLibraryView implements ReadTriggerTarget {
   #snapshot: AgentLibrarySnapshot = NOTHING_READ;
   #hasStarted = false;
   #isDisposed = false;
-  /**
-   * Which read this view is on, through the console's one latch.
-   *
-   * A refresh SUPERSEDES the read before it, because both answer one question and
-   * only the later one was asked. The key is given back on settlement, so the
-   * register holds nothing between reads.
-   */
+  /** The latest read wins; the key is given back on settlement. */
   readonly #reads = new GenerationLatch();
   readonly #scheduler: RefreshScheduler;
 
@@ -152,12 +114,8 @@ export class AgentLibraryView implements ReadTriggerTarget {
   }
 
   /**
-   * Ask for a read.
-   *
-   * `subscribe` on mount and `window-focus` on return — the two reasons that reach a
-   * registry nothing evented. A definition created by another window, by the CLI, or
-   * by a peer is invisible to this page until one of them fires, which is a staleness
-   * a once-only read had no path out of at all.
+   * Ask for a read. `subscribe` on mount and `window-focus` on return reach a registry that
+   * emits nothing: a definition made by another window or the CLI is invisible until one fires.
    */
   public requestRead(reason: RefreshReason): void {
     if (this.#isDisposed) {
@@ -194,17 +152,9 @@ export class AgentLibraryView implements ReadTriggerTarget {
   }
 
   /**
-   * Delete one record, then RE-READ rather than dropping a local copy.
-   *
-   * The list the page renders is the registry's answer and never a copy the page
-   * edits: removing the row here would make the screen agree with a delete the
-   * daemon may have applied differently, or not at all.
-   *
-   * ONE AT A TIME, and the second press is answered rather than dropped. The page
-   * disables every delete control while one is running, so a press that reaches here
-   * is one the page could not intercept — and doing nothing at all would be
-   * indistinguishable from a broken control, so the row it was aimed at gets this
-   * view's own refusal saying what is in the way.
+   * Delete one record, then re-read rather than dropping a local copy, so the screen shows
+   * the registry's answer. A second press while one delete runs gets a refusal on its row
+   * instead of silence, since the page already disables the controls.
    */
   public async confirmDeletion(definitionId: string): Promise<void> {
     const runningDefinitionId = this.#snapshot.deletingId;
@@ -221,8 +171,7 @@ export class AgentLibraryView implements ReadTriggerTarget {
     this.#publish({
       armedDeletionId: undefined,
       deletingId: definitionId,
-      // Dropped on the attempt rather than on its settlement, so a person pressing
-      // again does not read last time's reason beside this time's spinner.
+      // Dropped on the attempt so a new press does not show last time's reason.
       refusalByDefinitionId: this.#refusalsWithout(definitionId),
     });
     try {
@@ -233,27 +182,21 @@ export class AgentLibraryView implements ReadTriggerTarget {
       }
       throw error;
     }
-    // The lock is still this record's, or this settlement is no longer the page's
-    // to fold in — the same belt the disposal flag beside it is.
+    // Once the lock moved or the view was disposed, this settlement is not the page's to fold in.
     if (this.#isDisposed || this.#snapshot.deletingId !== definitionId) {
       return;
     }
     this.#publish({
       deletingId: undefined,
-      // An editor open on the record that just stopped existing is a subject with
-      // nothing behind it, so it closes with the record; one on another is left.
+      // An editor open on the deleted record has nothing behind it, so it closes with it.
       editorSubject: subjectSurviving(this.#snapshot.editorSubject, definitionId),
     });
     await this.#read();
   }
 
   /**
-   * Re-read the registry.
-   *
-   * The reading is REPLACED on settlement and never reset to `not-loaded` first: a
-   * refresh that blanked the list would take rows off the screen to show a spinner
-   * for data the page is already holding, so that absence is entered once, by the
-   * first read, and never re-entered.
+   * Re-read the registry. The reading is replaced on settlement, never reset to `not-loaded`
+   * first, so a refresh does not blank rows the page already holds.
    */
   async #read(): Promise<void> {
     const read = this.#reads.supersedeAndClaim(this, REGISTRY_READ_KEY);
@@ -278,11 +221,8 @@ export class AgentLibraryView implements ReadTriggerTarget {
   }
 
   /**
-   * Fold one transition in and hand out a new identity.
-   *
-   * The snapshot is HELD rather than composed on each read, because
-   * `useSyncExternalStore` compares identity: a getter returning a fresh object on
-   * every call renders forever.
+   * Fold one transition in and hand out a new identity. The snapshot is held, not composed per
+   * read, because `useSyncExternalStore` renders forever on a fresh object each call.
    */
   #publish(changes: Partial<Omit<AgentLibrarySnapshot, "revision">>): void {
     this.#snapshot = { ...this.#snapshot, ...changes, revision: this.#snapshot.revision + 1 };
@@ -291,11 +231,8 @@ export class AgentLibraryView implements ReadTriggerTarget {
 }
 
 /**
- * Why this view declined a delete it never sent.
- *
- * Two sentences under one code, because what a person does next differs: their own
- * row is already on its way out, and another row's delete is in front of theirs.
- * Neither names the record in the way, which would say nothing they can act on.
+ * Why this view declined a delete it never sent. The two sentences differ because what a person
+ * does next differs: their own row is already leaving, or another row's delete is in front.
  */
 function deleteAlreadyRunning(isTheSameRecord: boolean): Refusal {
   return refuse(

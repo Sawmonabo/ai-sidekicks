@@ -1,11 +1,6 @@
-// The mirrors name the visit ON SCREEN, and a render that never became one moves
-// nothing.
-//
-// The claim is about a pass React THROWS AWAY, so the case builds one for real rather
-// than describing it: a transition that re-addresses the composer and suspends is
-// rendered, runs every hook in the tree, and is then discarded with the previous tree
-// still mounted. Nothing in this package reaches that state today — the case is what
-// keeps this correct for the first concurrent feature that does.
+// The mirrors name the visit on screen, and a render that never committed moves nothing. The
+// case builds a discarded pass for real: a transition that re-addresses the composer and
+// suspends renders every hook, then is thrown away with the previous tree still mounted.
 
 import { act, render, screen } from "@testing-library/react";
 import { Suspense, startTransition, useState } from "react";
@@ -27,11 +22,8 @@ function SuspendsWhenAsked(props: { readonly suspend: boolean }): React.JSX.Elem
 }
 
 /**
- * The hook under a tree that can re-address and suspend in one transition.
- *
- * `readdress` is handed back through a mutable holder rather than a callback prop
- * because the case has to fire it from OUTSIDE React's render, which is the only way
- * a transition is a transition.
+ * The hook under a tree that can re-address and suspend in one transition. `readdress` is
+ * handed back through a holder because it must fire outside React's render.
  */
 function ComposerHost(props: {
   readonly bridge: PlatformBridge;
@@ -72,20 +64,17 @@ describe("the settlement mirrors move at the commit", () => {
       });
     });
 
-    // The discarded pass ran this hook under the new draft key. Written during that
-    // render, the mirrors would name a visit nothing committed, and the act a person
-    // is still looking at would settle into nothing.
+    // The discarded pass ran this hook under the new draft key; written during that render,
+    // the mirrors would name a visit nothing committed.
     expect(screen.queryByText("composer")).not.toBeNull();
     expect(issued).toBeDefined();
     expect(seen.current?.isCurrent(issued as NonNullable<typeof issued>)).toBe(true);
   });
 
   it("keeps the act on screen current after the register is narrowed to its address", () => {
-    // The narrowing runs in the same layout effect that moves the mirrors, so the one
-    // way it can go wrong is by dropping the key for the address it just committed —
-    // which would make the composer's own newest act read as superseded and silently
-    // discard its settlement. The bound itself is asserted over literals in
-    // `send-settlement.test.ts`; this is the wiring, driven through a real re-address.
+    // Narrowing shares the layout effect that moves the mirrors, so the failure to catch is
+    // dropping the just-committed address's key, which would discard its settlement. The bound
+    // itself is asserted in `send-settlement.test.ts`.
     const seen: { current: SettlementIdentities | undefined } = { current: undefined };
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(
@@ -109,8 +98,7 @@ describe("the settlement mirrors move at the commit", () => {
   });
 
   it("negative control: a committed re-address retires the earlier visit's act", () => {
-    // Without this the case above would pass over a hook that called every settlement
-    // current, which is the defect the identity exists to prevent.
+    // Without this, the case above would pass a hook that called every settlement current.
     const seen: { current: SettlementIdentities | undefined } = { current: undefined };
     const readdress: { current: (() => void) | undefined } = { current: undefined };
     render(

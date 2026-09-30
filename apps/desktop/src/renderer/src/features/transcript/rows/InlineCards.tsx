@@ -1,9 +1,4 @@
-// The inline cards a message carries — a chip each, and the registered body under it.
-//
-// Its own module for the one-component rule. The chip and the body answer different
-// questions, which is why they are drawn together here rather than delegated whole:
-// the chip is the message's own statement that it carries a diff or an attachment,
-// and the body is the part only the feature that registers that card kind can fill.
+// The inline cards a message carries: a chip each, and the body registered for that kind.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -13,18 +8,16 @@ import {
   type InlineCardProps,
 } from "@renderer/registries/inline-cards/inline-card-registry.js";
 
+/** The cards one message carries. */
 export interface InlineCardsProps {
   readonly cards: readonly InlineCardProps[];
 }
 
 /**
- * The message's inline cards: a chip per card, and the body registered for its kind.
- *
- * The chip renders whether or not a body exists, because the chip is the message's own
- * statement that it carries a diff or an attachment — a fact about the message rather
- * than about which feature has registered a body. The BODY is the part that can be missing, and an
- * unfilled kind says so by name instead of rendering as an empty region a reader would
- * read as an empty diff.
+ * The message's inline cards: a chip per card, and the body registered for its kind. The chip
+ * renders whether or not a body exists, since it states that the message carries the card; only
+ * the body can be missing, and an unfilled kind says so by name rather than rendering as an
+ * empty region a reader would take for an empty diff.
  */
 export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
   if (props.cards.length === 0) {
@@ -51,11 +44,8 @@ export function InlineCards(props: InlineCardsProps): React.JSX.Element | null {
 }
 
 /**
- * One card's identity within its message.
- *
- * Narrows on the discriminant rather than reaching for a shared `id` member, because
- * there is not one: each arm carries the identity its own body fetches with, which is
- * why `InlineCardProps` is a union rather than a record.
+ * One card's identity within its message. Narrows on the discriminant because there is no shared
+ * `id` member: each arm carries the identity its own body fetches with.
  */
 function inlineCardKey(card: InlineCardProps): string {
   switch (card.kind) {

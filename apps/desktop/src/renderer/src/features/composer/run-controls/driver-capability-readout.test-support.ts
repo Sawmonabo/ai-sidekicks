@@ -1,20 +1,13 @@
-// A capability readout, built the way the fixture's own scenario builds one.
-//
-// Hoisted out of `run-control-gating.test.ts` on its second use: the command
-// contribution is gated by the same reading the row is, so its suite needs the same
-// readout, and a second copy of this would be two answers to what "the driver
-// declared nothing" looks like.
+// A capability readout, built the way the fixture's own scenario builds one. Shared so the
+// gating and command-contribution suites cannot disagree on what "declared nothing" looks like.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 import type { DeclaredDriverFlags } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
 /**
- * One driver's record: the named flags true, every other flag false.
- *
- * Derived from the shipped closed set rather than hand-listed, exactly as the
- * fixture's own scenario does: `DriverCapabilities.flags` is a total record parsed
- * `.strict()`, so a hand list would go stale the day the set grows.
+ * One driver's record: the named flags true, every other flag false. Derived from the closed
+ * flag set because `DriverCapabilities.flags` is a total strict record.
  */
 export function declaredFlags(declared: readonly DriverCapabilityFlag[]): DeclaredDriverFlags {
   const asserted = new Set<DriverCapabilityFlag>(declared);

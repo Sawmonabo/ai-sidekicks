@@ -1,17 +1,6 @@
-// How a dialog holds an act controller, and nothing about the act.
-//
-// The controller classes collaborate with a wire call and own what an act and its
-// prerequisite publish; these hooks collaborate with React's rendering lifecycle and own
-// when a controller is opened and ended. They meet at one object.
-//
-// THE SEAM IS `useSubjectScopedResource` AND NOT `useMemo`: a controller constructed
-// during a pass React discards is a real object with real triggers armed, and no effect
-// ever commits to end it. The resource seam closes one inside the render that drops it.
-//
-// TWO HOOKS, ONE PER KIND OF CONTROLLER. An act with no prerequisite arms nothing on a
-// session store, so it binds by subject and key alone. A controller that asks first arms
-// its refresh triggers on a store, and binds through the second hook, which also rebinds
-// it when that store is replaced under an unchanged key.
+// How a dialog holds an act controller, and when it is opened and ended. It goes through
+// `useSubjectScopedResource`, not `useMemo`, so a controller built in a discarded render
+// is closed in that render. A controller that asks first also rebinds on a replaced store.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -26,12 +15,8 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useSessionStoreRebind, type SessionStoreScoped } from "./useSessionStoreRebind.js";
 
 /**
- * The lifecycle an act controller offers a dialog, and the whole of what these hooks
- * need from one.
- *
- * NAMED AS A CONTRACT RATHER THAN AS A CLASS, so an `ActController`, an
- * `ActControllerBase`, and anything that holds one and offers these members bind
- * through the same hooks.
+ * The lifecycle an act controller offers a dialog: all these hooks need from one. A contract,
+ * not a class, so `ActController`, `ActControllerBase` and wrappers of them all bind alike.
  */
 export interface BindableActController<TReading = unknown> extends DisposableController {
   /** What the dialog renders. Read through `useSyncExternalStore`, never reached into. */
@@ -46,11 +31,8 @@ export interface ActControllerBinding<TController extends BindableActController>
 }
 
 /**
- * Bind one subject's act controller to a dialog.
- *
- * The key is the whole of what the controller is scoped to, and a key carrying less than
- * that leaves a controller in place across a rebind, holding the previous subject's
- * settlement.
+ * Bind one subject's act controller to a dialog. The key must carry everything the controller
+ * is scoped to, or a rebind leaves it holding the previous subject's settlement.
  */
 export function useActController<TController extends BindableActController>(
   subject: object,
@@ -62,17 +44,10 @@ export function useActController<TController extends BindableActController>(
 }
 
 /**
- * Bind one subject's act controller whose prerequisite is read against a session store.
- *
- * The key is the whole of what the controller is scoped to — a mount for the modes it
- * admits, a workspace AND its execution mode for a root.
- *
- * AND THE SESSION STORE IS THE AXIS NO KEY CARRIES, which is why it is a parameter
- * rather than something a caller folds into the key. The controller arms its refresh
- * triggers on a store, and a store rebuilt for the same session under an unchanged bridge
- * leaves the whole address standing — so the rule is applied here, once. A key with the
- * store spelled into it would re-open the controller on a reconnect and lose the
- * prerequisite answer with it.
+ * Bind one subject's act controller whose prerequisite is read against a session store. The
+ * key carries everything else (a mount, or a workspace and execution mode); the store is a
+ * parameter, not part of the key, so a reconnect rebinds the controller instead of
+ * re-opening it and losing the prerequisite answer.
  */
 export function useSessionScopedActController<
   TController extends BindableActController & SessionStoreScoped,
@@ -87,7 +62,6 @@ export function useSessionScopedActController<
   return useControllerBinding(held.value);
 }
 
-/** The controller on screen, and its snapshot read through `useSyncExternalStore`. */
 function useControllerBinding<TController extends BindableActController>(
   controller: TController,
 ): ActControllerBinding<TController> {

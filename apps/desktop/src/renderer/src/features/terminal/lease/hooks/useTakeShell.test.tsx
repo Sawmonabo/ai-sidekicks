@@ -1,22 +1,10 @@
-// The take hook's renderer-local fact, and the subject it belongs to.
+// The take hook's renderer-local fact and the subject it belongs to: the hook's own arithmetic
+// over `(bridge, sessionId)`, where `LeaseLine.take-shell.test.tsx` asserts what the line renders.
 //
-// Its own file rather than a block in `LeaseLine.take-shell.test.tsx` because the subject
-// is different: that file asserts what the LEASE LINE renders for a take, and this one
-// asserts which subject a take's state belongs to — a question about the hook's own
-// arithmetic over `(bridge, sessionId)`.
-//
-// WHY THE CASES READ A LOG OF FRAMES RATHER THAN THE SETTLED TREE. The reset used to
-// run in a passive effect while the hook returned unstamped values, so session B's
-// first COMMITTED render inherited A's disabled control and the correction arrived
-// one frame later. A test that reads the DOM after the rerender
-// reads the corrected frame and sees nothing wrong; the frame a person actually sees
-// is the one the render produced, so the probe below records every frame and the
-// cases name the one they are about. The stamp makes that frame idle by
-// construction, with no pass left to be wrong on.
-//
-// The calls are held, which is the only way to have a call genuinely still out across a
-// rerender — and the only way to settle the call for the session the pane LEFT rather
-// than the one it moved to.
+// The cases read a log of frames, not the settled tree: a reset in a passive effect would let
+// session B's first committed render inherit A's disabled control, and the DOM after a rerender
+// shows only the corrected frame. The stamp makes that frame idle by construction. Calls are
+// held so one stays out across a rerender and can be settled for the session the pane left.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -30,11 +18,8 @@ import {
 import { useTakeShell, type UseTakeShellResult } from "./useTakeShell.js";
 
 /**
- * Every frame the hook produced, in render order.
- *
- * A class rather than an array a case pushes into, on this package's rule that state
- * is encapsulated: what a case wants is "the frame after the switch", and an index
- * into a bare array is a number a reader has to reconstruct.
+ * Every frame the hook produced, in render order. A class so a case can ask for "the frame
+ * after the switch" instead of indexing a bare array.
  */
 class TakeFrameLog {
   readonly #frames: UseTakeShellResult[] = [];
@@ -96,9 +81,8 @@ describe("the terminal lease take, stamped to its subject", () => {
 
     view.showSession(OTHER_SESSION_ID);
 
-    // The frame the switch itself produced, not the one a passive effect corrected
-    // afterwards. A person pressing in that frame was pressing a control disabled
-    // for a call about a shell they were no longer looking at.
+    // The frame the switch itself produced, not one a passive effect corrected afterwards: a
+    // press in it would hit a control disabled for a shell the person had left.
     const firstFrameOnTheNewSession = log.frameAt(framesBeforeTheSwitch);
     expect(firstFrameOnTheNewSession.isInFlight).toBe(false);
 
@@ -142,12 +126,10 @@ describe("the terminal lease take, stamped to its subject", () => {
   });
 
   it("hands a RETURNING visit a control whose press reaches the wire", async () => {
-    // s1 -> s2 -> s1, with the first call never answered. The state re-seeds on the
-    // return — the holder mints a new addressing because the same pair visited twice
-    // is two visits — so the control renders idle and enabled. A register keyed on
-    // `(bridge, sessionId)` would still be holding the FIRST visit's round: the press
-    // was refused by a key the control cannot see, no request went out, nothing was
-    // said, and the button stayed enabled for as long as the first call stayed out.
+    // s1 -> s2 -> s1 with the first call never answered. The state re-seeds on the return (the
+    // holder mints a new addressing for a repeat visit), so the control is idle and enabled; a
+    // register keyed on `(bridge, sessionId)` would still hold the first visit's round and
+    // refuse the press silently.
     const heldCalls = new HeldLeaseCalls();
     const log = new TakeFrameLog();
     const view = renderTake(heldCalls, log);
@@ -170,9 +152,8 @@ describe("the terminal lease take, stamped to its subject", () => {
     expect(heldCalls.sessionIdOfCall(1)).toBe(SESSION_ID);
     expect(log.newestFrame.isInFlight).toBe(true);
 
-    // And the FIRST visit's answer still installs nowhere: it is about a round the
-    // holder has retired, so the returning visit's own call goes on being the one
-    // the control is waiting for.
+    // The first visit's answer installs nowhere: that round is retired, and the returning
+    // visit's own call is the one the control waits for.
     heldCalls.settleCall(0);
     await settleReactWork();
 
@@ -216,12 +197,9 @@ describe("the terminal lease take, stamped to its subject", () => {
   });
 
   it("negative control: a second press while a call is out starts nothing", async () => {
-    // ONE ACT AT A TIME, and the latch states it by refusing a claim on a key it is
-    // already holding. The control is disabled for exactly that lifetime, so the
-    // second press is a press that should not have reached the wire at all — and the
-    // shape this replaced could not say so: it dispatched a second call and let the
-    // earlier settlement clear the in-flight flag the later press had just set,
-    // bringing the control back enabled while a take was still out.
+    // One act at a time: the latch refuses a claim on a key it already holds, and the control
+    // is disabled for exactly that lifetime, so a second press should not reach the wire. An
+    // earlier settlement must not clear the flag a later press set.
     const heldCalls = new HeldLeaseCalls();
     const log = new TakeFrameLog();
     renderTake(heldCalls, log);
@@ -235,9 +213,7 @@ describe("the terminal lease take, stamped to its subject", () => {
     expect(heldCalls.sessionIdOfCall(0)).toBe(SESSION_ID);
     expect(log.newestFrame.isInFlight).toBe(true);
 
-    // And the one call that WAS dispatched still settles: refusing the second take
-    // must not orphan the first, which is the failure a bare "ignore while busy"
-    // guard makes when it forgets to release.
+    // The dispatched call still settles: refusing the second take must not orphan the first.
     heldCalls.settleCall(0);
     await settleReactWork();
 

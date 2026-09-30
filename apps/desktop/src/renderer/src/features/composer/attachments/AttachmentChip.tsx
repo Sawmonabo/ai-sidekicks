@@ -1,20 +1,8 @@
-// One attachment, on one line, beside the message it will ride with.
-//
-// A CHIP AND NOT A CARD, which is the composer's density rather than a lesser version
-// of the transcript's attachment card: name, type, and size in one line with progress
-// inline, so a staged list of several does not push the message input off the bottom of
-// the session screen. The card is where an upload is READ; this is where it is watched
-// while a person keeps typing.
-//
-// EVERY WORD IT SAYS IS THE FOLD'S. This file branches on a model and renders; it looks
-// nothing up, formats no figure, and decides no eligibility. `composer-attachment-chip.ts`
-// composes that model out of the attachment modules' own readings, so the chip and the card
-// cannot describe one upload differently.
-//
-// CANCEL SAYS WHAT CANCELING DOES. There is no cancel call in the ingest trio, so
-// stopping is client-side abandonment and the daemon's reaper claims the spool — the
-// control's own title carries that sentence verbatim rather than a softer "canceled",
-// which would promise an instant reclaim nothing performs.
+// One attachment on one line beside the message it rides with: name, type, size and inline
+// progress, so a staged list does not push the message input off the screen. The words come from
+// `composer-attachment-chip.ts`, so the chip and the transcript card describe an upload alike.
+// Cancel is client-side abandonment with the daemon's reaper claiming the spool, and the control
+// says so rather than promising an instant reclaim.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
@@ -22,19 +10,20 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { ComposerAttachmentChipModel } from "./composer-attachment-chip.js";
 
+/** One chip model with the retry and abandon acts, keyed by the entry's local id. */
 export interface AttachmentChipProps {
   readonly chip: ComposerAttachmentChipModel;
   readonly onRetry: (localId: string) => void;
   readonly onAbandon: (localId: string) => void;
 }
 
+/** One staged attachment as a single-line list item. */
 export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
   const { chip } = props;
   return (
     <li className="meridian-composer-attachment" aria-label={`Attachment ${chip.name}`}>
       <span className="meridian-composer-attachment__line">
-        {/* The manifest's name renders as the wire string it is; the caller's own claim
-            renders as the console-composed figure it is, so the two never read alike. */}
+        {/* A declared name is the caller's claim, drawn as a derived figure, not a wire string. */}
         {chip.nameIsDeclared ? (
           <DerivedFigure text={chip.name} />
         ) : (
@@ -49,9 +38,7 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
         <WireFigure value={chip.sizeText} title={chip.sizeTitle} />
         <Chip label={chip.state} mono tone={chip.tone} />
         {chip.progressFraction === undefined ? null : (
-          // NAMED FOR WHAT IT MEASURES AND FOR WHICH FILE, so a staged list of several
-          // announces several distinct bars. `value` and `max` carry the amount, as a
-          // fraction of the declaration; the name says whose.
+          // Named for the file it measures so several bars announce distinctly.
           <progress
             className="meridian-composer-attachment__progress"
             max={1}
@@ -97,18 +84,14 @@ export function AttachmentChip(props: AttachmentChipProps): React.JSX.Element {
       {chip.refusal === undefined ? null : (
         <>
           <InlineRefusal code={chip.refusal.code} detail={chip.refusal.detail} />
-          {/* WHAT TO DO NEXT, AS TEXT, and not a control's `title`: a tooltip is never seen
-              by a touch user, is reached by a keyboard user only with a pointer they are
-              not using, and is announced reliably by no assistive technology. The remedy
-              is the one line on a refused row that names an act. */}
+          {/* Remedy as text, not a `title`: a tooltip is unseen by touch users and announced
+              unreliably by assistive technology. */}
           {chip.refusal.disposition === undefined ? null : (
             <p className="meridian-composer-attachment__remedy">{chip.refusal.disposition}</p>
           )}
         </>
       )}
-      {/* And the consequence of the control that is still offered. It says what
-          abandoning DOES — client-side, with the daemon's reaper claiming the spool —
-          rather than promising a reclaim nothing performs. */}
+      {/* The consequence of the control still offered: what abandoning actually does. */}
       {chip.offersAbandon ? (
         <p className="meridian-composer-attachment__remedy">{chip.abandonCopy}</p>
       ) : null}

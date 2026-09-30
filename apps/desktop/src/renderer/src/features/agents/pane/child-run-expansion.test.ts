@@ -1,8 +1,5 @@
-// Expanding a child run, over a real bridge whose one call the case decides.
-//
-// `bridgeAnswering` rather than a hand-built port: the expansion reaches the console's
-// own `callDaemon`, so a stand-in would prove the case answers itself rather than that
-// the reply is parsed against the shape the corpus registers.
+// Expanding a child run over a real bridge whose one call the case decides. `bridgeAnswering`
+// rather than a hand-built port, so the reply is parsed against the registered shape.
 
 import { act, renderHook } from "@testing-library/react";
 import { createElement } from "react";
@@ -61,11 +58,8 @@ interface HeldExpansions {
 }
 
 /**
- * A bridge whose expansions answer only when the case says so.
- *
- * The window between the request and the reply is where every claim below lives — an
- * expansion abandoned mid-flight, and two children reading at once — and it is not
- * observable without a reply the case releases.
+ * A bridge whose expansions answer only when the case releases them: the window between request
+ * and reply is where the abandoned-mid-flight and two-children claims live.
  */
 function bridgeHoldingExpansions(): HeldExpansions {
   let releaseReplies = (): void => undefined;
@@ -185,10 +179,8 @@ describe("child-run expansion — what a press leaves on screen", () => {
 
 describe("child-run expansion — one read line per child, and what ends one", () => {
   it("expands two children at once rather than one superseding the other", async () => {
-    // WHY THE LINES ARE PER CHILD. A single line per session would make the second
-    // press the supersession of the first, and the first child's row — already showing
-    // `expanding` — would never be settled by anything. Both settle here, which is the
-    // property the per-child guard was always claiming and nothing was holding it to.
+    // A single line per session would make the second press supersede the first, and the first
+    // child's row would stay `expanding` forever. Both settle here.
     const { bridge, release } = bridgeHoldingExpansions();
     const expansions = new ChildRunExpansionState();
 
@@ -202,11 +194,8 @@ describe("child-run expansion — one read line per child, and what ends one", (
   });
 
   it("puts an abandoned press back rather than leaving the row expanding", async () => {
-    // THE TWO HALVES, TOGETHER. Nothing installs — the entries belong to a disclosure
-    // nobody is rendering — and the row does not stay frozen mid-press either, because
-    // a row stuck on `expanding` is a control that can never be pressed again. The
-    // control is "holds the entries the daemon served" above: same call, same reply,
-    // and it installs when the line is still somebody's.
+    // Nothing installs (the entries belong to a disclosure nobody renders) and the row is not
+    // left frozen on `expanding`. The control is "holds the entries the daemon served" above.
     const { bridge, release } = bridgeHoldingExpansions();
     const expansions = new ChildRunExpansionState();
 
@@ -249,12 +238,9 @@ describe("the disclosure a row presses — what is on screen while the read runs
   }
 
   it("publishes the expanding state the press raised, not the one it replaced", async () => {
-    // THE ROW'S PROGRESS STATE IS REACHABLE, which is the whole claim: the control is
-    // `disabled` and reads "Expanding" for exactly `status === "expanding"`, and a
-    // publication taken BEFORE `expand` snapshots the state the press replaced — so
-    // against a daemon that never answers the row goes on offering an enabled
-    // `Expand`, and pressing it again is answered by the single-flight guard with
-    // nothing to show for it.
+    // The control is disabled and reads "Expanding" for exactly `status === "expanding"`; a
+    // publication taken before `expand` would snapshot the replaced state and keep offering an
+    // enabled `Expand` against a daemon that never answers.
     const { bridge, release } = bridgeHoldingExpansions();
     const disclosure = mountDisclosure(bridge);
 
@@ -264,8 +250,7 @@ describe("the disclosure a row presses — what is on screen while the read runs
 
     expect(disclosure.result.current.expansionFor(CHILD_RUN_ID).status).toBe("expanding");
 
-    // And the press is not merely visible, it lands: without this the case above
-    // would pass over a disclosure that published "expanding" and never settled.
+    // And the press lands: guards against a disclosure that published "expanding" and hung.
     await act(async () => {
       release();
       await crossMacrotaskBoundary();

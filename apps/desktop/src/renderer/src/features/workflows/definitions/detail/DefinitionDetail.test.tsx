@@ -1,10 +1,6 @@
-// What a person sees once a definition has been read, and what each of the two acts
-// answers.
-//
-// THE ACTS ARE ASSERTED ON THEIR ANSWERS AND NOT ON THEIR CONTROLS. Whether a caller
-// may write at a scope is the daemon's adjudication, so every control is pressable and
-// what a case checks is what came back: the export's bytes, the create's request, the
-// parse's reason.
+// What a person sees once a definition has been read, and what each of the two acts answers.
+// Acts are asserted on their answers, not their controls: whether a caller may write at a scope
+// is the daemon's adjudication, so every control is pressable.
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -88,7 +84,7 @@ describe("the definition detail — a read definition drawn", () => {
 
     expect(text).toContain("b3:");
     expect(container.querySelector(".meridian-definition-detail__version")).not.toBeNull();
-    // The phase NAME, which is the fact no run read carries at all.
+    // The phase name is the fact no run read carries.
     expect(container.querySelectorAll(".meridian-definition-detail__phase").length).toBeGreaterThan(
       0,
     );
@@ -102,8 +98,7 @@ describe("the definition detail — a read definition drawn", () => {
   });
 
   it("keeps the identity and body when the chain could not be asked for", () => {
-    // The partial reading, rendered: the definition read carried no version id, so no chain
-    // is drawn while the definition and its body still stand.
+    // The definition read carried no version id, so no chain is drawn.
     const container = renderDetail({
       status: "served",
       detail: { ...SERVED.detail, chain: { status: "unaddressable" } },
@@ -120,17 +115,15 @@ describe("the definition detail — the two acts and what each answers", () => {
     const container = renderDetail();
 
     fireEvent.click(control(container, "Export"));
-    // WAITED FOR RATHER THAN SLEPT ON. The file form's writer arrives in its own chunk
-    // — the parser is charged to the launches that use it and to no others — so the
-    // bytes land when the fetch settles and not a fixed number of turns after a press.
+    // Waited for, not slept on: the writer arrives in its own chunk, so the bytes land when the
+    // fetch settles.
     const file = await waitFor(() => {
       const written = container.querySelector(".meridian-definition-detail__file");
       expect(written).not.toBeNull();
       return written;
     });
 
-    // The bytes are a definition file rather than a rendering of one: the marker the
-    // body carries is in them, and so is a phase the definition sequences.
+    // The bytes are a definition file: the body's marker and a sequenced phase are in them.
     expect(file?.textContent ?? "").toContain("ai-sidekicks-schema");
     expect(file?.textContent ?? "").toContain("Draft the release note");
   });
@@ -153,8 +146,7 @@ describe("the definition detail — the two acts and what each answers", () => {
   });
 
   it("puts a WELL-FORMED import to the create call, which is where it settles", async () => {
-    // The negative control for the case above: without it, the parse refusal would hold
-    // over an import that refused every input, and no file would ever reach the create.
+    // Guards against an import that refused every input, so no file ever reached the create.
     const createDefinition = vi.fn(answeringCreate);
     const container = renderDetail(SERVED, createDefinition);
 
@@ -184,9 +176,7 @@ describe("the definition detail — the two acts and what each answers", () => {
   });
 
   it("says nothing about an act nobody pressed", () => {
-    // The absences the console tells apart describe reads a person is waiting on, not
-    // controls they have not touched — so an untouched act renders no row at all, and this is
-    // the control that keeps the outcome list from narrating the console's inactivity.
+    // An untouched act renders no row, so the outcome list does not narrate inactivity.
     const container = renderDetail();
 
     expect(container.querySelectorAll(".meridian-definition-detail__outcome")).toHaveLength(0);

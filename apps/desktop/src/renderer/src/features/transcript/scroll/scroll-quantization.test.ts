@@ -1,8 +1,5 @@
-// The learner's one job, driven with readbacks whose verdict is known.
-//
-// No controller and no scroll container here: the subject is a fold over pairs of numbers,
-// and driving it through a scroll controller would make the controller the subject.
-// The end-to-end path is `scroll-chokepoint.test.ts`.
+// The learner driven with readbacks whose verdict is known, without a controller or scroll
+// container. The end-to-end path is `scroll-chokepoint.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

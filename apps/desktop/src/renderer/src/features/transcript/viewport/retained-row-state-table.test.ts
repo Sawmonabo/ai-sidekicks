@@ -1,9 +1,6 @@
-// A dropped row's leased state, and the bound the parked table is held to.
-//
-// Both rules fail SILENTLY. A lease dropped instead of parked reads as a row the
-// person never expanded, and an unbounded parked table reads as nothing at all until
-// a long session's memory reading is taken. Each clean case is paired with the
-// control that fails when the rule is removed.
+// Parking a dropped row's lease, and the bound on the parked table. Both fail silently: a
+// dropped lease reads as a row never expanded, and an unbounded table shows only in a long
+// session's memory.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,9 +18,8 @@ describe("the row-lease table — parking, not dropping", () => {
   });
 
   it("negative control: a row that leased nothing parks nothing", () => {
-    // Without this the case above would pass over a table that parked every key it
-    // was handed, filling the bounded table with rows nobody had expanded and
-    // evicting the ones somebody had.
+    // Without this the case above passes over a table that parks every key, evicting rows
+    // somebody expanded.
     const table = new RetainedRowStateTable();
     table.park("run-group-0");
     expect(table.parkedCount).toBe(0);
@@ -58,8 +54,7 @@ describe("the row-lease table — the parked bound", () => {
   });
 
   it("negative control: under the bound nothing is evicted at all", () => {
-    // Without this the case above would pass over a table that evicted on every
-    // park, which would lose the row a person had open a moment ago.
+    // Without this the case above passes over a table that evicts on every park.
     const table = new RetainedRowStateTable(2);
     table.setLease("run-group-0", EXPANDED);
     table.setLease("run-group-1", EXPANDED);
@@ -83,9 +78,7 @@ describe("the row-lease table — the parked bound", () => {
     expect(table.lease("run-group-0")?.innerScrollTopPx).toBe(9);
   });
   it("releases every parked lease at once, and keeps every live one", () => {
-    // The TIME half of this module's own bound. The count cap keeps the row a person
-    // had open a moment ago; this returns the ones from an hour ago, which the header
-    // already says nobody expects to survive.
+    // Live leases belong to rows the window still holds.
     const table = new RetainedRowStateTable(4);
     for (const key of ["run-group-0", "run-group-1"]) {
       table.setLease(key, EXPANDED);
@@ -100,8 +93,7 @@ describe("the row-lease table — the parked bound", () => {
   });
 
   it("releases nothing when nothing is parked", () => {
-    // The negative control for the count: a release that answered with the LIVE size
-    // would report memory returned that is still held.
+    // A release answering with the live size would report memory returned that is still held.
     const table = new RetainedRowStateTable(4);
     table.setLease("run-group-0", EXPANDED);
     expect(table.releaseParkedLeases()).toBe(0);

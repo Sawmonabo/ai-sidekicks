@@ -1,10 +1,6 @@
-// The execution-root columns, driven directly.
-//
-// NO COLUMN IS SILENTLY DROPPED. The design lists the record's columns verbatim, and the
-// model splits them into a summary and a disclosure. If those two tuples ever stop
-// covering the labels table exactly once each, a column vanishes from the card with
-// nothing failing — so the coverage predicate is asserted here and then driven with a
-// known-bad tuple to prove it bites.
+// The execution-root columns, driven directly. If the summary and detail tuples ever stop
+// covering the labels table exactly once each, a column vanishes from the card with nothing
+// failing; the coverage predicate is asserted and driven with a known-bad tuple to prove it bites.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,13 +15,7 @@ import {
 } from "./execution-root-columns.js";
 import { worktreeRecord } from "./repo-mounts.test-support.js";
 
-/**
- * Does a summary/detail split cover a labels table exactly once each?
- *
- * A pure predicate rather than a loop inside one case, so the negative controls can
- * drive it with a split whose verdict is known — proving the clean results below
- * mean something.
- */
+/** Does a summary/detail split cover a labels table exactly once each? */
 function splitCoverage(
   labeled: readonly string[],
   summary: readonly string[],
@@ -72,8 +62,7 @@ describe("worktree-columns — column cells", () => {
   });
 
   it("says so when a column the wire declares required arrives empty", () => {
-    // Reachable: these rows are held as typed values, and a payload that never met
-    // the response schema can carry a hole the type says cannot exist.
+    // Reachable: a payload that skipped the response schema can carry a hole the type forbids.
     const holed = { ...worktreeRecord(), fsRoot: undefined } as unknown as WorktreeStatusRecord;
     expect(worktreeColumnCell(holed, "fsRoot")).toStrictEqual({
       kind: "absent",

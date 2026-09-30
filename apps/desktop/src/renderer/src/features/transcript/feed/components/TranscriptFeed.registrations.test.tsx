@@ -1,9 +1,5 @@
-// The mounted-transcript holder this mount fills for a caller composed before it existed.
-//
-// The palette's chords resolve their target at press time and are reached through that
-// holder rather than an import. The property here is that a command contributed at
-// COMPOSITION time reaches a feed mounted later, and that an unmounted feed says so
-// instead of doing nothing.
+// The mounted-transcript holder this mount fills: a command contributed at composition time
+// reaches a feed mounted later, and an unmounted feed says so instead of doing nothing.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -42,9 +38,8 @@ describe("the transcript feed — the palette acts on the mounted feed", () => {
   });
 
   it("puts the caret in the field the palette opened, and gives it back on Escape", () => {
-    // The chord's whole point is that the next keystroke enters the query, and the
-    // field is the only thing in the feed that can hold a caret without
-    // scrolling the log.
+    // The chord's point is that the next keystroke enters the query; the field is the only thing
+    // in the feed that holds a caret without scrolling the log.
     withLaidOutViewport();
     contributeTranscriptCommands();
     const feed = renderFeed(openSessionStoreWithFeedLog(SHORT_LOG_EVENT_COUNT));
@@ -57,17 +52,15 @@ describe("the transcript feed — the palette acts on the mounted feed", () => {
       fireEvent.keyDown(input as HTMLInputElement, { key: "Escape" });
     });
     expect(feed.querySelector(".meridian-find")).toBeNull();
-    // Not `body`: the log is where the reader was, and it is focusable for exactly
-    // this reason.
+    // Not `body`: the log is where the reader was, and it is focusable for this reason.
     expect(document.activeElement).toBe(
       feed.querySelector(".meridian-transcript-viewport__scroll-container"),
     );
   });
 
   it("states the holder's refusal when the same row is run with no transcript up", () => {
-    // Which is the other half of the seam: the command is contributed for the
-    // window's whole life and the feed is not, so the press has to say so rather
-    // than doing nothing.
+    // The other half of the seam: the command lives for the window and the feed does not, so the
+    // press must say so.
     contributeTranscriptCommands();
     const raised: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => {
@@ -81,8 +74,7 @@ describe("the transcript feed — the palette acts on the mounted feed", () => {
   });
 
   it("negative control: an unmounted feed releases the holder it filled", () => {
-    // Without this the case above would pass over a feed that never filled the
-    // holder at all.
+    // Without this the case above would pass over a feed that never filled the holder.
     withLaidOutViewport();
     contributeTranscriptCommands();
     const raisedWhileMounted: Refusal[] = [];

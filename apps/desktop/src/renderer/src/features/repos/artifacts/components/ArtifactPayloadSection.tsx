@@ -1,13 +1,6 @@
-// What the payload fetch established, on whichever of its arms it is.
-//
-// A component of its own because its subject is the fetched bytes: four arms of one
-// reading, none of which stands in for another, and a body whose whole safety argument
-// lives in one place.
-//
-// The body is text, and only text. The decoded bytes go into a `<pre>` whole, as a text
-// node React escapes, never capped. Nothing in this module can interpret a payload: there
-// is no `dangerously` anything, no `src`, no `href`, and no element that a media type
-// could turn into a document.
+// What the payload fetch established, on each of its four arms. The body is text only: decoded
+// bytes go whole into a `<pre>` as an escaped text node, and nothing here can interpret a
+// payload (no `dangerously`, `src`, `href`, or element a media type could turn into a document).
 
 import "./artifact.css";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -34,7 +27,6 @@ export function ArtifactPayloadSection({
   );
 }
 
-/** The one arm's own body. Total over the arms a payload can be on. */
 function renderPayloadArm(payload: ArtifactPayloadReading): React.JSX.Element {
   switch (payload.status) {
     case "fetching":

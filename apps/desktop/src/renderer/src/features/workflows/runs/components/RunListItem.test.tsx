@@ -1,10 +1,5 @@
-// What one run's row draws, driven through the projection that feeds it.
-//
-// The row is handed a `WorkflowRunListRow` and derives nothing, so every case below
-// builds its row through `RunListProjection` rather than by hand: a suite that
-// constructed row values itself would prove the markup and leave the seam between the
-// projection and the row — the part that can actually drift — unchecked. It is the
-// same rule the list's own suite states, applied one module down.
+// What one run's row draws, driven through `RunListProjection` so the seam between projection
+// and row stays checked.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -62,9 +57,8 @@ describe("the parks a row says in place", () => {
 });
 
 /*
- * One wire member, two facts. `failureReason` is preserved on any bound breach AND
- * carries the reason a cancel supplied, so the run's status is the only thing that says
- * which arrived. The row must not render a requested cancel as a breach.
+ * `failureReason` carries a bound breach's reason and a cancel's, so the status alone says which
+ * arrived. The row must not render a requested cancel as a breach.
  */
 describe("the reason a run carries", () => {
   function reasonOf(root: HTMLElement, className: string): string | undefined {
@@ -82,7 +76,6 @@ describe("the reason a run carries", () => {
     expect(reasonOf(root, "meridian-run-row__reason")).toBe(
       "Cancellation reason Canceled: the incident was resolved out of band.",
     );
-    // The daemon's sentence verbatim, with only the name in front of it added.
     expect(root.querySelector(".meridian-run-row__reason")?.textContent).toContain(
       "Canceled: the incident was resolved out of band.",
     );
@@ -90,8 +83,6 @@ describe("the reason a run carries", () => {
   });
 
   it("keeps the failure treatment, unlabeled, for a run that failed", () => {
-    // Negative control for the case above: it would pass over a row that had dropped
-    // the failure arm entirely and called every reason a cancellation.
     const root = renderRow(
       run({ state: "failed", failureReason: "Quality gate rejected the phase output." }),
     );
@@ -104,8 +95,6 @@ describe("the reason a run carries", () => {
   });
 
   it("renders neither shape for a run that carries no reason", () => {
-    // The second control: both cases above read a class off a row, and a row that
-    // rendered an empty paragraph for every run would satisfy neither claim honestly.
     const root = renderRow(run({ state: "completed" }));
 
     expect(root.querySelector(".meridian-run-row__reason")).toBeNull();
@@ -113,8 +102,7 @@ describe("the reason a run carries", () => {
   });
 
   it("spends the status chip's tone on the status and the treatment on the reason", () => {
-    // A canceled run is settled rather than broken, so neither the chip nor the
-    // reason wears the failure hue — the two facts are told apart by words here.
+    // A canceled run is settled rather than broken: neither chip nor reason wears the failure hue.
     const root = renderRow(
       run({ state: "canceled", failureReason: "Canceled: superseded by a newer run." }),
     );
@@ -127,8 +115,8 @@ describe("the reason a run carries", () => {
 });
 
 describe("the start a row reads", () => {
-  // A run list has no day divider above it, so the two runs below — started at the
-  // same hour a week apart — are the pair the transcript's date-free reading collapses.
+  // No day divider sits above a run list, so two runs started a week apart at the same hour
+  // are the pair a date-free reading collapses.
   const startedOnTheFirst = "2026-09-01T10:00:00.000Z";
   const startedOnTheEighth = "2026-09-08T10:00:00.000Z";
 
@@ -144,8 +132,6 @@ describe("the start a row reads", () => {
   });
 
   it("negative control: the transcript's date-free reading renders the two identically", () => {
-    // The finding. Without it the case above would pass over a row that differed for
-    // some other reason and would not name the reading that lost the day.
     expect(formatClockTime(startedOnTheEighth)).toBe(formatClockTime(startedOnTheFirst));
   });
 
@@ -182,8 +168,7 @@ describe("the open control", () => {
   });
 
   it("hands the row back when its caller supplies the action", () => {
-    // A typed capture rather than a bare spy: the claim is that the ROW travels, and
-    // reading it back off an untyped mock call would assert against `any`.
+    // A typed capture: reading the row back off an untyped mock call would assert against `any`.
     const openedRuns: WorkflowRunListRow[] = [];
     const root = renderRow(run({ workflowRunId: "run-1" }), (row) => {
       openedRuns.push(row);

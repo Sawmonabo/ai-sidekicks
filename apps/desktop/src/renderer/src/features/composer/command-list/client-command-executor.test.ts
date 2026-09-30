@@ -1,13 +1,7 @@
-// That a recognized command actually PERFORMS its act, and that the composer waits.
-//
-// Driven through the real registry — `commandRegistry`, the one the palette and the
-// chord table read — rather than a stand-in, so the claim is about the registry a
-// person's `/name` really reaches. A local registry would prove the executor talks to
-// a registry and nothing about which.
-//
-// The negative control is the one that matters: an executor that reported `applied`
-// from `invoke`'s synchronous return would pass every clean case here and still clear
-// a person's line on a command that had not finished.
+// A recognized command actually performs its act, and the composer waits for it. Driven
+// through the real `commandRegistry` the palette and chord table read, so the claim is about
+// the registry a person's `/name` reaches. An executor reporting `applied` from `invoke`'s
+// synchronous return would pass every clean case and still clear the line too early.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -53,7 +47,7 @@ function executorOverConsoleRegistry(
   });
 }
 
-/** One line as the router builds it: the name, and the trimmed text it came from. */
+/** One line as the router builds it. */
 function commandLine(commandName: string) {
   return { commandName, text: `/${commandName}` };
 }
@@ -125,7 +119,7 @@ describe("createClientCommandExecutor", () => {
     let ranCount = 0;
     registerCommand({
       id: HIDDEN_COMMAND_ID,
-      // A key the frame publishes, false on the sessions route this executor reads.
+      // A key the frame publishes, false in the composer's context.
       when: "onWorkflows",
       run: () => {
         ranCount += 1;
@@ -158,10 +152,8 @@ describe("createClientCommandExecutor", () => {
   });
 
   it("refuses a name the console never registered and dispatches nothing", async () => {
-    // `compact` is a real provider command name, which is exactly why it is the
-    // interesting one: the console does not register it, so the composer does not run
-    // it, and the popover is where a person reads that the provider's own entries are
-    // offered for discovery and nothing else.
+    // `compact` is a real provider command name the console does not register, so the
+    // composer does not run it; provider entries are discovery only.
     const executor = executorOverConsoleRegistry();
 
     const outcome = await executor(commandLine("compact"));
@@ -195,8 +187,7 @@ describe("createClientCommandExecutor", () => {
 
 describe("a command that reads arguments off its own line", () => {
   it("is reached through its handler rather than through the registry's invoke", async () => {
-    // The registry's `run()` takes nothing, so an argument-reading command performed
-    // through `invoke` would run with the line thrown away.
+    // The registry's `run()` takes nothing, so `invoke` would run it with the line dropped.
     const invoked = vi.fn();
     const handled = vi.fn(async () => ({ status: "applied" }) as const);
     registerCommand({ id: "test.withArguments", run: invoked });
@@ -226,8 +217,7 @@ describe("a command that reads arguments off its own line", () => {
   });
 
   it("does not widen recognition: a handler for an unregistered id is unreachable", async () => {
-    // The recognizer answers first. A second registry that could claim a name the
-    // console has never heard of is what `client-command-recognizer.ts` prevents.
+    // The recognizer answers first, so a handler cannot claim a name the console never registered.
     const handled = vi.fn();
 
     const outcome = await executorOverConsoleRegistry(new Map([["test.unregistered", handled]]))(
@@ -240,11 +230,9 @@ describe("a command that reads arguments off its own line", () => {
 });
 
 describe("a directive handler that fails", () => {
-  // The executor's contract is that it "returns a settlement; never throws to report
-  // one", and a directive handler is reached THROUGH it — so an escaping rejection
-  // was that contract broken from the inside. What reached a person was an unhandled
-  // rejection: the send controller's interception arm has a `finally` and no `catch`,
-  // so no refusal rendered beside the line and the line was left unexplained.
+  // The executor never throws to report a failure, and a directive handler is reached through
+  // it; the send controller awaits under a `finally` with no `catch`, so an escaping rejection
+  // would leave the line unexplained.
   it("settles a handler that returns a rejected promise as a refusal", async () => {
     registerCommand({ id: "test.rejectingHandler", run: vi.fn() });
     const executor = executorOverConsoleRegistry(
@@ -262,9 +250,8 @@ describe("a directive handler that fails", () => {
   });
 
   it("settles a handler that throws before it ever returns a promise", async () => {
-    // A handler that throws synchronously and one that returns a rejected promise are
-    // the same failure to the person who typed the line, and only calling it INSIDE
-    // the boundary catches both.
+    // A synchronous throw and a rejected promise are the same failure to the person, and only
+    // calling the handler inside the boundary catches both.
     registerCommand({ id: "test.throwingHandler", run: vi.fn() });
     const executor = executorOverConsoleRegistry(
       new Map([
@@ -286,8 +273,7 @@ describe("a directive handler that fails", () => {
   });
 
   it("negative control: a handler that settles normally is still not touched", async () => {
-    // The guard settles failures and nothing else — a handler's own refusal reaches
-    // the composer as the refusal it built, not as `command-failed`.
+    // The guard settles failures only; a handler's own refusal reaches the composer as built.
     registerCommand({ id: "test.refusingHandler", run: vi.fn() });
     const handlerRefusal = {
       status: "refused",

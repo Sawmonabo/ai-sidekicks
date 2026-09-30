@@ -1,8 +1,5 @@
-// One session's queue is read once for every view, and its rows fold in from the
-// tail.
-//
-// The tail delivers already-parsed rows: parsing the wire belongs to the call that
-// opens the stream, so this fold places what it is handed and nothing else.
+// One session's queue is read once for every view, and its rows fold in from the tail. The
+// tail delivers already-parsed rows, so the fold places what it is handed and nothing else.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -87,11 +84,9 @@ describe("one session's queue is read once for every view", () => {
   });
 
   it("leaves one live registered reading when one view replaces another in a commit", async () => {
-    // React runs cleanups BEFORE setups, so this pane swap retires the reading
-    // between the arriving view's render and its subscribe. A view that subscribed
-    // through the reading it captured at render would revive that one — live, open,
-    // and outside the registry — and the next view would then mint a second, so one
-    // session would carry two snapshot reads and two tails.
+    // React runs cleanups before setups, so this pane swap retires the reading between the
+    // arriving view's render and its subscribe. Subscribing through the reading captured at
+    // render would revive it outside the registry, and the next view would mint a second.
     const { bridge, clock, queueCalls, tailedSessionIds, listedSessionIds } = queueFeedBridge();
     const view = render(
       <QueueFeedProbe
@@ -114,10 +109,8 @@ describe("one session's queue is read once for every view", () => {
       />,
     );
 
-    // A third view arriving afterwards must JOIN what the swap left behind rather
-    // than mint its own, which is the reading that says the registry holds one. Both
-    // arrivals settle together, which is the case's own claim: two views sharing
-    // one reading ask it for one read.
+    // A third view must join what the swap left behind rather than mint its own; both arrivals
+    // settle together, so two views on one reading ask for one read.
     render(
       <QueueFeedProbe
         key="z"
@@ -134,10 +127,8 @@ describe("one session's queue is read once for every view", () => {
   });
 
   it("keeps the successor registered when the reading it replaced goes idle", async () => {
-    // The eviction closure captures the map and the key but not the reading, so an
-    // unconditional `delete(sessionId)` evicted whatever was under that key by the
-    // time the last watcher left — a SUCCESSOR with watchers of its own. A retiring
-    // reading may only remove itself.
+    // The eviction closure captures the map and key, not the reading, so an unconditional
+    // `delete(sessionId)` would evict a successor with watchers of its own.
     const { bridge, clock, queueCalls, tailedSessionIds } = queueFeedBridge();
     const swapped = render(
       <QueueFeedProbe

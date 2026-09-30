@@ -1,32 +1,14 @@
 // One row of the discovery list: the name, what it does, and the state it is in.
-//
-// Its own module because it is its own job — the popover decides WHAT is listed and
-// answers the keys, and this decides how one entry reads — and because the two jobs
-// in one file had grown past the length this package splits at.
-//
-// THE PROVIDER ROW'S ABSENCE OF A BUTTON IS THE RULE MADE VISIBLE. It is not a
-// disabled control: a disabled button asserts the act exists here and is momentarily
-// unavailable, and this console will not send a provider command from the line at
-// all. The one row that carries a button is the console's own act.
-//
-// A DECLARED DISABLED ENTRY IS RENDERED DISABLED, AND THAT IS A DIFFERENT CLAIM.
-// `ProviderCommandEntry.enabled` is returned precisely so a client can tell a
-// disabled command from one that does not exist — the driver deliberately does not
-// filter, because dropping the entry would stop the reply being the provider's
-// enumeration as observed. A row that ignored the member would tell a person the
-// entry is among what the provider offers with no unavailable state anywhere on it.
-// So the row carries `aria-disabled`, wears the dimmed treatment, and says the state
-// in its own secondary text.
-//
-// AND IT SAYS NOTHING ABOUT WHY. The registered entry is `{ name, kind, description,
-// scope, enabled, binding }` — there is no reason member anywhere on it — so the row
-// states what was declared and stops. A sentence explaining the cause would be one
-// this console wrote about a decision the provider made.
+// A provider row has no button: a disabled one would claim the act exists here, and this console
+// never sends a provider command from the line. Only a console row carries a button.
+// An entry the provider declared disabled is rendered disabled and never explained, because the
+// entry has no reason member.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { isDeclaredUnavailable, type CommandListEntry } from "../command-list-entries.js";
 
+/** The entry one row shows, with the handlers for selecting or running it. */
 export interface CommandListRowProps {
   readonly entry: CommandListEntry;
   readonly rowElementId: string;
@@ -35,9 +17,10 @@ export interface CommandListRowProps {
   readonly onRun: (commandId: string) => void;
 }
 
-/** The declared state, in the row's own words. Rendered only where it was declared. */
+/** Shown only on an entry the provider declared disabled. */
 const UNAVAILABLE_LABEL = "unavailable — the provider published this entry as disabled";
 
+/** One entry of the discovery list; only a console entry carries a Run button. */
 export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
   const { entry, rowElementId, isActive, onSelect, onRun } = props;
   const isUnavailable = isDeclaredUnavailable(entry);
@@ -47,10 +30,8 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
       id={rowElementId}
       role="option"
       aria-selected={isActive}
-      // Present only where the provider declared it. `aria-disabled` on every row
-      // with `false` on most of them would be a state the reply never reported, and
-      // the row stays reachable by the arrows either way: a person has to be able to
-      // read what the binding published before they can be told it is unavailable.
+      // Present only where declared: `false` on every other row would be a state the reply never
+      // reported. The row stays reachable by the arrows either way.
       aria-disabled={isUnavailable ? true : undefined}
       onMouseDown={onSelect}
     >
@@ -66,10 +47,8 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
         <span className="meridian-command-discovery__unavailable">{UNAVAILABLE_LABEL}</span>
       ) : null}
       {entry.description === undefined ? (
-        // `empty` and not `not-checked`: the enumeration WAS read, and it came back
-        // carrying this entry without a description. Saying nobody asked would be
-        // false about a read that happened, and the entry is offered exactly as it
-        // was enumerated — nothing here supplies copy the provider did not.
+        // `empty`, not `not-checked`: the enumeration was read and this entry came back without
+        // a description.
         <Nothing
           kind="empty"
           placement="inline"
@@ -94,7 +73,6 @@ export function CommandListRow(props: CommandListRowProps): React.JSX.Element {
   );
 }
 
-/** The row's classes, composed once rather than at three nested ternaries. */
 function rowClassName(isActive: boolean, isUnavailable: boolean): string {
   const classes = ["meridian-command-discovery__row"];
   if (isActive) {

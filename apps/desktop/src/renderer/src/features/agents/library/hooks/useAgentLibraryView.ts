@@ -10,13 +10,8 @@ import {
 } from "../library-view.js";
 
 /**
- * Build the view and let it read.
- *
- * Constructed in a memo and STARTED in an effect, the split
- * `frame/session/session-lifecycle.ts` states one level up: building it owns nothing — no
- * timer, no subscription, no call in flight — and the read is the side effect that
- * must not happen during render, so a memo React discards costs a discarded object
- * and no request.
+ * Build the library view and let it read. Built in a memo and started in an effect, so a memo
+ * React discards costs an object and no request: the read must not happen during render.
  */
 export function useAgentLibraryView(
   bridge: PlatformBridge,
@@ -33,8 +28,7 @@ export function useAgentLibraryView(
       view.dispose();
     };
   }, [view]);
-  // The window half only: this registry has no session and no triggering event kind,
-  // so the session half would have nothing to listen to.
+  // Window triggers only: the registry has no session-scoped read triggers.
   useWindowReadTriggers(view, bridge.transportReconnect);
   const snapshot = useSyncExternalStore(
     (onStoreChange: () => void) => view.subscribe(onStoreChange),

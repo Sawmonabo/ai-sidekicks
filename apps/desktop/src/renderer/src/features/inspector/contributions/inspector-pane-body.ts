@@ -1,10 +1,6 @@
-// The inspector pane's body, as the registry loads it, and the root of its chunk.
-//
-// A LOADER-BACKED BODY: the inspector is not on the first paint — it opens from a
-// control and from an address — so its readers, its sections, and its stylesheet ride
-// behind the boundary rather than on the initial import graph.
-//
-// Named `Body` because that is the export name the lazy body loader resolves.
+// The inspector pane's body as the registry loads it, and the root of its chunk (readers,
+// sections and stylesheet ride behind the boundary, off the first paint). Named `Body` because
+// that is the export the lazy body loader resolves.
 
 import { createElement } from "react";
 
@@ -15,10 +11,8 @@ import { InspectorPane } from "../InspectorPane.js";
 /**
  * The inspector, at an address the pane layout resolved.
  *
- * Narrowed to this kind's own address arm before the body sees it, so the body reads
- * the entity its kind admits and nothing else. `createElement` rather than JSX: this is
- * a `.ts` module, and the naming rule reserves `.tsx` for a single PascalCase component
- * per file.
+ * Narrowed to this kind's address arm first. `createElement` rather than JSX because this is
+ * a `.ts` module.
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "inspector",

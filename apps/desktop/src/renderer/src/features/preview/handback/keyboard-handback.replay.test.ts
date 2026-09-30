@@ -1,11 +1,6 @@
-// What a claimed chord then does, and where it has to arrive for the console to work.
-//
-// The replay is the half that can fail while every decision above it is correct: a
-// chord claimed from the page and then dispatched at the wrong target reaches nobody,
-// which is a keystroke the operator has lost twice over. The route is asserted at both
-// ends — the pane's own capture handler and the window the keybinding table listens on
-// — because a re-target that fixes one by breaking the other is the failure this suite
-// exists to catch.
+// The replay is asserted at both ends, the pane's own capture handler and the window the
+// keybinding table listens on: a re-target that fixes one by breaking the other is what this
+// suite catches.
 
 import { describe, expect, it } from "vitest";
 
@@ -38,11 +33,8 @@ describe("KeyboardHandback.replay", () => {
   });
 
   it("reaches the pane's own capture handler, which is where the close chord is handled", () => {
-    // The finding. Dispatching on `window` made the window the target, and a target's
-    // propagation path does not include its descendants — so `PreviewPane`'s
-    // `onKeyDownCapture` never saw the replay, and the one chord it handles there was
-    // silently swallowed: no refusal, no close, and a keystroke the mirror had just
-    // taken from the page.
+    // Dispatching on `window` makes it the target, and a target's propagation path excludes its
+    // descendants, so the pane's `onKeyDownCapture` never saw the replay.
     const handback = handbackOver([CLOSE_TAB_CHORD]);
     const paneRoot = attachedPaneRoot();
     const seenAtPane: KeyboardEvent[] = [];
@@ -60,9 +52,8 @@ describe("KeyboardHandback.replay", () => {
   });
 
   it("still reaches the window, so every other chord keeps the route it had", () => {
-    // The half a re-target could have broken. The keybinding table listens at the
-    // window, and a replay that stopped reaching it would trade one swallowed chord
-    // for every other one.
+    // The keybinding table listens at the window; a replay that stopped reaching it would swallow
+    // every other chord.
     const handback = handbackOver(["$mod+KeyK"]);
     const paneRoot = attachedPaneRoot();
     const seenAtWindow: KeyboardEvent[] = [];
@@ -81,16 +72,13 @@ describe("KeyboardHandback.replay", () => {
       window.removeEventListener("keydown", capturing, { capture: true });
     }
 
-    // Both phases: the window captures on the way down and hears it bubble back up,
-    // so a listener registered either way is unaffected by the re-target.
+    // Both phases: the window captures on the way down and hears the bubble back up.
     expect(seenAtWindow).toHaveLength(2);
     expect(seenAtWindow[0]?.code).toBe("KeyK");
   });
 
   it("negative control: a chord the mirror does not hold reaches neither", () => {
-    // Without it the two cases above would pass against a replay that dispatched
-    // every keystroke it was handed, which is a pane that takes chords from the page
-    // the mirror never claimed.
+    // Without it the cases above would pass against a replay that dispatched every keystroke.
     const handback = handbackOver(["$mod+KeyK"]);
     const paneRoot = attachedPaneRoot();
     const seen: KeyboardEvent[] = [];

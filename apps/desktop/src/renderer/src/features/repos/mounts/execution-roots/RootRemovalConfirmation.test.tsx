@@ -1,15 +1,8 @@
-// A settlement belongs to the press that produced it, and closing does not take it back.
-//
-// WHAT THESE CASES PIN. The confirm control is an `AlertDialog.Close`, so it sends and
-// closes in one act. A discard wired to every close therefore fires immediately after
-// `send()` published `sending`: the card falls back to idle, the trigger that state had
-// disabled re-enables under a call still on the wire, and a second press reaches the
-// controller's single-flight guard and returns silently. The first case fails against that
-// wiring on both observables, the state and the trigger.
-//
-// THE POPUP IS PORTALLED, so every press below is read off `document` rather than the
-// render container: the trigger and the settlement are on the card, and the two acts
-// are in a popup attached to the body.
+// A settlement belongs to the press that produced it, and closing does not take it back. The
+// confirm is an `AlertDialog.Close`, so it sends and closes in one act; a discard wired to every
+// close would fire right after `send()` published `sending`, idling the card and re-enabling the
+// trigger under a call still on the wire. The popup is portalled, so presses are read off
+// `document`.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -19,17 +12,14 @@ import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { RootRemovalConfirmation } from "./RootRemovalConfirmation.js";
 
-/** A canonical UUID, so `repo.worktreeRetire` is a request the binding will send. */
 const WORKTREE_ID = "019b79ee-0280-740e-8110-d1a4c1150091";
 
-/** A daemon whose removal call never answers, so the sent state stays observable. */
 function daemonHoldingTheCall(): RepoOperations {
   return scriptedRepoOperations({
     retireWorktree: async () => await new Promise<never>(() => undefined),
   });
 }
 
-/** A daemon that records the removal, so a settlement lands on the card. */
 function daemonAnsweringTheCall(): RepoOperations {
   return scriptedRepoOperations({
     retireWorktree: ({ worktreeId }) => Promise.resolve({ worktreeId, state: "retired" }),
@@ -47,7 +37,6 @@ function renderConfirmation(operations: RepoOperations): ReturnType<typeof rende
   );
 }
 
-/** The card's own trigger, which the sent state disables. */
 function trigger(): HTMLButtonElement | null {
   return document.querySelector<HTMLButtonElement>(".meridian-root-removal__trigger");
 }
@@ -82,8 +71,7 @@ describe("RootRemovalConfirmation — the confirm press keeps its settlement", (
   });
 
   it("negative control: with nothing pressed the card carries no settlement and the trigger is live", async () => {
-    // Without this the case above would pass against a card that always said
-    // `Sending.` and always held its trigger, which is a removal nobody can start.
+    // Without this the case above would pass against a card that always said `Sending.`.
     const { container } = renderConfirmation(daemonHoldingTheCall());
 
     await pressOpen();
@@ -108,8 +96,7 @@ describe("RootRemovalConfirmation — a discarded consideration", () => {
   });
 
   it("negative control: a settlement nobody reconsidered stays on the card", async () => {
-    // The record of a removal is what a person acts on next. A card that cleared it on
-    // any close would erase it before it could be read.
+    // A card that cleared the record on any close would erase it before it could be read.
     const { container } = renderConfirmation(daemonAnsweringTheCall());
 
     await pressOpen();

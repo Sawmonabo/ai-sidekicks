@@ -1,8 +1,5 @@
-// What the palette is handed for the approval card, and what answering from it sends.
-//
-// Asserted on the two pure halves rather than through a mounted card: which rows
-// exist is arithmetic over the same values the cards render from, and what a row
-// sends is the card's own request. The hook's suite covers the registration.
+// Asserted on the two pure halves rather than a mounted card: which rows exist, and what a row
+// sends (the card's own request).
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -72,10 +69,7 @@ describe("the rows the approval card contributes", () => {
   });
 
   it("offers nothing for a record a SETTLED refusal already answered", () => {
-    // The card takes both buttons off on `approval.already_resolved` — somebody else
-    // answered — so the two palette rows go with them. One reading serves card and palette:
-    // withholding this map is what left the palette offering a decision about a
-    // request that was no longer waiting.
+    // The card takes both buttons off on `approval.already_resolved`, so the palette rows go too.
     const rows = approvalCommandRows(
       inputFor({ resolveRefusalByApprovalId: alreadyResolved(FIRST_REQUEST) }),
     );
@@ -126,9 +120,7 @@ describe("what answering from the palette sends", () => {
   });
 
   it("answers nothing for a record a settled refusal reached after the row was built", () => {
-    // The row leaves the palette on the next contribution, and a press can land in
-    // the gap. The invoke path re-reads the same offer, so it cannot send a decision
-    // the card has already withdrawn.
+    // A press can land before the row leaves the palette; the invoke path re-reads the offer.
     const resolve = vi.fn();
 
     performApprovalCommand(

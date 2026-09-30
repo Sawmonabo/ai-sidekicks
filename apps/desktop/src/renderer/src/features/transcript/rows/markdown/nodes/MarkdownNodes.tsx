@@ -1,32 +1,7 @@
-// The mdast-to-React mapper — own-built rather than taken from a library.
-//
-// Every library considered and rejected (react-markdown, the rehype stack, markdown-it,
-// markdown-to-jsx, the Tailwind-styled streaming renderers) fails on the same axis: each
-// one either renders raw HTML by default or reaches it through a plugin, and each brings
-// its own class names into a design system that already has some. A mapper is a switch
-// over a node union; owning it costs one file and buys both properties outright.
-//
-// THE THREE RULES THIS FILE ENFORCES, from `markdown-rules.ts`:
-//
-//   1. **`html` nodes render as literal text**, at block and inline level both. That is
-//      what "Model HTML is never rendered" means concretely, and it is why NO SANITIZER
-//      IS ON THIS PATH — nothing is ever parsed as markup, so there is nothing to
-//      sanitize. `<script>alert(1)</script>` in a message reaches the screen as the
-//      characters an author typed.
-//   2. **No path links.** A link renders as its own text with no anchor and no href.
-//      `remend`'s sentinel for an unfinished link takes the same disposition for a
-//      different reason, which is why neither needs a special case here.
-//   3. **Math and diagrams wait for the block to settle**, threaded as `isSettled`
-//      through the context rather than decided per node.
-//
-// THE NODE UNION IS `mdast`'s OWN, so every arm narrows rather than casts. `mdast-util-
-// gfm` merges its table, strikethrough, task-list, and footnote nodes into that union by
-// declaration, which is why those arms typecheck without this file naming the extension.
-//
-// A NODE TYPE THIS SWITCH HAS NOT BEEN TAUGHT renders its children. mdast grows node
-// types with its extensions, and an unknown one is far more likely to be a container than
-// a leaf: dropping it would silently delete an author's words, and walking into it loses
-// only the node's own formatting.
+// Maps mdast nodes to React elements; own-built because the libraries considered render raw HTML
+// by default. `html` nodes render as literal text (nothing is parsed as markup, so no sanitizer
+// is on this path), links render as their text with no anchor, and math and diagrams wait for
+// `isSettled`.
 
 import type { AlignType, Nodes, PhrasingContent, RootContent, Table, TableRow } from "mdast";
 import { Fragment } from "react";
@@ -39,17 +14,13 @@ import { MathBlock } from "./MathBlock.js";
 /** Everything the mapper needs that is not the node itself. */
 export interface MarkdownRenderContext {
   /**
-   * Whether the containing block has settled. Decides math, diagrams, and highlighting —
-   * one flag for all three, because all three are wrong when fed a prefix.
+   * Whether the containing block has settled. Decides math, diagrams and highlighting, all of
+   * which are wrong when fed a prefix.
    */
   readonly isSettled: boolean;
   /**
-   * Which footnote identifiers this message defined.
-   *
-   * A SET rather than the registry itself, and that is the point: the mapper is a pure
-   * function of the parse, so it never reads or writes state during a render. The
-   * registry is fed from an effect in `StreamingMarkdown`, and this set is derived from
-   * the same walk.
+   * Which footnote identifiers this message defined. A set, not the registry, so the mapper
+   * stays a pure function of the parse and never reads or writes state during render.
    */
   readonly definedFootnoteIdentifiers: ReadonlySet<string>;
 }
@@ -69,11 +40,8 @@ export function MarkdownNodes(props: {
 }
 
 /**
- * A node's key.
- *
- * mdast carries source positions, so a node's own start offset is a real identity: it
- * survives a re-parse of the same text and moves when the node does. The index is the
- * fallback for a node a parse produced without one.
+ * A node's key: its source start offset survives a re-parse of the same text and moves with
+ * the node; the index is the fallback for a node without a position.
  */
 function nodeKey(node: Nodes, index: number): string {
   const offset = node.position?.start.offset;
@@ -88,7 +56,7 @@ function renderNode(
     case "text":
       return node.value;
     case "html":
-      // Model HTML renders as literal text. The arm this whole file is arranged around.
+      // Model HTML renders as literal text.
       return node.value;
     case "inlineCode":
       return <code className="meridian-markdown__code">{node.value}</code>;
@@ -101,10 +69,8 @@ function renderNode(
         <p className="meridian-markdown__paragraph">{renderChildren(node.children, context)}</p>
       );
     case "heading":
-      // A message's `#` is not a page title — the transcript's rows are the document's
-      // structure — so every level renders as one element carrying its depth, and
-      // `markdown.css` gives the levels their weights. That is what keeps a message from
-      // out-shouting the transcript it sits inside.
+      // A message's `#` is not a page title, so every level is one element carrying its depth;
+      // `markdown.css` gives the levels their weights.
       return (
         <p
           className="meridian-markdown__heading"
@@ -139,9 +105,7 @@ function renderNode(
       return (
         <li className="meridian-markdown__list-item">
           {node.checked === null || node.checked === undefined ? null : (
-            // Disabled and read-only: the box is a record of what an author wrote, not a
-            // control. A checkbox the console let a reader toggle would be editing
-            // somebody else's message.
+            // Disabled and read-only: the box records what an author wrote and is not a control.
             <input
               type="checkbox"
               className="meridian-markdown__task"
@@ -166,9 +130,8 @@ function renderNode(
       );
     case "image":
     case "imageReference":
-      // An image is a fetch of a URL a message chose, which asks the same trust question
-      // a link does and gets the same answer. The alt text is the author's words and is
-      // kept.
+      // An image is a fetch of a URL a message chose, the same trust question as a link. The
+      // alt text is the author's words and is kept.
       return <span className="meridian-markdown__image-alt">{node.alt ?? ""}</span>;
     case "table":
       return (
@@ -177,9 +140,7 @@ function renderNode(
         </div>
       );
     case "footnoteDefinition":
-      // Registered elsewhere, rendered nowhere here. This console puts footnotes in one
-      // popover host per transcript, so a definition's body belongs to the popover;
-      // rendering it inline as well would put the same text on the screen twice.
+      // Drawn from the footnote registry, not inline, which would show the text twice.
       return null;
     case "footnoteReference":
       return (
@@ -189,6 +150,7 @@ function renderNode(
         />
       );
     default:
+      // An unknown type is likelier a container than a leaf; dropping it would delete words.
       return renderChildren(childrenOf(node), context);
   }
 }
@@ -211,21 +173,9 @@ function childrenOf(node: Nodes): readonly (RootContent | PhrasingContent)[] {
 }
 
 /**
- * A GFM table's head and body, which are two things the parse already tells apart.
- *
- * THE FIRST ROW IS THE HEADER ROW — that is what the delimiter line under it declares,
- * and it is the only thing that line declares about rows. Every row used to reach the
- * screen as `<td>` inside one `<tbody>`, so a table with column names rendered as a
- * grid with none: a reader on assistive technology got cell contents with nothing to
- * announce them against, and no amount of styling would have put that back.
- *
- * THE TABLE ARM NOW OWNS ITS WHOLE SUBTREE, which is why `tableRow` and `tableCell`
- * carry no arm of their own in the switch above. Whether a cell is a header is a fact
- * about its ROW's position in the table, and whether it is aligned is a fact the TABLE
- * carries — neither is readable from the cell, so a per-cell arm could not have
- * rendered either one. A row or a cell reaching the switch from anywhere else is a
- * tree this parser does not produce, and it walks into its children like any other
- * container rather than emitting table markup outside a table.
+ * A GFM table's head and body. The first row is the header row, as the delimiter line under it
+ * declares. The table arm owns its whole subtree, so `tableRow` and `tableCell` have no arm
+ * above: whether a cell is a header depends on its row, its alignment on the table.
  */
 function renderTableSections(node: Table, context: MarkdownRenderContext): React.ReactNode {
   const [headerRow, ...bodyRows] = node.children;
@@ -249,12 +199,8 @@ function renderTableSections(node: Table, context: MarkdownRenderContext): React
 type TableCellKind = "column-header" | "data";
 
 /**
- * One row of a table, with each cell told which column it is in.
- *
- * The alignment list is the TABLE's, one entry per column, so the index a cell sits at
- * is what selects its entry. A row with more cells than the delimiter line declared
- * columns reads `undefined` past the end and renders unaligned, which is what the
- * parse says about a column that was never declared.
+ * One row of a table, with each cell told which column it is in. A row with more cells than the
+ * delimiter line declared columns renders the extra ones unaligned.
  */
 function renderTableRow(
   row: TableRow,
@@ -273,14 +219,9 @@ function renderTableRow(
 }
 
 /**
- * One cell, as a header or as data, carrying the column's declared alignment.
- *
- * `data-align` rather than an inline style, on the heading arm's own precedent: the
- * parse states which of three alignments a column declared and `markdown.css` states
- * what each one looks like, so a design change is a stylesheet edit rather than a
- * mapper edit. An undeclared alignment carries no attribute at all — the sheet's own
- * default is what a column with no delimiter marker gets, and an attribute spelling
- * that default would be this mapper asserting a declaration the author never made.
+ * One cell, as a header or as data, carrying the column's declared alignment as `data-align` so
+ * `markdown.css` owns how each looks. An undeclared alignment carries no attribute, since
+ * spelling the default would assert a declaration the author never made.
  */
 function renderTableCell(
   cell: TableRow["children"][number],
@@ -303,15 +244,11 @@ function renderTableCell(
 }
 
 /**
- * A fenced block: math, a diagram, or code.
+ * A fenced block: math, a diagram, or code, told apart by the info string, which
+ * `markdown-rules.ts` reads so the deferral rule and this switch agree.
  *
- * The three are one mdast node and are told apart by the info string, which is the only
- * place any of them declares itself. `markdown-rules.ts` owns that reading, so the
- * deferral rule and this switch cannot disagree about what "mermaid" means.
- *
- * A deferred fence that is math renders as a formula once settled and as its source
- * before; a deferred fence that is a diagram renders as its source always, because this
- * console ships no control that asks for one.
+ * A deferred math fence renders as a formula once settled and as its source before; a diagram
+ * fence renders as its source always, because the console ships no control that asks for one.
  */
 function renderFence(
   source: string,

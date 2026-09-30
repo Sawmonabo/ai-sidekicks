@@ -1,8 +1,5 @@
-// The definition read has three states, and the three calls inside it settle apart.
-//
-// THE CLAIM THAT MATTERS IS THE ORDERING. The version body and the chain are addressed
-// out of the definition read's answer and neither out of the other's, so both go out
-// once it lands and neither waits on the other.
+// The definition read's three states, and that the version and chain reads go out together once
+// the definition read lands, neither waiting on the other.
 
 import { cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,8 +53,6 @@ describe("the definition detail read — the three states it can be in", () => {
   });
 
   it("reads before it answers, so the first frame is not an absence", async () => {
-    // The first committed frame is `reading` — an answer is coming — and only the last
-    // one carries it.
     const committed = observeDetail(answeringDetailCalls(), DEFINITION_ID);
 
     expect(committed[0]?.status).toBe("reading");
@@ -82,10 +77,8 @@ describe("the definition detail read — the three states it can be in", () => {
 
 describe("the definition detail read — the two reads that qualify the definition", () => {
   it("does not ask for a chain the definition read gave no id for", async () => {
-    // `workflowVersionId` is additive-optional, and the chain read is addressed by
-    // nothing else — so an absent id is a question that could not be PUT. A console
-    // that composed an id from the version number would be inventing an encoding this
-    // wire has none of.
+    // The chain read is addressed by the version id alone, so an absent id is a question that
+    // could not be put; an id composed from the version number would invent an encoding.
     const { workflowVersionId: _dropped, ...withoutVersionId } = RELEASE_CHECKS_DEFINITION;
     const readChain = vi.fn(answeringDetailCalls().readChain);
     const committed = observeDetail(
@@ -104,14 +97,12 @@ describe("the definition detail read — the two reads that qualify the definiti
   });
 
   it("issues the chain read without waiting for the version body", async () => {
-    // The chain is addressed by `definition.workflowVersionId`, which the definition
-    // read already answered, so nothing about it comes out of the version body. Put
-    // after that body, a version read that never settles held the chain question back
-    // entirely.
+    // The chain is addressed by the id the definition read already answered, so it must not
+    // wait on the version body.
     const chainReadsFor: string[] = [];
     const committed = observeDetail(
       answeringDetailCalls({
-        // Never settles: the claim is about what is in flight WHILE it is outstanding.
+        // Never settles: the claim is about what is in flight while it is outstanding.
         readVersion: () => new Promise(() => undefined),
         readChain: async (request) => {
           chainReadsFor.push(request.workflowVersionId);
@@ -123,15 +114,12 @@ describe("the definition detail read — the two reads that qualify the definiti
     await settle();
 
     expect(chainReadsFor).toStrictEqual([RELEASE_CHECKS_BODY.workflowVersionId]);
-    // And the composed answer is still in flight, because one of its two qualifying
-    // reads is: starting them together changes when each is PUT and not what the
-    // settlement is composed from.
+    // The composed answer is still in flight because the version read is.
     expect(latest(committed).status).toBe("reading");
   });
 
   it("negative control: no chain read goes out while the definition read is pending", async () => {
-    // Without this, the case above would hold over a read that put all three requests
-    // at once — which would address the chain with an id nothing had answered yet.
+    // Without this, the case above would pass over a read that put all three requests at once.
     const readChain = vi.fn(answeringDetailCalls().readChain);
     const committed = observeDetail(
       answeringDetailCalls({ readDefinition: () => new Promise(() => undefined), readChain }),
@@ -144,8 +132,8 @@ describe("the definition detail read — the two reads that qualify the definiti
   });
 
   it("negative control: the same definition resolves a chain when the id is carried", async () => {
-    // Without this, the unaddressable case would hold over a hook that answered
-    // `unaddressable` for every definition, never composing the chain request at all.
+    // Without this, the unaddressable case would pass over a hook that answered it for every
+    // definition.
     const committed = observeDetail(answeringDetailCalls(), DEFINITION_ID);
     await settle();
     const state = latest(committed);

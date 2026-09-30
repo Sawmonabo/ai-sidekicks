@@ -1,21 +1,8 @@
-// Superseded bands — the rows a rewind put behind it, kept and dimmed.
-//
-// `system-message-classifier.ts`' epoch rule ends on the half this module owns: superseded turns stay
-// present but visibly past. Nothing is ever removed. A
-// band is the group of rows one rollback rewound past, and the transcript dims a band
-// rather than deleting one, so a person can still read what was rewound away.
-//
-// WHY THIS IS NOT IN `system-message-classifier.ts`. A seam answers "is this ONE row a mark on the
-// log, and what does it say", from that row's own type and payload. A band answers
-// a different question over a different subject: given a WHOLE loaded window,
-// which rows does a rollback boundary somewhere in it rank past a cutoff. The two
-// share the word "rollback" and no table, no reader, and no failure mode — the
-// seam vocabulary can grow by a kind without a line here changing.
-//
-// THE RULES ARE THE CONTRACT'S rather than a reading of them: the marker is
-// single-field and present exactly when superseded, EXCEEDS is the comparison so a
-// row at the cutoff survives, and marks are epoch-scoped because re-execution reuses
-// ordinals.
+// Superseded bands: the rows a rewind put behind it, kept and dimmed rather than removed.
+// A band is the group of rows one rollback rewound past. Unlike a seam in
+// `system-message-classifier.ts`, it is ranked over a whole loaded window, not one row.
+// Marks are single-field and present exactly when superseded, a row at the cutoff survives,
+// and marks are epoch-scoped because re-execution reuses ordinals.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -31,16 +18,8 @@ export interface SupersededBand {
 
 /**
  * One row's rank against the rollback boundaries in its own run and epoch.
- *
- * A class because the answer is asked once per row per frame and computed once per
- * loaded window — the same memo shape `RunGroupIndex` uses, for the same
- * reason.
- *
- * IDEMPOTENCE IS STRUCTURAL. The derivation reads the window and produces a set;
- * running it twice over the same window produces the same set, because nothing is
- * accumulated across calls. Applying the boundary to already-delivered rows is
- * idempotent, and that is therefore a property of the shape rather than a
- * discipline, and a row that arrived pre-marked is admitted through the same set.
+ * A class so the derivation is computed once per loaded window and memoized; deriving is
+ * idempotent, so a row that arrived pre-marked is admitted through the same set.
  */
 export class SupersededIndex {
   readonly #rows: readonly TimelineRow[];
@@ -66,11 +45,8 @@ export class SupersededIndex {
   }
 
   /**
-   * Every band, keyed by the header key the feed dispatches a band header on.
-   *
-   * The same shape `RunGroupIndex` publishes for run groups, and for the same
-   * reason: the feed's row dispatch is a map read on `row.key`, so a band that wants
-   * a header of its own has to be findable by that key and by nothing else.
+   * Every band, keyed by the header key the feed dispatches a band header on: the feed's row
+   * dispatch is a map read on `row.key`.
    */
   public bandByHeaderKey(): ReadonlyMap<string, SupersededBand> {
     this.#bandByHeaderKey ??= new Map(
@@ -92,11 +68,8 @@ export class SupersededIndex {
 
 /**
  * One band's identity, as one string.
- *
- * PREFIXED, because this key shares a namespace with the run group header's — which is
- * a bare run id — and with every row id, in the one map the feed's dispatch reads. A
- * band is identified by the three members that define it, so two rollbacks to
- * different cutoffs inside one epoch are two bands and stay two headers.
+ * Prefixed because it shares a namespace with run group header keys (a bare run id) and row ids
+ * in the one map the feed reads. Two rollbacks to different cutoffs in one epoch are two bands.
  */
 export function supersededBandKey(band: SupersededBand): string {
   return `superseded ${band.runId} ${String(band.epoch)} ${String(band.targetPosition)}`;
@@ -104,12 +77,8 @@ export function supersededBandKey(band: SupersededBand): string {
 
 /**
  * Derive every superseded band over one loaded window.
- *
- * Two sources agree here rather than competing: a row that arrived PRE-MARKED
- * carries its own cutoff, and a boundary delivered later in the window supersedes
- * rows around it. Both feed the same per-row cutoff, and the lowest cutoff wins —
- * which is what `SupersededMarker`'s own definition says it is ("the FIRST accepted
- * rollback … that rewound the surviving history containing the row").
+ * A pre-marked row carries its own cutoff and a later boundary supersedes rows around it;
+ * both feed one per-row cutoff and the lowest wins, matching `SupersededMarker`.
  */
 export function deriveSupersededBands(rows: readonly TimelineRow[]): readonly SupersededBand[] {
   const cutoffsByEpoch = new Map<string, number[]>();
@@ -154,7 +123,6 @@ export function deriveSupersededBands(rows: readonly TimelineRow[]): readonly Su
   return [...bandsByKey.values()].map((entry) => entry.band);
 }
 
-/** A rankable row: the two arms that carry a position and an epoch. */
 interface RankableRow {
   readonly id: string;
   readonly runId: string;
@@ -164,10 +132,8 @@ interface RankableRow {
 }
 
 /**
- * The two arms a superseded marker is allowed on.
- *
- * `general` is excluded structurally rather than filtered: it carries no run
- * attribution, so it cannot be ranked and can never be marked.
+ * The two arms a superseded marker is allowed on. `general` carries no run attribution, so it
+ * cannot be ranked or marked.
  */
 function rankableOf(row: TimelineRow): RankableRow | undefined {
   if (row.kind === "run" || row.kind === "rollback_boundary") {
@@ -182,18 +148,14 @@ function rankableOf(row: TimelineRow): RankableRow | undefined {
   return undefined;
 }
 
-/** `runId` and `epoch` as one map key. Marks are epoch-scoped. */
 function epochKeyOf(runId: string, epoch: number): string {
   return `${runId} ${String(epoch)}`;
 }
 
 /**
- * The cutoff that supersedes this row, or `undefined` when none does.
- *
- * EXCEEDS, not "at or above": the rows marked are those whose carried run position
- * exceeds the carried rewind cutoff, so the row AT the
- * cutoff is the retained floor and survives. Getting this boundary wrong dims the
- * one turn a person rewound to, which is the turn they are looking at.
+ * The cutoff that supersedes this row, or `undefined` when none does. A row whose position
+ * exceeds the cutoff is superseded; the row at the cutoff is the retained floor, and dimming it
+ * would dim the turn the person rewound to.
  */
 function lowestApplicableCutoff(
   row: RankableRow,

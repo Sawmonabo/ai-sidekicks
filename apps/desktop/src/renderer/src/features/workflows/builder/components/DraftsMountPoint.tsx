@@ -1,30 +1,8 @@
-// The inspector's draft mount point — what a person has typed into a phase's configuration
-// and not yet saved.
-//
-// OWNED BY THE WORKFLOW ENGINE. A `human` phase's form configuration, a gate's
-// settings and a back-reference target are edited in the inspector, and the
-// in-progress text is user-authored content the console holds and never
-// stores. The editor is the engine's own body; this console frames it.
-//
-// THE DURABLE STORE IS DELIBERATELY NOT ON THIS MOUNT, and that absence is the
-// whole design rather than an omission. A draft is prose, so the durable store's
-// identifier-shaped write rule refuses it by construction, and a copy that survived
-// a restart would put a person's unsent words in an origin-scoped database outside
-// every erasure selector the corpus defines. The window-lifetime store is what this
-// mount carries; a body that wanted durability would have to acquire it itself,
-// which is the move a reviewer is watching for.
-//
-// GEOMETRY IS NOT A DRAFT, EITHER. The canvas's node positions are client-local too
-// but they are coordinates rather than prose, so they go to the durable UI-state
-// store under its `layout` value class — the node-graph mount point beside this one carries
-// that store, and this one does not. Two client-local tiers, two homes, and the
-// mount types are what keep them from being confused for each other.
-//
-// THE KEY SPACE IS FLAT AND ITS NAMESPACE IS NOT MINTED HERE. The draft store is
-// keyed by whichever view owns the composer, and no feature has settled a key
-// convention yet. Rather than mint one that nothing else follows, the mount hands
-// over the definition the drafts belong to and the body composes its keys under it;
-// the convention lands with the first feature that has two writers.
+// The inspector's draft mount point: what a person has typed into a phase's configuration and
+// not yet saved. The editor is the workflow engine's body; the console only frames it.
+// The durable store is deliberately not on this mount: a draft is prose, which the durable
+// store's identifier-shaped write rule refuses, and a copy surviving a restart would sit in an
+// origin-scoped database outside every erasure selector.
 
 import { EngineMountPoint } from "../../components/EngineMountPoint.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
@@ -34,25 +12,22 @@ export interface DraftsMount {
   /** The definition whose drafts these are. Opaque and wire-verbatim. */
   readonly workflowDefinitionId: string;
   /**
-   * This window's draft store, and never the durable one.
-   *
-   * Window-lifetime by construction: it holds a map and a disclosure, opens no
-   * adapter, and tells the user once that unsent text does not survive a
-   * restart. That disclosure is what makes the non-persistence a stated property
-   * rather than a silent loss, so a body that renders drafts renders it too.
+   * This window's in-memory draft store, never the durable one: unsent text does not survive a
+   * restart. It also carries the notice for an evicted draft, which a body rendering drafts
+   * should show.
    */
   readonly draftStore: DraftStore;
 }
 
 /**
- * The body the workflow engine authors: a COMPONENT this pane renders, never a function
- * it calls, because a call would put the body's hooks into the wrapper's hook list.
+ * A component this pane renders, never a function it calls: a call would put the body's hooks
+ * into the wrapper's hook list.
  */
 export type DraftsBody = (mount: DraftsMount) => React.ReactNode;
 
 /** The drafts mount plus the body, once there is one. */
 export interface DraftsMountPointProps extends DraftsMount {
-  /** The body, once there is one. Absent everywhere here, so the empty frame stands. */
+  /** The body, once there is one. Absent in the product today, so the empty frame stands. */
   readonly body?: DraftsBody;
 }
 

@@ -1,41 +1,14 @@
-// The console's own wrapper over `@xterm/xterm`: one terminal, composed.
+// The console's wrapper over `@xterm/xterm`: one terminal, composed from `xterm-addons.ts`
+// (addons and renderer choice), `xterm-links.ts` (both link paths, through `link-guard.ts`)
+// and `xterm-mount-binding.ts` (size seam and write gate).
 //
-// The console adopts `@xterm/xterm` 6.0.0 with the WebGL, fit, search, unicode11,
-// serialize, and web-links addons and own-builds the React wrapper, the renderer pool,
-// and the link scheme guard, under five constraints.
-// Each one is a decision the terminal feature makes rather than a note a reviewer has to
-// remember, and each lives with the code that keeps it:
-//
-//   1. Bound the CONTEXTS this page creates, not the terminals drawing on one —
-//      `renderer-pool.ts` for the ledger, `xterm-addons.ts` for the selection.
-//   2. `onContextLoss` falls back to DOM, permanently and for this INSTANCE —
-//      `xterm-addons.ts`.
-//   3. **`allowProposedApi` only for Unicode 11.** Only the `unicode` getter calls
-//      `_checkProposedApi()`; every other API the terminal uses is stable. The option
-//      is set in this file, because construction is what this file owns; the addon
-//      that needs it is loaded in the module beside it.
-//   4. Every activatable link passes the scheme guard — `link-guard.ts` owns the
-//      rule and `xterm-links.ts` builds both paths through it.
-//   5. `disableStdin` plus wire-level gating for watchers — `xterm-mount-binding.ts`.
-//
-// WHAT THIS FILE OWNS, AND WHY THE LINE IS THERE. The emulator's LIFE: built on
-// first attach, kept across a detach so a remount reattaches instead of minting a
-// second, and disposed exactly once in an order the pieces cannot arrange between
-// themselves. Everything a terminal also needs — which addons it loads and
-// which renderer it gets, how a link is activated, how it is sized and gated — is a
-// question with its own answer and its own module, and this class composes the three
-// rather than restating them.
-//
-// WHAT IT DOES NOT DO. It never decides who may write: it is handed that answer by
-// the pane that read it off the lease. An emulator that consulted a lease would be a
-// second place eligibility is decided, and the renderer decides it nowhere.
+// This class owns the emulator's life: built on first attach, kept across a detach, disposed
+// once. It never decides who may write; the pane hands it the lease's answer.
+// `allowProposedApi` is set here because only the `unicode` getter needs it; the addon that
+// uses it loads in `xterm-addons.ts`.
 
-// THE LIBRARY'S OWN SHEET IS IMPORTED HERE, not beside the terminal's own sheets.
-// This module is the lazy chunk's entry (`emulator-loader.ts` says why), and the
-// sheet is the emulator's geometry: an import anywhere the console reaches before
-// the emulator would load the grid's CSS while the code that draws the grid arrived
-// on demand. Landing both on the same edge is also what keeps a terminal from ever
-// rendering a grid whose geometry did not come with it.
+// The library's sheet is imported here so it rides the lazy emulator chunk
+// (`emulator-loader.ts`) with the code that draws the grid.
 import "@xterm/xterm/css/xterm.css";
 
 import { Terminal, type ITerminalOptions } from "@xterm/xterm";
@@ -48,24 +21,18 @@ import { XtermMountBinding } from "./xterm-mount-binding.js";
 import { buildTerminalLinkHandler, buildTerminalWebLinksAddon } from "./xterm-links.js";
 import { applyDeclaredMonospaceFamily } from "./xterm-typeface.js";
 
-// Re-exported from the module that DECLARES it, so a consumer that names the mode
-// keeps naming it through the emulator's own entry point — which is also the only
-// module `emulator-loader.ts`'s `typeof import(...)` narrows against.
+// Re-exported so consumers name the mode through the emulator's own entry point.
 export type { TerminalRendererMode } from "./xterm-addons.js";
 
+/** What one adapter is built with: its terminal id, renderer pool, scrollback, and callbacks. */
 export interface XtermTerminalAdapterOptions {
-  /** The shared terminal this adapter is a view of. One per session in V1. */
+  /** The shared terminal this adapter is a view of. One per session. */
   readonly terminalId: string;
   readonly pool?: TerminalRendererPool | undefined;
   readonly scrollbackLines?: number | undefined;
   /**
-   * Whether the lease ALREADY says this user may type, at build time.
-   *
-   * Watch mode is the default, so absent means shut. It is a construction input
-   * rather than a call the caller makes afterwards because the mount point builds a fresh
-   * emulator for every terminal id and every capability change, under a lease that
-   * did not move with it: a binding corrected after construction is a binding that
-   * was briefly wrong, and one whose correction a caller can forget to make.
+   * Whether the lease already says this user may type, at build time; absent means shut. A
+   * construction input, because a binding corrected afterwards is briefly wrong.
    */
   readonly isWriteEnabled?: boolean | undefined;
   /** Where a user's keystrokes go. Absent means this terminal never writes. */
@@ -87,9 +54,8 @@ export class XtermTerminalAdapter {
   readonly #onActivateLink: ((url: string) => void) | undefined;
   readonly #addons: TerminalAddonSuite;
   readonly #mountBinding: XtermMountBinding;
-  // Built on the first attach and DROPPED WITH THE ADAPTER. The three collaborators
-  // each hold what they need of it and let go in the same teardown, so no reference
-  // to a disposed emulator — and its twelve-bytes-per-cell buffer — outlives it.
+  // Built on the first attach and dropped with the adapter, so no reference to a disposed
+  // emulator and its buffer outlives it.
   #terminal: Terminal | undefined;
   #isDisposed = false;
 
@@ -116,9 +82,8 @@ export class XtermTerminalAdapter {
   }
 
   /**
-   * Be told which renderer this instance is on, now and whenever that changes.
-   *
-   * Unsubscribing is the caller's, and disposal drops every sink regardless.
+   * Be told which renderer this instance is on, now and whenever that changes. The caller
+   * unsubscribes; disposal drops every sink regardless.
    */
   public subscribeToRendererMode(sink: (mode: TerminalRendererMode) => void): Unsubscribe {
     return this.#addons.subscribeToRendererMode(sink);
@@ -144,28 +109,20 @@ export class XtermTerminalAdapter {
   }
 
   /**
-   * Put the emulator on screen. Built on first call and reused after, which is the
-   * point of the pool: a remount must not mint a second context for a terminal
-   * that already has one. A second mount element moves the emulator rather than copying it.
+   * Put the emulator on screen: built on first call and reused after, so a remount does not
+   * mint a second WebGL context. A second mount element moves the emulator.
    *
-   * THE MOVE IS THIS CLASS'S AND NOT THE LIBRARY'S, which is a fact about the pinned
-   * `@xterm/xterm` 6.0.0 rather than a preference. `Terminal.open(parent)` builds the
-   * emulator's element and appends it on the FIRST call; on every call after it
-   * returns early — measured in the shipped bundle — leaving the element in whichever
-   * parent it is already in and doing one other thing, re-pointing the library's own
-   * window reference at that element's current document. So a second `open()` is not
-   * a re-parent and never was: the re-append below is what actually moves the grid,
-   * and the call is still made afterwards, so the library's bookkeeping is its own
-   * rather than restated here.
+   * The move is done here because in `@xterm/xterm` 6.0.0 (measured in the shipped bundle)
+   * `Terminal.open()` builds and appends the element only on its first call; later calls just
+   * re-point the library's window reference. The re-append below moves the grid.
    */
   public attach(mountElement: HTMLElement): void {
     if (this.#isDisposed) {
       return;
     }
     const terminal = this.#terminal ?? this.#buildTerminal();
-    // Before the same-element return below rather than after it, so a remount onto
-    // a mount element whose declared face has moved follows it. The call is a no-op when it
-    // has not; `xterm-typeface.ts` says why that matters.
+    // Before the same-element return, so a remount onto an element whose declared face moved
+    // follows it; a no-op when it has not.
     applyDeclaredMonospaceFamily(terminal, mountElement);
     if (this.#mountBinding.mountElement === mountElement) {
       this.fitToMountPoint();
@@ -182,16 +139,9 @@ export class XtermTerminalAdapter {
   }
 
   /**
-   * Take the emulator off screen and keep it, with its scrollback and its renderer.
-   *
-   * THE ELEMENT LEAVES WITH THE TIE. Dropping the mount element and the size
-   * observer takes this adapter off the old box and takes nothing off the screen:
-   * xterm's own element stays where `open()` put it, still painted, still holding
-   * the emulator's data listener. A pane that detached and re-attached elsewhere
-   * therefore left a live interactive terminal standing in the element it had left,
-   * beside the one it moved to — two grids, one emulator, and a person able to type
-   * into the ghost. The element goes with the tie, and the emulator, its scrollback,
-   * and its renderer all survive: only its position in the document ends here.
+   * Take the emulator off screen and keep it, with its scrollback and renderer. The element
+   * is removed too: dropping only the tie would leave xterm's element painted and
+   * interactive beside the one the pane moved to, and a person could type into the ghost.
    */
   public detach(): void {
     this.#terminal?.element?.remove();
@@ -218,11 +168,8 @@ export class XtermTerminalAdapter {
   }
 
   /**
-   * Re-measure the grid against its mount element. No timer: the observer drives it.
-   *
-   * Guarded on both halves of the pairing, because either can be missing: an
-   * emulator that has not been built yet has no grid, and one that has been detached
-   * has no box. The fit itself is the addon's.
+   * Re-measure the grid against its mount element; the observer drives it, no timer. Skipped
+   * before the emulator is built or while detached, when there is no grid or no box.
    */
   public fitToMountPoint(): void {
     if (this.#terminal === undefined || this.#mountBinding.mountElement === undefined) {
@@ -242,15 +189,9 @@ export class XtermTerminalAdapter {
   }
 
   /**
-   * Final. Releases the renderer mode's sinks, this terminal's hold on its renderer,
-   * the mount tie and its subscriptions, and the emulator — in that order, because the
-   * addons' disposal runs inside the terminal's and doing it twice leaves a half-torn
-   * instance behind.
-   *
-   * The order is composed HERE rather than inside any one collaborator, because it is
-   * a fact about all three: the suite's own two halves say what has to happen before
-   * the emulator goes and what has to wait until after, and this is the only place
-   * that knows when the emulator goes.
+   * Final. Releases the renderer-mode sinks, this terminal's hold on its renderer, the mount
+   * tie and the emulator, in that order. The addons' disposal runs inside the terminal's, so
+   * the order is composed here, the only place that knows when the emulator goes.
    */
   public dispose(): void {
     if (this.#isDisposed) {
@@ -267,19 +208,12 @@ export class XtermTerminalAdapter {
   #buildTerminal(): Terminal {
     const options: ITerminalOptions = {
       scrollback: this.#scrollbackLines,
-      // Only the `unicode` getter is proposed API; the link, marker, decoration,
-      // and buffer APIs this wrapper uses are all stable.
+      // The only proposed API this wrapper uses is the `unicode` getter.
       allowProposedApi: true,
-      // Watch mode is the default, so the emulator starts unable to accept input
-      // and is opened up only by a lease the log established.
       disableStdin: this.#mountBinding.isStdinDisabledAtBuild,
-      // THE ONLY TEXTUAL OUTPUT THIS TERMINAL HAS. The grid is a canvas under the
-      // WebGL renderer and a wall of positioned spans under the DOM one, and
-      // neither is readable; xterm.js builds the accessible row list and the live
-      // region that make it readable ONLY under this option, whose default is off.
-      // `XtermMountPoint.tsx` names the region and deliberately announces nothing of its
-      // own, so with this off a screen reader reaches a named group with no
-      // contents — the terminal would be unreadable rather than merely unlabeled.
+      // The only textual output: the grid is a canvas under WebGL and positioned spans under
+      // DOM. xterm builds its accessible row list and live region only under this option, and
+      // `XtermMountPoint.tsx` names the region without announcing anything itself.
       screenReaderMode: true,
       convertEol: true,
       linkHandler: buildTerminalLinkHandler(this.#onActivateLink),
@@ -287,9 +221,8 @@ export class XtermTerminalAdapter {
     const terminal = new Terminal(options);
     this.#addons.loadInto(terminal);
     if (this.#onActivateLink !== undefined) {
-      // Gated on the sink, the way the keystroke path is gated on the writer: a
-      // terminal with nowhere to send a link would otherwise underline printed URLs
-      // and swallow the click, which is an affordance that lies.
+      // Gated on the sink: without one, printed URLs would be underlined and their clicks
+      // swallowed.
       terminal.loadAddon(buildTerminalWebLinksAddon(this.#onActivateLink));
     }
     this.#mountBinding.bindEmulator(terminal);

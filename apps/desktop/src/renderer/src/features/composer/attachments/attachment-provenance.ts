@@ -1,29 +1,14 @@
-// Which readings a card is given about an attachment, and whose each one is.
-//
-// THE SEAM, IN ONE SENTENCE: this module changes when the rule about a declared value
-// and its derived counterpart changes, and that rule is small enough and load-bearing
-// enough to be findable on its own: NEITHER side gates the other, and that is a decision
-// rather than a detail of a shape file.
-//
-// TWO AXES, ONE PRECEDENCE. The media type is the axis where both readings can stand
-// together; the NAME is the axis where the derived one replaces the declaration
-// outright. They live here together because the provenance vocabulary is one closed set
-// and because a card that read a name from one place and labeled it from another is
-// exactly the disagreement this module exists to make impossible.
-//
-// It takes an entry and returns readings. It stores nothing, formats nothing, and is
-// the only place the declared-versus-derived precedence is decided.
+// Which readings a card is given about an attachment, and whose each one is. Neither side gates
+// the other: the media type can show both readings, while the derived name replaces the
+// declaration outright. This is the only place the declared-versus-derived precedence is decided.
+// It stores and formats nothing.
 
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /**
- * Whose reading of a value this is.
- *
- * The card labels a declared one AS declared, because the two are not the same class of
- * claim: the declaration is advisory input that narrows an expected signature and never
- * widens acceptance, while the derived value is what the
- * daemon found in the bytes. A figure that showed one and meant the other would let a
- * caller's claim pass for a finding.
+ * Whose reading of a value this is. A declaration is advisory input that narrows an expected
+ * signature and never widens acceptance; a derived value is what the daemon found in the bytes.
+ * The card labels a declared one as declared so a claim cannot pass for a finding.
  */
 export type AttachmentProvenance = "derived" | "declared";
 
@@ -34,22 +19,10 @@ export interface AttachmentMediaTypeReading {
 }
 
 /**
- * Which media-type readings an in-flight attachment has, in the order they are shown.
- *
- * NEITHER SIDE GATES THE OTHER, which is the whole point of this function. A payload a
- * browser hands over with no `File.type` — every paste, and any client that omits it —
- * still shows the derived type the daemon found, on exactly the PNG and PDF attachments
- * where the derived signature is the interesting fact. Either value alone is a reading
- * and is shown.
- *
- * WHERE BOTH EXIST AND AGREE, ONE CHIP. The declaration is confirmed rather than
- * contradicted, and printing the same string twice would read as a disagreement.
- *
- * WHERE BOTH EXIST AND DIFFER, THE DERIVED ONE LEADS AND THE DECLARATION SURVIVES
- * BESIDE IT. The derived type is the authority — `AttachmentCard.tsx`'s own rule that
- * derived truth REPLACES the declaration — but a disagreement is a fact a user
- * acts on, and dropping the declaration would hide that their client claimed something
- * else.
+ * Which media-type readings an in-flight attachment has, in display order. Either value alone
+ * is shown: a paste has no `File.type`, yet still shows the derived type. Where both exist and
+ * agree there is one chip; where they differ the derived one leads and the declaration survives
+ * beside it, since a disagreement is a fact a user acts on.
  */
 export function attachmentMediaTypeReadings(
   entry: AttachmentIngestEntry,
@@ -79,21 +52,10 @@ export interface AttachmentNameReading {
 }
 
 /**
- * Which name an in-flight attachment goes by, and whose it is.
- *
- * THE DERIVED NAME REPLACES THE DECLARATION OUTRIGHT, which is where this axis differs
- * from the media type beside it. Ingest validation keeps every caller-supplied string
- * out of every path component and lets the original
- * survive as manifest metadata only, so once `fileName` exists it is the name —
- * there is nothing to show the declaration beside, and showing both would suggest the
- * caller's string is still in use somewhere.
- *
- * ONE FUNCTION BECAUSE ONE CARD ASKS TWICE. The visible face and the accessible label
- * are two renderings of the same question, so they read one answer. A completed ingest
- * stays on the in-flight arm of the reading, and a label that read the declaration while
- * the face showed the daemon's normalized name would give a screen-reader user a
- * different artifact identity from a sighted one on exactly the attachments where
- * normalization changed something.
+ * Which name an in-flight attachment goes by. The derived name replaces the declaration
+ * outright, since ingest validation keeps caller strings out of paths and keeps the original
+ * as metadata only. One function serves the face and the accessible label so a screen-reader
+ * user hears the same name a sighted one sees, even where normalization changed it.
  */
 export function attachmentNameReading(entry: AttachmentIngestEntry): AttachmentNameReading {
   const derived = entry.derived?.fileName;

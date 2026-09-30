@@ -1,13 +1,7 @@
-// What the account axis is allowed to SAY about an account, over one registry reading.
-//
-// WHICH ACCOUNT a sentence speaks for is `account-axis.test.ts`'s question, beside the
-// selection that answers it. What is asked here is the other half: whether the words
-// are true of the weakest thing that could have produced the state they report, and
-// whether the two facts a stored reading can hold — what was found, and when — stay
-// distinguishable.
-//
-// The model is a pure function over a reading, which is why every case here builds an
-// object rather than standing up a bridge.
+// What the account axis says about one account. The words must be true of the weakest
+// producer of the stored state, and what was found and when must stay distinguishable. Which
+// account a sentence speaks for is `account-axis.test.ts`. Cases build plain objects, since
+// the model is a pure function over a reading.
 
 import { PROVIDER_ACCOUNT_HEALTH_STATES, type ProviderAccount } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -63,11 +57,9 @@ describe("the account axis's advisories — what the stored reading is allowed t
   }
 
   it("claims credential presence and local health, never that the provider is accepting it", () => {
-    // The defect this case exists for: four things write this state and the weakest of
-    // them — the background observer — reads LOCAL credential state and never asks the
-    // provider anything, so a server-revoked credential sits in this arm untouched. A
-    // sentence saying the account was "found signed in" reports that observer's reading
-    // as a confirmation nobody obtained.
+    // The background observer reads only local credential state, so a server-revoked
+    // credential sits in this arm; "found signed in" would report that as a confirmation
+    // nobody obtained.
     const stored = storedReadingFor({ healthState: "authenticated" }) ?? "";
 
     expect(stored).toContain("found a credential in this account's home");
@@ -77,10 +69,8 @@ describe("the account axis's advisories — what the stored reading is allowed t
   });
 
   it("names what a reauth-required account needs rather than who asked for it", () => {
-    // A terminal authentication refusal on a token-mode account lands in this arm and
-    // the provider asked for nothing there — the remedy is a token minted at the
-    // provider and re-supplied, so wording it as a request the provider made would be
-    // false of one of its producers.
+    // A terminal authentication refusal on a token-mode account lands in this arm, and the
+    // provider asked for nothing there.
     const stored = storedReadingFor({ healthState: "reauth_required" }) ?? "";
 
     expect(stored).toContain("needing a fresh sign-in");
@@ -98,9 +88,7 @@ describe("the account axis's advisories — what the stored reading is allowed t
   });
 
   it("tells a never-observed account apart from one an observation could not decide", () => {
-    // The two facts the timestamp exists to separate: both project `indeterminate`, so
-    // a sentence keyed on the state alone reports "we looked and could not tell" over
-    // an account nothing has ever looked at.
+    // Both project `indeterminate`; the timestamp is what separates them.
     const neverObserved = storedReadingFor({
       healthState: "indeterminate",
       healthObservedAt: null,
@@ -116,23 +104,20 @@ describe("the account axis's advisories — what the stored reading is allowed t
   });
 
   it("renders the instant through the console's one date formatter and no second one", () => {
-    // Asserted against the chokepoint's own output rather than against a spelling this
-    // file writes out: a second `Intl.DateTimeFormat` here would agree with the field
-    // today and drift from it the moment the chokepoint's field list moves.
+    // Asserted against `formatDateTime`'s own output, so a second formatter here cannot drift
+    // from it.
     const britishInstant = formatDateTime(OBSERVED_AT, "en-GB");
     const germanInstant = formatDateTime(OBSERVED_AT, "de-DE");
 
-    // The two readings differ, so a `locale` this model accepted and then dropped could
-    // not pass both of the assertions below.
+    // The two differ, so a dropped `locale` could not pass both assertions.
     expect(germanInstant).not.toBe(britishInstant);
     expect(storedReadingFor({}, "en-GB") ?? "").toContain(britishInstant);
     expect(storedReadingFor({}, "de-DE") ?? "").toContain(germanInstant);
   });
 
   it("costs the sentence its reading and never the field when the stamp is unreadable", () => {
-    // `healthObservedAt` is parsed by `callDaemon`, so this is the belt: the
-    // formatter answers an em dash for a stamp it cannot read, and the advisory still
-    // says which state was stored.
+    // `callDaemon` already parses `healthObservedAt`; this is the backstop: the formatter
+    // answers an em dash and the advisory still names the stored state.
     const readAdvisory = (): string | undefined =>
       storedReadingFor({ healthObservedAt: "the day before yesterday" });
 
@@ -170,18 +155,16 @@ describe("the account axis's advisories — where resolution reached no account"
   }
 
   it("names the remedy where an unpinned run asks for a default that does not exist", () => {
-    // The state that rendered NOTHING before this rule: there is no resolved row whose
-    // readings could carry the remedy, so the form went on asking for a default the
-    // daemon would refuse and the refusal was the first thing that said so.
+    // With no resolved row nothing else carries the remedy, so the form would keep asking for
+    // a default the daemon refuses.
     expect(unresolvedDefaultAdvisoryIn(withNoDefault(), undefined)).toBe(
       "Accounts are registered for this provider and none of them is the default.",
     );
   });
 
   it("takes the wording from the one remedy vocabulary and composes no second sentence", () => {
-    // Both readers reach the same table — the per-account list where an entry resolved
-    // a row, and this rule where it resolved none — so which sentence a person meets
-    // never depends on whether an account happened to resolve.
+    // Both readers use one remedy table: the per-account list where an entry resolved a row,
+    // and this rule where it resolved none.
     const resolvedReading = accountAxisReadingFor(
       served([account({ healthState: "reauth_required" })], [resolvedTo("acct-team")]),
       "claude",
@@ -210,8 +193,7 @@ describe("the account axis's advisories — where resolution reached no account"
   });
 
   it("negative control: says nothing where the entry did resolve an account", () => {
-    // Without this the rule would speak over every reading, and the remedy would
-    // render twice — once on the resolved row's own list and once beside it.
+    // Otherwise the rule would speak over every reading and the remedy would render twice.
     const resolvedReading = accountAxisReadingFor(
       served([account()], [resolvedTo("acct-team")]),
       "claude",
@@ -221,15 +203,14 @@ describe("the account axis's advisories — where resolution reached no account"
   });
 
   it("negative control: says nothing where the form pins an account", () => {
-    // A pinned axis is not asking for a default, so the default's condition is not
-    // this field's subject and saying it beside a pinned account's readings would
-    // invite exactly the confusion the leading sentence exists to prevent.
+    // A pinned axis is not asking for a default, so the default's condition is not this
+    // field's subject.
     expect(unresolvedDefaultAdvisoryIn(withNoDefault(), "acct-team")).toBeUndefined();
   });
 
   it("negative control: says nothing where the read carried no entry for this provider", () => {
-    // An absent entry and an entry that resolved no account are different facts, and
-    // only the second is a default that does not exist.
+    // An absent entry and an entry that resolved no account are different facts; only the
+    // second is a default that does not exist.
     const noEntry = accountAxisReadingFor(served([account()]), "claude");
 
     expect(unresolvedDefaultAdvisoryIn(noEntry, undefined)).toBeUndefined();

@@ -1,26 +1,8 @@
-// A provider's mid-run PERMISSION request, framed as the ordinary approval it is.
-//
-// Permission-kind asks belong on the approval card and nowhere else, and they share
-// that card ENTIRELY — no additional primitive and no second
-// card type. So this is not a card: it is the body `ApprovalCard` already reserves
-// between its header and its action row, and the pane hands it there. The two answers
-// stay the card's two, because a permission ask is settled as an approval, which is why
-// it became one.
-//
-// WHAT IT ADDS, AND WHY EACH ONE CANNOT BE ON THE CARD. Two things, and both
-// come from members the projection READ does not carry:
-//
-//   • **The provenance sentence.** `askId` is on the `approval.requested` EVENT and
-//     on no read, so the card — which renders one parsed projection row — has no way
-//     to know a request came from a provider ask at all.
-//   • **The requested resource, inline.** The card shows it behind a disclosure,
-//     which is right for a request whose category already says what is being asked.
-//     For a permission ask the resource is the whole question, so it is shown above
-//     the action row rather than behind a click. One implementation renders both —
-//     `ApprovalResource.tsx` — so the two placements cannot say different things.
-//
-// A QUESTION IS NOT HERE. An agent's question is a different record with its own
-// card, so exactly one card renders any request and neither has to guess.
+// A provider's mid-run permission request, framed inside the ordinary approval card. This is the
+// body the card reserves between its header and action row, not a second card type. It adds two
+// things the projection read does not carry: the provenance sentence (`askId` is only on the
+// `approval.requested` event) and the requested resource inline, since for a permission ask the
+// resource is the whole question.
 
 import "./ProviderAskDetails.css";
 

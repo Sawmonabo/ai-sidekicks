@@ -1,9 +1,5 @@
-// The facet builders: what each one accepts, and what it refuses.
-//
-// The refusals are the point. Every builder takes `unknown`, because the body it
-// reads is a renderer-local map no projector has written yet, and a builder that
-// coerced would put a figure on screen for a member the console never received.
-// So each clean case below is paired with the input that must NOT produce it.
+// The facet builders: what each accepts and what it refuses. Every builder takes `unknown`,
+// so each clean case is paired with the input that must not produce it.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,8 +26,7 @@ describe("reading a kind-specific body member", () => {
   });
 
   it("negative control: answers undefined for an entity that carries no body at all", () => {
-    // Without this, every builder case below could be passing because
-    // `readBodyMember` happened to return a truthy constant.
+    // Without this, the builder cases below could pass on a constant `readBodyMember`.
     expect(readBodyMember({ kind: "run", id: "run-1" }, "runVersion")).toBeUndefined();
     expect(readBodyMember(undefined, "runVersion")).toBeUndefined();
   });
@@ -116,8 +111,7 @@ describe("an expiry, which has three answers", () => {
   });
 
   it("negative control: an absent member is NOT no expiry", () => {
-    // The whole reason this builder exists rather than `instantFacet`: a decision
-    // that never lapses and a member nobody projected are different facts.
+    // A decision that never lapses and a member nobody projected are different facts.
     expect(expiryFacet("Expires", undefined, "expiry").value.form).toBe("unrecorded");
   });
 });

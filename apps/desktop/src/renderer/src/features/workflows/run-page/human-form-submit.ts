@@ -8,10 +8,8 @@ export const WORKFLOW_HUMAN_FORM_ORIGIN = "workflow-human-form";
 /**
  * The refusals the human-form submit raises on its own, and no others.
  *
- * Both are cases where there is no daemon in the loop at all — an answer that is not
- * an object cannot be composed into the request's `fields` at all, and a second press
- * is visibly a duplicate of one already outstanding. Any other failure is the call's own
- * and is not caught here.
+ * Both are cases with no daemon in the loop: an answer that is not an object, and a second
+ * press while one is outstanding. Any other failure is the call's own and is not caught.
  */
 export type WorkflowHumanFormRefusalCode = "answer-not-composed" | "submit-already-in-flight";
 
@@ -37,12 +35,9 @@ export type WorkflowHumanFormSubmitCall = (request: {
 }>;
 
 /**
- * Where this form's last press got to.
+ * Where this form's last press got to: idle, submitting, submitted, or refused.
  *
- * FOUR ARMS BECAUSE FOUR THINGS ARE TRUE AT DIFFERENT MOMENTS: nobody has answered, an
- * answer is out, the daemon took it, or it was refused. There is deliberately no
- * optimistic arm — what a person sees change is what the daemon answered, and a form
- * that cleared itself on the press would be reporting an acceptance nobody gave.
+ * There is no optimistic arm: what a person sees change is what the daemon answered.
  */
 export type WorkflowHumanFormOutcome =
   | { readonly kind: "idle" }
@@ -68,10 +63,8 @@ export interface WorkflowHumanFormDispatch {
 /**
  * The answer as the request's `fields` member, or nothing where it is not one.
  *
- * The raw editor composes whatever JSON a person typed, and JSON is legally a number,
- * a string, or an array — none of which the request can carry. Read here rather than
- * asserted, so an answer the wire cannot take is refused with a sentence instead of
- * being cast into a shape the daemon would reject after the round trip.
+ * The raw editor can compose any JSON, including numbers, strings and arrays, which the
+ * request cannot carry; those are refused with a sentence instead of cast.
  */
 export function submittableFields(answer: unknown): WorkflowHumanFormFields | undefined {
   return typeof answer === "object" && answer !== null && !Array.isArray(answer)

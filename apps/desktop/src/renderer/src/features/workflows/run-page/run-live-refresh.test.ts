@@ -1,14 +1,7 @@
-// The round the run pane re-reads on when nobody at this keyboard did anything.
-//
-// The class beside `run-snapshot.ts` counts the OTHER half of that read's round: the
-// engine advancing a phase, a park arming a resume, another window's cancel. Every
-// case here holds the operator still and varies what arrives from outside — which is
-// exactly the half `run-snapshot.rounds.test.tsx` cannot reach, since it drives the
-// round in by hand.
-//
-// COUNTING THE ROUND IS THE INSTRUMENT, because a re-read and a re-render are
-// indistinguishable from a rendered state: a reading that advanced on every store
-// transition would look identical on screen while asking the daemon over and over.
+// The round the run pane re-reads on when the operator did nothing: the engine advancing a
+// phase, a park arming a resume, another window's cancel. The half driven by hand is
+// `hooks/useWorkflowRunSnapshot.refresh.test.ts`. Counting the round is the instrument: a re-read
+// and a re-render look the same on screen.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -20,17 +13,13 @@ import { eventOfKind } from "@test/helpers/session-events.js";
 import { WorkflowRunLiveRefresh } from "./run-live-refresh.js";
 
 const SESSION_ID = "session-live-rounds";
-/** The run the pane in these cases is showing. */
 const RUN_ON_SCREEN = "019b7a10-0280-7aa1-8100-70100000000a";
-/** Another run moving in the same session, which owes this pane nothing. */
 const RUN_ELSEWHERE = "019b7a10-0280-7aa1-8100-70100000000b";
 
-/** One workflow frame, carrying the run its payload names. */
 function frameForRun(kind: string, sequence: number, workflowRunId: string): ProjectedSessionEvent {
   return eventOfKind(SESSION_ID, kind, sequence, { workflowRunId });
 }
 
-/** Every reading a case opens, disposed whatever the case did. */
 const openReadings: WorkflowRunLiveRefresh[] = [];
 
 afterEach(() => {
@@ -39,7 +28,6 @@ afterEach(() => {
   }
 });
 
-/** A store the trigger set will read transitions off — initialized, as it requires. */
 function initializedStore(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
   sessionStore.initialize({ cursor: 0, entities: [] });
@@ -47,16 +35,10 @@ function initializedStore(): SessionStore {
 }
 
 /**
- * What a case varies about the pane the reading is opened for.
- *
- * A WRAPPER RATHER THAN A DEFAULTED PARAMETER, because the value being defaulted can
- * itself legitimately be absent: a pane that names no run is one of the cases below,
- * and `openReading(clock, store, undefined)` against a defaulted parameter silently
- * takes the default — a case that reads as though it opened a reading with no run and
- * in fact opened one on `RUN_ON_SCREEN`.
+ * A wrapper, not a defaulted parameter: a pane may name no run, and `undefined` against a
+ * defaulted parameter would silently take the default `RUN_ON_SCREEN`.
  */
 interface PaneUnderReading {
-  /** The run the pane shows, absent where it names none. */
   readonly workflowRunId: string | undefined;
 }
 
@@ -96,9 +78,8 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
   });
 
   it("advances on every category of the taxonomy, not only the lifecycle one", async () => {
-    // The declaration is the whole taxonomy on purpose: a run read projects the run's
-    // status, every phase's state and every live park, so there is no category whose
-    // frames cannot move something the pane draws.
+    // The declaration is the whole taxonomy: a run read projects status, phases and parks, so
+    // no category's frames are irrelevant to the pane.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore);
@@ -123,8 +104,6 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
   });
 
   it("advances when the session's projection is repaired", async () => {
-    // The reconnect reason. A daemon that dropped and came back while this window
-    // stayed focused left the run on screen as old as the moment it went away.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore);
@@ -150,8 +129,6 @@ describe("WorkflowRunLiveRefresh — what advances the round", () => {
   });
 
   it("collapses a burst of frames into ONE advance", async () => {
-    // A fan-out completing four phases at once is one thing to re-read for, and the
-    // scheduler is what decides that — this reading arms no window of its own.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore);
@@ -181,9 +158,6 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   });
 
   it("advances on nothing for a frame that names another run", async () => {
-    // The finding: the trigger set matched on KIND alone, so `workflow.phase_progressed`
-    // for any run in the session re-read every run pane in the window. A session running
-    // four workflows paid four reads for every phase any of them advanced.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });
@@ -199,9 +173,7 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   });
 
   it("negative control: the same three frames advance the reading addressed at THAT run", async () => {
-    // Without this, the case above would hold over a reading that refused every frame
-    // carrying a payload at all — the right answer for one input, reached by ignoring
-    // the pairing this scoping is entirely about.
+    // Guards the case above against a reading that refuses every frame carrying a payload.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ELSEWHERE });
@@ -232,10 +204,8 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   });
 
   it("advances on a frame that names no run", async () => {
-    // `workflow.phase_progressed` has no registered payload, so nothing establishes that
-    // its frame carries the run at all. A frame that does not say which run it is about
-    // is a frame this reading cannot rule out, and refusing it would make a pane silently
-    // stale rather than merely over-read.
+    // `workflow.phase_progressed` has no registered payload, so its frame may not carry the run
+    // at all; refusing it would leave a pane stale rather than merely over-read.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore, { workflowRunId: RUN_ON_SCREEN });
@@ -247,9 +217,7 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
   });
 
   it("refuses a named frame on a pane that names no run of its own", async () => {
-    // The pane layout opens a run pane from a keybinding before an entity is chosen. Such a
-    // pane reads nothing, so a frame naming some other run is a frame about a run this
-    // reading is not showing — the same refusal, arrived at from the other side.
+    // A run pane can open from a keybinding before an entity is chosen; it reads nothing.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore, { workflowRunId: undefined });
@@ -263,8 +231,7 @@ describe("WorkflowRunLiveRefresh — which run the frame is about", () => {
 
 describe("WorkflowRunLiveRefresh — what does not advance it", () => {
   it("negative control: a frame outside the workflow taxonomy advances nothing", async () => {
-    // Without this every case above would pass against a reading that advanced on any
-    // transition at all, which is a re-read cadence keyed to session traffic.
+    // Guards every case above against a reading that advanced on any transition at all.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore);
@@ -290,9 +257,6 @@ describe("WorkflowRunLiveRefresh — what does not advance it", () => {
   });
 
   it("observes nothing at all with no session behind the pane", async () => {
-    // The pane layout opens a run pane from a keybinding before a session is chosen. With no
-    // store there is no timeline to watch, and a reading that invented one would be
-    // watching a session nobody named.
     const clock = new ManualClock();
     const reading = openReading(clock, undefined);
 
@@ -342,13 +306,12 @@ describe("WorkflowRunLiveRefresh — teardown", () => {
     await settle(clock);
 
     expect(published).toStrictEqual([1]);
-    // The round itself kept moving — what stopped was this subscriber, not the count.
+    // The round kept moving; only this subscriber stopped.
     expect(reading.round).toBe(2);
   });
 
   it("reports the store it watches, so a projection rebuilt for it is caught", () => {
-    // The one axis the resource seam's key cannot carry: a store replaced across a
-    // reconnect keeps the whole address while being another object.
+    // A store replaced across a reconnect keeps the whole resource key but is another object.
     const clock = new ManualClock();
     const sessionStore = initializedStore();
     const reading = openReading(clock, sessionStore);

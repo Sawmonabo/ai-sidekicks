@@ -1,11 +1,7 @@
-// The preview pane's chrome never presents a control that lies about what it can do: the
-// chrome never derives navigability, so with no reported state every history control is
-// disabled rather than optimistically live.
-//
-// The address guard and the close-tab chord get adversarial cases rather than happy
-// ones, because each has exactly one catastrophic failure: a page navigated to a local
-// file, and a chord that closes the operator's window instead of a tab. What the field
-// does across readings is its own suite beside this one.
+// The chrome never claims more than the view reported: with no reported state every history
+// control is disabled. The address guard and the close-tab chord get adversarial cases because
+// each has one catastrophic failure: a page navigated to a local file, and a chord that closes
+// the window instead of a tab.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -24,10 +20,9 @@ const CLOSE_TAB_MODIFIER = HOST_CHORD_PLATFORM === "darwin" ? { metaKey: true } 
 
 describe("preview pane chrome", () => {
   it("is named by the trail it sits on rather than by its kind alone", async () => {
-    // Through `aria-labelledby` and never `aria-label`: `components/PaneFrame` names
-    // every pane by its whole address — the session it belongs to, then what the pane is
-    // — so two preview panes in one pane layout are told apart. This mount addresses no session,
-    // so the trail opens on the chrome's own no-address crumb.
+    // `aria-labelledby`, never `aria-label`: the pane frame names a pane by its whole address so
+    // two preview panes are told apart. This mount has no session, so the trail opens on the
+    // no-address crumb.
     const { region } = await renderPreviewPane();
     const crumbs = document.getElementById(region.getAttribute("aria-labelledby") ?? "");
 
@@ -43,8 +38,6 @@ describe("preview pane chrome", () => {
   });
 
   it("keeps the escape to the system browser live, because it is the fallback", async () => {
-    // The one control that stays enabled with no reported state: it is what the pane
-    // falls back to when nothing else in the chrome can act.
     await renderPreviewPane();
     expect(screen.getByRole("button", { name: /Open externally/u })).toHaveProperty(
       "disabled",
@@ -72,8 +65,7 @@ describe("preview pane address field", () => {
   });
 
   it("negative control: a web destination does reach the navigate act", async () => {
-    // Without this, a guard that refused every destination would satisfy the case
-    // above and would also make the address field inert.
+    // Without this, a guard that refused every destination would satisfy the case above.
     const navigations: string[] = [];
     await renderPreviewPane(undefined, recordingActs(navigations));
     const field = screen.getByLabelText("Destination");
@@ -100,8 +92,7 @@ describe("preview pane close-tab chord", () => {
   });
 
   it("negative control: an ordinary keystroke passes through untouched", async () => {
-    // A capture handler that prevented every default would take the page's own
-    // typing as well, which is the failure the modifier test exists to prevent.
+    // A capture handler that prevented every default would swallow the page's own typing.
     const { region } = await renderPreviewPane();
     const event = new KeyboardEvent("keydown", {
       key: "w",

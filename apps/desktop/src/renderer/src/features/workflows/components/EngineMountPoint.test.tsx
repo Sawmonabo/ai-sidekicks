@@ -1,7 +1,5 @@
-// The one composition every workflows mount point goes through: whether a body is present,
-// whether the mount obligation could be met, and how the body becomes a subtree. The
-// wrappers' own suites assert what each of them promises its body; these cases assert
-// what the mount does with a body and a promise once it has them.
+// The composition every workflows mount point goes through: whether a body is present, whether
+// the mount obligation could be met, and how the body becomes a subtree.
 
 import { render } from "@testing-library/react";
 import { useState } from "react";
@@ -37,8 +35,6 @@ describe("a mount point's mount", () => {
   });
 
   it("draws an empty frame when the mount obligation cannot be met", () => {
-    // A body composed against an obligation nobody could supply would be answerable in
-    // appearance and unsubmittable in fact.
     const body = vi.fn((mount: ProbeMount) => <p>probe body for {mount.sessionId}</p>);
     const { container } = render(<EngineMountPoint body={body} mount={undefined} />);
     expectEmptyFrame(container);
@@ -46,9 +42,8 @@ describe("a mount point's mount", () => {
   });
 
   it("gives the body its own hook boundary across the conditional", () => {
-    // A body holding a hook is mounted and unmounted as the mount obligation comes and
-    // goes. Called instead of rendered, the body's hook would join the mount's own list on
-    // the render where the branch is first taken, which is React's hook-order error.
+    // Called instead of rendered, a body's hook would join the mount's own hook list when the
+    // branch is first taken, which is React's hook-order error.
     function StatefulBody(mount: ProbeMount): React.JSX.Element {
       const [seen] = useState(mount.sessionId);
       return <p>held {seen}</p>;

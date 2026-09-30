@@ -1,30 +1,12 @@
-// What a diff's rows ARE, and how much of a gap has been revealed.
-//
-// SPLIT FROM `diff-row-index.ts` ON THE SEAM BETWEEN A VOCABULARY AND AN
-// ARITHMETIC. That module answers which rows exist at which offsets under one
-// expansion — a binary search over prefix sums, rebuilt per model and per mode. This
-// one declares what a row is and what an expansion is, values every consumer of the
-// index holds and none of them computes: `DiffRowView.tsx` renders one of these, the pane
-// holds an expansion in state and replaces it, and the index reads both. Two subjects,
-// and the file that held them was doing two jobs, which `apps/desktop/AGENTS.md`
-// rejects.
-//
-// WHY EXPANSION IS A COUNT PER GAP AND NOT A BOOLEAN. The diff viewer requires hunk-gap
-// expansion with predecessor retention: pressing expand a second time must not take
-// back what the first press revealed. A boolean cannot express a partially expanded
-// gap, so a second press would either do nothing or jump to the whole gap; a
-// monotonically growing count expresses both states and makes retention a property of
-// the type rather than of the handler that mutates it.
-//
-// NOTHING HERE RENDERS and nothing here imports React.
+// What a diff's rows are, and how much of a gap has been revealed: the vocabulary that
+// `diff-row-index.ts` computes over. `DiffRowView.tsx` renders a row and the pane holds an
+// expansion in state. Expansion is a count per gap, not a boolean, so a second press keeps
+// what the first revealed and retention is a property of the type.
 
 import { DIFF_GAP_EXPANSION_LINE_COUNT } from "./diff-measures.js";
 
-// THE ROW KINDS ARE THE `DiffRow` UNION'S OWN DISCRIMINANT and are declared
-// nowhere else. There are four, and `gap` is one of them rather than an
-// affordance drawn between rows: a gap occupies height and takes focus, and a
-// thing with height and focus that the row count does not know about is a row
-// the window is placed wrong by.
+// The row kinds are the `DiffRow` union's discriminant. `gap` is a row, not an affordance
+// drawn between rows: it occupies height and takes focus, so the row count must know it.
 
 /** A file's own header row. */
 export interface DiffFileHeaderRow {
@@ -49,21 +31,13 @@ export interface DiffHunkHeaderRow {
 }
 
 /**
- * One line of content.
+ * One line of content. `source` says which sequence `lineIndex` addresses: a revealed gap
+ * line comes from the hunk's `precedingContext`, a body line from its `lines`.
  *
- * `source` says which sequence `lineIndex` addresses — a revealed gap line comes
- * from the hunk's `precedingContext`, a body line from its `lines`. Two sequences
- * with one index space would need a sentinel or an offset convention, and both
- * are the kind of encoding that is read wrong once and then silently forever.
- *
- * A SPLIT ROW MAY ADDRESS TWO LINES, which is what makes split view a comparison
- * rather than two stacked lists. A unified patch spells a modified line as a
- * deletion immediately followed by an insertion, so the pairing is a property of
- * the flattening: `lineIndex` names the deletion, which occupies the BASE side,
- * and `pairedLineIndex` names the insertion, which occupies the HEAD side. Every
- * other row names one line, and which side it occupies follows from that line's
- * own kind — a deletion is a base line, an insertion a head line, and a context
- * line is both.
+ * A split row may address two lines. A unified patch spells a modified line as a deletion
+ * followed by an insertion, so `lineIndex` names the deletion (base side) and
+ * `pairedLineIndex` the insertion (head side). Every other row names one line, and its side
+ * follows from that line's kind: a deletion is base, an insertion head, context both.
  */
 export interface DiffLineRow {
   readonly kind: "line";
@@ -72,10 +46,8 @@ export interface DiffLineRow {
   readonly source: "preceding-context" | "hunk-body";
   readonly lineIndex: number;
   /**
-   * The head line this row pairs with `lineIndex`'s base line, in the same
-   * sequence `source` names. Present only on a `split` row that paired a
-   * deletion with an insertion; absent everywhere else, including on every
-   * `unified` row.
+   * The head line this row pairs with `lineIndex`'s base line, in the sequence `source`
+   * names. Present only on a `split` row that paired a deletion with an insertion.
    */
   readonly pairedLineIndex?: number;
 }
@@ -84,12 +56,8 @@ export interface DiffLineRow {
 export type DiffRow = DiffFileHeaderRow | DiffGapRow | DiffHunkHeaderRow | DiffLineRow;
 
 /**
- * How much of each gap has been revealed, keyed by gap.
- *
- * A plain readonly map rather than a class, because it is a VALUE the renderer
- * holds in state and replaces: React re-renders on identity change, and a mutable
- * container would update in place and render nothing. `expandGap` below produces
- * the next value.
+ * How much of each gap has been revealed, keyed by gap. A plain readonly map because it is
+ * a value the renderer holds in state and replaces: React re-renders on identity change.
  */
 export type DiffGapExpansion = ReadonlyMap<string, number>;
 
@@ -99,12 +67,9 @@ export function diffGapKey(fileIndex: number, hunkIndex: number): string {
 }
 
 /**
- * Reveal one more band of a gap's hidden context.
- *
- * Returns the NEXT expansion value; the argument is never mutated. Growth is
- * monotonic and clamped to what the gap holds, which is the predecessor-retention
- * rule expressed as arithmetic: `Math.max` of the previous count means no
- * activation can ever reveal less than the last one did.
+ * Reveal one more band of a gap's hidden context. Returns the next expansion value and never
+ * mutates its argument. Growth is monotonic and clamped to what the gap holds, so no
+ * activation reveals less than the last one did.
  */
 export function expandGap(
   expansion: DiffGapExpansion,

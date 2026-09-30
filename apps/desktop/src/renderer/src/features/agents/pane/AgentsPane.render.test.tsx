@@ -1,10 +1,5 @@
-// The Agents pane's column, driven as the body it is.
-//
-// The body is mounted by the pane layout inside the shared pane chrome, so the cases here drive
-// the COMPONENT and nothing about the frame.
-//
-// What the body ASKS FOR, and how long a linkage read lives, is
-// `agents-pane-models.test.ts` and `../agent-reads.test.ts`.
+// The Agents pane body driven as a component inside no frame. What it asks for, and how long a
+// linkage read lives, is covered by `agents-pane-models.test.ts` and `../agent-reads.test.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -58,9 +53,8 @@ async function renderBody(agentId: string | undefined): Promise<HTMLElement> {
 
 describe("Agents pane — the body draws no head of its own", () => {
   it("draws no heading, no section, and no name for the pane it is inside", async () => {
-    // The pane is named by the chrome's whole trail, so a name here would be a second
-    // answer to what this pane is called. The column heading stays: it names a part
-    // of this body rather than the body itself.
+    // The pane is named by the chrome's trail, so a name here would be a second answer. The
+    // column heading stays: it names a part of this body.
     const container = await renderBody("agent-scout");
     const body = container.querySelector(".meridian-agents");
 
@@ -70,8 +64,7 @@ describe("Agents pane — the body draws no head of its own", () => {
   });
 
   it("negative control: it does still draw the heading that names its column", async () => {
-    // Without this, the case above would pass over a body that had lost every heading
-    // it has rather than only the one that named the whole pane.
+    // Guards against a body that lost every heading rather than only the pane's own.
     const container = await renderBody("agent-scout");
     const columnTitles = [...container.querySelectorAll("h3")].map((title) => title.textContent);
     expect(columnTitles).toStrictEqual(["Binding"]);

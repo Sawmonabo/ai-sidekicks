@@ -1,24 +1,7 @@
-// The composer's view of the console's command registry: what it may offer, and
-// what it may run.
-//
-// WHY THE COMPOSER NEEDS ONE AT ALL. `send-router.ts` takes a
-// `ClientCommandPredicate` whose default answers `false` for every name, so a
-// composer with no command registry behind it refuses every `/name` a person types. That is
-// the fail-loud default and it is correct as a default — but shipped alone it makes
-// the reserved `/` prefix a prefix that reserves nothing, which is the state this
-// module ends.
-//
-// WHERE THE REGISTRY COMES FROM. `commandRegistry` is the window-scoped registry in
-// `registries/commands/`, the one the palette reads. A second registry here would give a
-// person's `/frame.goToSettings` a list the palette has never heard of.
-//
-// WHY THE `when` CONTEXT IS TYPED RATHER THAN SPELLED. Eligibility in the palette is
-// a `when` clause over `CONSOLE_WHEN_CLAUSE_KEYS`, and a clause naming a key the
-// context does not carry evaluates FALSE. So a composer that hand-wrote five of six
-// keys would silently hide whichever command used the sixth. The context below is
-// typed as `WindowWhenClauseContext`, which is derived from that tuple — a key added
-// to the frame's vocabulary is a compile error here rather than a command that
-// quietly stops being offered.
+// The composer's view of the console's command registry: what it may offer and what it may run.
+// It reads the window-scoped registry the palette reads, so `/name` and the palette agree. The
+// `when` context is typed `WindowWhenClauseContext`: a clause naming a key the context lacks
+// evaluates false, so a hand-written context would silently hide commands.
 
 import {
   commandRegistry,
@@ -30,16 +13,9 @@ import type { AppRoute } from "@renderer/routing/routes.js";
 
 /**
  * The narrow face of the console's command list the composer reads and acts through.
- *
- * TWO READINGS, AND THEY ANSWER TWO QUESTIONS. `offeredCommands` is what applies
- * where this composer is, which is what the discovery popover may LIST — offering a
- * command that does not apply here would be an invitation to a refusal.
- * `registeredCommandIds` is every id this window holds, visible or not, and it is
- * what a typed name is RECOGNIZED against: a person who types the exact id of a
- * command that exists but does not apply here has not typed an unknown name, and
- * telling them so would send them looking for a spelling mistake they did not make.
- * Visibility still decides whether it RUNS — `invoke` is fail-closed on it — so the
- * wider recognition set costs no eligibility and buys the honest sentence.
+ * `offeredCommands` is what the popover may list; `registeredCommandIds` is every id this window
+ * holds, visible or not, and a typed name is recognized against it so a command that exists but
+ * does not apply here is not reported as unknown. Visibility still decides whether it runs.
  */
 export interface ComposerCommands {
   /** Every command offered where this composer is, ordered by group then title. */
@@ -51,12 +27,8 @@ export interface ComposerCommands {
 }
 
 /**
- * Read the console's commands as this composer's route sees them.
- *
- * Built per call rather than memoized at module scope: the registry is mutated by
- * the frame's own registration effect, which runs AFTER a child mounts, so a list
- * captured once at mount would be the empty registry forever. Every caller reads it
- * at the moment a person asks — which is when the answer has to be current anyway.
+ * Read the console's commands as this composer's route sees them. Built per call, not memoized:
+ * the frame registers commands after a child mounts, so a list captured at mount would stay empty.
  */
 export function readComposerCommands(route: AppRoute): ComposerCommands {
   const whenContext = composerWhenContext(route);
@@ -68,17 +40,9 @@ export function readComposerCommands(route: AppRoute): ComposerCommands {
 }
 
 /**
- * Where a command run from the composer would be running.
- *
- * `sessionActive` is `true` unconditionally and that is a statement rather than a
- * shortcut: the composer is mounted and addressed WITHIN one session, so a composer that
- * is rendering at all is a window that has a session in hand. The frame derives the
- * same fact from its retained session id; both readings answer the same question and
- * neither can be true where the other is false.
- *
- * The three rail destinations are `false` for the same structural reason — the
- * composer is mounted on the session screen, under the pane layout, and does not render on the sessions
- * list, the workflows builder, or the settings pages.
+ * Where a command run from the composer would be running. `sessionActive` is true because the
+ * composer only renders inside a session; the three rail destinations are false because it does
+ * not render on the sessions list, the workflows builder or settings.
  */
 function composerWhenContext(route: AppRoute): WindowWhenClauseContext {
   return {

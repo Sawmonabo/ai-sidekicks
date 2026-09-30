@@ -1,7 +1,6 @@
-// What the transcript contributes to the palette, and what it must not do: its commands
-// register through the one command registry and never at import time. A module that
-// registered at import time would satisfy every assertion about the command list, so the
-// acts are counted before anything is run as well as after.
+// What the transcript contributes to the palette: commands register through the one command
+// registry and never at import time. A module that registered at import time would satisfy
+// every assertion about the command list, so the acts are counted before anything runs too.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -48,15 +47,13 @@ describe("transcript commands — the contribution is a value, and building it r
   });
 
   it("builds a fresh list per window rather than handing out one shared array", () => {
-    // Every `run` closes over one window's transcript, which is why this is a function
-    // of the acts and not a module-scope constant.
+    // Every `run` closes over one window's transcript, so the list is a function of the acts.
     const acts = recordingActs([]);
     expect(createTranscriptCommands(acts)).not.toBe(createTranscriptCommands(acts));
   });
 
   it("contributes through the palette's own registry, which accepts the rows whole", () => {
-    // The one registry, driven for real rather than shape-checked: if these rows
-    // were built for something else, `registerAll` is where that would show.
+    // Driven for real: if the rows were built for something else, `registerAll` shows it.
     const registry = new CommandRegistry();
     registry.registerAll(createTranscriptCommands(recordingActs([])));
     expect(registry.size).toBe(5);
@@ -72,9 +69,8 @@ describe("transcript commands — the contribution is a value, and building it r
   });
 
   it("negative control: a window with no session is offered none of them", () => {
-    // The clause is evaluated by `when-clause.ts`, whose fail-closed rule answers
-    // false for a key the context does not carry — so this holds for a context
-    // that says `false` and for one that says nothing at all.
+    // `when-clause.ts` fails closed for a key the context does not carry, so this holds for a
+    // context that says `false` and for one that says nothing.
     const registry = new CommandRegistry();
     registry.registerAll(createTranscriptCommands(recordingActs([])));
     expect(registry.commandsFor({ sessionActive: false })).toStrictEqual([]);
@@ -102,8 +98,7 @@ describe("transcript commands — the rows themselves", () => {
   });
 
   it("negative control: the gate is a real clause and not an empty string", () => {
-    // An absent or empty `when` means unconditional, which is the failure this
-    // guards — the fail-closed reading depends on the clause being present.
+    // An absent or empty `when` means unconditional, which is the failure this guards.
     for (const command of commands) {
       expect(command.when).not.toBe("");
       expect(command.when).toBeDefined();
@@ -151,9 +146,8 @@ describe("transcript commands — the contribution reaches the palette and the k
   }
 
   /**
-   * Press one chord. `$mod` is Cmd on macOS and Ctrl elsewhere and this case does
-   * not care which operating system it is running on, so the other modifier is tried only when
-   * the first press was not consumed.
+   * Press one chord. `$mod` is Cmd on macOS and Ctrl elsewhere and this case does not care
+   * which, so the other modifier is tried when the first press was not consumed.
    */
   function pressModifiedKey(table: KeybindingTable, key: string): boolean {
     return (
@@ -194,8 +188,8 @@ describe("transcript commands — the contribution reaches the palette and the k
   });
 
   it("states a refusal where a person can read it when no transcript is mounted", () => {
-    // Not a silent press: with no transcript on screen, the refusal goes to the frame's
-    // banner — which is exactly what a transcript chord from the settings page needs.
+    // With no transcript on screen the refusal goes to the frame's banner, which is what a
+    // transcript chord pressed from the settings page needs.
     const raised: Refusal[] = [];
     const withdrawSink = publishCommandRefusalSink((refusal) => raised.push(refusal));
     registerTranscriptCommands(commandContributionRegistry, new MountedTranscript());
@@ -207,8 +201,8 @@ describe("transcript commands — the contribution reaches the palette and the k
   });
 
   it("replaces its own rows when the console is composed twice", () => {
-    // Composition runs at module scope in production and repeatedly in a test, and
-    // the command registry refuses a duplicate id — so a second pass must replace.
+    // Composition runs at module scope in production and repeatedly in a test, and the registry
+    // refuses a duplicate id, so a second pass must replace.
     registerTranscriptCommands(commandContributionRegistry);
     const afterFirst = commandRegistry.size;
     expect(() => {
@@ -218,8 +212,8 @@ describe("transcript commands — the contribution reaches the palette and the k
   });
 
   it("negative control: nothing of the transcript is offered or bound before it composes", () => {
-    // Every case above passes over a console that had these rows all along, which is
-    // precisely what a console before the transcript composes does NOT have.
+    // Every case above runs over a console that had these rows all along; a console before
+    // the transcript composes does not.
     withdrawTranscriptContribution();
     expect(commandRegistry.has("transcript.find")).toBe(false);
     expect(keybindingOverrides.snapshot.bindings.map((binding) => binding.commandId)).not.toContain(

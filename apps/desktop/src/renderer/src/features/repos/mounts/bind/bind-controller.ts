@@ -1,23 +1,7 @@
-// Binding a workspace on one mount: the pre-bind read, the act, and what each publishes.
-//
-// Two calls and one dialog: the form cannot offer a mode until the mount-scoped
-// capabilities read has answered, and the two are asked and published separately.
-//
-// The read is made when the dialog opens and not when the card mounts. A session with six
-// mounts would otherwise put six pre-bind reads on the wire for a person who is not binding
-// anything.
-//
-// What a mount admits changes when the mount does, which is why the frames this reading
-// re-asks on are the repos feature's own census rather than a list written in this module.
-//
-// A bind answers with the mode it bound and the workspace's lifecycle state, and no root:
-// the workspace list is where a root is read from once it exists.
-//
-// A mount belongs to the machine, so the bind names the session the new workspace belongs
-// to; the controller is scoped to that session's store.
-//
-// Everything else is the store's act controller: the scheduler, the triggers, the act arms,
-// the single-flight guard, the disposed latch, and the members a dialog reads them by.
+// Binds a workspace on one mount: reads what the mount admits, then sends the bind.
+// The read is made when the dialog opens, not when the card mounts, so a session with many
+// mounts does not put a read on the wire per mount. A bind answers with the mode and lifecycle
+// state and no root; the workspace list is where a root is read from.
 
 import type {
   ExecutionMode,
@@ -55,16 +39,9 @@ export interface BindControllerOptions {
   readonly clock: Clock;
 }
 
-/** The two calls this controller makes. */
 type BindOperations = Pick<RepoOperations, "bindWorkspace" | "readMountExecutionModes">;
 
-/**
- * The pre-bind question, named once.
- *
- * A CONSTANT because there is one question per controller, and the controller is already
- * scoped to the mount it asks about. Its stability is what keeps a reopened dialog off the
- * wire.
- */
+/** The one pre-bind question; a constant so a reopened dialog stays off the wire. */
 const CAPABILITIES_QUESTION = "capabilities";
 
 /** Reads what a mount admits and sends the bind for it. */
@@ -81,7 +58,7 @@ export class BindWorkspaceController extends ActControllerBase<
       label: "workspace bind reading",
       clock: options.clock,
       sessionStore: options.sessionStore,
-      // The frames that change what a mount admits. The repos feature's own census.
+      // The frames that change what a mount admits.
       triggeringEventKinds: new Set<string>(REPO_LIFECYCLE_EVENT_KINDS),
     });
     this.#operations = options.operations;
@@ -89,21 +66,14 @@ export class BindWorkspaceController extends ActControllerBase<
     this.#sessionId = options.sessionStore.sessionId;
   }
 
-  /**
-   * Ask what this mount admits, because somebody opened the dialog.
-   *
-   * IDEMPOTENT. A second open re-reads nothing: the answer has not changed because a
-   * popup shut, and re-reading on every open would put a call on the wire per glance.
-   */
+  /** Ask what this mount admits. Idempotent: reopening the dialog does not read again. */
   public requestCapabilities(): void {
     this.askPrerequisite(CAPABILITIES_QUESTION, "subscribe");
   }
 
   /**
-   * Send one bind, and publish what came back.
-   *
-   * Does not overlap itself: a second press while one bind is on the wire would bind a
-   * second workspace for one intent.
+   * Send one bind and publish the reply. Does not overlap itself: a second press would bind
+   * a second workspace for one intent.
    */
   public async bind(executionMode: ExecutionMode, directory: string | undefined): Promise<void> {
     await this.sendAct(
@@ -112,21 +82,15 @@ export class BindWorkspaceController extends ActControllerBase<
           sessionId: this.#sessionId as SessionId,
           repoMountId: this.#repoMountId as RepoMountId,
           executionMode,
-          // Omitted and not emptied. The absent member means the mount root; an empty
-          // string is a path of no characters, which the parser refuses.
+          // Omitted, not emptied: an absent member means the mount root, and an empty string
+          // is refused by the parser.
           ...(directory === undefined ? {} : { directory }),
         }),
       (response: WorkspaceBindResponse) => ({ status: "bound" as const, response }),
     );
   }
 
-  /**
-   * The pre-bind capabilities call, asked for the mount this controller is scoped to.
-   *
-   * The round's signal goes straight to the call, so a dialog closed while this read is
-   * on the wire drops the reply rather than folding an answer for a form nobody is
-   * filling in.
-   */
+  /** Reads what the mount admits, passing the round's signal so a closed dialog drops the reply. */
   protected override async readPrerequisite(
     _question: string,
     signal: AbortSignal,

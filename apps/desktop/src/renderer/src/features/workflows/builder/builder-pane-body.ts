@@ -1,11 +1,6 @@
-// The workflow builder pane's body, as the pane layout's registry loads it.
-//
-// A loader-backed body for `workflow-run-pane-body.ts`'s reason, and the case is
-// stronger here: the builder is where a person authors a workflow, reached from the rail's
-// workflows destination, and a session that never authors a workflow paid for all of it
-// on every launch.
-//
-// THE FEATURE'S SHARED CHROME ENTERS HERE, on the run page body's reasoning.
+// The workflow builder pane's body, as the pane layout's registry loads it, in its own chunk so
+// a session that never authors a workflow does not pay for it. The strip's stylesheet is
+// imported here because each chunk root imports it rather than relying on another having loaded.
 
 import "../components/WorkflowStateStrip.css";
 
@@ -15,7 +10,7 @@ import { WorkflowBuilderPane } from "./WorkflowBuilderPane.js";
 import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 
-/** The builder pane, on the narrowing the run pane's module explains. */
+/** The builder pane, narrowed to its own address arm before the body sees it. */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "workflow-builder",
   (context) => createElement(WorkflowBuilderPane, { context }),

@@ -58,9 +58,8 @@ describe("the log-derived row projection", () => {
 
     expect(projection.rows).toHaveLength(2);
     for (const row of projection.rows) {
-      // The real validator, not a shape check written here: a projection that
-      // satisfied a local assertion and failed the contract would be a projection
-      // the daemon's own consumers could never accept.
+      // The real contract validator, not a local shape check: a row it refuses is unusable
+      // downstream.
       expect(isContractTimelineRow(row)).toBe(true);
     }
   });
@@ -136,12 +135,9 @@ describe("the log-derived row projection", () => {
   });
 
   it("keys rows by the event's own canonical id, wire-verbatim", () => {
-    // THE ID IS CARRIED, NOT COMPOSED. `ProjectedSessionEvent.id` is the daemon's
-    // opaque identifier and the hydrated-event read is keyed `{sessionId, eventId}`,
-    // so a row keyed `session:sequence` names the same row to a person and resolves
-    // for no caller: the jump-by-id field compares what a person pasted against
-    // `TimelineRow.id` and answered `not-in-loaded-log` for every real id in a log
-    // that was fully loaded.
+    // The id is carried, not composed: the hydrated-event read is keyed `{sessionId, eventId}`
+    // and the jump-by-id field compares a pasted id against `TimelineRow.id`, so a
+    // `session:sequence` key would resolve for no caller.
     const events = [runEvent(7, RUN_ONE), runEvent(8, RUN_ONE)];
     const projection = projectTranscriptRows(events);
 
@@ -151,16 +147,14 @@ describe("the log-derived row projection", () => {
   });
 
   it("negative control: the composed key is not what a row carries", () => {
-    // Without this the case above would pass over a projection whose composition
-    // happened to agree with the fixture's id scheme.
+    // Guards against a projection whose composition happens to agree with the fixture's ids.
     const projection = projectTranscriptRows([runEvent(7, RUN_ONE)]);
     expect(projection.rows[0]?.id).not.toBe(`${SESSION_ID}:7`);
   });
 
   it("restates the wire type as the summary rather than composing a sentence", () => {
-    // The negative control for this file's central claim: a projection that made a
-    // sentence up would pass every other case here and fail this one. The contract
-    // refuses an empty summary outright, so "say nothing" is not the alternative.
+    // Negative control for the central claim: a projection that made a sentence up would pass
+    // every other case. The contract refuses an empty summary, so "say nothing" is no option.
     const projection = projectTranscriptRows([runEvent(1, RUN_ONE, "tool.invoked")]);
     expect(projection.rows[0]?.summary).toBe("tool.invoked");
     expect(projection.rows[0]?.summary).toBe(projection.rows[0]?.type);
@@ -198,10 +192,8 @@ describe("counting through a rewind", () => {
   });
 
   it("bands a second rewind over its own epoch's rows and no others", () => {
-    // The consequence the ordinals exist for. A count that ran on through the first
-    // rewind would put the new epoch's rows at 5 and 6, and this second rewind — to
-    // the same anchor — would find BOTH of them above its cutoff and dim a whole
-    // re-execution that nothing rewound past.
+    // A count that ran on through the first rewind would put the new epoch's rows at 5 and 6,
+    // and a second rewind to the same anchor would dim a re-execution nothing rewound past.
     const supersededRow = runEvent(8, RUN_ONE);
     const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
@@ -262,9 +254,8 @@ describe("which payload member names a row's run", () => {
   }
 
   it("files an intervention under the run it names, beside that run's own rows", () => {
-    // The defect: `intervention.*` spells the affected run `targetRunId`, so every
-    // one of them projected as a session-level row and sat outside the run group
-    // it belongs to — on a transcript whose whole shape is runs.
+    // `intervention.*` spells the affected run `targetRunId`; it must not project as a
+    // session-level row outside its run group.
     const projection = projectTranscriptRows([
       runEvent(1, RUN_ONE),
       interventionEvent(2, RUN_ONE),
@@ -301,11 +292,9 @@ describe("which payload member names a row's run", () => {
   });
 
   it("attributes a child run to itself and never to the parent it names", () => {
-    // `run.queued` carries `parentRunId` beside its own `runId`. Reading any
-    // run-naming member would file the child's rows in the parent's run group, which
-    // is the same defect in the other direction. What keeps it out here is the
-    // CONTRACT's attributing list, which does not carry that spelling; the
-    // decision table's own job is the compile gate `run-attribution.test.ts` drives.
+    // `run.queued` carries `parentRunId` beside its own `runId`; reading any run-naming member
+    // would file the child's rows in the parent's group. The contract's attributing list, which
+    // omits that spelling, is what keeps it out at runtime.
     const projection = projectTranscriptRows([
       event({
         sequence: 1,
@@ -320,8 +309,8 @@ describe("which payload member names a row's run", () => {
   });
 
   it("negative control: an event naming no run at all stays a session row", () => {
-    // Without this the lookup could answer with any string it found, which would
-    // file session rows under whatever the payload happened to carry.
+    // Guards against a lookup that answers with any string it finds, filing session rows under
+    // whatever a payload carries.
     const projection = projectTranscriptRows([
       event({
         sequence: 1,

@@ -1,9 +1,6 @@
 // The inspector's reading of a human phase's form: drawn where there is one, absent
-// everywhere else, and never offering to send an answer.
-//
-// The absent cases are the ones that keep a definition row a row. Four of the five phase
-// types ask nothing, and a human phase whose definition carried no schema is not a phase
-// with an empty form — it is a phase this pane has nothing to draw for.
+// everywhere else, and never offering to send an answer. A human phase whose definition
+// carried no schema is a phase this pane has nothing to draw for, not an empty form.
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -81,7 +78,7 @@ describe("the human phase form preview", () => {
         phase={phase("human", {
           prompt: "Anything?",
           // Object-rooted with one member the mapper cannot draw: the raw arm an author
-          // is previewing is the one a user can actually answer from.
+          // previews is the one a user answers from.
           inputSchema: { type: "object", properties: { when: { type: ["string", "null"] } } },
         })}
       />,
@@ -91,8 +88,7 @@ describe("the human phase form preview", () => {
   });
 
   it("refuses a root asking for a single value, which no user could answer", () => {
-    // The author is the one person who can repair it, so the preview says what the run's
-    // form will say rather than drawing an editor the user is never offered.
+    // The author can repair it, so the preview says what the run's form will say.
     const { container } = render(
       <SchemaFormPreview
         phase={phase("human", { prompt: "Anything?", inputSchema: { type: "string" } })}

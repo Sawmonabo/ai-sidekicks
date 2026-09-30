@@ -1,21 +1,10 @@
-// The preview pane's body, as the pane layout's registry loads it.
-//
-// A LOADER-BACKED BODY, so none of this pane reaches the initial import graph. The
-// contribution registers it as `body: () => import("../preview-pane-body.js")`, and
-// the bundler splits everything this module reaches, the pane and its geometry, into a
-// chunk fetched when the pane is about to open or on the idle warm after the first
-// frame, whichever comes first. The rule is
-// in `apps/desktop/AGENTS.md`: a pane body not on the flagship first paint registers
-// through a loader.
-//
-// Separate from the component beside it because the two answer different questions
-// and change at different times: the component is what renders, this module is the
-// registry's entry point into it. Splitting them is what lets the registration terms
-// below be asserted without rendering anything.
+// The preview pane's body, as the pane registry loads it. It is registered as a loader
+// (`body: () => import("../preview-pane-body.js")`) so the pane and its geometry become their
+// own chunk, off the initial import graph. Kept apart from the component so the registration
+// terms can be asserted without rendering.
 
-// The address-line button's sheet enters here, at the place the pane enters the graph:
-// the sheet sits at the feature root, beside this chunk root, and the pane's own
-// components import theirs.
+// The address-line button's sheet enters here, where the pane enters the graph, because the
+// pane's own components import theirs.
 import "./controls.css";
 
 import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
@@ -23,33 +12,13 @@ import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { PreviewPane } from "./PreviewPane.js";
 
 /**
- * The preview pane, as the pane layout holds it.
+ * The preview pane, as the pane layout holds it. Named `Body` because `lazy-body.ts` fixes the
+ * export name a loader module publishes.
  *
- * Named `Body` because `components/LazyBody/lazy-body.ts` fixes the export name a loader
- * module publishes: the registry composes one specifier shape, and a body module is
- * recognizable as one by reading its exports rather than by where it sits.
- *
- * IT ADVERTISES NO DETACH, because a descriptor cannot. Whether this kind may be
- * torn off into a window of its own is `routing/panes/pane-kinds.ts`'s
- * `isDetachablePaneKind`, derived from the window model's own route set — one
- * answer for the whole pane layout rather than a boolean each feature sets for the kind it
- * owns. The answer for `browser` is no, and the reason is a property of the kind:
- * the pane's body is a main-process view hosted in the window that owns
- * the pane, and following a detach would mean moving that host view between two
- * windows, for which the console ships no mechanism.
- *
- * `render` goes through `paneBodyForKind` rather than naming the component directly.
- * The registry holds one `render` per kind over the whole address union, and this body
- * is a view of the `browser` arm alone: the two untyped boundaries — a restored layout
- * row and a typed route — are where an address of another kind arrives without the
- * compiler, and mounting a browser body at one would draw a pane headed "Preview" over
- * something else entirely. The adapter narrows once and renders the kind-mismatch
- * refusal for the arm it cannot serve, which is the console's answer everywhere else:
- * one bad row loses that row rather than the pane layout.
- *
- * The body still takes the context whole beneath it — it needs the pane id the browser
- * wire is keyed by, the bridge it dispatches through, the session that heads the
- * trail, and the focus hue that attributes the pane — so no argument is rebuilt here.
+ * The body is a main-process view hosted in the window that owns the pane, and no mechanism
+ * moves that host between windows. `render` goes through `paneBodyForKind` because the registry
+ * holds one `render` over every kind; the adapter narrows to `browser` and renders a
+ * kind-mismatch refusal for an address that arrives untyped (a restored layout row, a route).
  */
 export const Body: (context: PaneContext) => React.ReactNode = paneBodyForKind(
   "browser",

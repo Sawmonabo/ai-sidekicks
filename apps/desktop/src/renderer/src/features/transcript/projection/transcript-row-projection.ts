@@ -1,80 +1,7 @@
-// The log-derived row projection — this window's event log, read as rows.
-//
-// `TranscriptRow.tsx` renders one row; this decides which rows there are, from the log
-// the store holds rather than from the daemon's own read projection.
-//
-// WHY A PROJECTION IS NEEDED AT ALL, WHICH IS A FACT ABOUT THE WIRE
-//
-// `TimelineRow` is a READ PROJECTION the daemon builds. The console reaches it only
-// through the backward page read (`services/daemon/timeline-page.ts`), and that reader
-// decodes every row into a `ProjectedSessionEvent` before the store sees it, which is
-// also what the live subscription delivers: session id, sequence, wire type, instant, actor, payload —
-// the raw log and not the projection. So the transcript has two honest options: render
-// nothing until a projection reaches it, or state what the log itself supports and
-// NAME every member the log cannot supply. The transcript takes the second, and this
-// module is where the naming happens.
-//
-// WHAT IS WIRE-VERBATIM HERE
-//
-//   • `id`, `sessionId`, `sequence`, `type`, `timestamp`, `actor`, `payload` —
-//     copied, never reinterpreted. The id is the daemon's own opaque identifier and
-//     is carried rather than composed: the hydrated-event read is keyed
-//     `{sessionId, eventId}` and the jump-by-id field compares a pasted id against
-//     `TimelineRow.id`, so a `session:sequence` key names the row to a person and
-//     resolves for no caller.
-//   • `category` — asked of `SESSION_EVENT_CATEGORY_BY_TYPE`, the registered
-//     census, rather than inferred from the type string's prefix. A kind the
-//     census does not carry is DROPPED AND COUNTED rather than filed under a
-//     guess: a row under the wrong category is filtered and grouped wrongly by
-//     every view downstream, which is worse than a row that is missing and
-//     said to be missing.
-//   • `runId` on the run arm — read from the payload members the registered shapes
-//     carry, by `run-attribution.ts`, which derives them from those shapes rather
-//     than listing them and decides what each one names.
-//   • A boundary row's `position` — `RunRolledBackEvent.targetPosition`, verbatim,
-//     which is what the arm's own schema refines it against.
-//
-// WHAT THIS MODULE DERIVES LOCALLY, AND WHY EACH IS SOUND FOR A LOG-DERIVED PROJECTION
-//
-//   • `position`. The arm's `position` is the daemon's projection-resolved run
-//     position. What the log supports is the row's ORDINAL WITHIN ITS RUN in this
-//     window, which is the property every consumer here actually spends —
-//     run groups fold on it and bands rank on it —
-//     and which agrees with the daemon's ordering even though it is not the
-//     daemon's number.
-//   • `epoch`. Re-execution reuses ordinals, and the wire says nothing about which
-//     execution a row belongs to. What the log DOES show is every rollback that
-//     landed, so a run's epoch here counts the boundaries seen before the row. A
-//     run that was never rewound is epoch zero, which is also what it would be.
-//   • `summary`. The row's own wire type, restated — and that is the whole of it.
-//     No registered payload carries a summary; the daemon composes one and serves
-//     it through a read this console does not have. The member is REQUIRED and
-//     non-empty by contract (`wireFreeFormString` layers `.min(1)`), so leaving it
-//     blank is not open either: the contract's own validator refuses the row. So
-//     this projection restates the one human-readable string the delivered envelope
-//     actually carries rather than composing a sentence the daemon never said,
-//     and the real summary arrives with the read that brings the real rows.
-//
-//   • `childRunSummary`. Derived by `child-run-summaries.ts` beside this file
-//     and stamped here on one row per child run, from the orchestration linkage
-//     the event contract puts on a run's birth beat. Its own module because its
-//     subject is a
-//     RUN across the whole window rather than a row, and it is the one derived member
-//     that cannot be decided while folding a single event.
-//
-// A ROLLBACK RESETS THE COUNT, WHICH IS WHAT "RE-EXECUTION REUSES ORDINALS" MEANS.
-// A rewind advances the epoch AND returns the run to the anchor the wire named, so
-// the row after a boundary is at `targetPosition` — in the new epoch — and the rows
-// after it count up from there. Letting the count run on instead would put
-// re-executed rows at ordinals no rewind ever reached, and `superseded-bands.ts`
-// ranks a row against the cutoff of a boundary IN ITS OWN EPOCH: a second rewind to
-// the same anchor would then find every row of the new epoch above its cutoff and
-// dim the whole of it. That comparison is already epoch-scoped; what it needs from
-// here is that both sides of it are measured from one origin.
-//
-// The `SessionId` / `RunId` casts are the same one `timeline-rows.test-support.ts` takes: the
-// brand is a compile-time nominal tag over `string` with no runtime witness, and
-// the value under it is the wire's own.
+// The log-derived row projection: this window's event log read as `TimelineRow`s. The console
+// receives raw events, not the daemon's read projection, so rows carry what the log supports
+// (id, sequence, `type`, `actor` and `payload` verbatim) and `summary` is the wire type
+// restated, since no registered payload carries one.
 
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
@@ -100,26 +27,22 @@ export interface TranscriptRowProjection {
 }
 
 /**
- * The registered census, read by a free-form wire type.
- *
- * The census is keyed by the registered union, and `ProjectedSessionEvent.kind` is a
- * wire-verbatim `string` by contract — an event whose type this build does not know
- * is exactly the case this lookup exists to answer, so narrowing the key first
- * would be assuming the answer. The widening is on a READ-ONLY map, so nothing can
- * be written under an unregistered key.
+ * The registered census, read by a free-form wire type: `ProjectedSessionEvent.kind` is a
+ * `string`, and an event whose type this build does not know is the case this lookup answers.
  */
 const CATEGORY_BY_WIRE_TYPE: ReadonlyMap<string, EventCategory> = SESSION_EVENT_CATEGORY_BY_TYPE;
 
-/** Nothing projected. A frozen module constant, so an empty pass allocates none. */
+/** Nothing projected; shared, so an empty pass allocates none. */
 const EMPTY_PROJECTION: TranscriptRowProjection = { rows: [] };
 
 /**
- * Read this window's event log as timeline rows.
+ * Reads this window's event log as timeline rows.
  *
- * A pure fold over the log in the order the store holds it, so the same log
- * produces the same rows however many times it is projected — which is what lets
- * the caller memoize on the log's identity alone and what makes a replay of the
- * same window byte-identical between runs.
+ * A pure fold in log order, so the same log gives the same rows and the caller can memoize on
+ * the log's identity. An event kind the registered census has no category for is dropped,
+ * since a guessed category would mis-filter every view downstream. `position` is the row's
+ * ordinal within its run in this window, and `epoch` counts the rollback boundaries seen
+ * before it, since re-execution reuses ordinals.
  */
 export function projectTranscriptRows(
   events: readonly ProjectedSessionEvent[],
@@ -129,10 +52,8 @@ export function projectTranscriptRows(
   }
 
   const progressionByRunId = new Map<string, RunProgression>();
-  // A pass of its own, before the fold, because a child run's summary states where the
-  // child GOT to — its newest state and how many rows it holds — and neither is known
-  // at the row the summary is stamped on. Keyed by that row's event id, so the fold
-  // below asks one map read per event and decides nothing about which row is which.
+  // A pass of its own: a child run's summary states where the child got to, which is not
+  // known at the row the summary is stamped on.
   const childRunSummaryByEventId = deriveChildRunSummaries(events);
   const rows: TimelineRow[] = [];
 
@@ -164,15 +85,12 @@ export function projectTranscriptRows(
         continue;
       }
       rows.push(boundary);
-      // Everything after this row is a later execution of the same run, which is
-      // exactly what an epoch is — and why the increment lands AFTER the boundary
-      // is pushed rather than before: the boundary belongs to the epoch it ended.
+      // Later rows are a later execution of the same run; the increment lands after the boundary
+      // is pushed because the boundary belongs to the epoch it ended.
       progression.epoch += 1;
-      // And the count returns to the anchor the rewind landed on, so the first
-      // re-executed row takes the boundary's own position in the new epoch. The
-      // value is the wire's `targetPosition`, read off the row rather than out of
-      // the payload a second time, so the boundary a reader sees and the origin the
-      // rows after it count from can never be two different numbers.
+      // The count returns to the anchor the rewind landed on, so the first re-executed row takes
+      // the boundary's position in the new epoch; running on instead would let a second rewind to
+      // the same anchor find every row of the new epoch above its cutoff and dim it all.
       progression.nextPosition = boundary.position;
       continue;
     }
@@ -184,10 +102,8 @@ export function projectTranscriptRows(
       runId: runId as RunId,
       position: progression.nextPosition,
       epoch: progression.epoch,
-      // Present on exactly one row per child run — see `child-run-summaries.ts`
-      // for which row and why. Absent has to be absent rather than a present
-      // `undefined`: the retention table compares own keys and would read the two as
-      // different rows.
+      // Present on one row per child run (see `child-run-summaries.ts`), and absent rather than
+      // `undefined`: the retention table compares own keys and would read the two as different.
       ...(childRunSummary === undefined ? {} : { childRunSummary }),
       payload: event.payload ?? {},
     });
@@ -204,11 +120,8 @@ interface RunProgression {
 }
 
 /**
- * The boundary arm alone, so a caller can read the cutoff it landed on.
- *
- * Extracted from the contract's own union rather than declared beside it: the arm
- * is `TimelineRow`'s, and a second hand-written shape here would be a second claim
- * about what a boundary row carries.
+ * The boundary arm alone, extracted from the contract's union so this file makes no second
+ * claim about what a boundary row carries.
  */
 type RollbackBoundaryRow = Extract<TimelineRow, { readonly kind: "rollback_boundary" }>;
 
@@ -232,7 +145,7 @@ function commonRowFields(
     sequence: event.sequence,
     category,
     type: event.kind,
-    // Restated, not composed. See this file's header.
+    // The wire type restated: no registered payload carries a summary.
     summary: event.kind,
     timestamp: event.occurredAt,
     ...(event.actorId === undefined ? {} : { actor: event.actorId }),
@@ -240,13 +153,11 @@ function commonRowFields(
 }
 
 /**
- * Project one rollback into the typed boundary arm, or `undefined` if it cannot be.
+ * Projects one rollback into the typed boundary arm, or `undefined` if it cannot be.
  *
- * The arm's payload is the TYPED event rather than the open record the other arms
- * carry, and its schema refines `position` against `payload.targetPosition` — so
- * the payload is READ at the bridge rather than cast here. A rollback whose payload does not
- * satisfy the contract is dropped and counted rather than rendered as a boundary
- * whose cutoff nobody can trust: a band drawn from a bad cutoff hides real rows.
+ * The payload is read at the bridge, not cast, because the arm's schema refines `position`
+ * against `payload.targetPosition`. A payload that does not satisfy the contract is dropped,
+ * since a band drawn from a bad cutoff hides real rows.
  */
 function projectRollbackBoundary(
   event: ProjectedSessionEvent,

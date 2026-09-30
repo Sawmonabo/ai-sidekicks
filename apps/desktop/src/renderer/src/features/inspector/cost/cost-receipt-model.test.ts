@@ -1,5 +1,5 @@
-// A receipt whose figures do not add up is a receipt that dropped or double-counted a
-// row, and the check below is the only thing that notices.
+// A receipt whose figures do not add up dropped or double-counted a row; only this check
+// notices.
 
 import { describe, expect, it } from "vitest";
 

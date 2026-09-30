@@ -1,7 +1,6 @@
-// The controls the section and its rows carry: the section's one mutating entry point, and a
-// card's way into the pane layout. Both mount the real section over scripted daemon calls, which is
-// why the mount and the container selectors they share live in
-// `repo-section.test-support.tsx`.
+// The controls the section carries: its one mutating entry point, and a card's way into the
+// pane layout. Both mount the real section over scripted daemon calls
+// (`repo-section.test-support.tsx`).
 
 import { fireEvent, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -11,9 +10,8 @@ import { HEALTHY_WORKSPACE_ID, sessionOperations } from "./repo-mounts.test-supp
 
 describe("RepoSection — the one mutating entry point", () => {
   it("offers the attach on the section itself, above the mounts it already holds", async () => {
-    // Before this the section could only ever REPORT repositories: `repo.attach` is a
-    // registered daemon method and the console had no control that reached it, so a
-    // session's first repository could not be started from the desktop at all.
+    // `repo.attach` is a registered daemon method, and without this control a session's first
+    // repository could not be started from the desktop.
     const section = renderSection(sessionOperations());
 
     await section.advanceUntil(() => {
@@ -22,8 +20,8 @@ describe("RepoSection — the one mutating entry point", () => {
   });
 
   it("negative control: the empty-mount card no longer sends a person to another client", async () => {
-    // A card saying attaching is reached through the command-line and SDK clients
-    // would be true of this console and false of the wire.
+    // A card saying attaching is reached through the command-line and SDK clients would be
+    // true of this console and false of the wire.
     const section = renderSection(sessionOperations());
 
     await section.advanceUntil(() => {
@@ -35,10 +33,9 @@ describe("RepoSection — the one mutating entry point", () => {
 
 describe("RepoSection — a card's way into the pane layout", () => {
   it("opens a diff pane at the row's own address, in the pane layout it was handed", async () => {
-    // THE OPENER IS HANDED IN BY THE PANE LAYOUT AND IS NOT A MODULE THIS FEATURE
-    // IMPORTS, which is what the section is proving here: a sidebar rendered in an auxiliary window opens its panes
-    // in THAT window's pane layout, so every card's press has to arrive back through this
-    // callback rather than through anything the feature reached for itself.
+    // The opener is handed in by the pane layout, not imported: a sidebar in an auxiliary
+    // window opens its panes in that window's layout, so every press must arrive through this
+    // callback.
     const openPane = vi.fn();
     const section = renderSection(sessionOperations(), openPane);
     await section.advanceUntil(() => {

@@ -1,8 +1,4 @@
-/* The remembered rules' sheet: the standing permissions list, its rows and their
-   revoke confirmation.
-
-   Every color, space, and radius is a Meridian token. The revoke and cancel controls
-   wear the shared action button at its regular size in the outline face, from
+/* The remembered rules' sheet. Revoke and cancel wear the shared action button from
    `styles/action-buttons.css`. */
 
 .meridian-remembered-rules__list {

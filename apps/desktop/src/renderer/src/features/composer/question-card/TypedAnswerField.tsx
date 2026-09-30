@@ -1,36 +1,26 @@
-// The typed answer every question takes, whatever the provider declared.
-//
-// ITS OWN COMPONENT FOR ITS FIELD ID. The label and the field are tied by an id minted
-// per mount, and minting one is a hook, so this is a component rather than a render
-// helper. The draft it shows is the card's: the card holds every question's answer so
-// that all of them go back together in one call.
-//
-// UNCONDITIONAL, WHICH IS THE POINT. Both providers always take a typed answer, and a
-// question may offer no options at all, so this field is the one answer path that is
-// always there.
+// The typed answer every question takes, whatever the provider declared: both providers
+// always accept typed text, so this is the one answer path that is always there. A component
+// because the label-to-field id comes from a hook.
 
 import { useId } from "react";
 
+/** What the card hands one question's typed field. */
 export interface TypedAnswerFieldProps {
   /** The typed text the card holds for this question. */
   readonly draft: string;
   /**
-   * Whether the card has closed the field — a delivery in flight or already taken.
-   *
-   * A BOOLEAN AND NOT THE REASON, because the card draws the reason once below the
-   * questions, and a second rendering of it here would be the same sentence twice on one
-   * card. What this field owes is the affordance.
+   * Whether the card has closed the field — a delivery in flight or already taken. A boolean,
+   * not the reason: the card draws the reason once, below the questions.
    */
   readonly isClosed: boolean;
   readonly onDraftChange: (draft: string) => void;
 }
 
+/** The free-text field under a question, labeled for screen readers. */
 export function TypedAnswerField(props: TypedAnswerFieldProps): React.JSX.Element {
-  // MINTED PER MOUNT AND NEVER COMPOSED FROM THE QUESTION. One question can be drawn in
-  // two panes at once, and an id built from it would give both fields the same `id`, at
-  // which point a click on either label focuses whichever the document reached first and
-  // the second field is unlabeled to a screen reader. `useId` is unique per rendered
-  // instance, which is what the DOM requires.
+  // Minted per mount, never composed from the question: one question can be drawn in two
+  // panes, and a shared `id` would make a label click focus the wrong field and leave the
+  // other unlabeled to a screen reader.
   const fieldId = useId();
   return (
     <div className="meridian-input-ask__free-text">

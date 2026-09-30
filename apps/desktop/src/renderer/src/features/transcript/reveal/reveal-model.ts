@@ -1,23 +1,6 @@
-// What the reveal engine PUBLISHES, and the two closed sets it publishes it in.
-//
-// The seam this module is on is not "the types" — it is the difference between
-// SPEAKING the reveal engine's language and BEING the reveal engine. A card layer
-// that renders a lane's published text, a diagnostics sink that counts
-// quarantined lanes, and a test that asserts the state machine's own enumeration
-// all need every name below and none of them needs the scheduler, the rope
-// smoother, the checkpoint tail, or the per-frame budget allocation that
-// `reveal-engine.ts` exists for. Splitting there leaves each file with one job:
-// this one owns the vocabulary and holds no state; that one owns the mechanism
-// and declares no vocabulary.
-//
-// The alternative seam — lane bookkeeping in one module and the frame scheduler in
-// another — was considered and NOT taken. The fair-share pass and the catch-up
-// remainder pass both read and write the same lane records inside one frame, and
-// the diagnostics emitter is written from both halves, so that cut would put one
-// job in two files rather than two jobs in two files.
-//
-// Nothing here imports the engine, so the engine imports this and the direction
-// never reverses.
+// What the reveal engine publishes: its closed state and diagnostic sets, and the delta, lane and
+// frame shapes. This module holds no state and imports nothing from the engine, so a consumer
+// that only speaks the language never loads the scheduler.
 
 import { type RevealCommitMode } from "./reveal-gate.js";
 import { type ProvenAppendToken } from "./rope-smoother.js";
@@ -38,6 +21,7 @@ export const REVEAL_DIAGNOSTIC_KINDS = [
 /** One diagnostic kind. Derived from the enumeration, never restated. */
 export type RevealDiagnosticKind = (typeof REVEAL_DIAGNOSTIC_KINDS)[number];
 
+/** One diagnostic the engine reports. */
 export interface RevealDiagnostic {
   readonly kind: RevealDiagnosticKind;
   readonly laneId: string;
@@ -56,14 +40,9 @@ export interface RevealDelta {
 export interface RevealLaneState {
   readonly laneId: string;
   /**
-   * The text a consumer may render.
-   *
-   * Never shorter than it was last frame, with one declared exception: an
-   * out-of-band rebase, where the producer withdrew text it had already published
-   * and the lane fell back to the prefix both sources agree on. That retraction is
-   * real rather than a bookkeeping artifact, so it is announced — the
-   * `out-of-band-source-change` diagnostic carries how many characters went — and
-   * never papered over by holding a cursor whose text no longer matches.
+   * The text a consumer may render. Never shorter than last frame, except after an out-of-band
+   * rebase where the producer withdrew published text; that retraction is announced by the
+   * `out-of-band-source-change` diagnostic, which carries how many characters went.
    */
   readonly publishedText: string;
   readonly pendingCharacterCount: number;

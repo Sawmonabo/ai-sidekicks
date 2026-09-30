@@ -16,10 +16,8 @@ export function DiffLineText(props: {
       <code className="meridian-diff__code">
         {props.reading.segments.map((segment, segmentIndex) => (
           <span
-            // Segments have no identity of their own and never reorder — the list
-            // is rebuilt whole whenever the line changes — so the position IS the
-            // key, and inventing one would be a claim about stability nothing
-            // upstream makes.
+            // Segments have no identity and never reorder (the list is rebuilt whole), so the
+            // position is the key.
             key={segmentIndex}
             className={
               segment.changed ? "meridian-diff__segment meridian-diff__segment--changed" : undefined
@@ -46,14 +44,13 @@ export function DiffLineText(props: {
   );
 }
 
-/** The marker each line kind carries, and the class its ground is painted by. */
 const LINE_KIND_MARKERS: Readonly<Record<DiffLineKind, string>> = {
   context: " ",
   insert: "+",
   delete: "-",
 };
 
-/** How each line kind is announced, so the marker is not the only carrier. */
+/** Announced text per line kind, so the marker is not the only carrier. */
 const LINE_KIND_LABELS: Readonly<Record<DiffLineKind, string>> = {
   context: "unchanged",
   insert: "added",
@@ -61,24 +58,15 @@ const LINE_KIND_LABELS: Readonly<Record<DiffLineKind, string>> = {
 };
 
 /**
- * What the patch's own terminator marker says, beside the line it annotates.
- *
- * THE PATCH'S SENTENCE WITHOUT THE FORMAT'S PREFIX. A unified patch writes
- * `\ No newline at end of file`, where the leading `\` is the format's way of saying
- * "this is an annotation and not a line" — a job the row already does by drawing it
- * inside the line rather than under it. The words are kept because they are the ones
- * every other diff tool a reader has used says, and because on a newline-only change
- * they are the ONLY thing that distinguishes the two rows.
+ * The patch's `\ No newline at end of file` without the leading `\`, which the row already
+ * conveys by drawing it inside the line. On a newline-only change it is the only thing that
+ * tells the two rows apart.
  */
 const NO_NEWLINE_AT_END_LABEL = "No newline at end of file";
 
 /**
- * What the badge on an over-bound line says when a reader hovers it.
- *
- * SAID RATHER THAN LEFT BLANK. A line drawn with no highlight is what a line with no
- * intraline change looks like, so a row whose comparison was declined for size and
- * said nothing would be the console reporting "nothing changed inside this line" about
- * a line it never compared.
+ * Hover text for the badge on an over-bound line. Said, not left blank: an uncompared line
+ * looks like one with no intraline change.
  */
 const INTRALINE_SKIPPED_DETAIL =
   "This line is longer than the word-level comparison is run for, so the whole line is marked changed rather than the words within it.";

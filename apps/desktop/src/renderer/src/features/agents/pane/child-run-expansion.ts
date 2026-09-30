@@ -1,28 +1,9 @@
-// Expanding a child run in place — and what stays on screen when it cannot be.
-//
-// Child-run activity is summarized and expands only when somebody asks, and what a
-// failed ask leaves behind is fixed: the summary row visible and marked incomplete
-// rather than disappearing. Both
-// halves are here, and the second is the one that decides the shape — a state machine
-// whose failure arm still carries the summary is a machine that cannot drop a row, and
-// a boolean `isExpanded` beside a separate error would have let a caller render
-// neither.
-//
-// THE CALL IS A REGISTERED WIRE, so it goes through `callDaemon`:
-// `timeline.childRunExpand` is published in `@ai-sidekicks/contracts` in both
-// directions. `callDaemon` parses the reply against the registered schema, so what reaches
-// this module is either rows or a refusal — never an `unknown` that reads as success.
-//
-// WHAT IT DOES NOT DO. It pages nothing. `ChildRunExpandResponse` carries `hasMore`
-// and a cursor, and one expansion here reads the first page and reports the rest as
-// unread rather than looping: a renderer that drained a cursor would decide, on the
-// reader's behalf, to pull an unbounded child run into a window with a cap on it.
-// The unread remainder is carried on the outcome so the row can say so.
-//
-// STATE IS PER CHILD RUN AND PER SESSION. Per child run because two children expand
-// independently; per session because the console holds session stores open across a
-// navigation, so a mount-scoped holder would carry one session's expansions into the
-// next one — the defect `useRunGroupDisclosure` records in its own header.
+// Expanding a child run in place, and what stays on screen when it cannot be. A failed expansion
+// leaves the summary row visible and marked incomplete rather than dropping it, so the failure
+// arm still carries the summary. One expansion reads the first page only and reports the rest as
+// unread: draining the cursor would pull an unbounded child run into a capped window. State is
+// per child run (children expand independently) and per session (session stores outlive a
+// navigation, so a mount-scoped holder would carry one session's expansions into the next).
 
 import { type ChildRunExpandResponse, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -32,11 +13,8 @@ import { type Refusal } from "@renderer/lib/refusal.js";
 import { ReadScope } from "@renderer/lib/reads/read-scope.js";
 
 /**
- * Where one child run's expansion has got to.
- *
- * `expand-failed` is a first-class state rather than an absence, because it is the
- * one the fallback rule is about: the summary is still drawn and the row says the
- * expansion is incomplete.
+ * Where one child run's expansion has got to. `expand-failed` is a state, not an absence: the
+ * summary is still drawn and the row says the expansion is incomplete.
  */
 export type ChildRunExpansionStatus = "summarized" | "expanding" | "expanded" | "expand-failed";
 
@@ -67,19 +45,12 @@ export interface ChildRunDisclosure {
 }
 
 /**
- * Every child run's expansion in one session.
+ * Every child run's expansion in one session. A class because its acts must refuse without the
+ * caller remembering the fallback rule.
  *
- * A class with private fields per `apps/desktop/AGENTS.md`: this is state with acts
- * that change it, and the acts have to be able to refuse without the caller having
- * to remember the fallback rule.
- *
- * ONE READ LINE PER CHILD RUN AND NOT ONE PER SESSION, which is the same reason the
- * single-flight guard is per child run: two children expand independently, so a shared
- * line would have the second press abort the first child's read and leave that row
- * saying "expanding" for the rest of the session. The lines are held here rather than
- * at the render for the ordinary holder reason — this object outlives any one mount of
- * the rows that press it — and they end together through {@link abandonReads}, which
- * `useChildRunDisclosure` hands its holder as the disposal.
+ * Each child run has its own read line: a shared one would let the second press abort the first
+ * child's read and leave that row saying "expanding" for good. The lines end together through
+ * {@link abandonReads}, which `useChildRunDisclosure` hands its holder as the disposal.
  */
 export class ChildRunExpansionState {
   readonly #byChildRunId = new Map<RunId, ChildRunExpansion>();
@@ -102,11 +73,8 @@ export class ChildRunExpansionState {
   }
 
   /**
-   * End every read line: outstanding expansions stop, and no later one is live.
-   *
-   * The expansions themselves are left as they stand — a holder handing this object
-   * back recognizes the corpse through `isAbandoned` and mints a fresh one, so nothing
-   * here is ever read again.
+   * End every read line: outstanding expansions stop and no later one is live. Expansions are
+   * left as they stand; the holder sees `isAbandoned` and mints a fresh object.
    */
   public abandonReads(): void {
     this.#isAbandoned = true;
@@ -118,39 +86,25 @@ export class ChildRunExpansionState {
   /**
    * Ask the daemon for one child run's entries.
    *
-   * SINGLE-FLIGHT PER CHILD RUN. A second press while one is in flight is answered
-   * with the state already on screen rather than with a second call: the control is
-   * on a row a person can press repeatedly, and two expansions of one child would
-   * race to write the same child's state.
-   *
-   * The failure arm never clears `entries`, so a re-expansion that fails leaves the
-   * rows an earlier one delivered on screen and marks them incomplete — which is the
-   * fallback rule applied to the case the rule does not spell out.
-   *
-   * AND AN ABANDONED EXPANSION IS PUT BACK RATHER THAN LEFT `expanding`. Nobody is
-   * waiting for the answer, so nothing installs — but a row frozen mid-press is a
-   * control that can never be pressed again, so the state this press replaced is
-   * restored: the expansion did not happen, and the row says exactly that.
+   * Single-flight per child run: a second press while one is in flight returns the state
+   * already on screen, since two expansions of one child would race to write its state.
+   * A failure never clears `entries`, so a failed re-expansion keeps earlier rows and marks
+   * them incomplete. An abandoned expansion restores the state its press replaced, so a row
+   * is never frozen at `expanding`.
    */
   public async expand(bridge: PlatformBridge, childRunId: RunId): Promise<ChildRunExpansion> {
     const held = this.expansionFor(childRunId);
-    // THE IN-FLIGHT FACT IS THE STATE ITSELF, not a second register beside it: this
-    // act raises `expanding` synchronously and every terminal arm below leaves it,
-    // so a set of in-flight ids would have been a second source of truth for one
-    // reading — and the two could disagree only by being wrong.
+    // The in-flight fact is the `expanding` state itself; a separate set of ids would be a
+    // second source of truth.
     if (held.status === "expanding") {
       return held;
     }
     this.#byChildRunId.set(childRunId, { ...held, status: "expanding", refusal: undefined });
-    // OPENED AFTER THE GUARD, because opening a round IS the supersession: a round
-    // opened for a press this act drops would abort the expansion already in flight.
+    // Opened after the guard: opening a round supersedes, and a dropped press must not abort
+    // the expansion already in flight.
     const round = this.#readLineFor(childRunId).openRound();
     const reply = await readChildRunEntries(bridge, childRunId, round.signal);
-    // NO `catch` ARM, and its absence is `callDaemon`'s contract rather than an
-    // omission: `callDaemon` answers `served` or `refused` for every outcome a
-    // transport can have — a request the daemon would not accept, a rejected call,
-    // a reply the registered schema does not admit — so a `catch` here would be a
-    // branch nothing can reach, holding a refusal code nothing can render.
+    // No `catch`: `callDaemon` answers `served` or `refused` for every transport outcome.
     if (!round.isCurrent) {
       this.#restore(childRunId, held);
       return held;
@@ -165,13 +119,7 @@ export class ChildRunExpansionState {
     this.#byChildRunId.delete(childRunId);
   }
 
-  /**
-   * Put back exactly the state a press replaced, tracking included.
-   *
-   * A row that was never expanded goes back to being untracked rather than to a stored
-   * `summarized` entry, so an abandoned press leaves no trace at all — which is what
-   * "the expansion did not happen" means for {@link trackedChildRunIds} too.
-   */
+  /** Put back exactly the state a press replaced; a never-expanded row goes back to untracked. */
   #restore(childRunId: RunId, held: ChildRunExpansion): void {
     if (held.status === "summarized") {
       this.#byChildRunId.delete(childRunId);
@@ -196,12 +144,7 @@ export class ChildRunExpansionState {
     };
   }
 
-  /**
-   * This child run's read line, minted on the first press it takes.
-   *
-   * A line minted after {@link abandonReads} is born over, which is the fail-closed
-   * answer for a press that reaches a disclosure nothing is rendering any more.
-   */
+  /** This child run's read line, minted on first press; one minted after abandon is born over. */
   #readLineFor(childRunId: RunId): ReadScope {
     const held = this.#readLineByChildRunId.get(childRunId);
     if (held !== undefined) {
@@ -217,13 +160,8 @@ export class ChildRunExpansionState {
 }
 
 /**
- * Read one child run's entries, with the signal that stops the read.
- *
- * SEPARATE FROM THE STATE MACHINE ABOVE IT: the call is one line over one registered
- * pair, and what makes it a READ rather than an act is that the signal is REQUIRED —
- * there is no way to reach `callDaemon` from here without naming the thing that
- * abandons it. Every parse, refusal code and rejection normalization is still
- * `callDaemon`'s; nothing is re-authored here.
+ * Read one child run's entries with the signal that stops the read. The signal is required, so
+ * no call reaches `callDaemon` without naming what abandons it.
  */
 async function readChildRunEntries(
   bridge: PlatformBridge,

@@ -1,14 +1,8 @@
-// What each run control is CALLED, and the mark it wears.
+// What each run control is called, and the mark it wears.
 //
-// One table, because a phrase written twice is how a control ends up called "Stop"
-// in one place and "Interrupt" in another — two names for one wire call, and the
-// person who learned one cannot find the other.
-//
-// TWO PHRASES PER CONTROL, WHICH IS NOT REDUNDANCY. `label` is the bare verb; `title`
-// is a palette row read out of context and has to be a sentence-case act on its own
-// terms. Deriving the second from the first by concatenation would produce "Stop the
-// run" correctly and then something wrong the first time a control's verb is not a
-// bare imperative — so both are written down.
+// One table, so one wire call is not "Stop" in one place and "Interrupt" in another. `label`
+// is the bare verb and `title` a palette sentence; the title is written, not derived, because
+// a verb that is not a bare imperative would break concatenation.
 
 import { type GlyphName } from "@renderer/styles/glyphs.js";
 import { type RunControl } from "./services/run-control-dispatch.js";

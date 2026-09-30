@@ -1,16 +1,9 @@
-// The DOM seams an element's movement is READ through, one predicate at a time.
-//
-// Each seam is a claim a naive reading gets wrong: a motion listener attached to the
-// subject hears its ancestors' transitions not at all; a sibling's animation moves
-// nothing; a paused animation is not motion; and a loading skeleton's opacity pulse is
-// not motion however long it runs. Every clean case below has the control that fails
-// without the rule.
-//
-// The COMPOSED observer these four feed is
-// `element-motion.position-observer.test.ts`'s, and the sixth source's wiring is
-// `element-motion.content-layout.test.ts`'s. Both are claims about arming and
-// disarming rather than about reading, which is why they need a clock and this file
-// does not.
+// The DOM seams an element's movement is read through, one predicate at a time. Each is a claim
+// a naive reading gets wrong: a listener on the subject never hears an ancestor's transition, a
+// sibling's animation moves nothing, a paused animation is not motion, and a loading skeleton's
+// opacity pulse is not motion. The composed observer is covered in
+// `element-motion.position-observer.test.ts` and the sibling-size wiring in
+// `element-motion.content-layout.test.ts`.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -53,9 +46,8 @@ describe("observeMotionStarts", () => {
   });
 
   it("negative control: an element-scoped listener would miss exactly that ancestor case", () => {
-    // The control is the design decision itself. A listener on the overlay hears its
-    // own and its descendants' motion, and an ancestor's transition reaches it never
-    // — which is why the module captures at the document instead.
+    // A listener on the overlay never hears an ancestor's transition, which is why the module
+    // captures at the document.
     const { ancestor, element } = attachedPair();
     const heardOnElement = vi.fn();
     element.addEventListener("transitionrun", heardOnElement, { capture: true });
@@ -78,8 +70,8 @@ describe("sharesMotionWith", () => {
   });
 
   it("negative control: a sibling's motion carries nothing", () => {
-    // Without the containment test, one capture-phase listener would wake every
-    // overlay in the window on every animation anywhere in it.
+    // Without the containment test, one capture-phase listener would wake every overlay on every
+    // animation.
     const { ancestor, element } = attachedPair();
     const sibling = document.createElement("div");
     ancestor.append(sibling);
@@ -98,9 +90,8 @@ describe("hasRunningMotion", () => {
   });
 
   it("negative control: an animation that is not running is not motion", () => {
-    // The whole stop condition rests on this. Reading "has animations" rather than
-    // "has running animations" leaves the frame loop armed forever after the first
-    // transition an element ever ran, which is the idle-CPU budget's failure.
+    // Reading "has animations" rather than "has running animations" would leave the frame loop
+    // armed forever after an element's first transition.
     const { ancestor, element } = attachedPair();
     withAnimations(element, [fakeAnimation("finished")]);
     withAnimations(ancestor, [fakeAnimation("paused")]);
@@ -127,7 +118,7 @@ describe("hasRunningDocumentMotion", () => {
     withDocumentAnimations([fakeAnimation("running")]);
 
     expect(hasRunningDocumentMotion(element)).toBe(true);
-    // The element-scoped reading of the same instant, which is the whole point.
+    // The element-scoped reading of the same instant sees nothing.
     expect(hasRunningMotion(element)).toBe(false);
   });
 
@@ -146,9 +137,8 @@ describe("hasRunningDocumentMotion", () => {
   });
 
   it("a loading skeleton's opacity pulse is not motion, however long it runs", () => {
-    // Every `not-loaded` skeleton runs an infinite opacity pulse, so if it counted, one
-    // loading skeleton anywhere on screen would hold this predicate true forever — and
-    // the position sampler would re-arm on every frame for as long as it did.
+    // Every `not-loaded` skeleton runs an infinite opacity pulse; if it counted, one loading
+    // skeleton would keep the position sampler re-arming every frame.
     const { element } = attachedPair();
     const skeleton = document.createElement("div");
     document.body.append(skeleton);
@@ -170,8 +160,8 @@ describe("hasRunningDocumentMotion", () => {
   });
 
   it("an in-flow sibling animating its width is motion no containment test reaches", () => {
-    // The case the document-wide reading exists for, and the one an over-eager
-    // containment bound would have thrown away with the skeleton.
+    // The case the document-wide reading exists for, which an over-eager containment bound would
+    // have discarded with the skeleton.
     const { ancestor, element } = attachedPair();
     const sibling = document.createElement("div");
     ancestor.append(sibling);
@@ -195,9 +185,8 @@ describe("hasRunningDocumentMotion", () => {
   });
 
   it("negative control: an animation whose effect cannot be read still counts", () => {
-    // The fail-safe arm, and without it every case above would pass against a
-    // predicate that had simply stopped answering true — which is a pane left at
-    // coordinates it abandoned for the whole of every animation.
+    // The fail-safe arm; without it every case above would pass against a predicate that had
+    // stopped answering true.
     const { element } = attachedPair();
     withDocumentAnimations([fakeAnimation("running")]);
 

@@ -1,8 +1,5 @@
-// The one masked field a secret question draws, in place of option rows and the typed
-// field.
-//
-// MASKED AND NEVER REMEMBERED. The value is shown as dots, the browser is told not to
-// offer or keep it, and it lives only in the card's drafts until the daemon takes it.
+// The masked field a secret question draws in place of option rows and the typed field.
+// The browser is told not to offer or keep the value, which lives only in the card's drafts.
 
 /** What the card hands a secret question's field. */
 export interface SecretAnswerFieldProps {

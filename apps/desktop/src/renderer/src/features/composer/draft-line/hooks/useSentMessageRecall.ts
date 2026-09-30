@@ -1,21 +1,7 @@
-// Walking back through what was sent from THIS address, and writing it back into the
-// line.
-//
-// Split from `send-controller.ts` because it is a different job with a different
-// lifetime: the controller dispatches acts and settles them, and this walks a record
-// of acts already settled. Nothing here reaches the wire, nothing here can refuse,
-// and the only state it owns is a cursor.
-//
-// THE CURSOR IS A REF AND NOT STATE. The walk's position is not rendered — what is
-// rendered is the draft the walk wrote — so putting it in state would re-render the
-// whole bar on a keystroke that changed nothing a person can see.
-//
-// THE HISTORIES ARE PER ADDRESS AND ASKED ON EVERY PASS. A message sent to a session
-// is not on the way back through an agent's composer, so each address keeps its own
-// record; and the record is resolved in the render body rather than in an effect,
-// because a keystroke arriving before an effect could run must still walk this
-// address's history rather than the one before it. `forAddress` is idempotent for an
-// address already current, which is what makes asking here safe.
+// Walks back through what was sent from this address and writes it into the line. The cursor
+// is a ref, not state, since it is never rendered and state would re-render the bar per key.
+// Histories are per address and resolved in the render body, so a keystroke before an effect
+// runs still walks this address's history; `forAddress` is idempotent, which makes that safe.
 
 import { useCallback, useState } from "react";
 
@@ -34,22 +20,16 @@ export interface SentMessageRecall {
 }
 
 /**
- * The recall pair for one addressed composer.
- *
- * `readDraftText` is passed rather than read from the store here so the walk and the
- * line agree about what "the current text" is: the controller already holds a
- * value-stable reader for `useSyncExternalStore`, and a second read written here
- * would be a second answer to the same question.
+ * The recall pair for one addressed composer. `readDraftText` is passed in so the walk and the
+ * line agree on the current text.
  */
 export function useSentMessageRecall(
   draftStore: DraftStore,
   draftKey: string,
   readDraftText: () => string,
 ): SentMessageRecall {
-  // `useState` with an INITIALIZER, which is the console's shape for a per-mount object
-  // (`lib/reads/generation-latch.ts`, `hooks/subject-scoped/useSubjectScopedState.ts`)
-  // and the only one that constructs once: `useRef(new SentMessageHistories())`
-  // would evaluate the constructor on every render and throw the result away.
+  // `useState` with an initializer constructs once; `useRef(new ...)` would build and discard
+  // one per render.
   const [histories] = useState(() => new SentMessageHistories());
   const history = histories.forAddress(draftKey);
 

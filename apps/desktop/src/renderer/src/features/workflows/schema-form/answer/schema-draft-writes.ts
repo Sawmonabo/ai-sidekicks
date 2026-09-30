@@ -1,21 +1,8 @@
-// What one control's change does to the draft, which is every write a drawn form makes.
-//
-// SPLIT FROM THE SEED BECAUSE THEY ARE TWO JOBS. `schema-answer.ts` reads the plan the
-// mapper drew and says what each control OPENS holding; this module says what happens when
-// somebody touches one. The seam is the module's own first sentence, and the two halves
-// share nothing but the plan lookups and the opening nodes the seed exports — which is
-// what a write needs when it lands somewhere the draft has nothing yet.
-//
-// EVERY WRITE REBUILDS RATHER THAN MUTATES, because the draft is the value React
-// re-renders on. `schema-draft.ts` owns the rebuilds; this module owns which of them one
-// act performs and where it lands.
-//
-// ANSWERING SOMETHING INSIDE A CONTAINER IS ANSWERING THE CONTAINER. A value written under
-// a section nobody had opened opens that section at its own seed FIRST and then lands —
-// the same state the control on its legend reaches, rather than a second, thinner
-// activation that skipped the siblings — and a row added to a collection nobody had
-// answered answers that collection the same way (`withEntryAppended`). Leaving either
-// unanswered is the one act that takes it back out.
+// What one control's change does to the draft, which is every write a drawn form makes. The seed
+// (`schema-answer.ts`) says what each control opens holding; this says what happens when somebody
+// touches one. Every write rebuilds rather than mutates, since the draft is what React re-renders
+// on (`schema-draft.ts` owns the rebuilds). Answering something inside an unopened section or an
+// unanswered collection answers the container first, at its own seed, as its legend control does.
 
 import {
   activeGroup,
@@ -44,13 +31,9 @@ import { memberKeyOf, type SchemaFormPlan } from "../plan/schema-fields.js";
 import type { SchemaMemberPath } from "../schema-member-path.js";
 
 /**
- * Write one leaf at its path, activating the group it sits in where that group is not yet.
- *
- * THE ONE WRITE PATH FOR A DRAWN CONTROL, and the reason it takes the plan. Answering a
- * member of a section IS answering the section, so a write under an inactive group opens
- * that group at its own seed FIRST and then lands the value — the same state activating
- * it on the legend reaches, rather than a second, thinner activation that skipped the
- * siblings.
+ * Write one leaf at its path, activating the group it sits in where that group is not yet. The one
+ * write path for a drawn control: a write under an inactive group opens it at its own seed first,
+ * the same state its legend control reaches.
  */
 export function withLeafDrafted(
   plan: SchemaFormPlan,
@@ -76,12 +59,9 @@ export function withLeafDrafted(
 }
 
 /**
- * A group opened or left unanswered, which is the one control a group's legend offers.
- *
- * Activating seeds the members exactly as the mount would have, so a section answered
- * later holds what it would have held had it been required. Leaving it unanswered drops
- * those members: the group is absent from the answer, and a person who opens it again
- * meets the seed rather than a half-remembered draft the form never showed them.
+ * A group opened or left unanswered, the one control its legend offers. Activating seeds the
+ * members as the mount would; leaving it unanswered drops them, so reopening meets the seed and
+ * not a half-remembered draft the form never showed.
  */
 export function withGroupActivation(
   plan: SchemaFormPlan,
@@ -105,17 +85,8 @@ export function withGroupActivation(
 }
 
 /**
- * A collection opened or left unanswered, which is the one control its legend offers.
- *
- * THE GROUP'S RULE, ONE MEMBER OVER. Answering seeds the rows exactly as the mount would
- * have, so a collection answered later holds what it would have held had it been required.
- * Leaving it unanswered drops those rows: the collection is absent from the answer, and a
- * person who answers it again meets the seed rather than a half-remembered draft the
- * form never showed them.
- *
- * Written through `withLeafDrafted` rather than at the root, so a collection inside a
- * section nobody has opened answers that section too — the same rule every other write in
- * this module keeps.
+ * A collection opened or left unanswered, the group's rule one member over. Written through
+ * `withLeafDrafted`, so a collection inside an unopened section answers that section too.
  */
 export function withListActivation(
   plan: SchemaFormPlan,
@@ -177,11 +148,9 @@ export function withListEntryRemoved(
 }
 
 /**
- * The collection this draft holds at one path, opened at its seed where it holds none.
- *
- * A collection inside a group nobody has activated has no node yet, and the three list
- * acts are reachable only from a drawn row — so the seed is what those acts start from,
- * and the write path above is what activates the group around it.
+ * The collection this draft holds at one path, opened at its seed where it holds none. A
+ * collection inside an inactive group has no node yet, and the list acts are reachable only from
+ * a drawn row.
  */
 function heldListDraft(plan: SchemaFormPlan, draft: SchemaFormDraft, memberPath: SchemaMemberPath) {
   const leaf = leafDraftAt(draft, memberPath);

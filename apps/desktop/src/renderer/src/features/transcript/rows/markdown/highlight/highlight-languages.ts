@@ -1,18 +1,12 @@
-// Which language a fence's info string names, read against the languages the daemon
-// colors.
-//
-// A block whose info string names none of them stays plain and asks the daemon for
-// nothing, so this reading decides whether a block asks at all. The languages are the
-// contract's; what is the renderer's own is the fence's spelling of them: the aliases
-// a model writes (`ts`, `sh`, `yml`) and commonmark's reading of an info string.
+// Resolves a fence's info string to a language the daemon colors. The languages are the
+// contract's; the fence's spelling of them (aliases such as `ts`, `sh`, `yml`, and commonmark's
+// reading of an info string) is the renderer's own. A fence naming none stays plain.
 
 import { HIGHLIGHT_LANGUAGES, type HighlightLanguage } from "@ai-sidekicks/contracts";
 
 /**
- * The language the fence's info string names, or `undefined` for one the daemon cannot
- * color.
- *
- * Lower-cased and cut at the first space, commonmark's own reading of an info string.
+ * The language the fence's info string names, or `undefined` for one the daemon cannot color.
+ * The string is lower-cased and cut at the first space, commonmark's own reading.
  */
 export function resolveHighlightableLanguage(
   infoString: string | null | undefined,

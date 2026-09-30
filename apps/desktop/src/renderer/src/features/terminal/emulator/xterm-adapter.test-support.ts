@@ -1,27 +1,8 @@
-// One live-emulator registry, and the builders every suite in this directory mounts
-// through.
-//
-// Every case in this directory drives `@xterm/xterm` itself — no stand-in, no mock
-// terminal. A local fake would prove that the wrapper calls the methods the fake
-// declares, which is the one thing worth nothing: the constraints these modules exist
-// to keep are all properties of the library's behavior (a scrollback that evicts, a
-// `disableStdin` that gates, an addon that throws without WebGL2), and a fake keeps
-// whichever of them it was written to keep.
-//
-// So every suite has the same two obligations — dispose the emulators it built and
-// take its mount elements out of the document — and an emulator left live is a WebGL
-// context, a data listener, and a scrollback ring surviving into the next case. One
-// registry here rather than a copy per suite: parallel teardown loops drift into
-// several ideas of what "cleaned up" means, and the suite whose loop is weaker leaks
-// into its neighbor. The number of consumers is deliberately not stated — it moves
-// with every case file the directory adds, and a count in prose is a claim nothing
-// checks.
-//
-// WHAT THE ENVIRONMENT CAN AND CANNOT ANSWER. The DOM shim has no WebGL2, so every
-// instance built here settles on the DOM renderer — which is exactly the fallback path
-// the pool's cap and the context-loss handler both lead to, so it is the arm worth
-// exercising by default. The one path it cannot reach is a renderer that ACTIVATES,
-// and that is `webgl-fallback.test-support.ts`'s, which stands the addon in.
+// One live-emulator registry and the builders every suite here mounts through. The suites drive
+// the real `@xterm/xterm`, because what they check (scrollback eviction, `disableStdin` gating,
+// an addon that throws without WebGL2) is library behavior a fake would only mirror. The DOM
+// shim has no WebGL2, so instances settle on the DOM renderer; `webgl-fallback.test-support.ts`
+// stands in an activating one.
 
 import { vi } from "vitest";
 
@@ -32,12 +13,8 @@ const liveAdapters: XtermTerminalAdapter[] = [];
 const liveMountElements: HTMLElement[] = [];
 
 /**
- * The real ledger, with a note of which call each arm of the adapter made.
- *
- * A subclass and not a stand-in: every method runs the real accounting through
- * `super`, and the arrays only record that it was reached. They are what keeps the
- * churn case from being vacuous — without them it would pass just as well against an
- * adapter that never asked for a context at all.
+ * The real ledger, recording which call each adapter arm made, so the churn case cannot pass
+ * against an adapter that never asked for a context.
  */
 export class RecordingRendererPool extends TerminalRendererPool {
   public readonly acquiredTerminalIds: string[] = [];
@@ -79,10 +56,7 @@ export function emulatorElementsIn(mountElement: HTMLElement): NodeListOf<Elemen
   return mountElement.querySelectorAll(".xterm");
 }
 
-/**
- * An adapter that exists and is attached to nothing, for the cases about what a
- * wrapper reports BEFORE it has a mount element.
- */
+/** An adapter attached to nothing, for what a wrapper reports before it has a mount element. */
 export function unattachedAdapter(options: AdapterOptions = {}): XtermTerminalAdapter {
   return trackAdapter(
     new XtermTerminalAdapter({
@@ -93,6 +67,7 @@ export function unattachedAdapter(options: AdapterOptions = {}): XtermTerminalAd
   );
 }
 
+/** An adapter attached to a fresh mount element in the document. */
 export function mountedAdapter(options: AdapterOptions = {}): {
   adapter: XtermTerminalAdapter;
   mountElement: HTMLElement;

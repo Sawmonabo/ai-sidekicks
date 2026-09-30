@@ -1,22 +1,7 @@
-// One version's body, as the detail draws it: the marker and hash that identify these
-// bytes, the phases they sequence, and the chain the version belongs to.
-//
-// A SIBLING RATHER THAN A SECOND COMPONENT IN `DefinitionDetail.tsx`, which is the
-// package's one-component-per-`.tsx` rule — `DefinitionListItem.tsx` is the precedent
-// one directory up, and for the same reason: a module holding two components is a
-// module whose name answers for one of them.
-//
-// EVERY FIGURE IS THE WIRE'S. The content hash is BLAKE3 over the RFC 8785
-// canonicalization and the console neither computes nor parses one; the schema marker
-// is a string no corpus document registers a value for. Both are rendered verbatim in
-// mono through `WireFigure`, which is the one module in the console that formats a wire
-// value at all.
-//
-// AND THE PHASE ORDER IS THE DAEMON'S. The sequence arrives in the order the definition
-// runs it, and this component re-sorts nothing: a renderer that ordered phases by their
-// dependency lists would be a second authority on a topology the definition already
-// states, and the two would agree until a definition described a shape the sort did not
-// expect.
+// One version's body as the detail draws it: the marker and hash that identify these bytes, and
+// the phases they sequence. Every figure is the wire's, rendered verbatim through `WireFigure`;
+// the content hash is BLAKE3 over the RFC 8785 canonical form, which the console neither
+// computes nor parses. The phase order is the daemon's and is never re-sorted.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
@@ -24,6 +9,7 @@ import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { WorkflowVersionBody } from "@renderer/services/wire-shapes/workflow-definition-body.js";
 import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 
+/** The served version body to draw. */
 export interface DefinitionVersionBodyProps {
   readonly body: WorkflowVersionBody;
 }
@@ -48,10 +34,8 @@ export function DefinitionVersionBody(props: DefinitionVersionBodyProps): React.
         </dd>
         <dt>Starts</dt>
         {/*
-         * The entry record's one member, rendered as the word the wire carries. A
-         * sentence composed here — "started by hand" — would be this console
-         * translating a closed vocabulary into prose that stops matching the day the
-         * vocabulary grows a second member.
+         * The entry record's member as the wire's word: prose composed here would stop matching
+         * when the vocabulary grows.
          */}
         <dd>
           <Chip mono label={body.entry.startMode} />

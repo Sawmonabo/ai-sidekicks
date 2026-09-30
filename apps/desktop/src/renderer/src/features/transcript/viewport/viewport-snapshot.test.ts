@@ -1,11 +1,7 @@
-// The two pure rules the viewport folds a render's conditions through.
-//
-// As values rather than private methods on the controller, because reaching them through
-// the controller means building four live objects, attaching a scroll container and
-// driving a reconcile — and the arms that matter most are the ones that path reaches
-// least: a tail key the retained set no longer holds, and a row that STRADDLES the fold
-// rather than sitting clear of it. `viewport-controller.test.ts` owns the wiring claims;
-// this suite asserts the boundary arithmetic underneath them directly.
+// The two pure rules the viewport folds a render's conditions through, asserted directly.
+// Reaching them through the controller means building four live objects, and the arms that
+// matter most (a vanished tail key, a row straddling the fold) are the ones that path reaches
+// least. Wiring claims live in `viewport-controller.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -34,17 +30,16 @@ describe("counting rows appended after the previous tail", () => {
   });
 
   it("counts nothing when there was no previous window", () => {
-    // Not "every row is new": the anchor counts rows that arrived UNDER a reader,
-    // and a reader who was not there has nothing to be told about.
+    // Not "every row is new": the anchor counts rows that arrived under a reader, and a reader
+    // who was not there has nothing to be told.
     expect(countAppendedAfter(RETAINED_ROWS, undefined)).toBe(0);
     expect(countAppendedAfter([], undefined)).toBe(0);
   });
 
   it("counts nothing when the previous tail was pruned out of the window", () => {
-    // The row the key named is gone, so the arithmetic that would follow it has no
-    // origin. Returning `rows.length` here — the shape a naive `indexOf` fallback
-    // produces — would announce the whole window as newly arrived on the first
-    // reconcile after a prune.
+    // The named row is gone, so there is no origin. Returning `rows.length`, as a naive
+    // `indexOf` fallback would, announces the whole window as new on the first reconcile after a
+    // prune.
     expect(countAppendedAfter(RETAINED_ROWS, "pruned-away")).toBe(0);
   });
 });
@@ -65,10 +60,8 @@ describe("counting rows inserted before the previous head", () => {
   });
 
   it("counts nothing when the previous head is no longer in the set", () => {
-    // The mirror of the pruned-tail arm, and it matters for the same reason: the row
-    // the key named is gone, so there is no shift to describe and nothing to hold
-    // against. Answering `rows.length` here would arm a head hold on every reconcile
-    // that dropped the first row.
+    // The mirror of the pruned-tail arm: answering `rows.length` would arm a head hold on every
+    // reconcile that dropped the first row.
     expect(countInsertedBefore(RETAINED_ROWS, "pruned-away")).toBe(0);
   });
 });
@@ -80,16 +73,14 @@ describe("compensating for a row that grew above the fold", () => {
   });
 
   it("negative control: refuses a row the reader can see growing", () => {
-    // A row ending one pixel below the fold is growing under the reader's eyes.
-    // Subtracting its delta drags the viewport down every frame of a stream, and
-    // each drag moves the anchor, which notifies, which renders, which glides.
+    // A row ending one pixel below the fold is growing under the reader's eyes; subtracting its
+    // delta would drag the viewport down every frame of a stream and loop through the anchor.
     expect(shouldCompensateForInsertion("reading", 401, 400)).toBe(false);
   });
 
   it("negative control: refuses every row while the reader is following", () => {
-    // The tail glide already puts a follower at the bottom; a compensation would
-    // fight it. Both conjuncts are load-bearing, so this arm fails even for a row
-    // that clears the fold by a mile.
+    // The tail glide already puts a follower at the bottom and a compensation would fight it;
+    // this fails even for a row that clears the fold by a mile.
     expect(shouldCompensateForInsertion("following", 0, 400)).toBe(false);
     expect(shouldCompensateForInsertion("following", 400, 400)).toBe(false);
   });

@@ -1,26 +1,19 @@
-// Why there is no account picker, in the words of whichever answer produced it.
-//
-// FOUR ABSENCES AND NOT ONE EMPTY LIST. A driver nobody has chosen, a registry read
-// still in flight, a read the node refused, a driver this build cannot match to a
-// provider, and a provider with no accounts registered are five different facts about
-// why an account cannot be chosen right now, and exactly one of them is "there are
-// none". A field that drew an empty picker over any of the other four would report a
-// registry that had not answered as a registry that had answered nothing.
-//
-// THE REFUSAL RENDERS VERBATIM AND CARRIES ITS OWN WAY OUT. A refused registry read
-// is terminal until something asks again, so without the re-read this field would say
-// one line of error text for the life of the field.
+// Why there is no account picker, in the words of whichever answer produced it. Five
+// absences, only one of which is "the registry holds none"; an empty picker would report an
+// unanswered registry as an answer of nothing. A refusal renders verbatim with a way to retry.
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { AccountAxisReading } from "../account-axis.js";
 
+/** What the empty state shows, and how it asks for a fresh read. */
 export interface AccountChoiceEmptyStateProps {
   readonly reading: AccountAxisReading;
   /** Ask the node's one account-plane reading for a fresh read. */
   readonly onReopen: () => void;
 }
 
+/** The absence state for the account picker: one message per reason there is no list. */
 export function AccountChoiceEmptyState(props: AccountChoiceEmptyStateProps): React.JSX.Element {
   const { reading, onReopen } = props;
   if (reading.kind === "driver-unchosen") {

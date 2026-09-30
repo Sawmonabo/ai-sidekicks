@@ -1,17 +1,8 @@
-// WHICH CONTROL A MEMBER SHAPE DRAWS, AND WHAT THAT CONTROL PUTS IN THE ANSWER.
-//
-// One of three suites over the drawn form, split when the single file reached the size at
-// which the module-shape rule in `apps/desktop/AGENTS.md` says it is doing two jobs. The
-// clusters are the ones the cases already formed: this file owns the leaf controls and
-// the values they compose, `SchemaForm.groups.test.tsx` owns the group fieldset, and
-// `SchemaForm.findings.test.tsx` owns where a description and a finding are attached. The
-// collection field list is `SchemaFieldList.test.tsx`; the arm that draws no controls at all
-// is `SchemaJsonEditor.test.tsx`.
-//
-// Driven through the real hook rather than a hand-built state, because the two are one
-// unit: a test that fed the component a fabricated plan would pass with the mapper
-// deleted. Which is also why the presence cases below read the COMPOSED ANSWER: whether a
-// member is in it is the half a rendered control cannot show.
+// Which control a member shape draws and what that control puts in the answer: the leaf
+// controls and their values. Sibling suites: `SchemaForm.groups.test.ts`,
+// `SchemaForm.findings.test.ts`, `SchemaFieldList.test.ts` and `SchemaJsonEditor.test.ts`.
+// Driven through the real hook, since a fabricated plan would pass with the mapper deleted;
+// presence cases read the composed answer, which a rendered control cannot show.
 
 import { cleanup, fireEvent, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -31,17 +22,15 @@ describe("the control a member shape draws", () => {
         approved: { type: "boolean", title: "Approved" },
         severity: { type: "string", enum: ["low", "high"], title: "Severity" },
       },
-      // The box is the control a boolean draws through where the answer must hold a value
-      // for it. An OPTIONAL one is drawn as a three-state choice instead, which is the
-      // case below rather than a sixth kind.
+      // The box is drawn where the answer must hold a value; an optional boolean is drawn as
+      // a three-state choice instead (the case below).
       required: ["approved"],
     });
 
     expect(screen.getByLabelText("Title").tagName).toBe("INPUT");
     expect(screen.getByLabelText("Notes").tagName).toBe("TEXTAREA");
     expect(screen.getByLabelText("Count")).toHaveProperty("type", "number");
-    // Matched loosely because this one is required, and a required member's label carries
-    // the mark beside its name.
+    // Matched loosely: a required member's label carries the mark beside its name.
     expect(screen.getByLabelText(/Approved/u)).toHaveProperty("type", "checkbox");
     expect(screen.getByLabelText("Severity").tagName).toBe("SELECT");
   });
@@ -55,8 +44,8 @@ describe("the control a member shape draws", () => {
     const options = [...screen.getByLabelText("Severity").querySelectorAll("option")];
 
     expect(options.map((option) => option.textContent)).toEqual(["Not answered", "low", "high"]);
-    // The members are offered under their POSITIONS, so the unanswered option's value is
-    // not a string any enumeration can contain: it is the one value that is not an index.
+    // Members are offered under their positions, so the unanswered value is the one that is
+    // not an index.
     expect(options.map((option) => option.value)).toEqual(["", "0", "1"]);
   });
 
@@ -73,8 +62,7 @@ describe("the control a member shape draws", () => {
       "Yes",
       "No",
     ]);
-    // Unanswered is ABSENT and never a member worth some other value, which is the whole
-    // reading a box could not offer.
+    // Unanswered is absent, never a member worth some other value.
     expect(composedAnswer(container)).toEqual({});
   });
 
@@ -123,10 +111,8 @@ describe("the value a control puts in the answer", () => {
   });
 
   it("takes an optional text member back out of the answer when its box is cleared", async () => {
-    // The untouched box and the cleared one look identical, so the answer has to say the
-    // same thing about both. Writing `""` for the cleared one made the form reachable into
-    // a state it could not reach back out of, with no UI action that restores the absence
-    // it opened with.
+    // The untouched box and the cleared one look identical, so the answer must say the same
+    // about both; writing `""` left no UI action that restores the opening absence.
     const container = await renderForm({
       type: "object",
       properties: { note: { type: "string", title: "Note" } },
@@ -142,9 +128,8 @@ describe("the value a control puts in the answer", () => {
   });
 
   it("keeps a figure the numeric control cannot carry out of the answer altogether", async () => {
-    // End to end, because the divergence was between two layers: the control turned
-    // `1e309` into `Infinity`, the box went blank because it cannot render one, and the
-    // composed answer serialized it to `null` — three different readings of one keystroke.
+    // End to end: the control turned `1e309` into `Infinity`, the box went blank, and the
+    // answer serialized it to `null` — three readings of one keystroke.
     const container = await renderForm({
       type: "object",
       properties: { ratio: { type: "number", title: "Ratio" } },
@@ -157,9 +142,8 @@ describe("the value a control puts in the answer", () => {
   });
 
   it("negative control: an unchecked box is still the answer `false` and never an absence", async () => {
-    // The one control with no unanswered state, and the reason the rule is about what a
-    // control can DISPLAY: unchecked says no, so the member stays in the answer where a
-    // cleared text box leaves it.
+    // The one control with no unanswered state: unchecked says no, so the member stays in the
+    // answer where a cleared text box leaves it.
     const container = await renderForm({
       type: "object",
       properties: { approved: { type: "boolean", title: "Approved" } },

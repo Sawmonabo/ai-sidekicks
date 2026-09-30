@@ -1,11 +1,7 @@
-// The two local faults the ingest client handles, and the port rejection it does not.
-//
-// A `Blob` off a picker is a handle on a file the host owns, and a user who moved or
-// deleted it mid-upload gets a rejecting read. That is not a call the daemon answered, so
-// the entry is refused where a card can show it and offer the retry. A subscriber that
-// throws while the ledger publishes is the other local fault: the write already landed, so
-// it is reported on the diagnostic band. A rejected port call is neither: it propagates out
-// of the driver unchanged.
+// The two local faults the ingest client handles, and the port rejection it does not. A picker
+// `Blob` moved or deleted mid-upload gives a rejecting read, so the entry is refused where a card
+// can show it and offer the retry. A subscriber that throws during publish is reported on the
+// diagnostic band because the write already landed. A rejected port call propagates unchanged.
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
@@ -58,14 +54,12 @@ describe("ingest client — a file that stops being readable", () => {
     expect(entry?.state).toBe("refused");
     expect(entry?.refusal?.code).toBe(PAYLOAD_READ_REFUSAL_CODE);
     expect(entry?.disposition).toBe("retry-in-place");
-    // The read failed before a request was composed, so nothing was sent describing
-    // bytes this client could not produce.
+    // The read failed before a request was composed, so nothing was sent.
     expect(port.chunkCalls).toStrictEqual([]);
   });
 
   it("negative control: a readable file completes and refuses nothing", async () => {
-    // Without this, the case above would pass over a client that refused whatever
-    // happened, which would report a healthy upload as a failure.
+    // Without this the case above would pass over a client that refused whatever happened.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(sourceOver("attachment-two", "capture.bin", ARTIFACT_CHUNK_MAX_BYTES * 2));
@@ -79,9 +73,8 @@ describe("ingest client — a file that stops being readable", () => {
 
 describe("ingest client — a subscriber that throws while the ledger publishes", () => {
   it("reports a publication that threw on the diagnostic band, not on the promise", async () => {
-    // The write has landed by the time the emitter re-raises a sink that threw, so the
-    // record is ahead of every view reading it: a defect in this console rather than
-    // an answer from anywhere, and it goes where defects go.
+    // The write has landed by the time the emitter re-raises a throwing sink, so this is a
+    // defect in the console and goes where defects go.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     let publishCount = 0;
@@ -98,14 +91,12 @@ describe("ingest client — a subscriber that throws while the ledger publishes"
     const [report] = windowTripwires.reports();
     expect(report?.site).toBe(INGEST_STREAM_SITE);
     expect(report?.detail).toContain("attachment-1");
-    // The write landed before the fan-out failed, which is why this reports rather than
-    // writing again: the entry moved and the subscriber did not hear it.
+    // The write landed before the fan-out failed, so this reports rather than writing again.
     expect(client.snapshot[0]?.state).toBe("ingesting");
   });
 
   it("negative control: a subscriber that does not throw records nothing", async () => {
-    // Without this the case above would pass over a client that fired on every drive,
-    // which would put a defect on the diagnostic band for every healthy upload.
+    // Without this the case above would pass over a client firing on every healthy drive.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.subscribe(() => undefined);

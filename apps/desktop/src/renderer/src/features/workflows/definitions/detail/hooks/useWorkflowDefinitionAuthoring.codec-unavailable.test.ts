@@ -1,16 +1,6 @@
-// What the two file acts do when the file form's codec does not arrive.
-//
-// ITS OWN FILE BECAUSE THE MOCK IS THE WHOLE POINT. The reader and the writer are
-// fetched on first use — the parser is charged to the launches that use it and to no
-// others — so the one way they fail is a fetch that did not land, and reproducing that
-// means replacing the module for the whole registry. A suite that did it beside the
-// ordinary cases would take the codec away from those too; a file of its own gets its
-// own registry, and every other case still runs against the real one.
-//
-// THE CLASS THIS GUARDS. Both acts are dispatched with `void`, so a rejection that
-// nothing caught would be an unhandled rejection: no refusal on screen, no sentence,
-// and a control that answers a press with nothing at all. What is asserted here is that
-// the press settles as a refusal instead.
+// The file acts when the file form's codec chunk does not arrive. It has its own file because
+// the mock replaces the module for the whole registry. Both acts run with `void`, so an uncaught
+// rejection would leave no refusal on screen; the press must settle as a refusal instead.
 
 import { cleanup, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -48,9 +38,8 @@ describe("the file acts when the codec did not load", () => {
       mounted.current().importDefinition('ai-sidekicks-schema: "1.0"\n');
     });
 
-    // `file-unreadable` is the reader's own verdict on a file. A chunk that did not
-    // arrive read nothing, so claiming the text was unreadable would be the definition
-    // detail reporting a fact it does not have.
+    // `file-unreadable` is the reader's verdict on a file; a chunk that never arrived read
+    // nothing.
     await waitFor(() => {
       expect(refusalCode(mounted.current().outcomes.import)).toBe("call-rejected");
     });
@@ -58,13 +47,8 @@ describe("the file acts when the codec did not load", () => {
   });
 
   it("negative control: an import that never reaches the codec still answers itself", async () => {
-    // The mock removes the codec, and every path that puts the create reads through the
-    // codec first. What stays reachable is the refusal an import raises before it reads
-    // anything: with no session bound it must still answer `session-unbound`, which
-    // shows the hook, the latch and the publish work under the mock. Without it, both
-    // cases above would hold over a mock that had broken the whole module registry —
-    // every act refusing with `call-rejected` for a reason that had nothing to do with
-    // the codec.
+    // Every path that puts the create reads through the mocked codec first. The no-session refusal
+    // is raised before any read, so it shows the hook, latch and publish still work under the mock.
     const mounted = mountAuthoring(authoringBridge(), undefined, RELEASE_CHECKS_BODY);
     await mounted.press(() => {
       mounted.current().importDefinition('ai-sidekicks-schema: "1.0"\n');

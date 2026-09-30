@@ -2,12 +2,8 @@ import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 
 /**
- * One toggle.
- *
- * `aria-pressed` rather than a checkbox, because these are stateful buttons over
- * a view and not fields of a form; the label is real text beside the glyph rather
- * than a tooltip, so the control is named without hovering and reads at any
- * measure.
+ * One toggle button. `aria-pressed` because it is stateful over a view, not a form field; the
+ * text label means it is named without hovering.
  */
 export function DiffToggle(props: {
   readonly label: string;

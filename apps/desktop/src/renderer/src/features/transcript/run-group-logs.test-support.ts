@@ -1,17 +1,6 @@
-// The logs a case needs when it is about a RUN GROUP — a run that ended, a run that is
-// still going, a folded run group's messages, and a seam.
-//
-// SPLIT FROM `transcript-logs.test-support.ts`, which keeps the fixture vocabulary
-// and the plain logs. The two files hold two subjects: a case about the cap, a
-// filter, or a join order needs a log and nothing else, while every log here is
-// shaped so a FOLD rule can fail over it — two lanes rather than one, a boundary with
-// a different actor from its run, a receipt that has to stay under its header. Kept
-// in one file the pile was over four hundred lines and a reader looking for the
-// terminal run group log met eight builders on the way.
-//
-// The session id, the instants and the row ids are still that module's. A log written
-// against its own clock would be a second fixture epoch, which is the thing a shared
-// stamp exists to prevent.
+// Logs for cases about a run group: a run that ended, one still going, a folded run group's
+// messages, and a seam. Each is shaped so a fold rule can fail over it. The session id, instants
+// and row ids come from `transcript-logs.test-support.ts` so there is one fixture epoch.
 
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
@@ -24,12 +13,10 @@ import {
 } from "./transcript-logs.test-support.js";
 
 /**
- * A store holding one run that ENDED and one that is still going.
+ * A store holding one run that ended and one that is still going.
  *
- * Two lanes rather than one because the fold's rule is a difference between them:
- * the terminal run group draws a header and folds to it and its receipt, the live one
- * draws none and keeps every row on screen. A single-lane log would pass over a fold
- * that folded everything.
+ * Two runs because the fold's rule is the difference between them: the ended run folds to its
+ * header and receipt, the live one keeps every row on screen.
  */
 export function openSessionStoreWithTerminalRunGroup(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });
@@ -93,12 +80,9 @@ export const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
 /**
  * A finished run full of message rows, beside a live run holding a tool call.
  *
- * Shaped for the narrowing's ordering and for nothing else. The finished run's
- * members are `assistant_output` and the live run's is `tool_activity`, so the two
- * categories name the two run groups: narrowing to the first can only be satisfied from
- * inside a run group that is folded shut by default, and narrowing to the second
- * empties that run group entirely. A single-category log would pass over a narrowing
- * that never looked inside a fold at all.
+ * Shaped for the category filter: the finished run's members are `assistant_output` and the
+ * live run's is `tool_activity`, so filtering to the first can only be satisfied from inside a
+ * run group folded shut by default, and filtering to the second empties that run group.
  */
 export function foldedMessageRunGroupLog(): readonly ProjectedSessionEvent[] {
   const messageRows = Array.from(
@@ -150,10 +134,7 @@ export function foldedMessageRunGroupLog(): readonly ProjectedSessionEvent[] {
 /**
  * A store whose one run is still live and carries a compaction seam.
  *
- * Live on purpose: the seam row and the run group fold are two different dispatches in
- * the same renderer, and a seam inside a folded run group would be hidden by the fold
- * rather than drawn — which would make a case about the seam pass or fail for the
- * fold's reasons.
+ * Live so a fold cannot hide the seam and make a seam case pass or fail for the fold's reasons.
  */
 export function openSessionStoreWithSystemMessage(): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });

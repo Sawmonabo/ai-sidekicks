@@ -1,29 +1,16 @@
-// What the pane frame drew around a pane body, read back the way a person meets it.
-//
-// BOTH OF THIS FEATURE'S PANES WEAR ONE CHROME, so both suites ask it the same two
-// questions — what the trail says, and which crumb is the subject the pane is a view
-// of — and the reader is hoisted here on the second use rather than written twice.
-// It sits at the feature root because the two sub-modules that read it are siblings and
-// neither owns the other.
-//
-// IT READS THE DOM AND NEVER THE CHROME'S SOURCE. The claim a suite makes with it is
-// that the body reached the chrome and handed it the address — a claim that has to
-// fail on a body drawing its own header, which is exactly what these selectors do:
-// nothing in a feature-drawn frame carries `meridian-pane__crumb`.
+// What the pane frame drew around a pane body, read back from the DOM the way a person meets it.
+// Both of this feature's panes wear one chrome, so both suites share these two readers. Reading
+// the DOM (not the chrome's source) is what fails on a body drawing its own header.
 
 /** The class the chrome puts on every crumb, its own current one included. */
 const CRUMB_SELECTOR = ".meridian-pane__crumb";
 
-/** The class the chrome puts on the LAST crumb — the pane's own name. */
+/** The class the chrome puts on the last crumb, the pane's own name. */
 const CURRENT_CRUMB_SELECTOR = ".meridian-pane__heading";
 
 /**
- * Every crumb the chrome drew, outermost first, the pane's own name last.
- *
- * Text rather than elements, because what a suite asserts about a trail is what it
- * says. An absent trail is an empty array rather than a throw: a case whose claim is
- * that the chrome is there reads the length, and a throw here would report that
- * failure from this module rather than from the case that owns the claim.
+ * Every crumb the chrome drew, outermost first, the pane's own name last, as text. An absent
+ * trail is an empty array, so a case asserting the chrome is there fails in the case.
  */
 export function paneTrailCrumbs(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(CRUMB_SELECTOR)].map(
@@ -31,13 +18,7 @@ export function paneTrailCrumbs(container: HTMLElement): readonly string[] {
   );
 }
 
-/**
- * The crumb naming the entity the pane is a view of.
- *
- * The LAST address crumb, which `paneScopeCrumbs` orders last of the three it can
- * carry — session, run, then entity — and never the pane's own name, which
- * is prose and carries `meridian-pane__heading` beside the crumb class.
- */
+/** The last address crumb (the entity the pane is a view of), never the pane's own name. */
 export function paneSubjectCrumb(container: HTMLElement): string | undefined {
   const addressCrumbs = [...container.querySelectorAll(CRUMB_SELECTOR)].filter(
     (crumb) => !crumb.matches(CURRENT_CRUMB_SELECTOR),

@@ -1,7 +1,5 @@
-// The check rollup, held against the rule it was written from: worst-first, and a check
-// that is still running needs nobody. Each clean case is paired with the one that would
-// pass if the fold stopped doing the thing — a worst-first rollup is only meaningful beside
-// the empty list that must not read red.
+// The check rollup is worst-first and a running check needs nobody; the empty list is the
+// control that must not read red.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,8 +31,8 @@ describe("checkRollup — worst-first, and pending needs nobody", () => {
   });
 
   it("negative control: an empty list is neutral and totals zero, never red", () => {
-    // Without this, a rollup that defaulted to `failure` would look correct on every
-    // failing case above and be wrong on every proposal with no checks configured.
+    // A rollup that defaulted to `failure` would look right on every failing case and be wrong
+    // for every proposal with no checks.
     const rollup = checkRollup([]);
     expect(rollup.tone).toBe("neutral");
     expect(rollup.total).toBe(0);

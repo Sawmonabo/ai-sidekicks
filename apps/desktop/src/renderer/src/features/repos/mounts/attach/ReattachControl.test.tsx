@@ -1,15 +1,8 @@
-// The re-attach a person pressed goes on being reported after the dialog shuts.
-//
-// THE SAME DEFECT AS `execution-roots/RootRemovalConfirmation.test.tsx` PINS, on the repo mounts'
-// other alert dialog. The confirm control is an `AlertDialog.Close`, so it sends and
-// closes in one act; a discard wired to every close fires straight after `attach()`
-// published `sending`, and the card falls back to idle with its trigger live again
-// under an attach still on the wire. The second press then reaches the act
-// controller's single-flight guard and returns silently.
-//
-// THE POPUP IS PORTALLED, so the acts are read off `document` and the settlement off
-// the render container, which is where this control draws it: on the card, beside the
-// verdict it is about.
+// The re-attach a person pressed keeps being reported after the dialog shuts. The confirm
+// control is an `AlertDialog.Close`, so it sends and closes at once; a discard wired to every
+// close would fire right after `sending` was published, freeing the trigger under an attach
+// still on the wire (see also `execution-roots/RootRemovalConfirmation.test.tsx`). The popup
+// is portalled, so acts are read off `document` and the settlement off the render container.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -92,8 +85,8 @@ describe("ReattachControl — the confirm press keeps its settlement", () => {
   });
 
   it("negative control: with nothing pressed the card carries no settlement and the trigger is live", async () => {
-    // Without this the case above would pass against a card that always said
-    // `Re-attaching.` and always held its trigger, which is a remedy nobody can reach.
+    // Without this the case above would pass against a card that always said `Re-attaching.`
+    // and always held its trigger.
     const { container } = renderControl(operationsHoldingTheCall());
 
     await pressOpen();
@@ -118,8 +111,8 @@ describe("ReattachControl — a discarded consideration", () => {
   });
 
   it("negative control: a settlement nobody reconsidered stays on the card", async () => {
-    // The settlement is the only place the outcome is written. Cleared on any close, it
-    // would be gone before the person who pressed could read it.
+    // The settlement is the only place the outcome is written; cleared on any close, it would
+    // be gone before the person who pressed could read it.
     const { container } = renderControl(operationsAnsweringTheCall());
 
     await pressOpen();

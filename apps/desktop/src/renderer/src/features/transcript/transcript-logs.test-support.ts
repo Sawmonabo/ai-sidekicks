@@ -1,46 +1,25 @@
-// The logs every transcript-feed case is driven over.
-//
-// Split from the render harness beside it because the two are different jobs and
-// only one of them needs a DOM: these are pure store builders — a real
-// `SessionStore` with a real batch applied — and they are read by the pane's own
-// unit cases, by the model's, and by the composed feed's alike. The harness that
-// mounts a feed, stubs a box and presses a palette row is
-// `feed/components/TranscriptFeed.test-support.tsx`'.
-//
-// EVERY EVENT CARRIES A REAL ROW ID. The hydrated-event read is keyed by it, so a
-// store seeded without one holds rows nothing could ever ask about.
+// The logs every transcript-feed case is driven over: pure store builders (a real
+// `SessionStore` with a real batch applied) with no DOM. The harness that mounts a feed is
+// `feed/components/TranscriptFeed.test-support.tsx`.
+// Every event carries a real row id, because the hydrated-event read is keyed by it.
 import { EVENT_ID_STEM } from "../../../../../fixtures/scenarios/transcript-states.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
+/** The session every fixture log belongs to. */
 export const SESSION_ID = "session-transcript-feed";
 
 /**
- * The wire instant of the row at one log position — one second apart, from one epoch.
- *
- * ONE EXPRESSION FOR THE WHOLE FEATURE'S FIXTURE CLOCK. Every transcript case reads a log
- * whose rows are a second apart, and spelling that out per case would scatter copies of
- * one `Date.UTC` call. Move the epoch — which a case wanting two sessions on different
- * days would — and every copy would have to move together; miss one and the ordering
- * assertions still pass while the run group boundaries silently shift.
- *
- * `Date.UTC` rather than a parsed literal, because `Date.parse`
- * reads a timezone-less stamp in the host's zone, so a fixture that parsed its own
- * spelling would be asking a reader to trust the one function this console bans.
+ * The wire instant of the row at one log position: one second apart from one epoch, in one
+ * place so moving the epoch cannot leave a stale copy that shifts run group boundaries.
+ * `Date.UTC` because `Date.parse` reads a timezone-less stamp in the host's zone.
  */
 export function transcriptFixtureStampAt(index: number): string {
   return new Date(Date.UTC(2026, 0, 1, 11, 0, index)).toISOString();
 }
 
 /**
- * The daemon's opaque row id for the event at one log position.
- *
- * Every `ProjectedSessionEvent` carries one — the hydrated-event read is keyed by it —
- * so a store seeded without one holds rows nothing could ever ask about. Positional
- * here because these logs are generated, and distinct from `SESSION_ID` because the
- * two identify different things.
- *
- * The stem is the transcript scenario's, imported rather than restated: an id namespace
- * written twice is two namespaces the day one of them moves.
+ * The daemon's opaque row id for the event at one log position. Positional because these logs
+ * are generated. The stem is the transcript scenario's, imported so the namespace lives once.
  */
 export function transcriptFixtureEventId(sequence: number): string {
   return `${EVENT_ID_STEM}${String(sequence).padStart(4, "0")}`;
@@ -70,22 +49,16 @@ export const TERMINAL_RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 export const LIVE_RUN_ID = "019b793b-7b60-740e-8120-d1a4c1150112";
 
 /**
- * The row id the projection carries for one sequence of a log this file seeds.
- *
- * THE SAME VALUE THE EVENT CARRIES, because the projection copies
- * `ProjectedSessionEvent.id` verbatim, so the row id a case asks for is the id the
- * fixture stamped.
+ * The row id the projection carries for one sequence of a log this file seeds; the projection
+ * copies `ProjectedSessionEvent.id` verbatim.
  */
 export function projectedRowId(sequence: number): string {
   return transcriptFixtureEventId(sequence);
 }
 
 /**
- * A live run whose rows are tool rows, which are the ones that carry a disclosure.
- *
- * The only card in the transcript that offers one, so it is the only row through which a
- * reader's expansion can be pressed at all — and therefore the only one that can show
- * the lease making the round trip out of the row and back.
+ * A live run whose rows are tool rows, the only cards that carry a disclosure, so a case can
+ * press a reader's expansion and watch the lease round trip out of the row and back.
  */
 export function openSessionStoreWithToolRows(count: number): SessionStore {
   const sessionStore = new SessionStore({ sessionId: SESSION_ID });

@@ -1,9 +1,6 @@
-// A footnote marker: the mark a reply carries where it cites a note.
-//
-// A reference whose own message declared a definition reads as defined, and one whose
-// definition has not arrived — the streaming case, where the block carrying `[^1]` settled
-// before the block carrying `[^1]: …` — reads as not yet defined. The marker is a plain
-// `<sup>` either way and takes no press.
+// A footnote marker: a plain `<sup>` that takes no press. It reads as not yet defined while its
+// definition has not arrived, as when the block carrying `[^1]` settles before the one
+// carrying `[^1]: ...`.
 
 /** What one footnote marker shows and whether its definition has arrived. */
 export interface FootnoteReferenceProps {

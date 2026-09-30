@@ -1,15 +1,7 @@
-// The prepare form over scripted calls: what it sends, and the three states it will not.
-//
-// EVERY CASE DRIVES THE REAL CONTROLLER. The guard this suite is about is a guard about
-// TIMING — the window between a branch being typed and the reuse check answering for it —
-// so a case that handed the component a pre-settled reading would be asserting the one
-// state the defect is not in. A frozen clock is what makes that window
-// enterable: nothing settles until the case advances it.
-//
-// AND THE CONTROLS ARE REACHED BY CLASS RATHER THAN BY ROLE. They live inside a
-// collapsed `<details>`, whose contents jsdom does not present to the accessibility tree
-// the way a browser does, so a role query would be asserting the disclosure's posture
-// instead of the form's.
+// The prepare form over scripted calls and the real controller, with a frozen clock so the
+// window between typing a branch and the check answering can be entered. Controls are reached
+// by class, not role: they sit in a collapsed `<details>` that jsdom does not present to the
+// accessibility tree as a browser does.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,10 +21,8 @@ import { DIRTY_BRANCH, preparingDaemon } from "../repo-mounts.test-support.js";
 import { PrepareExecutionRoot } from "./PrepareExecutionRoot.js";
 import { REUSE_UNANSWERED_COPY } from "./prepare-form.js";
 
-/** A branch with no candidate at all, which prepares without a consent. */
 const UNHELD_BRANCH = "feat/fresh-root";
 
-/** The card hands the form a live posture; the held arm is `ExecutionModePicker.test.tsx`'s. */
 const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailability(
   { offered: true },
   undefined,
@@ -40,17 +30,14 @@ const CONTROLS_LIVE: WorkspaceControlAvailability = readWorkspaceControlAvailabi
 
 interface FormUnderTest {
   readonly container: HTMLElement;
-  /** Move the scenario clock until the assertion holds. */
   readonly advanceUntil: (assert: () => void) => Promise<void>;
-  /** Re-render the same mounted row in another execution mode, as a mode switch does. */
   readonly setExecutionMode: (executionMode: ExecutionMode) => void;
 }
 
 function renderForm(): FormUnderTest {
   const { bridge, scenarioEngine, clock } = bridgeOnClock("repos");
-  // Held outside the element factory: a fresh bridge, store or call set per re-render
-  // would re-mint everything beneath the row, so the mode-switch case would be pinning
-  // two first mounts rather than one switch.
+  // Held outside the element factory: a fresh bridge, store or call set per re-render would
+  // re-mint everything beneath the row, pinning two first mounts rather than one switch.
   const sessionStore = new SessionStore({ sessionId: "session-repos" });
   const operations = scriptedRepoOperations(preparingDaemon());
   const formAt = (mode: ExecutionMode): React.JSX.Element => (
@@ -95,12 +82,10 @@ function confirmButton(container: HTMLElement): HTMLButtonElement {
   return button;
 }
 
-/** The sentence under a closed control, or `undefined` where the control is open. */
 function blockedLine(container: HTMLElement): string | undefined {
   return container.querySelector(".meridian-prepare-root__blocked")?.textContent ?? undefined;
 }
 
-/** The dirty-candidate consent, which exists only while that verdict is on screen. */
 function consentBox(container: HTMLElement): HTMLInputElement | undefined {
   const box = container.querySelector(".meridian-prepare-root__consent input");
   return box instanceof HTMLInputElement ? box : undefined;
@@ -114,9 +99,8 @@ describe("PrepareExecutionRoot — the reuse check holds the control", () => {
   it("will not send a prepare before the check for that branch has answered", async () => {
     const { container, advanceUntil } = renderForm();
     nameBranch(container, UNHELD_BRANCH);
-    // The window the defect lived in: the check is in flight, the old form read that as
-    // no candidate, and a prepare sent here omits `reuseWorktreeId` for a branch that may
-    // have one — an implicit collision the daemon refuses.
+    // The check is in flight: a prepare sent here would omit `reuseWorktreeId` for a branch
+    // that may have one, an implicit collision the daemon refuses.
     expect(confirmButton(container).disabled).toBe(true);
     expect(blockedLine(container)).toBe(REUSE_UNANSWERED_COPY);
 
@@ -147,8 +131,7 @@ describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
     expect(confirmButton(container).disabled).toBe(true);
 
     fireEvent.click(box as HTMLInputElement);
-    // The box records the candidate's own id, and both the tick and the control read it
-    // back through the same predicate the act sends on.
+    // The box records the candidate's own id; the tick and the control read it back the same way.
     expect(consentBox(container)?.checked).toBe(true);
     expect(confirmButton(container).disabled).toBe(false);
   });
@@ -169,10 +152,9 @@ describe("PrepareExecutionRoot — the dirty-candidate consent", () => {
 
 describe("PrepareExecutionRoot — the form's lifetime", () => {
   it("empties the form when the mode-scoped controller behind it is re-minted", async () => {
-    // The row is keyed by workspace id, so React never unmounts this component across a
-    // mode switch. The controller underneath it IS re-minted, and a form that survived
-    // that would sit above a controller which has asked nothing about the branch it
-    // holds — offering a prepare against a verdict nobody read.
+    // The row is keyed by workspace id, so React never unmounts it across a mode switch while
+    // the controller underneath is re-minted; a surviving form would sit above a controller
+    // that has asked nothing about its branch.
     const { container, advanceUntil, setExecutionMode } = renderForm();
     nameBranch(container, UNHELD_BRANCH);
     await advanceUntil(() => {

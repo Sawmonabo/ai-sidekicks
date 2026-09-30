@@ -1,7 +1,4 @@
 // One reading of the slash prefix, and the two lines it must not claim.
-//
-// The command list and the send router read the same grammar, so a rule both
-// zones depend on is asserted once, here.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,9 +18,8 @@ describe("readSlashCommandName", () => {
   });
 
   it("negative control: an indented line is prose, so it names nothing", () => {
-    // The router hands over the user's text untouched, so pasted code whose first
-    // non-blank character is a slash would otherwise be claimed as a command. A
-    // command occupies its line from the first byte.
+    // The router hands over the user's text untouched, so pasted code opening with a slash
+    // after whitespace would otherwise be claimed as a command.
     expect(readSlashCommandName("  /compact")).toBeUndefined();
   });
 

@@ -1,15 +1,7 @@
-// A row body reading its own lane — the path that did not exist.
-//
-// `MessageContent.tsx` has taken `liveText` since it was written and takes
-// it in preference to a stored body; nothing ever passed one. These cases drive the
-// real composition — a mounted engine, the provider the feed publishes, and a row
-// body asking for its own lane — so what is pinned is the delivery rather than either
-// half of it.
-//
-// The second case is the reason this is a subscription per row rather than a value on
-// the context: `hydrated-row-props.ts` objects that a subscribed card "would re-render on
-// frames its own text did not change in", and a context carrying the text would do
-// exactly that to every row in the window on every drained frame.
+// A row body reading its own lane through the real composition: a mounted engine, the provider
+// the feed publishes, and a row body asking for its lane. The second case is why this is a
+// subscription per row rather than a context value: a context carrying the text would
+// re-render every row in the window on every drained frame.
 
 import { act, render } from "@testing-library/react";
 import { memo, useRef } from "react";
@@ -26,12 +18,9 @@ const FIRST_LANE = "session-1:41";
 const SECOND_LANE = "session-1:42";
 
 /**
- * One row body: its lane's published text, and how often it has been rendered.
- *
- * MEMOIZED, because `TranscriptViewport`'s row mount is: the feed re-renders on every
- * drained frame and the rows above the one that moved have identical props, so the
- * only thing that can wake a row body is its own subscription. A probe without the
- * memo would model a viewport this console does not have.
+ * One row body: its lane's published text and how often it has rendered. Memoized like
+ * `VirtualRow`: the feed re-renders on every drained frame with identical props for the rows
+ * above the one that moved, so only a row's own subscription can wake it.
  */
 const RevealProbe = memo(function RevealProbe(props: {
   readonly laneId: string;
@@ -47,11 +36,9 @@ const RevealProbe = memo(function RevealProbe(props: {
 });
 
 /**
- * The real composition: a feed's engine, its provider, and the row bodies under it.
- *
- * The binding escapes through a callback rather than being minted outside the tree,
- * because the engine's ownership is the thing under test — a case that constructed
- * one beside the provider would prove the channel works and nothing about the mount.
+ * The real composition: a feed's engine, its provider, and the row bodies under it. The binding
+ * escapes through a callback because the engine's ownership is under test; an engine built
+ * beside the provider would prove nothing about the mount.
  */
 function RevealHost(props: {
   readonly clock: ManualClock;
@@ -133,9 +120,8 @@ describe("a row body reading its lane", () => {
   });
 
   it("renders nothing at all outside a transcript, rather than refusing to mount", () => {
-    // The lease channel throws here and is right to: a discarded write looks like a
-    // row that will not open. An absent reveal channel is the ordinary state of every
-    // row in a settled log, so it answers rather than refuses.
+    // An absent reveal channel is the ordinary state of every row in a settled log, so it
+    // answers rather than refuses.
     const { container } = render(<RevealProbe laneId={FIRST_LANE} />);
     expect(probeFor(container, FIRST_LANE).textContent).toBe("");
   });

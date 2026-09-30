@@ -1,27 +1,10 @@
 /*
- * The one filled-accent treatment: a control whose whole face is the accent, with
- * `accent-ink` as its label. The approval card's approve action wears it.
- *
- * A sheet of its own, imported by `accent-fill.ts`, which names the class, so a
- * control that reads the name cannot render without these rules.
- *
- * Hand-authored composition: the token values are generated at mount from
- * `styles/palette.ts` by `styles/generate-css.ts`, and this sheet reads every one of
- * them back out as a custom property.
- *
- * Two design rules govern this sheet: one accent hue and no other color, and motion
- * that settles without bouncing. `accent-text` painted on `accent` is 1.53:1 in light
- * and 1.48:1 in dark against the 4.5:1 floor for text, so the fill takes `accent-ink`
- * as its label, and `styles/contrast.test.ts` measures the pair it makes.
- *
- * The class carries the fill and what the fill implies (its own edge, its corner, its
- * ink, and how it responds to a pointer) and nothing about size: approve takes its
- * size from the shared action button in `styles/action-buttons.css`.
- *
- * The border matches the fill rather than being omitted, so a control that sits
- * against `surface-raised` still has a definite boundary at its edge — and so a
- * consumer replacing a bordered button with this one does not lose a pixel of
- * geometry in the swap.
+ * The filled-accent treatment: the whole face is the accent and the label is `accent-ink`.
+ * `accent-text` on `accent` is 1.53:1 in light and 1.48:1 in dark against the 4.5:1 text floor;
+ * `styles/contrast.test.ts` measures the ink pair. It carries the fill, edge, corner, ink and
+ * pointer response but no size, which comes from `styles/action-buttons.css`. The border matches
+ * the fill so the edge stays definite on `surface-raised` and a swap from a bordered button
+ * changes no geometry.
  */
 .meridian-accent-fill {
   border: 1px solid var(--meridian-accent);
@@ -36,28 +19,18 @@
 }
 
 /*
- * Hover LIFTS the face, and a filter is the right instrument for that one
- * direction: the ink is dark in both schemes, so brightening the fill moves the
- * pair apart — 4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark, both measured
- * in `styles/contrast.test.ts` against the same brightness this rule spends.
+ * Hover brightens the face with a filter: the ink is dark in both schemes, so this moves the
+ * pair apart (4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark).
  */
 .meridian-accent-fill:hover {
   filter: brightness(1.06);
 }
 
 /*
- * Press SETTLES the face, and that direction is a token rather than a filter.
- * Scaling both rendered colors does not preserve their ratio — relative luminance
- * carries a 0.05 offset a multiplication does not distribute over — so the
- * `brightness(0.94)` this rule used to spend took the light scheme's measured
- * ink-on-fill pair from 4.73:1 to 4.27:1, through the 4.5:1 text floor in the one state
- * the treatment existed to keep legible. `accent-pressed` is measured on that pair
- * like every other fill.
- *
- * The boundary takes the control's own ink, and it is carrying most of the press in
- * the light scheme: the ink floor leaves that face about 6% of luminance to spend
- * (see `styles/palette.ts`), which is below what an eye resolves on its own. A ring
- * in a color already measured against this face costs no ratio to add.
+ * Press uses a token, not a filter: scaling both colors does not preserve their ratio, and
+ * `brightness(0.94)` would take the light ink-on-fill pair from 4.73:1 to 4.27:1, under the
+ * 4.5:1 text floor. The border takes the ink because the light face has only about 6% of
+ * luminance to spend on the press, too little to see alone.
  */
 .meridian-accent-fill:active {
   border-color: var(--meridian-accent-ink);

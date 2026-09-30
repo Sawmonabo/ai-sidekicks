@@ -1,9 +1,6 @@
-// The run group body's bounds: the height the engine agreed to, where the clip falls,
-// and how much of the head the body can still reach.
-//
-// The height cases drive BOTH arms through the injected probe rather than through the
-// host's own engine: a case that only ever took the arm this runner supports would
-// pass on a host that answers the other way and prove nothing about it.
+// The run group body's bounds: the height the engine agreed to, where the clip falls, and how
+// much of the head the body can still reach. The height cases drive both arms through the
+// injected probe, since the host's own engine only ever takes one.
 
 import { describe, expect, it } from "vitest";
 
@@ -66,22 +63,18 @@ describe("where the clip falls", () => {
   });
 
   it("counts the clip from the run group's length alone, without building the list", () => {
-    // The count is what a sealed run group carries, and it is arithmetic rather than
-    // the length of a list nobody keeps: a run group of ten thousand rows used to be
-    // sliced into a ten-thousand-element array so that a number could be read off
-    // it and the array thrown away.
+    // The count is what a sealed run group carries, and it is arithmetic, not the length of
+    // a sliced list.
     expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP - 1)).toBe(0);
     expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP)).toBe(0);
     expect(countClippedHeadRows(RUN_GROUP_VISIBLE_ROW_CAP + 7)).toBe(7);
-    // A negative length is not reachable, and the floor says what happens anyway
-    // rather than leaving a caller to subtract past zero.
+    // A negative length is not reachable; the floor states what happens anyway.
     expect(countClippedHeadRows(0)).toBe(0);
   });
 
   it("counts exactly what the list form would have listed, at every boundary", () => {
-    // The two forms are one rule with two shapes, and this is what keeps them from
-    // drifting: the arithmetic answer and the sliced answer agree on both sides of
-    // the cap and on the cap itself.
+    // The two forms are one rule with two shapes; they agree on both sides of the cap and on
+    // the cap itself.
     for (const length of [
       0,
       1,
@@ -120,7 +113,7 @@ describe("the body's row window — bounded on both sides", () => {
       window.admit(runGroupRow(sequence));
     }
     expect(window.headRows).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
-    // The NEWEST of the head, which is what a body scrolls up into first.
+    // The newest of the head, which is what a body scrolls up into first.
     expect(window.headRows.at(-1)?.id).toBe(`r${String(admitted - RUN_GROUP_VISIBLE_ROW_CAP)}`);
   });
 });

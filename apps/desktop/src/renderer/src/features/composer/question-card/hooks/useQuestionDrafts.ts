@@ -1,21 +1,8 @@
 // What the person has given each question of a record, until the answers go back.
 //
-// EVERY ANSWER GOES BACK TOGETHER. The daemon refuses a list that leaves a question out,
-// so this holds one draft per question and offers the answers only once each question
-// has one. On one question a marked option row and typed text exclude each other:
-// whichever the person touched last is the answer.
-//
-// A SECRET ANSWERS AS A SECRET AND NOTHING ELSE. The daemon delivers a `secret` answer
-// and stores none of it, while a `typed` answer is stored, so a secret question's draft
-// becomes a `secret` answer or no answer at all. Its value lives only in this hook's
-// state: nothing logs it, and it goes when the daemon takes the answers, when the card
-// shows another record, or when the card unmounts and React drops the state.
-//
-// CLEARED ONLY WHEN THE DAEMON TOOK THEM. A refusal leaves every mark and every typed
-// word where it was, so pressing again retries.
-//
-// ONE RECORD'S DRAFTS NEVER REACH ANOTHER'S. The drafts are held with the question id
-// they belong to, and a card handed another record starts from empty drafts.
+// Answers are offered only once every question has one. A marked row and typed text exclude
+// each other; a secret is delivered but never stored by the daemon, so its value lives only in
+// this state and is never logged. Drafts clear only when the daemon takes the answers.
 
 import { useEffect, useState } from "react";
 
@@ -55,15 +42,13 @@ export function useQuestionDrafts(
   deliveryStatus: AnswerDelivery["status"],
 ): QuestionDraftsHandle {
   const [held, setHeld] = useState<HeldDrafts>(() => emptyHeldDrafts(questionId, questions));
-  // ANOTHER RECORD RESETS DURING RENDER, not in an effect, so the first render of the new
-  // record never shows the old record's marks or secret.
+  // Another record resets during render, not in an effect, so the first render never shows
+  // the old record's marks or secret.
   if (held.questionId !== questionId) {
     setHeld(emptyHeldDrafts(questionId, questions));
   }
-  // A TRANSITION RATHER THAN A DERIVATION. The drafts are cleared when the delivery
-  // REACHES `accepted`, which is a moment and not a condition — rendering empty values on
-  // that status would leave the person's answers in state, invisible, and back on screen
-  // the moment anything moved the delivery out of that status.
+  // A transition, not a derivation: rendering empty values on `accepted` would leave the
+  // answers in state and bring them back if the status moved on.
   useEffect(() => {
     if (deliveryStatus === "accepted") {
       setHeld(emptyHeldDrafts(questionId, questions));

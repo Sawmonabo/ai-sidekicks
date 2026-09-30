@@ -1,10 +1,6 @@
-// The two rows that bring an agent into a session, as the projected timeline holds
-// them: the session's birth record naming its lead, and a run's creation naming an
-// agent started from a saved definition.
-//
-// Shared by the run-to-driver join's suite and the gating suite, which both build the
-// join out of a session the way the pane does: one answer to what an agent on a driver
-// looks like in the log.
+// The two rows that bring an agent into a session, as the projected timeline holds them: the
+// birth record naming its lead, and a run's creation naming an agent started from a saved
+// definition. Shared by the run-to-driver join's suite and the gating suite.
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 

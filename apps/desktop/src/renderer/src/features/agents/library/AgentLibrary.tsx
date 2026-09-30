@@ -1,36 +1,7 @@
-// The agent library: the agents a person has tuned, so a configuration outlives the
-// session it was typed into.
-//
-// THE REGISTRY, READ. The page puts one read in flight on mount and renders whichever of
-// three answers comes back — a read still going, a served empty registry, or the rows.
-// Those stay apart because they are different facts: "nobody has answered yet" and "there are
-// none" are two separate things, and a page that showed an empty list for the first
-// would assert something nothing on this machine established.
-//
-// ONE READ, AND A RE-READ ONLY WHERE SOMETHING MOVED. The list is read on mount and
-// again after a delete the daemon applied, which is the one moment this page knows
-// the registry changed. Nothing polls. The `not-loaded` absence is entered
-// once and never re-entered: a re-read that blanked the list would take rows off the
-// screen to show a spinner for data the page is already holding.
-//
-// DELETE IS TWO STEPS, IN THE ROW. Press Delete and the row asks; press again and
-// the call goes out. There is no browser dialog in this console and no dialog of our
-// own either — the subject of the question is the row, so the question belongs on
-// the row, where a person can still read what they are about to delete. The pending
-// state and the re-read on success land there too.
-//
-// EDIT AND NEW SELECT THE SAME SUBJECT. The view holds a subject with exactly two arms
-// — a stored record, or one being composed — and this page supplies whichever was
-// asked for. The editor that reads it is not part of this page.
-//
-// THE TWO STANDING FACTS STAY. They need no wire to be true, and they are what people
-// get wrong about a registry like this one.
-//
-// THE STATE IS NOT HERE. Everything this page holds — the read, the delete in
-// flight, the view's refusal per row, and which record the editor is open on — lives in
-// `library-view.ts`, because a state machine over the registry calls and a
-// body that renders what it settled on are two jobs. This file makes no call
-// and holds no `useState`: it reads one snapshot and hands presses back to the view.
+// The agent library: the agents a person has tuned, so a configuration outlives the session it
+// was typed into. Renders one snapshot from `library-view.ts`, which owns the read, the delete
+// in flight and the editor subject; this file makes no call and holds no state. The list is
+// read on mount and again only after a delete the daemon applied.
 
 import type { ReactNode } from "react";
 
@@ -46,13 +17,7 @@ interface AgentRegistryRule {
   readonly statement: string;
 }
 
-/**
- * The two facts, declared once and rendered in order.
- *
- * A list rather than hand-written blocks so the page's claim — that there are
- * exactly two things to know before tuning one — is countable by a test rather
- * than asserted in a comment.
- */
+/** The standing facts about the registry, declared once and rendered in order. */
 const AGENT_REGISTRY_RULES: readonly AgentRegistryRule[] = [
   {
     term: "Where they live",
@@ -74,10 +39,8 @@ export interface AgentLibraryProps {
 }
 
 /**
- * The page's frame: the heading, the lede and the two standing facts.
- *
- * `actions` sit beside the heading and `children` under the facts; both are what the
- * registry read supplies.
+ * The page's frame: heading, lede and the two standing facts. `actions` sit beside the
+ * heading and `children` under the facts.
  */
 export function AgentDefinitionsFrame(props: {
   readonly actions?: ReactNode;
@@ -119,8 +82,7 @@ export function AgentLibrary(props: AgentLibraryProps): React.JSX.Element {
         <button
           type="button"
           className="meridian-agent-library__new meridian-action-button meridian-action-button--raised"
-          // Pressed rather than merely styled: which subject is selected is state a
-          // person has to be able to read.
+          // Selection is state a person must be able to read, so it is `aria-pressed`.
           aria-pressed={snapshot.editorSubject?.kind === "new"}
           onClick={() => {
             view.openEditor({ kind: "new" });

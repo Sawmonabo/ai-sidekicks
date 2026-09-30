@@ -1,66 +1,22 @@
-// Which members ONE object schema's own constraints can require, read out of the
-// constraints themselves rather than guessed from the shape of the form.
-//
-// WHY THIS EXISTS. A constraint is checked against the object it sits on and reported at
-// that object's path, so a schema whose `oneOf` arms require members its own `properties`
-// never declares draws every control it has, reports a finding about that object, and
-// offers nobody a control that could ever clear it. That is the one shape a mapper whose
-// whole promise is "never a refusal" must still refuse to DRAW: the raw editor can answer
-// it and the drawn form cannot.
-//
-// AND IT IS ASKED AT EVERY LEVEL THAT DRAWS CONTROLS. The root asks it of its own members
-// and each drawn group asks it of its own, because a group whose `oneOf` names a member
-// that group declares no property for is the identical defect one level down — same
-// unclearable finding, same person looking at it. One walk answers both: the caller
-// supplies the schema whose constraints are being read and the names its controls drew,
-// and the root is simply the instance where the enclosing path is empty.
-//
-// A UNION AND NOT A SATISFIABILITY VERDICT. Every name any of these arms can require is
-// collected and each is asked of the drawn controls, rather than deciding which arm a
-// person would eventually satisfy. Deciding that means evaluating the schema against an
-// answer that does not exist yet — a guess dressed as an analysis — and a wrong guess
-// draws exactly the form this walk exists to prevent. The trade is stated rather than
-// hidden: a schema with one fully drawable arm beside one that names an undeclared member
-// is answered as JSON, which is a legible form of a schema an author can then correct.
-//
-// `not` IS DELIBERATELY NOT WALKED. A `required` under a negation names a member that must
-// be ABSENT, so no control is owed for it and collecting the name would send a schema to
-// the raw editor for asking that something be left out.
-//
-// AND `properties` IS NOT DESCENDED INTO — WHICH IS WHAT MAKES THE PER-LEVEL CALL CORRECT.
-// What a nested object requires of its own members is that object's business, asked again
-// where that group is planned and against the controls that group drew. Descending here
-// would collect a child's names into the parent's answer, where no control ever draws them
-// and every nested `required` would read as a defect.
+// Member names one object schema's own constraints can require. A requirement with no control
+// draws a finding nobody can clear, so the planner sends that schema to the raw editor; it asks at
+// the root and at every drawn group. The result is a union over all arms, not a verdict on which
+// arm a person would satisfy (that needs an answer not yet given).
 
 import { asRecord, requiredKeysOf } from "./schema-declarations.js";
 
-/**
- * The keywords whose value is an ARRAY of subschemas, each of which can require members.
- *
- * `allOf` binds every arm and `oneOf` / `anyOf` bind one, which is a difference this walk
- * deliberately does not read — see the union rule in the header.
- */
+/** Keywords whose value is an array of subschemas. `allOf` and `oneOf`/`anyOf` read alike. */
 const BRANCHING_ARM_LISTS = ["oneOf", "anyOf", "allOf"] as const;
 
-/**
- * The keywords whose value is ONE subschema.
- *
- * `if` is here beside `then` and `else` because a condition naming a member no control
- * draws is a condition whose branch is decided before a person can touch anything, which
- * is the same defect read from the other side.
- */
+/** Keywords whose value is one subschema; an `if` naming an undrawn member is the same defect. */
 const BRANCHING_ARM_SCHEMAS = ["if", "then", "else"] as const;
 
 /**
- * Every member name one object schema's own constraints can require, in the order met.
+ * Every member name one object schema's own constraints can require, in the order met, so the
+ * caller's sentence can name the first one. Names are the object's own keys, unqualified.
  *
- * Ordered because the caller names ONE member in the sentence it shows a person, and the
- * first undrawn name met walking the schema as written is the one an author reading their
- * own document would look for first.
- *
- * The names are the object's OWN keys, unqualified — this walk knows nothing about where
- * in the form that object sits, and the caller that does supplies the path.
+ * `not` is not walked (its `required` names members that must be absent) and `properties` is not
+ * descended into (a nested object is asked where its own group is planned).
  */
 export function membersConstraintsCanRequire(
   schema: Readonly<Record<string, unknown>>,
@@ -70,7 +26,7 @@ export function membersConstraintsCanRequire(
   return [...collected];
 }
 
-/** Collect from a value that may or may not be a subschema at all. */
+/** Collect from a value that may not be a subschema at all. */
 function collectFromArm(
   arm: unknown,
   collected: Set<string>,
@@ -83,11 +39,8 @@ function collectFromArm(
 }
 
 /**
- * Collect every member name one subschema and its own nested arms can require.
- *
- * The visited set is what makes this total over an untyped input: the walk descends
- * through arms a wire value supplied, and a value that reaches itself would otherwise
- * turn a probe into a hang.
+ * Collect every member name one subschema and its nested arms can require. The visited set keeps
+ * a schema that reaches itself from hanging the walk.
  */
 function collectFromSchema(
   schema: Readonly<Record<string, unknown>>,
@@ -101,9 +54,8 @@ function collectFromSchema(
   for (const memberName of requiredKeysOf(schema)) {
     collected.add(memberName);
   }
-  // The KEYS are the members whose presence triggers a dependency and the VALUES are what
-  // the trigger then requires. A trigger no control draws can never be present, so the
-  // dependency is inert and its key is not collected; what it would require is.
+  // A `dependentRequired` trigger no control draws can never be present, so only what it
+  // requires (the values) is collected, not the key.
   const dependentRequired = asRecord(schema["dependentRequired"]);
   for (const dependents of Object.values(dependentRequired ?? {})) {
     if (!Array.isArray(dependents)) {

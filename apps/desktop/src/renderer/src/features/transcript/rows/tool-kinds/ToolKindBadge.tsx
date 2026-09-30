@@ -1,17 +1,7 @@
-// The tool kind badge: the MCP badge and the argument summary.
-//
-// It renders nothing when nothing is declared: a marker repeated once per tool row would
-// print a paragraph of unbuilt-feature prose down a log of forty tool calls, and the
-// honest reading of an undeclared tool kind is the tool layout this console already
-// draws.
-//
-// It invents nothing. Every part comes off the row's own declared reading: the server
-// label where the row names one, the argument summary the daemon composed, and the
-// tool kind itself. Nothing is derived from the tool's NAME, which `row-kind.ts`
-// refuses to do.
-//
-// The unrecognized arm prints what was sent, so a seventh tool kind shipped by a newer
-// daemon reads as a value this build does not know rather than as no tool kind at all.
+// The tool kind badge: the MCP badge and the argument summary, all from the row's declared
+// reading and never from the tool's name. It renders nothing when the row declares nothing.
+// An unrecognized value prints what was sent, so a newer daemon's tool kind reads as unknown
+// rather than as no tool kind.
 
 import { Chip } from "@renderer/components/Chip/Chip.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

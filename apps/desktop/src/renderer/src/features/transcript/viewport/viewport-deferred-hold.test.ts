@@ -1,10 +1,7 @@
-// Which arm a reconcile owes the reading position, and what each one writes.
-//
-// Driven against a REAL `ReadingAnchor` and a REAL `ScrollController` over a
-// detached scroll container, so the arbitration is asserted through the objects that arbitrate.
-// The two collaborators the controller supplies as functions — the retained key list
-// and a row's offset — are the seam this suite steers, which is what makes the head
-// hold's arithmetic assertable without a virtualizer.
+// Which arm a reconcile owes the reading position, and what each writes. Runs against a real
+// `ReadingAnchor` and `ScrollController` over a detached container; the retained key list and row
+// offsets are the steered seam, so the head hold's arithmetic is assertable without a
+// virtualizer.
 
 import { describe, expect, it } from "vitest";
 
@@ -118,22 +115,19 @@ describe("TranscriptDeferredHold — which arm a reconcile arms", () => {
       previousHeadKey: "d",
       scrollTopPx: 120,
     });
-    // Nothing is written before the commit: the offset below is arithmetic in the
-    // POST-insert space, which the virtualizer has not answered in yet.
+    // Nothing is written before the commit: the offset is arithmetic in the post-insert space.
     expect(subject.scroll.writeCount("hold-reading-position")).toBe(0);
     expect(subject.immediateHolds()).toBe(0);
 
     subject.hold.commit();
 
-    // 3 rows above it at 40px each, plus where the reader already was.
     expect(subject.scrollContainer.scrollTop).toBe(3 * ROW_HEIGHT_PX + 120);
     expect(subject.scroll.writeCount("hold-reading-position")).toBe(1);
   });
 
   it("holds the head row even for a reader who was at the tail", () => {
-    // The case the reading anchor cannot serve: a follower's anchor point is never
-    // captured, so an arm that read one would leave exactly this reader unheld — and
-    // a reader at the tail is the likeliest one to press for history.
+    // A follower's anchor point is never captured, so an arm that read one would leave this
+    // reader unheld, and a reader at the tail is the likeliest to press for history.
     const subject = holdUnderTest();
     subject.setRowKeys(["a", "b", "c"]);
 
@@ -199,10 +193,8 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
   const READING_AT_PX = 2 * ROW_HEIGHT_PX;
 
   it("leaves the row the reader is on exactly where it was, twice running", () => {
-    // THE WHOLE POINT OF THE ARM, stated as the thing a person would notice. Each page
-    // lands ABOVE the reader and pushes every row below it down by its own height, so
-    // without the hold the viewport shows whatever row happens to fall at the old
-    // offset — three rows earlier the first time and two more the second.
+    // Each page lands above the reader and pushes the rows below it down by its own height;
+    // without the hold the viewport shows a row three earlier the first time, two more the second.
     const subject = holdUnderTest();
     scrollAwayFromTail(subject.anchor);
     subject.setRowKeys(FIRST_WINDOW);
@@ -229,9 +221,8 @@ describe("TranscriptDeferredHold — three windows, two pages, one row under the
   });
 
   it("negative control: the same two pages with no hold walk the reader backwards", () => {
-    // Arming with nothing inserted is the frame as it behaved before this arm existed.
-    // The offset does not move, so the rows that arrived above it take the reader with
-    // them — which is what makes the case above an assertion rather than a tautology.
+    // Arming with nothing inserted leaves the offset alone, so the rows above take the reader
+    // with them; this is what makes the case above an assertion rather than a tautology.
     const subject = holdUnderTest();
     scrollAwayFromTail(subject.anchor);
     subject.setRowKeys(FIRST_WINDOW);

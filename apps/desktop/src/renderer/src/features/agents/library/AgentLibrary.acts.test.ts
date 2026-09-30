@@ -1,17 +1,6 @@
-// What a press on the agent library does, and what it refuses to do on one press.
-//
-// The act worth the file is the delete: it is the only one here with no undo, so it
-// asks first, it sends the identifier rather than the label, and it RE-READS instead
-// of dropping the row — because a screen that agrees with a delete that may not have
-// happened is worse than one that waits. The rows stay legible while it runs.
-//
-// The editor subject is here for the same reason: what a press selects, and on which
-// record, is an act and not a reading.
-//
-// What the page reads, shows, and announces is `AgentLibrary.read.test.ts`.
-//
-// The registry, the announcer and the presses live in the support module beside this
-// one; the registry calls are plain functions the stub there answers.
+// What a press on the agent library does. The delete is the one act with no undo, so it asks
+// first, sends the identifier not the label, and re-reads instead of dropping the row; the
+// editor subject is an act too. What the page reads and announces is `AgentLibrary.read.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -50,8 +39,8 @@ describe("the agent library — the editor's subject", () => {
   });
 
   it("negative control: selecting one record does not mark its neighbor's", async () => {
-    // Without this, both cases above would pass over a page that marked every row
-    // as soon as any record was selected.
+    // Otherwise both cases above would pass for a page that marked every row once any record
+    // was selected.
     const { container } = renderAgentLibrary(
       new RegistryStub({
         lists: [[definition(), definition({ definitionId: "definition-2", name: "Auditor" })]],
@@ -88,9 +77,8 @@ describe("the agent library — deleting one", () => {
   });
 
   it("sends the identifier and re-reads the registry once the daemon applied it", async () => {
-    // The re-read is the assertion that matters: "the row is gone" is also true of
-    // a page that dropped it locally, which would agree with a delete that may have
-    // been applied differently or not at all.
+    // The re-read is the assertion that matters: "the row is gone" is also true of a page that
+    // dropped it locally.
     const stub = new RegistryStub({ lists: [[definition()], []] });
     const { container } = renderAgentLibrary(stub);
     await settle();
@@ -102,10 +90,8 @@ describe("the agent library — deleting one", () => {
   });
 
   it("keeps the rows on screen while the re-read is in flight", async () => {
-    // The `not-loaded` absence is entered once, by the first read. A refresh that
-    // re-entered it would take the list off the screen to show a spinner for data
-    // the page is already holding — and it is the row being deleted that a person
-    // is looking at while they wait.
+    // The `not-loaded` absence is entered once, by the first read; re-entering it would take
+    // the list off screen while the deleted row is being watched.
     const stub = new RegistryStub({
       lists: [
         [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],
@@ -124,9 +110,8 @@ describe("the agent library — deleting one", () => {
 
 describe("the agent library — while one delete is running", () => {
   it("stops every row's delete taking presses, and keeps the pending row legible", async () => {
-    // Delete is the one act on this page with no undo, and the carrier runs one at a
-    // time. The page is where that shows: a control that still took presses would
-    // route every one of them into a refusal, which is a belt rather than a design.
+    // Delete is the one act with no undo and the carrier runs one at a time; a control that
+    // still took presses would route each into a refusal.
     const stub = new RegistryStub({
       lists: [
         [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],
@@ -141,8 +126,7 @@ describe("the agent library — while one delete is running", () => {
     await pressWithoutSettling(confirmDeleteIn(container));
 
     expect(buttonNamed(container, "Delete Auditor").disabled).toBe(true);
-    // The row that is going still says so, and it is the same row a person was
-    // looking at when they confirmed.
+    // The row that is going still says so.
     expect(container.textContent ?? "").toContain("Deleting…");
     expect(stub.deletedIds).toStrictEqual(["definition-1"]);
 
@@ -151,9 +135,8 @@ describe("the agent library — while one delete is running", () => {
   });
 
   it("negative control: the controls come back once the delete has settled", async () => {
-    // Without this, a page that disabled every delete on the first press and never
-    // re-enabled them would satisfy the case above and leave a person unable to
-    // delete anything else without reloading the window.
+    // Otherwise a page that disabled every delete on the first press and never re-enabled them
+    // would pass the case above.
     const stub = new RegistryStub({
       lists: [
         [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],

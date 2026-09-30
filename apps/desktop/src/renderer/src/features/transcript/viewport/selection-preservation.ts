@@ -1,39 +1,13 @@
-// Preserving a reader's selection across a block migration.
-//
-// WHAT MIGRATION MEANS HERE. A streaming message's blocks settle behind the tail: a
-// block that was live prose becomes a memoized static subtree, which is a REMOUNT —
-// the nodes the reader's selection was anchored in are replaced by different nodes
-// holding the same characters. The browser has no opinion about that; it drops the
-// selection. Mid-stream, that is a reader who highlighted a sentence watching it
-// un-highlight because a delta arrived two paragraphs below.
-//
-// THE SENTENCE THIS MODULE ADDS, because no committed document states it: a selection
-// inside a transcript row survives the row's own remounts, and a selection anywhere else
-// is never touched.
-//
-// FOUR DECISIONS:
-//
-//   • **An endpoint is a CHARACTER OFFSET into the row, not a node and an offset.** A
-//     node reference is exactly what a remount invalidates, so storing one stores the
-//     thing that is about to stop existing. The offset is stable across a remount that
-//     produces the same characters, which is what a settle is — the block's text is
-//     final by the time it migrates. It also addresses an endpoint OUTSIDE the block
-//     that migrated, so a selection spanning the boundary is preserved whole rather
-//     than clipped to the half that moved.
-//   • **The snapshot is kept live by `selectionchange`, not taken pre-commit.** A
-//     function component has no pre-commit hook, and taking the snapshot in a layout
-//     effect would capture the state at the PREVIOUS commit — stale for the ordinary
-//     case, which is a reader who selects text and then receives a delta with no
-//     render in between. The listener is what makes the snapshot current.
-//   • **The listener early-outs on a collapsed selection before touching the DOM.** A
-//     caret, or no selection at all, is every moment except the ones a person is
-//     dragging through — so the common case costs one boolean read, and the `contains`
-//     walk happens only while text is actually selected.
-//   • **A restore happens only where a selection was LOST.** If the selection is still
-//     inside this row, or has moved to another row, nothing is written: putting a
-//     selection back that the reader has moved on from is worse than losing one.
-//     Guarded by a generation, so a restore scheduled for one migration can never
-//     land after the next.
+// Preserves a reader's selection across a row's own remounts. A settled block becomes a
+// memoized static subtree, which replaces the nodes the selection was anchored in, and the
+// browser drops the selection. A selection inside a row survives; elsewhere it is never touched.
+//   - Endpoints are character offsets into the row, not nodes, which a remount invalidates. This
+//     also preserves a selection spanning the migrated block's boundary whole.
+//   - `selectionchange` keeps the snapshot current: a function component has no pre-commit hook
+//     and a layout effect would capture the previous commit's state.
+//   - The listener returns early on a collapsed selection, so the common case costs one read.
+//   - A restore happens only where a selection was lost, guarded by a generation so one
+//     migration's restore cannot land after the next.
 
 /** The document seam, declared rather than read off the DOM lib. */
 export interface SelectionDocument {
@@ -53,16 +27,10 @@ export interface SelectionRangeLike {
 /**
  * The part of the platform selection this module reads and writes.
  *
- * READ AS A RANGE, WRITTEN AS ANCHOR AND FOCUS, and that asymmetry is deliberate
- * rather than sloppy: the anchor/focus pair carries the DIRECTION a person dragged in,
- * and reading it is how a restore would preserve that direction — but the endpoint
- * pair is what every engine agrees on, and reading `focusOffset` off a same-node
- * selection returns the START offset under this tree's test DOM (measured: a range
- * whose text is `first` reports anchor 4 and focus 4). A restore built on that would
- * silently collapse every selection it was supposed to save. So the endpoints are read
- * from the range and written forwards, and the cost is named: a backwards drag comes
- * back as a forwards one, which changes which end shift-arrow extends from and nothing
- * a reader can see.
+ * Endpoints are read from the range and written forwards: reading `focusOffset` off a
+ * same-node selection returns the start offset under this tree's test DOM (a range over `first`
+ * reports anchor 4, focus 4), so anchor/focus would collapse every restore. A backwards drag
+ * comes back forwards.
  */
 export interface SelectionLike {
   readonly isCollapsed: boolean;
@@ -113,16 +81,13 @@ export class RowSelectionGuard {
   }
 
   /**
-   * Take, or release, the row this guard preserves.
-   *
-   * Called from the same ref callback the virtualizer's measurement uses, so the
-   * element this guard holds is the element the row actually painted.
+   * Takes, or releases, the row this guard preserves. Called from the ref callback the
+   * virtualizer's measurement uses, so the held element is the one the row painted.
    */
   public observe(rootElement: Node | null): void {
     if (rootElement !== null && rootElement === this.#rootElement) {
-      // The same element again — a re-render, not a new row. Bumping the generation
-      // here would drop the snapshot on every render, which is every snapshot this
-      // guard would ever hold.
+      // The same element again (a re-render): bumping the generation would drop the snapshot
+      // on every render.
       return;
     }
     this.#rootElement = rootElement ?? undefined;
@@ -139,7 +104,7 @@ export class RowSelectionGuard {
     this.#captureSnapshot();
   }
 
-  /** The snapshot a restore would use. Read by tests and by the binding's assertions. */
+  /** The snapshot a restore would use. */
   public get snapshot(): RowSelectionSnapshot | undefined {
     return this.#snapshot;
   }
@@ -150,12 +115,9 @@ export class RowSelectionGuard {
   }
 
   /**
-   * Put the selection back, if this row lost one it was holding.
-   *
-   * Called after every commit of the row. Four things stop it, each of them a case
-   * where writing a selection would be worse than not writing one: no snapshot, a
-   * stale generation, a selection that is still inside this row, and a selection that
-   * has moved somewhere else.
+   * Puts the selection back if this row lost one it was holding. Called after every commit;
+   * writes nothing when there is no snapshot, the generation is stale, the selection is still in
+   * this row, or it has moved elsewhere.
    */
   public restoreAfterFlush(generation: number): boolean {
     const rootElement = this.#rootElement;
@@ -171,11 +133,11 @@ export class RowSelectionGuard {
     const startContainer = liveRange?.startContainer;
     const startIsInside = startContainer !== undefined && rootElement.contains(startContainer);
     if (startIsInside && !selection.isCollapsed && startContainer.isConnected) {
-      // Still held. The remount did not reach the nodes the selection was in.
+      // Still held: the remount did not reach the selection's nodes.
       return false;
     }
     if (!startIsInside && startContainer !== undefined && startContainer.isConnected) {
-      // The reader is somewhere else now. Their selection is theirs.
+      // The reader is elsewhere now; their selection is theirs.
       return false;
     }
     const start = resolveTextPosition(rootElement, snapshot.start.characterOffset);
@@ -201,8 +163,7 @@ export class RowSelectionGuard {
     }
     const selection = this.#document.getSelection();
     if (selection === null || selection.isCollapsed || selection.rangeCount === 0) {
-      // The early-out the header's third decision names: a caret is not a selection
-      // worth preserving, and this arm reads one boolean and touches no node.
+      // A caret is not worth preserving; this arm reads one boolean and touches no node.
       this.#snapshot = undefined;
       return;
     }
@@ -218,9 +179,8 @@ export class RowSelectionGuard {
       liveRange.endOffset,
     );
     if (anchorOffset === undefined || focusOffset === undefined) {
-      // One endpoint outside this row. Its position is not addressable in this row's
-      // coordinates, and inventing one would restore a selection the reader never
-      // made — so this row holds nothing for it.
+      // One endpoint is outside this row and not addressable in its coordinates; restoring an
+      // invented position would recreate a selection the reader never made.
       this.#snapshot = undefined;
       return;
     }
@@ -263,9 +223,8 @@ export function characterOffsetWithin(
     }
     return undefined;
   }
-  // An element position addresses a child BOUNDARY, so the offset is everything the
-  // first `offsetInNode` children hold. A selection that starts at a block boundary
-  // reaches this arm rather than the text one.
+  // An element position addresses a child boundary: the offset is the text the first
+  // `offsetInNode` children hold.
   let offset = 0;
   const children = Array.from(node.childNodes);
   for (const [childIndex, child] of children.entries()) {
@@ -279,12 +238,8 @@ export function characterOffsetWithin(
 }
 
 /**
- * The DOM position a character offset names, or `undefined` when the row holds no
- * text to land in.
- *
- * The offset is clamped to the row's own length rather than refused: a migration that
- * shortened the text is a row whose selection cannot be restored exactly, and the end
- * of the text is the honest nearest position.
+ * The DOM position a character offset names, or `undefined` when the row has no text. The offset
+ * is clamped to the row's length, so a migration that shortened the text lands at its end.
  */
 export function resolveTextPosition(
   root: Node,

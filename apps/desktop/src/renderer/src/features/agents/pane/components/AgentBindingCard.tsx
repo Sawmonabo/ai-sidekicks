@@ -1,34 +1,7 @@
-// The binding one agent is running under right now.
-//
-// The refusals, stated where they are enforced below: `observedOutputSpeed` absence is
-// never rendered as "off" and `outputSpeed` is never substituted for it, and the resolved
-// configuration is never re-read from the definition registry — the registry row may
-// already have moved.
-//
-// THE TOOL GRANT IS A LINE OF ITS OWN, above the resolved-configuration disclosure
-// rather than inside it. The allowlist is the per-agent control over every tool source
-// the daemon serves this agent — the browser's page tool set included — and a
-// governance ceiling a reader has to open a disclosure to find is a ceiling nobody
-// reads. `ToolAllowlistLine.tsx` states the split it keeps from the echo beside it, and
-// `tool-grant.ts` states why the line carries a count and never the names.
-//
-// AND IT IS READ ONCE. The line and the echo's Tools row state one wire value, so the
-// position is resolved here and handed to both — the card is the only place that has
-// the whole roster row, and a second read inside the disclosure is how the two came to
-// disagree about a configuration that carried no allowlist. The NODE-WIDE half of that
-// governance rule is not on this card at all: `ToolAllowlistCeiling.tsx` states it once
-// beside the roster, because it is true of every agent.
-//
-// TWO FIELDS ARE DELIBERATELY NOT RENDERED ANYWHERE: the admitting principal and the
-// interrupt-dispatch progress marker. Both live in the durable record as recovery
-// inputs and reach no caller at all.
-//
-// `createdAt` IS RENDERED, AND IN THE HEAD RATHER THAN THE EFFECTIVE LINE. It is part
-// of the identity every roster row carries: a roster of several agents gives no other
-// way to tell the one created this morning from the one that has been in the session
-// since it opened. It is deliberately NOT on the effective line, whose
-// members are all provider axes: an instant sitting among them would read as one more
-// axis of the binding.
+// The binding one agent runs under now, with its identity and tool grant. The grant position is
+// resolved once here and handed to the line and the echo's Tools row so they cannot disagree; the
+// resolved configuration is never re-read from the registry, whose row may have moved. `createdAt`
+// sits in the head, not the effective line, whose members are all provider axes.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";

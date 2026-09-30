@@ -1,16 +1,7 @@
-// What one chunk acknowledgement establishes, driven directly rather than through the
-// protocol that consumes it.
-//
-// The rule this module carries is that a base64 length is never charted as progress: 300
-// decoded bytes encode to 400 characters, so a total charted from the encoded string
-// drives past a bound the caller itself declared, which is impossible for a decoded
-// count. The cases below drive THAT function — not a copy of its arithmetic — and the
-// negative control is the same call with a lawful total, which must fire nothing.
-//
-// The two unusable arms are each a fact about the reply rather than about its status: a
-// total for another stream, and a total that did not advance. The last is also what
-// makes the chunk loop terminate — the ledger IS the offset — so it is asserted here and
-// again against the real loop in `attachment-ingest-client.chunks.test.ts`.
+// What one chunk acknowledgement establishes, driven directly rather than through the protocol.
+// A base64 length is never charted as progress: 300 decoded bytes encode to 400 characters, so
+// a total charted from the encoded string passes the declared bound. A total that did not
+// advance is also asserted against the real loop in `attachment-ingest-client.chunks.test.ts`.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -27,8 +18,7 @@ const INGEST_ID = "ingest-1";
 /** One in-flight entry declaring a decoded total, standing at a given offset. */
 function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngestEntry {
   return {
-    // Spread, because a source IS the two members an entry carries about what it was
-    // handed: the declaration and the bytes it describes.
+    // Spread, because a source is the declaration and the bytes it describes.
     ...attachmentSourceFrom({
       localId: "attachment-1",
       declaredName: "notes.md",
@@ -46,9 +36,8 @@ function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngest
 }
 
 beforeEach(() => {
-  // The process-wide registry throws in a development build, which is what an author
-  // should see. These cases assert the RECORD, so they read it in the recording arm
-  // and put the configuration back afterwards.
+  // The registry throws in a development build; these cases assert the record, so they read
+  // it in the recording arm.
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
 });
@@ -60,9 +49,8 @@ afterEach(() => {
 
 describe("chunk acknowledgement — the offset is the daemon's", () => {
   it("takes the daemon's running total rather than what this client sent", () => {
-    // The bug, exercised at the seam: the ledger used to add the local slice length,
-    // so a daemon that had spooled a different amount was never contradicted because
-    // it was never read. A partial answer is a lawful one — the total is what it is.
+    // A daemon that had spooled a different amount must not be contradicted by the local slice
+    // length; a partial answer is lawful.
     const reading = readChunkAcknowledgement(entryDeclaring(300, 128), INGEST_ID, {
       ingestId: INGEST_ID,
       receivedBytes: 200,
@@ -77,8 +65,7 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
       receivedBytes: 300,
     });
     expect(reading.status).toBe("unusable");
-    // Both streams are named, because a sentence saying only that something is wrong
-    // leaves a reader unable to say which upload the reply belonged to.
+    // Both streams are named, so a reader can tell which upload the reply belonged to.
     expect(reading.status === "unusable" ? reading.detail : "").toContain("ingest-7");
     expect(reading.status === "unusable" ? reading.detail : "").toContain(INGEST_ID);
   });
@@ -92,8 +79,7 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
   });
 
   it("refuses a total that did not advance, which is what ends the chunk loop", () => {
-    // Not merely a regression: the ledger is the offset, so a standing total re-slices
-    // from the same place for as long as the daemon keeps answering.
+    // The ledger is the offset, so a standing total re-slices from the same place forever.
     const reading = readChunkAcknowledgement(entryDeclaring(300, 128), INGEST_ID, {
       ingestId: INGEST_ID,
       receivedBytes: 128,
@@ -102,8 +88,8 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
   });
 
   it("fires the wire-figure tripwire when an encoded length is acknowledged as progress", () => {
-    // 300 decoded bytes encode to 400 base64 characters, and a total charted from the
-    // encoded string is observable because it passes a figure the caller declared.
+    // 300 decoded bytes encode to 400 characters; a total charted from the encoded string
+    // passes the declared figure.
     const reading = readChunkAcknowledgement(entryDeclaring(300), INGEST_ID, {
       ingestId: INGEST_ID,
       receivedBytes: 400,
@@ -114,8 +100,7 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
   });
 
   it("negative control: a lawful total reports nothing and is taken verbatim", () => {
-    // Without this, every case above would pass over a function that fired on every
-    // call or refused every answer it was handed.
+    // Without this, a function that fired on every call or refused every answer would pass.
     const reading = readChunkAcknowledgement(entryDeclaring(300, 128), INGEST_ID, {
       ingestId: INGEST_ID,
       receivedBytes: 300,
@@ -132,8 +117,8 @@ describe("chunk acknowledgement — the offset is the daemon's", () => {
         receivedBytes: 400,
       }),
     ).toThrow();
-    // The record exists on both arms — that is the tripwire contract, and a caught
-    // throw that left no evidence would defeat the diagnostic band.
+    // The record exists on both arms; a caught throw that left no evidence would defeat the
+    // diagnostic band.
     expect(windowTripwires.firingCount("wire-figure-formatting")).toBe(1);
   });
 });

@@ -1,8 +1,4 @@
-/* The entity record's sheet, imported by `EntityRecord.tsx`.
-
-   Every value here is a Meridian token. There is no color literal, no font stack,
-   and no spacing number: the palette lives in one place, and a pane that
-   hard-coded one would be a second palette nobody could re-theme. */
+/* The entity record's sheet, imported by `EntityRecord.tsx`. Meridian tokens only. */
 
 .meridian-entity-record {
   display: flex;
@@ -11,8 +7,7 @@
   min-width: 0;
 }
 
-/* The head is one line at rest and wraps rather than truncating: the identifier is
-   the member an operator copies, and a clipped identifier is the wrong one. */
+/* One line at rest, wrapping rather than truncating: a clipped identifier is the wrong one. */
 .meridian-entity-record__head {
   display: flex;
   flex-wrap: wrap;
@@ -37,9 +32,7 @@
   font-weight: 600;
 }
 
-/* Two columns at the reading measure, one when the pane is narrow. The label
-   column is fixed so the values line up down the record — the alignment is what
-   makes a record scannable rather than a list of sentences. */
+/* Two columns at the reading measure, one when narrow; the fixed label column aligns values. */
 .meridian-entity-record__facets {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -67,8 +60,7 @@
   overflow-wrap: anywhere;
 }
 
-/* A note is the record speaking about itself — why a member is absent, what does
-   not survive a restart. Quiet, and never mistakable for a value. */
+/* A note is the record speaking about itself; quiet, never mistakable for a value. */
 .meridian-entity-record__note,
 .meridian-entity-record__link {
   margin: 0;

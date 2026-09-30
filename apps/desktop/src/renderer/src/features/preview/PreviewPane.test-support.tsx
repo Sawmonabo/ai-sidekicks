@@ -1,9 +1,5 @@
-// What every browser-pane suite needs before it can ask the pane anything.
-//
-// One home for the roles more than one of the sibling suites plays: the pane context
-// and the mount, the refusal banner read by role rather than by text, the address
-// field read by its label, and the fixture bridge the geometry suites share. It holds
-// nothing a single suite uses.
+// Shared mounts and queries for the browser-pane suites: the pane context, the refusal banner,
+// the address field and the fixture bridge the geometry suites share.
 
 import { act, render, screen, waitFor, type RenderResult } from "@testing-library/react";
 import { expect } from "vitest";
@@ -29,11 +25,8 @@ export interface PreviewPaneSubject {
 }
 
 /**
- * The refusal banner the pane raises — a plain group, since the frame's announcer
- * owns the announcement — read by that role and scoped by the banner's own class,
- * so an unrelated group in the pane can never satisfy the query. Awaited through
- * `waitFor` because the port settles a refusal asynchronously and a bare role
- * query would answer before it lands.
+ * The refusal banner (a plain group with the banner class), or null. The port settles a refusal
+ * asynchronously, so await it through `findRefusalBanner`.
  */
 export function queryRefusalBanner(): HTMLElement | null {
   return (
@@ -43,6 +36,7 @@ export function queryRefusalBanner(): HTMLElement | null {
   );
 }
 
+/** Waits until the refusal banner is present. */
 export async function findRefusalBanner(): Promise<HTMLElement> {
   return waitFor(() => {
     const banner = queryRefusalBanner();
@@ -51,30 +45,14 @@ export async function findRefusalBanner(): Promise<HTMLElement> {
   });
 }
 
-/**
- * The fixture bridge a fixture or end-to-end run hands this pane, with the engine whose
- * frozen clock its window runs on.
- *
- * Named rather than inlined at each mount, so suites that mount the same pane share one
- * window.
- */
+/** The fixture bridge every browser-pane suite mounts in, so they share one window. */
 export function fixtureBrowserBridge(): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario("browser-pane-test") });
 }
 
 /**
- * The context the pane layout hands this pane, over the shared builder.
- *
- * Exported because a second suite mounts the pane itself rather than through the
- * mounts below — the geometry binding's double-mount case needs the tree inside
- * `StrictMode`, which is a wrapper no shared mount can impose on the suites that do
- * not want it.
- *
- * The fixture is handed BACK beside the context because a default argument the caller
- * did not pass is a fixture it cannot otherwise name.
- *
- * The address arm carries no `entity` member: `browser` is session-scoped, so the
- * union's arm has none and `paneContext` refuses one at this call site.
+ * The context the pane layout hands this pane, with the fixture it is mounted in. Exported for
+ * suites that mount the pane themselves (the double-mount case needs `StrictMode`).
  */
 export function previewPaneContext(
   fixture: FixtureBridge = fixtureBrowserBridge(),
@@ -106,10 +84,7 @@ export function recordingActs(navigations: string[] = []): BrowserChromeActs {
   };
 }
 
-/**
- * The chrome over no reported location, no pages, the given acts and the given page host, in
- * the subject's window.
- */
+/** The chrome with no reported location or pages, over the given acts and page host. */
 export function chromeFor(
   subject: PreviewPaneSubject,
   acts: BrowserChromeActs,
@@ -132,21 +107,16 @@ export function chromeFor(
 export const DEFAULT_TEST_PANE_ID = "pane-browser-1";
 
 /**
- * The swap a mounted pane can be put through without being remounted: a pane layout moves a
- * pane slot to another pane. The pane's state has to say whose it is against it, and a suite
- * that could only mount a fresh tree could not reach the stale-subject case.
+ * Re-renders a mounted pane for another pane id, as a pane slot changing subject does; a fresh
+ * mount could not reach the stale-subject case.
  */
 export interface PreviewPaneSubjectMount {
   readonly rebindTo: (nextPaneId: string) => Promise<void>;
 }
 
 /**
- * Mount the pane and hand back the re-render that swaps which pane it is FOR.
- *
- * The swap is what a pane layout performs when a pane slot changes subject: React keeps the
- * component instance and hands it a different `paneId`, so every piece of state the
- * pane carries between renders has to say whose it is. A suite that could only mount
- * a fresh tree could not reach that case at all.
+ * Mounts the pane and returns the re-render that hands the same component instance a different
+ * `paneId`, so state carried between renders has to say whose it is.
  */
 export async function mountPreviewPaneForSubject(
   fixture: FixtureBridge,
@@ -158,10 +128,8 @@ export async function mountPreviewPaneForSubject(
   // One page host for the whole mount: a new one per render would re-mint the publisher.
   const pageHost = new RecordingPageHost();
   let mounted: RenderResult | undefined;
-  // A component type rather than a ready-made node, and that is load-bearing: React
-  // skips re-rendering a child whose element is referentially identical, so a probe
-  // passed as a node would mount once and then observe none of the commits it exists
-  // to observe. Instantiated here, each render hands it a fresh element.
+  // A component type, not a node: React skips re-rendering an element that is referentially
+  // identical, so a probe passed as a node would not observe later commits.
   const tree = (subject: PreviewPaneSubject): React.JSX.Element => (
     <>
       {chromeFor(subject, acts, pageHost)}
@@ -185,30 +153,17 @@ export async function mountPreviewPaneForSubject(
 }
 
 /**
- * What the pane's region is CALLED once `components/PaneFrame` names it.
- *
- * The chrome names a pane by its whole address trail rather than by its kind — "the
- * session, then Preview" — and every mount in the preview's suites is unbound, so the
- * trail opens on the chrome's own no-address crumb. Spelled once here because it is a
- * property of the frame rather than of any one suite: a suite that hard-coded it would
- * be asserting the chrome's naming rule by accident, in as many places as it queried.
+ * The region's accessible name: the chrome names a pane by its address trail, and an unbound
+ * mount opens on the no-address crumb.
  */
 const UNBOUND_PREVIEW_PANE_NAME = "No session Preview";
 
-/**
- * The mounted pane's region, read by role and name.
- *
- * By ROLE rather than by class, because that pair is what a person using assistive
- * technology navigates by: a pane that lost its accessible name would still match a
- * class selector and every suite here would go on passing.
- */
+/** The mounted pane's region, read by role and name (what assistive technology uses), not class. */
 export function previewPaneRegion(): HTMLElement {
   return screen.getByRole("region", { name: UNBOUND_PREVIEW_PANE_NAME });
 }
 
-/**
- * Mount the pane's chrome and let its first effects settle.
- */
+/** Mounts the pane's chrome and lets its first effects settle. */
 export async function renderPreviewPane(
   fixture?: FixtureBridge,
   acts: BrowserChromeActs = recordingActs(),
@@ -224,17 +179,10 @@ export async function renderPreviewPane(
 }
 
 /**
- * Run the frames this fixture's window clock is holding, and let the commit they cause land.
- *
- * THE PANE'S GEOMETRY PUBLISHER READS ON INVALIDATION AND WRITES ON THE NEXT FRAME,
- * and that frame is armed on the window's own clock — which under the fixture is the
- * scenario's frozen one. So a publish is reached by a state change and never by
- * elapsed wall time, which is the whole point of a frozen clock and the reason this
- * has to be said out loud: a publisher on a private `RealClock` would get its publish
- * for free from whichever animation frame happened to fire first, and whether it had
- * happened yet would be decided by how fast the runner was.
- *
- * Inside `act` because the publish records an outcome the pane is subscribed to.
+ * Runs the frames the fixture's frozen window clock is holding and lets the resulting commit
+ * land. The geometry publisher writes on the next frame of that clock, so a publish follows a
+ * state change and never elapsed time. Runs inside `act` because the publish records an outcome
+ * the pane subscribes to.
  */
 export async function releaseQueuedPaneFrames(fixture: FixtureBridge): Promise<void> {
   const clock = frozenClockOf(fixture.scenarioEngine.clock);

@@ -1,7 +1,7 @@
 // What the human-form mount point does when its mount moves underneath it: between a branching
-// run's waits, between the two precisions one numeric control admits, and across a run
-// read that refreshes the revision under a live attempt. Each drives the same tree
-// through a re-render, since a fresh `render` would discard the state under test.
+// run's waits, between the two precisions of a numeric control, and across a run read that
+// refreshes the revision. Each drives one tree through a re-render, since a fresh `render`
+// would discard the state under test.
 
 import { cleanup, fireEvent, renderHook, screen } from "@testing-library/react";
 import { act } from "react";

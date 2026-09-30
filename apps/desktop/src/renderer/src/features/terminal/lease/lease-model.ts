@@ -1,34 +1,14 @@
-// What a LOG of lease transitions folds to for one shell, from this device's point of
-// view.
+// Folds a session's `pty.control_changed` events into one shell's lease state, from this
+// device's point of view.
 //
-// `lease-transition.ts` reads one event; this module reads a session. The two are
-// split because they answer different questions and need different fixtures: a
-// reading is a payload, and a projection is an ordering, a shell and a device.
-// Everything below is a property of the SEQUENCE — which holding the lease line
-// settles into.
+// The holder is a wire field and is never derived from the last observed take, so nothing
+// here reads the outcome of a `session.takeControl` call. A take that succeeded and one whose
+// broadcast never arrived look identical at the call site, and only one means the person may
+// type; the lease line changes only when the transition comes back on the log.
 //
-// The lease is per shell: each of a session's shells has a holder of its own, so the
-// fold reads only the transitions that name the shell it is asked about.
-//
-// This module has one hard rule: **the holder is a wire field and is never derived
-// from the last observed take**. So nothing here reads the outcome of a
-// `session.takeControl` call.
-// The lease state is a fold over `pty.control_changed` events — the registered
-// event type whose payload carries the holder, the holder it replaced, and the
-// reason — and a take the console made changes the lease line only when the
-// transition it caused comes back on the log.
-//
-// That is not fastidiousness. A take that succeeds and a take whose broadcast
-// the console never received look identical at the call site, and only one of
-// them means the person may type. An optimistic lease line would show a keyboard to
-// somebody who does not hold the shell.
-//
-// WHY A PURE FOLD AND NOT A CLASS. The store's own projector discipline
-// (`store/entities/entities.ts`) is that a projector reads the event and nothing else, so
-// a replayed prefix is deterministic and a reconnect heals by re-running it. The
-// lease is exactly that shape: given the same events, shell and device, the same
-// state. A class holding the fold's result beside the store would be a second
-// source of truth for a fact the log already orders.
+// Each shell has its own holder, so only transitions naming the asked-about shell are read.
+// The fold is pure: given the same events, shell and device it gives the same state, so a
+// replayed prefix is deterministic and a reconnect heals by re-running it.
 
 import {
   PTY_CONTROL_CHANGED_EVENT,
@@ -49,14 +29,10 @@ import {
 /**
  * Who holds the shell, from this device's point of view.
  *
- * `not-checked` is not a synonym for `unheld`: a free lease is an explicit state that
- * reads differently from a suppressed one, and "no transition has ever
- * been read" is neither. `held-by-run` is an agent's run holding the shell: its
- * writes come only from the run, whatever device the run's machine is, so nobody may
- * type until the run stops. `unrecognized-transition` is one more answer for the same
- * kind of reason as `not-checked` — the log carried a transition this build cannot
- * read, so the holder is neither the free lease nor whoever held it before. Declared
- * as a tuple for the reason every closed set here is.
+ * `not-checked` means no transition has been read, which is not the free lease (`unheld`).
+ * `held-by-run` means an agent's run holds the shell and only the run writes, even when the
+ * run's machine is this device. `unrecognized-transition` means the log carried a transition
+ * this build cannot read, so the holder is unknown.
  */
 export const TERMINAL_LEASE_HOLDERS = [
   "not-checked",
@@ -80,9 +56,8 @@ export interface TerminalLeaseState {
   /** The run's command the wire named as the holder; stopping it ends the run's hold. */
   readonly holderCommandId: CommandId | undefined;
   /**
-   * The newest transition the fold could not read, when one arrived after every
-   * transition it could. Present means the lease state is unknown rather than
-   * stale, and the lease line says which transition lost it.
+   * The newest transition the fold could not read, when it arrived after every readable one.
+   * Present means the lease state is unknown rather than stale.
    */
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;
 }
@@ -91,8 +66,7 @@ export interface TerminalLeaseState {
 export interface TerminalLeaseProjectionInput {
   /** The shell whose lease is folded. Transitions naming another shell are skipped. */
   readonly terminalId: TerminalId;
-  /** This device's identity, so `held-by-this-device` can be told from a device that does not
-   * hold the lease (`held-by-another-device`). */
+  /** This device's identity, to tell `held-by-this-device` from `held-by-another-device`. */
   readonly thisDeviceId: string | undefined;
 }
 
@@ -106,23 +80,16 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
 };
 
 /**
- * Fold a session's events into one shell's lease state.
+ * Fold a session's events into one shell's lease state. Total and pure.
  *
- * Total and pure. Events of other kinds are skipped, and so are transitions naming
- * another shell. A `pty.control_changed` the reader cannot read — a reason outside the
- * closed set, a payload that carries none, or a holder shape that contradicts the
- * reason it arrived under — is NOT skipped unless it plainly names another shell: it
- * is recorded as the unread transition and the projection settles into the arm that
- * shows no holder and writes nothing.
+ * Other event kinds and transitions naming another shell are skipped. A `pty.control_changed`
+ * the reader cannot read (an unknown reason, no payload, or a holder shape that contradicts
+ * its reason) is not skipped unless it plainly names another shell: it is recorded as the
+ * unread transition and the holding becomes `unrecognized-transition`, which shows no holder
+ * and writes nothing. Skipping it would leave the previous holder standing, and stdin open
+ * for someone who no longer holds the shell.
  *
- * That direction is the whole point. Skipping it would leave the transition before it
- * standing as the newest state, so a daemon that moved the lease under a reason a
- * later release introduced would leave the lease line reading `held-by-this-device` and
- * stdin open for somebody who no longer holds the shell. An unread transition is
- * ignorance, and ignorance about a write lease reads as no lease at all.
- *
- * A later transition the reader CAN read clears it: the console understands the
- * current state again, and the state it understands is that transition's.
+ * A later transition the reader can read clears the unread one.
  */
 export function projectTerminalLease(
   events: readonly ProjectedSessionEvent[],
@@ -150,9 +117,8 @@ export function projectTerminalLease(
     newest = transition;
   }
 
-  // Fail-closed: an unread transition collapses to the free lease BEFORE the device
-  // comparison, so the lease line can never show "you hold it" on the strength of a
-  // transition this build could not read.
+  // Fail-closed: an unread transition collapses to the free lease before the device
+  // comparison, so "you hold it" is never shown on the strength of a transition it could not read.
   const readable = unreadTransition === undefined ? newest : undefined;
   const holderDeviceId = readable?.holderDeviceId ?? null;
   const holderRunId = readable?.holderRunId;
@@ -173,16 +139,9 @@ export function projectTerminalLease(
   };
 }
 
-/**
- * Which holding the fold settled on. Ordered fail-closed, hardest fact last.
- *
- * The unread arm comes first because it is a statement about the READING and not
- * about the lease: with a transition the console could not understand, neither
- * "nobody holds it" nor "you hold it" is something the lease line knows, and the
- * only honest answers left are the two that disable writing. A run's hold comes
- * before the device comparison, because the run's machine is the holding device and
- * this device may be that machine, yet only the run writes.
- */
+// An unread transition comes first because it says the reading failed, so neither "free" nor
+// "yours" is known. A run's hold comes before the device comparison because the run's machine
+// may be this device, yet only the run writes.
 function readHolding(state: {
   readonly hasReadTransition: boolean;
   readonly unreadTransition: TerminalLeaseUnreadTransition | undefined;

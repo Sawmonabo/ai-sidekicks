@@ -1,9 +1,5 @@
-// Ranked error entries, and a row that names its own failure.
-//
-// The ranking is the whole subject: the failure the design guards against is a
-// transient error arriving a frame after a durable one and taking its Retry off the
-// screen. So every case here holds TWO entries at once and asserts which one is the
-// card.
+// Ranked error entries. A transient error arriving a frame after a durable one must not take
+// its Retry off the screen, so every case holds two entries at once and asserts which is the card.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

@@ -1,21 +1,12 @@
-// The two-step control that retires one standing permission.
-//
-// Split from `RememberedRules.tsx`, which owns the audit list, while this owns the
-// only act that list offers.
-//
-// TWO STEPS, AND THE SECOND IS THE ONE THAT FIRES. Revocation is not reversible
-// from the rules list, so the first press only arms; the confirming press is the one
-// that reaches the wire, and a control that is already revoking says so rather than
-// offering a second press that would.
+// The two-step control that retires one standing permission: the first press arms, the
+// confirming press reaches the wire, and a control already revoking offers no second press.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 /**
- * Idle, confirming, pending — three states on one control.
+ * Idle, confirming, pending: three states on one control.
  *
- * `onConfirm` is the only handler that calls the mutation, which is what makes
- * "canceling returns to idle with zero mutations" a fact about the code rather
- * than a claim about it.
+ * `onConfirm` is the only handler that calls the mutation, so canceling never mutates.
  */
 export function RevokeRuleControl(props: {
   readonly isConfirming: boolean;

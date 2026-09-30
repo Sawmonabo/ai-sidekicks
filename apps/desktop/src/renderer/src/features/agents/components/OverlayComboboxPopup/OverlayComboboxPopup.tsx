@@ -1,18 +1,12 @@
-// A combobox's portal, positioner, and popup — registered in the window's airspace.
-//
-// `Combobox.Root` stays with the caller, and deliberately: the root is where the
-// items, the value, and the filter live, and it is also what a caller composes a
-// dialog inside (the command palette does exactly that). Only the anchored part of
-// the tree crosses into the primitive layer.
-//
-// THE KIND IS `popover`. `AIRSPACE_OVERLAY_KINDS` has no combobox entry and does not need
-// one — what a native view has to yield to is a floating box anchored to a control,
-// which is what the enumeration calls a popover.
+// A combobox's portal, positioner and popup, registered in the window's airspace as a
+// `popover` (the overlay kinds have no combobox entry). `Combobox.Root` stays with the caller,
+// which owns the items, value and filter.
 
 import { Combobox } from "@base-ui/react/combobox";
 
 import { useAirspaceRegistration } from "@renderer/hooks/useAirspaceRegistration.js";
 
+/** What the popup renders, and the class names the caller styles it with. */
 export interface OverlayComboboxPopupProps {
   /** Where the popup portals. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly container?: HTMLElement | null | undefined;
@@ -21,6 +15,7 @@ export interface OverlayComboboxPopupProps {
   readonly children: React.ReactNode;
 }
 
+/** A combobox's portal, positioner and popup, registered as a popover in the airspace. */
 export function OverlayComboboxPopup(props: OverlayComboboxPopupProps): React.JSX.Element {
   const airspaceRef = useAirspaceRegistration("popover");
   return (

@@ -22,18 +22,9 @@ import { readComposerCommands } from "../composer-commands.js";
 import type { ProviderCommandEnumeration } from "../provider-command-enumeration.js";
 
 /**
- * What the send bar is handed about a typed `/name`, built in one place.
- *
- * The first two travel TOGETHER because they are one decision split in half: the
- * router will not intercept a name nothing claims, so a recognizer with no executor
- * intercepts into a refusal and an executor with no recognizer is never called. Both
- * read the SAME composer-commands thunk, so the predicate that claimed a name and the executor
- * that runs it can never be looking at two different registries.
- *
- * The third answers the OTHER question a typed name raises — whether the bound
- * provider published it — off the enumeration holder the discovery popover renders
- * from. One holder rather than a second read, so the list a person read the name off
- * and the path that refuses it are one reading.
+ * What the send bar is handed about a typed `/name`. The recognizer and executor read the same
+ * commands thunk, so a name one claims is never run against another registry; the provider
+ * predicate asks the enumeration holder the popover renders from whether the provider published it.
  */
 export interface CommandHandling {
   readonly recognizeClientCommand: ClientCommandPredicate;
@@ -46,16 +37,10 @@ export function useCommandHandling(options: {
   readonly route: AppRoute;
   readonly commandEnumeration: ProviderCommandEnumeration;
   /**
-   * Where this composer is addressed, so the published-name lookup reads the
-   * addressed run's own binding. An agent can hold several live bindings at once, and
-   * a name published by one of the others is not a name this send path may recognize.
+   * Where this composer is addressed, so the published-name lookup reads the addressed run's
+   * binding: an agent can hold several live bindings, and another's name is not recognized here.
    */
   readonly target: ComposerTarget;
-  /**
-   * The commands that read arguments off the typed line. They close over what the
-   * composer is addressed at, so they change between renders while the executor built
-   * from them does not.
-   */
   readonly commandLineHandlers: ComposerCommandLineHandlers;
 }): CommandHandling {
   const { route, commandEnumeration, target, commandLineHandlers } = options;

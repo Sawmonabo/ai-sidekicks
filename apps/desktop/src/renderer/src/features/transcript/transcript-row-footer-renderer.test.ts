@@ -1,4 +1,4 @@
-// The footer renderer registry's own cases: who may register in it.
+// Who may register in the footer renderer registry.
 
 import { afterEach, describe, expect, it } from "vitest";
 

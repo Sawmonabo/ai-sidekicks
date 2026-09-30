@@ -1,13 +1,4 @@
 // Dispatch: which comparand goes out, and whether the form outlives its own send.
-//
-// Every case here is about the interval between a press and a settlement — a composer
-// that outlives its own dispatch, and a version that advanced between two readings. A
-// form that sent a comparand it had already been told was stale would be wrong in
-// exactly this interval and nowhere else.
-//
-// What the form is KEYED by, and when a dispatch is recorded at all, are the other
-// half of the same seam and live in `SteerBox.keying.test.tsx`: those
-// cases re-key a form under an open send, which is a premise none of these take.
 
 import { useState } from "react";
 import { act, render } from "@testing-library/react";
@@ -47,8 +38,7 @@ describe("the composer outlives its dispatch", () => {
   });
 
   it("negative control: a settlement that landed closes the composer", async () => {
-    // Without this the cases above would pass over a form that never closed at all,
-    // which would leave a landed steer sitting behind its own composer.
+    // Without this the cases above would pass over a form that never closed.
     const { container, dismissCount } = renderSteerBox();
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
@@ -56,8 +46,8 @@ describe("the composer outlives its dispatch", () => {
   });
 
   it("latches the confirm while the dispatch is in flight, so one body sends once", async () => {
-    // A never-settling answer holds the form in its sending state; the second submit
-    // arrives the way a keyboard one does, through the form rather than the button.
+    // A never-settling answer holds the form in its sending state; the second submit comes
+    // through the form, as a keyboard one does, not through the button.
     const { container, calls } = renderSteerBox(() => new Promise(() => undefined));
     typeInto(container.querySelector(".meridian-run-composer__body"), "stop editing that file");
     await submit(container);
@@ -73,10 +63,9 @@ describe("the composer outlives its dispatch", () => {
 });
 
 describe("the comparand is the newer of the two readings", () => {
-  // One bridge for the harness's whole life, so the dispatcher's cache survives a
-  // rerender; the composer itself is remounted (keyed) each time the stream's
-  // reading of the run moves. The applied answer reports version 9, which the
-  // dispatcher caches; the stream then reports 10.
+  // One bridge for the harness's whole life so the dispatcher's cache survives a rerender.
+  // The applied answer reports version 9, which the dispatcher caches; the stream then
+  // reports 10.
   function StableHarness(props: {
     readonly calls: RunControlCalls;
     readonly runVersion: number;

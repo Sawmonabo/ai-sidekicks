@@ -1,12 +1,7 @@
-// The one wake-up a stalled upload gets, and the four things that take it away.
-//
-// The defect these cases hold is a circularity rather than an arithmetic slip: the
-// staged list stamps its snapshot when the LEDGER publishes, and an upload that stalls is
-// an upload that stops publishing — so the card holding the last stamp was held at the
-// instant of the last progress, and `isIngestStalled` could never cross its threshold
-// for precisely the stream that went quiet. Everything below drives the real staged list
-// on the console's own frozen clock and renders the real card from the snapshot it
-// publishes, which is the composition the composer's attachment strip makes.
+// The one wake-up a stalled upload gets, and what takes it away. The defect held here is a
+// circularity: the snapshot is stamped when the ledger publishes and a stalled upload stops
+// publishing, so `isIngestStalled` could never cross its threshold for the stream that went
+// quiet. Cases drive the real staged list on a frozen clock and render the real card from it.
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
@@ -34,7 +29,7 @@ import {
   patternedBytes,
 } from "@test/helpers/scripted-ingest-port.js";
 
-/** The instant every case starts at, so a stamp in an assertion is a real reading. */
+/** The instant every case starts at. */
 const START_MILLISECONDS = 1_000;
 
 /** The sentence the card puts on an upload that has gone quiet. */
@@ -56,13 +51,7 @@ function stagedAttachmentsOver(port: ScriptedIngestPort, clock: ManualClock): St
   return stagedAttachments;
 }
 
-/**
- * What the card says about the staged list's first entry, at the instant it published.
- *
- * The REAL card over the REAL snapshot, composed the way the composer's strip composes
- * them: the whole claim is that the instant a card is handed moves, so a case that
- * asserted on the snapshot alone would be checking the stamp and not the disclosure.
- */
+/** What the real card says about the first entry, rendered from the real snapshot. */
 function cardTextFor(stagedAttachments: StagedAttachments): string {
   const [entry] = stagedAttachments.snapshot.entries;
   expect(entry).toBeDefined();
@@ -87,8 +76,8 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     stagedAttachments.attachFiles([pickedFile(300)]);
     await crossMacrotaskBoundary();
 
-    // The stream is open and its chunk is in flight: this is the last publication the
-    // ledger will make, and the instant on it is the instant progress stopped.
+    // The stream is open and its chunk is in flight: the ledger's last publication, stamped at
+    // the instant progress stopped.
     expect(stagedAttachments.snapshot.entries[0]?.state).toBe("ingesting");
     expect(stagedAttachments.snapshot.publishedAtMilliseconds).toBe(START_MILLISECONDS);
     expect(cardTextFor(stagedAttachments)).not.toContain(STALL_DISCLOSURE);
@@ -102,9 +91,8 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
   });
 
   it("wakes once and not on a cadence", async () => {
-    // One shot per deadline, and the deadline is behind us now — so the staged list holds
-    // no timer at all and time moving again publishes nothing. A repeat here would be
-    // the interval this file exists to not have.
+    // One shot per deadline, and the deadline is behind us now, so the list holds no timer and
+    // time moving again publishes nothing.
     const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     port.holdChunks();
@@ -127,8 +115,8 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     stagedAttachments.attachFiles([pickedFile(ARTIFACT_CHUNK_MAX_BYTES * 2)]);
     await crossMacrotaskBoundary();
 
-    // Half a disclosure window in, the second chunk is gated before the first is let
-    // through, so the stream is outstanding again the moment progress lands.
+    // The second chunk is gated before the first is let through, so the stream is outstanding
+    // again the moment progress lands.
     clock.advance(INGEST_STALL_DISCLOSURE_MS / 2);
     port.holdChunks();
     firstChunkGate.open();
@@ -136,8 +124,7 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     const progressMilliseconds = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS / 2;
     expect(stagedAttachments.snapshot.publishedAtMilliseconds).toBe(progressMilliseconds);
 
-    // The deadline the first arming named passes with nothing to disclose: progress
-    // moved it, and a wake-up that fired here would call a live upload stalled.
+    // The first arming's deadline passes with nothing to disclose: progress moved it.
     clock.advance(INGEST_STALL_DISCLOSURE_MS / 2);
     expect(stagedAttachments.snapshot.publishedAtMilliseconds).toBe(progressMilliseconds);
     expect(cardTextFor(stagedAttachments)).not.toContain(STALL_DISCLOSURE);
@@ -156,8 +143,7 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     stagedAttachments.attachFiles([pickedFile(300)]);
     await crossMacrotaskBoundary();
 
-    // A completed upload cannot go quiet, so the last publication takes the wake-up
-    // away rather than leaving one armed against an entry nothing will move again.
+    // A completed upload cannot go quiet, so the last publication takes the wake-up away.
     expect(stagedAttachments.snapshot.entries[0]?.state).toBe("complete");
     expect(clock.pendingCount).toBe(0);
   });
@@ -178,16 +164,14 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
     stagedAttachments.dispose();
     clock.advance(INGEST_STALL_DISCLOSURE_MS * 3);
 
-    // A timeout that outlived the staged list would stamp a snapshot nobody reads and
-    // hold a handle nobody can cancel.
+    // A timeout that outlived the staged list would stamp a snapshot nobody reads.
     expect(clock.pendingCount).toBe(0);
     expect(publishCount).toBe(publishCountAtDisposal);
   });
 
   it("negative control: a staged list holding nothing arms no wake-up at all", async () => {
-    // Without this, every case above would pass over a staged list that re-published on
-    // any advance — which is the poll the no-interval rule forbids, wearing a
-    // one-shot's clothes.
+    // Without this, a list that re-published on any advance, a poll dressed as a one-shot,
+    // would pass the cases above.
     const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     const stagedAttachments = stagedAttachmentsOver(port, clock);
@@ -206,9 +190,8 @@ describe("staged attachments — the stall disclosure wakes once at its threshol
 
 describe("useStagedAttachments — the stamp is the window's clock, never the host's", () => {
   it("publishes the instant the window's clock answers", () => {
-    // Under the fixture the entries are stamped from the window's own clock: a staged list
-    // with a `RealClock` of its own would stamp `Date.now()`, two clocks inside one
-    // window with the wall one always winning.
+    // Entries are stamped from the window's own clock; a `RealClock` of the list's own would
+    // stamp `Date.now()` and win over the fixture's.
     const port = new ScriptedIngestPort();
     const clock = new ManualClock(START_MILLISECONDS);
     const fixture = bridgeOnClock("composer", clock);
@@ -231,8 +214,7 @@ describe("useStagedAttachments — the stamp is the window's clock, never the ho
   });
 
   it("negative control: the stamp follows the clock it was given, not one fixed instant", () => {
-    // Without this, a stamp hard-coded to the first case's start would pass it. Two
-    // windows on two clocks stamp two different instants.
+    // Without this, a stamp hard-coded to the first case's start would pass it.
     const laterStart = START_MILLISECONDS + INGEST_STALL_DISCLOSURE_MS;
     const port = new ScriptedIngestPort();
     const fixture = bridgeOnClock("composer", new ManualClock(laterStart));
@@ -277,10 +259,9 @@ function StagedAttachmentsProbe(props: {
 
 describe("useStagedAttachments — a disposed staged list is re-minted on the replayed setup", () => {
   it("reaches a live client after StrictMode has torn one down and mounted again", async () => {
-    // The bug, exercised: StrictMode runs the cleanup and then the setup again on the
-    // same component instance, and a memoized staged list survives that. The cleanup
-    // terminally disposed the ingest client, so every file chosen afterwards reached a
-    // client whose `attach` returns at once — the strip inert, and silently.
+    // StrictMode runs the cleanup and then the setup again on the same instance. The cleanup
+    // terminally disposed the ingest client, so files chosen afterwards would reach a client
+    // whose `attach` returns at once, silently.
     const port = new ScriptedIngestPort();
     const fixture = bridgeOnClock("composer");
     let binding: StagedAttachmentsBinding | undefined;
@@ -310,11 +291,8 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
   });
 
   it("negative control: a changed collaborator re-mints once, not once per render", async () => {
-    // The same cleanup runs when the bridge or the session moves, so this drives the
-    // re-mint through the other path — and asserts that exactly ONE stream opens. A
-    // hook that minted a staged list on every render would satisfy the case above while
-    // opening a stream per pass, which is the leak the memo existed to prevent dressed
-    // as a fix for the one it caused.
+    // The same cleanup runs when the bridge or the session moves. Exactly one stream must
+    // open; a hook minting a list on every render would pass the case above but open one per pass.
     const port = new ScriptedIngestPort();
     const first = bridgeOnClock("composer");
     let binding: StagedAttachmentsBinding | undefined;
@@ -354,12 +332,9 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
   });
 
   it("disposes every staged list it opened exactly once", async () => {
-    // The seam is told the disposal is TERMINAL, through `isClosed`, and the re-mint
-    // is the seam's. Re-derived in the hook's own effect instead, the corpse
-    // StrictMode's replay produced was recorded as committed, the hook published a
-    // replacement, and the value-change cleanup disposed the corpse a second time.
-    // `AttachmentIngestClient.dispose` guards on its own flag, so nothing broke and
-    // nothing could fail — which is why the CALL is counted and not its effect.
+    // The seam is told the disposal is terminal, through `isClosed`, and the re-mint is the
+    // seam's. `AttachmentIngestClient.dispose` guards on its own flag, so a second disposal
+    // breaks nothing visible; that is why the call is counted and not its effect.
     const disposals = vi.spyOn(StagedAttachments.prototype, "dispose");
     try {
       const port = new ScriptedIngestPort();
@@ -382,7 +357,7 @@ describe("useStagedAttachments — a disposed staged list is re-minted on the re
       unmount();
 
       expect(repeatedDisposalCount(disposals)).toBe(0);
-      // Negative control on the count: a spy that saw nothing reports zero repeats.
+      // A spy that saw nothing would report zero repeats.
       expect(disposals.mock.contexts.length).toBeGreaterThan(0);
     } finally {
       disposals.mockRestore();

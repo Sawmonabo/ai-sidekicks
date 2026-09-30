@@ -1,43 +1,8 @@
-// The answer as JSON, for a schema this form cannot draw controls for.
-//
-// THIS IS WHY NO PHASE IS UNANSWERABLE. A schema outside the drawn render set is not a
-// refusal and never renders as one: it opens here, with the schema's own reason stated
-// above it, and the answer is typed as the object the phase asked for. A form that
-// refused an unusual schema would leave a run parked on a question nobody could answer.
-//
-// TWO CHECKS, AND THEY ARE NOT THE SAME CHECK. The first is whether the text is JSON at
-// all, which is always available. The second is whether the JSON satisfies the phase's
-// schema, which is available only where that schema compiled — and where it did not, this
-// editor says so rather than showing a green tick that means less than it looks like.
-//
-// AND "IT DID NOT" IS NOT THE SAME AS "NOT YET", NOR THE SAME AS "IT NEVER GOT HERE". The
-// compiler arrives on its own chunk, so the validator has two further states this editor
-// must not mistake for a refusal. While it reads `compiling` there is no verdict and no
-// reason to give one, so the uncheckable sentence is withheld rather than shown and then
-// retracted. Where the chunk failed to fetch there IS a sentence and it is the arm's own,
-// never the reader's — the schema was never read, so nothing may be said about it. Both
-// sentences land in the same paragraph because a person asking "will what I type be
-// checked" gets one answer from either, and the difference between them is what the
-// sentence says rather than where it sits. The syntax check above is unaffected by any of
-// it — it needs nothing that has to be fetched.
-//
-// MONO, BECAUSE IT IS THE WIRE'S OWN SHAPE. What is typed here is the submitted value
-// itself rather than prose about it, so it is set in mono, the face every wire figure on
-// screen takes to show it is a value and not prose.
-//
-// NO EDITOR LIBRARY. Every runtime-compiling schema editor is disqualified before size is
-// weighed, because this renderer's content policy carries no `unsafe-eval`. A textarea
-// and one `JSON.parse` are the whole mechanism.
-//
-// AND THE EDITOR CARRIES ITS VERDICT THE WAY A DRAWN CONTROL CARRIES ITS OWN. Every drawn
-// field attaches its findings through `aria-describedby` and renders them through
-// `SchemaFieldIssues`, and this editor does the same rather than listing them in markup of
-// its own that nothing points at. Focus does not leave the textarea while somebody edits,
-// so without that link a screen reader user whose document had just become invalid would
-// hear neither that it was invalid nor what the schema said — on the one arm of this form
-// where the whole answer is typed into a single control. Same
-// primitive, same attribute, and `aria-invalid` while either reading refuses: no second
-// mechanism, and no `role` this list does not have where the drawn fields draw it.
+// The answer as JSON, for a schema this form cannot draw controls for. The mapper's reason
+// stands above it, so no phase is unanswerable. Syntax is always checked; the schema check
+// runs only where the schema compiled, else the editor says what will not be checked (nothing
+// while `compiling`). A textarea and `JSON.parse`: the content policy has no `unsafe-eval`.
+// Findings attach through `aria-describedby` as on drawn fields, since focus stays here.
 
 import { useId } from "react";
 
@@ -52,16 +17,14 @@ import type { RawAnswerReading } from "../hooks/useSchemaForm.js";
 /** How tall the raw document opens. Layout only; the text is never bounded here. */
 const RAW_EDITOR_ROWS = 12;
 
+/** The props of the raw JSON answer editor. */
 export interface SchemaJsonEditorProps {
   /** Why this schema is answered here rather than in drawn controls. */
   readonly fallback: SchemaFallback;
   readonly rawText: string;
   readonly onChangeRawText: (text: string) => void;
   readonly rawReading: RawAnswerReading;
-  /**
-   * Whether the schema itself could be checked against, the reason where not — and
-   * whether that answer has arrived at all.
-   */
+  /** Whether the schema could be checked against, and the reason where not. */
   readonly validator: SchemaValidatorState;
   /** The schema's verdict, where there is a schema to have one and JSON to check. */
   readonly report: SchemaValidationReport | undefined;
@@ -88,9 +51,7 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
         rows={RAW_EDITOR_ROWS}
         spellCheck={false}
         value={props.rawText}
-        // Both readings describe this one control, composed through the leaf the drawn
-        // fields compose theirs through: unparsable text and a schema refusal are two
-        // different complaints about the same document.
+        // Both readings describe this one control.
         aria-describedby={describedByOf([
           isUnparsable ? syntaxId : undefined,
           issues.length === 0 ? undefined : issuesId,
@@ -114,13 +75,8 @@ export function SchemaJsonEditor(props: SchemaJsonEditorProps): React.JSX.Elemen
 }
 
 /**
- * What the schema said about the typed document, each sentence carrying the member it is
- * about.
- *
- * The pointer rather than a join, for the reason the paths are segments at all: two
- * different members must not read as one line here either. Composed into text because
- * this arm draws no control per member — there is one control, and every finding on the
- * form is about what is in it.
+ * What the schema said about the typed document, each sentence prefixed with the pointer of
+ * the member it is about: this arm has one control, so findings are composed into text.
  */
 function rawIssueTexts(report: SchemaValidationReport | undefined): readonly string[] {
   if (report === undefined || report.status === "valid") {
@@ -133,11 +89,8 @@ function rawIssueTexts(report: SchemaValidationReport | undefined): readonly str
 }
 
 /**
- * The sentence about what will not be checked here, where the validator has one.
- *
- * A switch total over the arms rather than a comparison per arm, so a state added to
- * `SchemaValidatorState` decides here whether it has a sentence instead of silently
- * inheriting "no" and leaving that arm's sentence unsaid in this editor.
+ * The sentence about what will not be checked here, where the validator has one. The switch
+ * is total, so a new validator state must decide whether it has a sentence.
  */
 function uncheckableDetailOf(validator: SchemaValidatorState): string | undefined {
   switch (validator.status) {

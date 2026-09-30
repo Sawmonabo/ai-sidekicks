@@ -1,16 +1,7 @@
-// When an upload lets go of the user's bytes, and when it may not.
-//
-// A `Blob` is a handle rather than a copy, but it is a KEEP: the browser holds the file
-// behind it for as long as anything can reach it. A staged list that held one per attachment
-// and released none would pin ten files' worth of memory for ten finished uploads until
-// the composer unmounted — invisible, because every figure on the card is a number the
-// ledger already has.
-//
-// The rule the cases below hold the ledger to is one sentence: an entry holds the bytes
-// while — and only while — a send is still possible from where it stands. The retry
-// cases are the other half of it, because a rule that released too early would be just
-// as wrong: a refused upload is retried in place, and it can only replay bytes it still
-// has.
+// When an upload lets go of the user's bytes, and when it may not. A `Blob` is a handle the
+// browser keeps alive, so a staged list holding one per finished upload would pin ten files of
+// memory until the composer unmounts. The rule: an entry holds the bytes only while a send is
+// still possible, so a refused upload can be retried in place.
 
 import { ARTIFACT_CHUNK_MAX_BYTES, type ArtifactId } from "@ai-sidekicks/contracts";
 
@@ -34,11 +25,8 @@ import {
 } from "./attachment-shapes.js";
 
 /**
- * Whether this entry is still carrying bytes — read as a PROPERTY of the object.
- *
- * `entry.payload === undefined` would also pass over an entry that carried the member
- * holding `undefined`, which is a different shape and a different claim. The settled arm
- * has no such member at all, and that is what is being asserted.
+ * Whether this entry carries a payload, read as a property of the object: `payload === undefined`
+ * would also pass over a member holding `undefined`, a different shape.
  */
 function holdsPayload(entry: AttachmentIngestEntry | undefined): boolean {
   return entry !== undefined && Object.hasOwn(entry, "payload");
@@ -53,13 +41,10 @@ describe("attachment payload release — a finished upload lets the bytes go", (
 
     const [entry] = client.snapshot;
     expect(entry?.state).toBe("complete");
-    // The artifact is minted, so there is nothing left to send and nothing left to
-    // send it FROM. The member is absent rather than emptied: a completed entry has
-    // nowhere to put a `Blob`.
+    // The artifact is minted, so nothing is left to send. The member is absent, not emptied.
     expect(holdsPayload(entry)).toBe(false);
     expect(entry?.payload).toBeUndefined();
-    // Everything a card reads survives, which is why the release costs the card nothing: the
-    // name, the declared size, and the derived truth are all still here.
+    // Everything a card reads survives: the name, the declared size and the derived truth.
     expect(entry?.declared.declaredName).toBe("notes.md");
     expect(entry?.declared.byteLength).toBe(300);
     expect(entry?.derived?.artifactId).toBe("artifact-9");
@@ -67,9 +52,8 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   });
 
   it("releases the payload when a user stops sending", async () => {
-    // Abandonment is terminal in the other direction: the daemon's reaper claims the
-    // spool and no artifact is minted, so nothing here will ever send these bytes
-    // either. Holding them would keep a file alive for an upload somebody canceled.
+    // Abandonment is terminal too: nothing will send these bytes, and holding them would keep
+    // a canceled file alive.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.holdChunks();
@@ -85,9 +69,8 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   });
 
   it("keeps the payload on a refused entry, so the retry has bytes to send", async () => {
-    // The half a release rule gets wrong first. Every refusal disposition offers a
-    // retry, and a retry resends over bytes an entry that had let go of its payload
-    // could not produce.
+    // The half a release rule gets wrong first: every disposition offers a retry, which
+    // resends bytes an entry that let go could not produce.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.acknowledgeChunksWith({ ingestId: "ingest-1", receivedBytes: 0 });
@@ -98,8 +81,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     expect(refused?.state).toBe("refused");
     expect(holdsPayload(refused)).toBe(true);
 
-    // And the retry actually sends: the assertion above would be satisfied by a handle
-    // nothing could read, so the proof is the chunks on the wire after the retry.
+    // The retry actually sends: the chunks on the wire after it are the proof.
     port.acknowledgeChunksWith(undefined);
     client.retry("attachment-two");
     await crossMacrotaskBoundary();
@@ -109,15 +91,10 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   });
 
   it("offers no retry once the upload has completed", async () => {
-    // The card only draws the control on `refused`, and this is the same rule at the
-    // client: a completed entry has released its bytes, so a retry that reached it
-    // would put the finished stream through the protocol a second time.
-    //
-    // Counted as PUBLICATIONS rather than as calls, because the calls are the weaker
-    // claim: a retry from `complete` re-enters at an offset that is already the whole
-    // payload, so it sends no chunk and still completes the stream again — which is a
-    // second `AttachmentIngestComplete` for one artifact and a ledger write behind it.
-    // A retry that did nothing publishes nothing.
+    // The card draws the control only on `refused`, and the client holds the same rule: a retry
+    // reaching a completed entry would run the finished stream through the protocol again.
+    // Counted as publications, the stronger claim: such a retry sends no chunk yet would still
+    // complete the stream a second time.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     client.attach(SMALL_SOURCE);
@@ -138,10 +115,8 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   });
 
   it("writes nothing when a settled entry is asked back into a sending state", () => {
-    // The backstop under the guard above, stated at the one writer and driven against
-    // it directly. Those bytes are gone, so an entry claiming a payload it does not
-    // have would fail at its next slice instead of here — a write refused now is a
-    // state no card ever renders.
+    // The backstop under the guard above, driven at the one writer: those bytes are gone, so a
+    // write is refused now rather than failing at the next slice.
     const ledger = new AttachmentIngestEntries();
     ledger.declare(
       attachmentSourceFrom({
@@ -175,15 +150,13 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     ledger.write("attachment-1", { ...completedRecord, state: "declared" });
 
     expect(ledger.current("attachment-1")?.state).toBe("complete");
-    // Nothing was written, so no round was superseded: a continuation holding the
-    // earlier stamp still recognizes this entry rather than reading it as one that
-    // moved.
+    // Nothing was written, so no round was superseded and an earlier stamp still recognizes
+    // this entry.
     expect(ledger.currentIfUnchanged("attachment-1", stampAfterCompletion)).toBeDefined();
   });
 
   it("negative control: an upload still in flight is holding the bytes", async () => {
-    // Without this every absence above would pass over a ledger that had never carried
-    // a payload at all — which would report a stream that cannot send as a release.
+    // Without this every absence above would pass over a ledger that never carried a payload.
     const port = new ScriptedIngestPort();
     const client = clientOver(port);
     port.holdChunks();
@@ -196,10 +169,9 @@ describe("attachment payload release — a finished upload lets the bytes go", (
   });
 
   it("partitions the ingest states, so neither arm of the entry can be missed", () => {
-    // The union's two arms are keyed on this split, and only the sending half is
-    // written down — the settled half is its complement. A state added to the
-    // vocabulary and to neither list would land in the settled arm silently, so the
-    // split is asserted against the parent set rather than against a copy of it.
+    // The union's arms are keyed on this split and only the sending half is listed, so it is
+    // asserted against the parent set: a state added to neither list would land in the settled
+    // arm silently.
     const sending = ATTACHMENT_INGEST_STATES.filter((state) =>
       isSendingAttachmentIngestState(state),
     );

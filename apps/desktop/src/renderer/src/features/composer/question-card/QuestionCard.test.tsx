@@ -1,10 +1,6 @@
-// The question card: the answers it sends, and what became of them.
-//
-// THE CASES READ WHAT A PERSON WOULD SEE AND WHAT THEY COULD STILL DO. A refused answer
-// once reached the screen nowhere: the typed field emptied itself on dispatch, and a run
-// blocked on an unanswered question looked like one waiting to be typed into. So the
-// delivery cases assert on the rendered controls or the rendered refusal, and the
-// answer cases on the list the card hands its mount.
+// The question card: the answers it sends, and what became of them. Delivery cases assert on
+// the rendered controls or refusal, because a refused answer once reached the screen nowhere;
+// answer cases assert on the list the card hands its mount.
 
 import { fireEvent, render, within } from "@testing-library/react";
 import { useState } from "react";
@@ -51,7 +47,6 @@ const TOKEN_QUESTION: QuestionPrompt = {
   secret: true,
 };
 
-/** One refused delivery, carrying the call's own refusal shape. */
 const REFUSED_DELIVERY: AnswerDelivery = {
   status: "refused",
   refusal: {
@@ -80,7 +75,6 @@ function renderCard(
   return container;
 }
 
-/** The card's section for the question at `index`. */
 function questionSection(container: HTMLElement, index: number): HTMLElement {
   const section = container.querySelectorAll<HTMLElement>(".meridian-input-ask__question")[index];
   if (section === undefined) {
@@ -113,11 +107,8 @@ function type(container: HTMLElement, index: number, text: string): void {
 }
 
 /**
- * The card inside a holder that owns the delivery, which is what the mount is.
- *
- * The card is controlled — it dispatches and renders what it is handed — so a case
- * about what a PRESS leaves on screen has to close that loop, or it is asserting over
- * a component that decides nothing.
+ * The card inside a holder that owns the delivery, as a mount does. The card is controlled,
+ * so a case about what a press leaves on screen has to close that loop.
  */
 function MountedWithDelivery(props: { readonly settled: AnswerDelivery }): React.JSX.Element {
   const [delivery, setDelivery] = useState<AnswerDelivery>(UNSENT_ANSWER_DELIVERY);
@@ -190,8 +181,8 @@ describe("the answers it sends", () => {
 
 describe("a secret question", () => {
   it("draws one masked field and sends its value only as a secret", () => {
-    // A `typed` answer is stored and a `secret` one is not, so a secret that left as
-    // `typed` would be written down.
+    // A `typed` answer is stored and a `secret` one is not, so a secret sent as `typed` would
+    // be written down.
     const sent: QuestionAnswer[][] = [];
     const { container } = render(
       <QuestionCard
@@ -239,9 +230,8 @@ describe("another record", () => {
 
 describe("what became of the answer", () => {
   it("keeps the person's answers on screen when the answer was refused", () => {
-    // THE DEFECT, EXERCISED. The field once cleared the instant the callback returned,
-    // so a delivery that never reached the daemon left an empty box, a blocked run, and
-    // nothing to retry from.
+    // The field once cleared the instant the callback returned, so a delivery that never
+    // reached the daemon left an empty box and nothing to retry from.
     const { container } = render(<MountedWithDelivery settled={REFUSED_DELIVERY} />);
 
     pick(container, 0, "develop");
@@ -255,8 +245,7 @@ describe("what became of the answer", () => {
   });
 
   it("leaves the controls usable after a refusal", () => {
-    // A refusal never hides the control that produced it. Without this the refusal
-    // would be readable and the retry unreachable.
+    // Without this the refusal would be readable and the retry unreachable.
     const container = renderCard({ delivery: REFUSED_DELIVERY });
     expect(fieldOf(container, 0).disabled).toBe(false);
     expect(optionRow(container, 0, "main").disabled).toBe(false);
@@ -282,8 +271,8 @@ describe("what became of the answer", () => {
   });
 
   it("negative control: a question nobody has answered says nothing about a delivery", () => {
-    // Without this, a card that always drew a delivery line would print console
-    // bookkeeping under every open question on the log.
+    // Without this, a card that always drew a delivery line would print console bookkeeping
+    // under every open question.
     const container = renderCard();
     expect(container.textContent).not.toContain("Delivering this answer.");
     expect(container.textContent).not.toContain("was delivered");

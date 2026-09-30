@@ -1,9 +1,5 @@
-// The ask reaches whoever is mounted, and nobody otherwise.
-//
-// The claim worth testing is the one a queue would break: an ask with no composer
-// mounted is DROPPED. A buffered ask replayed at the next mount moves the caret out
-// from under whatever the person started doing instead, seconds after they asked for
-// something else — which is worse than the ask doing nothing.
+// The ask reaches whoever is mounted, and nobody otherwise. An ask with no composer mounted is
+// dropped: a buffered one would move the caret out from under whatever the person moved on to.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -65,8 +61,7 @@ describe("an ask nobody is listening for", () => {
   });
 
   it("is dropped rather than replayed at the next mount", () => {
-    // The behavior a buffer would defeat: the caret must not jump into a composer
-    // that mounted after the ask, because by then the person is somewhere else.
+    // The caret must not jump into a composer that mounted after the ask.
     requestComposerFocus();
     const takeFocus = vi.fn();
     listen(takeFocus);

@@ -1,16 +1,6 @@
-// What the feed offers the palette: five acts, resolved when one is pressed.
-//
-// The chords are contributed when the window composes, long before any feed exists, so an
-// act cannot be a closure over one: it is resolved at press time against whichever
-// transcript is mounted then, and built here so the component that mounts them holds calls
-// rather than closures.
-//
-// Every act is a value over state the feed already holds: nothing below reaches a store, a
-// bridge or the DOM. Find's walk is `useTranscriptFind`'s and the scroll is the viewport
-// binding's, so the whole set can be driven by a test with no render at all.
-//
-// "Fold every finished run" never refuses: the headers are disclosures, and this
-// act folds exactly the ones a person opened.
+// The acts the feed offers the palette, resolved when one is pressed. The chords are
+// contributed before any feed exists, so an act cannot close over one; each is a value over
+// state the feed holds, so a test can drive the set with no render.
 
 import { type FindStepDirection } from "../find/find-model.js";
 import { type TranscriptFindState } from "../find/hooks/useTranscriptFind.js";
@@ -27,11 +17,9 @@ export interface TranscriptStructureActInputs {
 }
 
 /**
- * Build the acts a contributed transcript command runs.
+ * Builds the acts a contributed transcript command runs.
  *
- * Written out member by member rather than assembled from a name list, so an act added to
- * `TranscriptActs` fails to compile here instead of reaching a mounted transcript
- * through nothing.
+ * Written member by member, so an act added to `TranscriptActs` fails to compile here.
  */
 export function buildTranscriptStructureActs(inputs: TranscriptStructureActInputs): TranscriptActs {
   const stepAndJump = (direction: FindStepDirection): void => {

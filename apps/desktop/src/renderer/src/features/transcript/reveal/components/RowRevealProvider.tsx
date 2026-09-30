@@ -1,10 +1,7 @@
-// The reveal engine's published text, reachable from a row body.
-//
-// A context rather than a prop on the row renderer: its props carry what the list decides
-// about a row (hue, supersession, density), and live text is not a property of a row's
-// position in a list. The channel published here is stable; each row reads its own lane
-// through `useSyncExternalStore`, so a drained frame that moved other lanes re-renders
-// nothing in this one.
+// The reveal engine's published text, reachable from a row body through a context rather than a
+// prop: row props carry what the list decides about a row, and live text is not that. The
+// channel is stable and each row reads its own lane through `useSyncExternalStore`, so a drained
+// frame that moved other lanes re-renders nothing here.
 
 import { createContext, type Context } from "react";
 

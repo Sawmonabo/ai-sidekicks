@@ -1,4 +1,4 @@
-// The sent-message history's claim: a recall walk never eats a draft.
+// A recall walk never eats a draft.
 
 import { describe, expect, it } from "vitest";
 
@@ -15,7 +15,7 @@ describe("recall walks sent messages and gives the draft back", () => {
     expect(history.recallOlder("half-written")).toBe("first");
     expect(history.isRecalling).toBe(true);
     expect(history.recallNewer()).toBe("second");
-    // The claim that matters: the person's own text, not the message walked past.
+    // The person's own text, not the message walked past.
     expect(history.recallNewer()).toBe("half-written");
     expect(history.isRecalling).toBe(false);
   });
@@ -27,8 +27,7 @@ describe("recall walks sent messages and gives the draft back", () => {
 
     history.recordSent("only one");
     expect(history.recallOlder("draft")).toBe("only one");
-    // The negative control: a second step past the end must decline rather than
-    // wrapping round, which would silently replace the draft with the same message.
+    // A second step past the end must decline, not wrap and replace the draft.
     expect(history.recallOlder("draft")).toBeUndefined();
   });
 
@@ -57,9 +56,7 @@ describe("recall walks sent messages and gives the draft back", () => {
   });
 
   it("recalls the message verbatim, so walking back and sending again sends the same bytes", () => {
-    // The list used to store a trimmed copy, which put the router's own defect one
-    // ArrowUp away: the send went out with the indentation and the recall gave it
-    // back without.
+    // A trimmed copy would drop the indentation the router preserved on send.
     const history = new SentMessageHistory();
     const indented = "  if (ready) {\n    ship();\n  }\n\n";
     history.recordSent(indented);
@@ -73,8 +70,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
     const histories = new SentMessageHistories();
     histories.forAddress("first").recordSent("written for the first");
 
-    // The defect this closes: one history for the mounted bar handed the second
-    // address the first one's user-authored text on ArrowUp.
+    // One history for the whole bar would hand the second address the first one's text.
     expect(histories.forAddress("second").recallOlder("")).toBeUndefined();
     expect(histories.forAddress("first").recallOlder("")).toBe("written for the first");
   });
@@ -87,8 +83,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
     histories.forAddress("second");
     const returned = histories.forAddress("first");
 
-    // Walking is a gesture within one line: coming back cannot land mid-walk, so the
-    // stashed draft is not restorable and the walk starts again from the newest.
+    // Coming back cannot land mid-walk, so the stashed draft is not restorable.
     expect(returned.isRecalling).toBe(false);
     expect(returned.recallNewer()).toBeUndefined();
     expect(returned.recallOlder("")).toBe("written for the first");
@@ -101,8 +96,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
     }
 
     expect(histories.retainedAddressCount).toBe(COMPOSER_RETAINED_ADDRESS_CAP);
-    // The oldest address is gone; the newest is intact. The negative control for the
-    // eviction ORDER: dropping the most recent instead would pass a size assertion.
+    // Dropping the most recent instead would pass a size assertion, so the order is checked.
     expect(histories.forAddress("address 0").recallOlder("")).toBeUndefined();
     expect(
       histories.forAddress(`address ${String(COMPOSER_RETAINED_ADDRESS_CAP)}`).recallOlder(""),
@@ -110,8 +104,7 @@ describe("histories are per address, so a walk never crosses a rebinding", () =>
   });
 
   it("re-addressing an address it already holds does not disturb its walk", () => {
-    // Asked on every render, so it has to be idempotent: a re-ask that reset the
-    // cursor would make ArrowUp unable to reach past the newest message.
+    // Asked on every render; a re-ask that reset the cursor would block ArrowUp past the newest.
     const histories = new SentMessageHistories();
     histories.forAddress("first").recordSent("older");
     histories.forAddress("first").recordSent("newer");

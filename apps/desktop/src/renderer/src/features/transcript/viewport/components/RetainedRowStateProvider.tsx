@@ -1,13 +1,8 @@
 // The retained row state's write channel, reachable from a row body.
-//
-// The virtualizer mounts only the visible range, so a row's own `useState` dies the moment
-// it scrolls out; a row asks the window to remember its state instead, and a prune re-parks
-// it under a synthetic key rather than dropping it. A context rather than a prop on the row
-// renderer: its props carry what the list decides for a row, and widening them would make
-// every row owner implement a write path. Reads do not come through here: the feed overlays
-// the retained state onto the density it hands the row renderer, so the list stays the one
-// answer to
-// "is this row open".
+// The virtualizer mounts only the visible range, so a row's own `useState` dies when it scrolls
+// out; a row asks the window to remember its state instead, and a prune re-parks it under a
+// synthetic key. A context, not a row-renderer prop, so row owners need no write path. Reads
+// do not come through here: the feed overlays retained state onto the density it hands the row.
 
 import { createContext, type Context } from "react";
 

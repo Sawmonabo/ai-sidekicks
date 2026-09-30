@@ -1,14 +1,6 @@
-// Reconciling a pick against a served answer, in the four states a dialog reaches.
-//
-// EVERY CASE HERE IS A DISAGREEMENT A SPLIT READING WOULD PRODUCE. If the picker read the
-// served answer and the verdict read the form, each arm below names a state where the two
-// would say different things: a default the picker drew and the form never held, a pick
-// the served answer had withdrawn, and a pick nothing was answering about at all.
-//
-// THE TWO ABSENCES ARE THE HARDEST PART, and each has its own negative control: an
-// answer naming NO choices withdraws a pick, and NO answer at all cannot confirm one.
-// Folding them together would either send an id the session has dropped or refuse one
-// it still holds.
+// Reconciling a pick against a served answer, in the four states a dialog reaches. Each arm is
+// a disagreement a split reading would produce; the two absences (an answer naming no choices
+// withdraws a pick, no answer cannot confirm one) each have a negative control.
 
 import { describe, expect, it } from "vitest";
 
@@ -48,8 +40,7 @@ describe("resolveServedSelection — no pick, and a default to stand in", () => 
   });
 
   it("negative control: a default outside the served set resolves nothing", () => {
-    // A reply that disagrees with itself must not have one half of it believed here: a
-    // default the picker would draw as unavailable is not a choice this form may send.
+    // A default the picker would draw as unavailable is not a choice this form may send.
     const selection = resolveServedSelection({
       chosen: undefined,
       servedChoices: ["choice-only"],
@@ -80,8 +71,7 @@ describe("resolveServedSelection — a pick the served answer has withdrawn", ()
   });
 
   it("does not quietly fall back to the default, which would send a different choice", () => {
-    // The failure this exists to refuse: a refresh that removed the picked choice would
-    // otherwise hand the act whichever choice happened to be the default.
+    // A refresh that removed the picked choice must not hand the act the default instead.
     const selection = resolveServedSelection({
       chosen: "choice-b",
       servedChoices: ["choice-a"],
@@ -91,8 +81,7 @@ describe("resolveServedSelection — a pick the served answer has withdrawn", ()
   });
 
   it("an answer naming no choices at all withdraws the pick", () => {
-    // A read that answered with an empty set HAS answered — a mount that admits no
-    // mode — so a pick made against the previous answer is gone.
+    // An empty set is an answer (a mount that admits no mode), so the earlier pick is gone.
     const selection = resolveServedSelection({
       chosen: "choice-a",
       servedChoices: [],
@@ -104,8 +93,7 @@ describe("resolveServedSelection — a pick the served answer has withdrawn", ()
 
 describe("resolveServedSelection — nothing being served to check against", () => {
   it("holds the pick unconfirmed rather than calling it withdrawn", () => {
-    // Different fact, different sentence: a read that has not answered cannot say the
-    // choice is gone, and a control shut with that reason under it would be lying.
+    // A read that has not answered cannot say the choice is gone.
     const selection = resolveServedSelection({
       chosen: "choice-a",
       servedChoices: undefined,

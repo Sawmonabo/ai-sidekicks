@@ -1,22 +1,12 @@
 /*
  * The workflows feature's shared chrome: the state strip's column, the mount point frame, and the
- * one action treatment the screen's back control and the run graph's retry control wear.
- *
- * EVERY CHUNK ROOT OF THE FEATURE IMPORTS THIS FILE, and it pulls in nothing. A rule that
- * belongs to exactly one component belongs in that component's own sheet. The absence
- * blocks are the shared components' and are not restyled here. Nothing animates: a chrome
- * that moves while a read settles draws attention to its own arrival rather than to what
- * arrived.
+ * one action treatment the screen's back control and the run graph's retry control wear. Every
+ * chunk root of the feature imports this file, and it imports nothing. Nothing animates.
  */
 
-/* ------------------------------------------------------------- state strip */
-
 /*
- * The column every workflows body is, wherever it stands.
- *
- * IT CARRIES THE INSET: `PaneFrame.css` gives `.meridian-pane__body` no padding of its
- * own, because a feed pane wants none and a form pane wants some and each body sets its
- * own in its own sheet — so a strip inside a pane insets itself.
+ * The column every workflows body is. It carries its own inset: `.meridian-pane__body` has no
+ * padding, since a feed pane wants none and a form pane wants some.
  */
 .meridian-workflow__strip {
   display: flex;
@@ -34,8 +24,8 @@
 }
 
 /*
- * A mount point is a dotted boundary rather than a filled panel, so an empty one does not
- * compete with the regions around it that hold something.
+ * A dotted boundary, not a filled panel, so an empty mount point does not compete with regions
+ * that hold something.
  */
 .meridian-workflow__mount-point {
   display: flex;
@@ -44,8 +34,6 @@
   border: 1px dashed var(--meridian-edge);
   border-radius: var(--meridian-radius-md);
 }
-
-/* ----------------------------------------------------------------- actions */
 
 .meridian-workflow__action {
   padding: var(--meridian-space-1) var(--meridian-space-3);

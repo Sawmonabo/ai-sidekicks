@@ -1,12 +1,5 @@
-// The epoch rule, held to the reads that fail silently.
-//
-// Every case here pins something whose violation still renders: a boundary read off
-// the wrong member still draws a seam at some position. None of it throws, so each clean assertion is
-// paired with a negative control that fails when the rule is removed.
-//
-// TWO SIBLINGS DRIVE THE REST OF THIS DIRECTORY. `system-message-kinds.test.ts` drives the
-// closed table this classifies into, and `superseded-bands.test.ts` drives the other
-// half of the design's rule — superseded turns stay present but visibly past.
+// The epoch rule, held to the reads that fail silently: a boundary read off the wrong member
+// still draws a seam, so each clean assertion is paired with a negative control.
 
 import { AGENT_PROVIDER_BINDING_CHANGED_EVENT, type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -38,10 +31,8 @@ describe("seams — one row's classification", () => {
   });
 
   it("reads a compaction's boundary off the row's own run-scoped position", () => {
-    // `usage.context_compacted` names no boundary member in any registered payload,
-    // so the read that reached for one on the payload was permanently absent. The
-    // registered carrier is the run arm's `position` — the same comparand a
-    // rollback's cutoff is ranked against.
+    // `usage.context_compacted` names no boundary member in any registered payload; the carrier
+    // is the run arm's `position`, the comparand a rollback cutoff ranks against.
     const seam = classifyOne(
       runRow({
         id: "c1",
@@ -57,10 +48,8 @@ describe("seams — one row's classification", () => {
   });
 
   it("negative control: a payload member of that name is not what is read", () => {
-    // The reading the old code took. A row whose position and whose payload member
-    // disagree is what discriminates the two: over the payload read this answered
-    // 99, and over a boundary hard-coded to the position it would answer 3 either
-    // way — so the position and the decoy are deliberately different numbers.
+    // Position and payload member are deliberately different numbers: a payload read answers
+    // 99, and a boundary hard-coded to the position would answer 3 either way.
     const seam = classifyOne(
       runRow({
         id: "c1b",
@@ -90,9 +79,7 @@ describe("seams — one row's classification", () => {
       }),
     );
     expect(seam.continuity).toBe("brief");
-    // Verbatim, unknown member included: the vocabulary is widened by amendment,
-    // so a renderer that mapped the unrecognized one onto a fallback phrase would
-    // stop reporting the newest kind of loss.
+    // Verbatim, unknown member included, so a newly added kind of loss is still reported.
     expect(seam.declaredLosses).toStrictEqual([
       "turn_content_truncated",
       "a_kind_this_console_has_never_heard_of",

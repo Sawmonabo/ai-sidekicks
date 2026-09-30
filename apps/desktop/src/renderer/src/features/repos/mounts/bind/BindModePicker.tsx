@@ -1,18 +1,12 @@
-// Which execution mode a new workspace binds in, chosen from what the mount admits.
-//
-// A RADIO GROUP AND NOT A SELECT: an excluded mode carries the mount's own sentence for
-// why, and a sentence does not fit in an option label. Flattening it would leave a
-// person with modes they cannot pick and no reason given for any of them.
-//
-// EVERY MODE IS RENDERED AND THE EXCLUDED ONES ARE DISABLED, because the daemon has
-// already answered the question — `availableModes` is its answer for THIS mount — so
-// offering an excluded mode would send a request the answer on screen says will refuse.
-// The gap is stated explicitly, so the row stays with its reason rather than
-// disappearing.
+// Which execution mode a new workspace binds in, chosen from what the mount admits. A radio
+// group, not a select: an excluded mode carries the mount's own sentence for why, which does
+// not fit an option label. Every mode is rendered and excluded ones are disabled, since
+// `availableModes` is the daemon's answer for this mount.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { ExecutionModeRowReading } from "../execution-mode-rows.js";
 
+/** Props for the execution-mode picker. */
 export interface BindModePickerProps {
   readonly options: readonly ExecutionModeRowReading[];
   readonly selectedMode: string | undefined;
@@ -21,6 +15,7 @@ export interface BindModePickerProps {
   readonly onSelect: (mode: ExecutionModeRowReading["mode"]) => void;
 }
 
+/** The radio group that picks the execution mode, drawing each excluded mode with its reason. */
 export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
   return (
     <fieldset className="meridian-bind__modes">
@@ -45,14 +40,9 @@ export function BindModePicker(props: BindModePickerProps): React.JSX.Element {
             }}
           />
           <WireFigure value={option.mode} title={option.mode} />
-          {/* THE REASON IS RENDERED WHENEVER THE REPLY CARRIED ONE, available arm
-              included, exactly as `ExecutionModeRow.tsx` renders it. A mount that names a
-              mode in BOTH halves of its reply is malformed, and `execution-mode-rows.ts` offers
-              the row — the reply is the authority on what is admitted — while keeping
-              what the daemon said about it; a picker that drew the reason only on the
-              excluded arm would hide that half, which is the drift the second copy of
-              that derivation carried. The row with no reason on file says nothing
-              rather than composing a sentence the daemon did not send. */}
+          {/* The reason renders whenever the reply carried one, available arm included, as
+              `ExecutionModeRow.tsx` does. A mode named in both halves of a malformed reply is
+              offered but keeps what the daemon said about it; no reason on file says nothing. */}
           {option.restrictionReason === undefined ? null : (
             <span className="meridian-bind__mode-reason">{option.restrictionReason}</span>
           )}

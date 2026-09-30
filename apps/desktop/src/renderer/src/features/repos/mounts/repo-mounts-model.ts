@@ -1,12 +1,6 @@
-// What the repos section renders from, declared apart from the two classes that write it.
-//
-// The reading is what both the reader and the mode switch publish. A shape declared inside
-// either one would make the other import the class it collaborates with just to name the
-// value they share, which here would be a cycle.
-//
-// Each field is a different kind of nothing: `status` says whether a read was made at all,
-// and the lists and maps are empty when the read answered with none. `not-read` and an empty
-// list are not the same fact, so the two are kept apart.
+// What the repos section renders from, declared apart from the reader and the mode switch that
+// both publish it, so neither imports the other's class just to name the shared value.
+// `not-read` and an empty list are different facts: `status` says whether a read was made.
 
 import type {
   ExecutionMode,
@@ -29,28 +23,16 @@ export interface RepoMountsReading {
   readonly status: "not-read" | "reading" | "read";
   readonly mounts: readonly RepoMountReadResponse[];
   readonly workspaces: readonly RepoWorkspaceRow[];
-  /**
-   * The worktrees of every mount this session has bound, mount by mount, each in the
-   * order its read returned them.
-   */
+  /** The worktrees of every mount this session has bound, mount by mount, in read order. */
   readonly worktrees: readonly WorktreeStatusRecord[];
-  /**
-   * The instant this reading was taken, on the reader's own clock.
-   *
-   * Carried here rather than read off the wall clock by the cards that render an age,
-   * because an age moves when the section re-reads and at no other time. Zero before the
-   * first read, which no card renders against.
-   */
+  /** The instant this reading was taken, on the reader's own clock; zero before the first read. */
   readonly readAtMilliseconds: number;
   readonly capabilitiesByWorkspaceId: Readonly<
     Record<string, WorkspaceExecutionModeCapabilitiesReadResponse>
   >;
   /**
-   * Per workspace: the mode a switch is on the wire for, where one is.
-   *
-   * The mode and not a boolean, because the picker says which switch it is holding for. A
-   * workspace with no entry has nothing on the wire. Keyed per workspace because two
-   * workspaces switching are two independent mutations on two rows.
+   * Per workspace: the mode a switch is on the wire for, so the picker can say which switch it
+   * is holding for. No entry means nothing is on the wire.
    */
   readonly pendingModeByWorkspaceId: Readonly<Record<string, ExecutionMode>>;
 }

@@ -1,25 +1,7 @@
-// The transcript row's three load-bearing decisions, pinned.
-//
-// Two of them are about attribution and one is about provenance, and all three fail
-// in ways a screenshot would not catch:
-//
-//   • A hue step outside the wheel must NOT be clamped or wrapped into an occupied
-//     step. Wrapping is the obvious implementation — `step % 12` is one character
-//     — and it attributes a row to the wrong user, which is worse than
-//     attributing it to nobody. The row falls back to the neutral control boundary
-//     and says so in its class.
-//   • The edge carries the hue as a custom property rather than as a background,
-//     because a user hue never sits behind body text.
-//   • The gutter timestamp is a FORMATTED reading whose exact wire value rides the
-//     element's `title`, because no formatted figure may hide the number the daemon
-//     sent.
-//
-// And one cost claim, checked the only way a cost claim can be: by counting calls.
-// `formatClockTime` builds a fresh `Intl.DateTimeFormat` per call, and this row is
-// what every transcript view in the console is made of, so the gutter reading is
-// memoized on the instant. The suite spies the real formatter rather than a stand-in
-// — `{ spy: true }` keeps the implementation, so every other case here still reads
-// the true string.
+// The row's load-bearing decisions: attribution fails closed for a hue step off the wheel (a
+// wrap would attribute the row to the wrong user), the hue sits only on the edge, the gutter
+// keeps the exact wire instant in `title`, and each instant is formatted once. The suite spies
+// the real formatter (`{ spy: true }`), so every other case still reads the true string.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -97,13 +79,11 @@ describe("TranscriptRowLayout — attribution fails closed rather than into some
       const hue = edgeOf(row).style.getPropertyValue("--meridian-row-hue");
       expect(row.classList.contains("meridian-transcript-row-layout--unattributed")).toBe(true);
       expect(hue).toBe("var(--meridian-edge-strong)");
-      // The control that names the defect: a modulo wrap would land step 12 on
-      // step 0's hue and step 15 on step 3's, and both would still render.
+      // A modulo wrap would land step 12 on step 0's hue and step 15 on step 3's.
       expect(onWheelHues).not.toContain(hue);
     }
 
-    // ...and the on-wheel hues really are twelve distinct values, so the assertion
-    // above is checking a populated set rather than an empty one.
+    // The on-wheel hues are twelve distinct values, so the assertion above checks a populated set.
     expect(new Set(onWheelHues).size).toBe(HUE_WHEEL_STEPS);
   });
 
@@ -121,8 +101,7 @@ describe("TranscriptRowLayout — no formatted figure hides the value the daemon
     );
     expect(gutterFigure?.getAttribute("title")).toBe(OCCURRED_AT);
     expect(gutterFigure?.textContent).toBe(formatClockTime(OCCURRED_AT));
-    // The control: the visible text is a READING, so it must not be the wire value
-    // — if it were, the `title` would be decoration rather than the exact figure.
+    // The visible text is a reading, not the wire value; otherwise `title` would be decoration.
     expect(gutterFigure?.textContent).not.toBe(OCCURRED_AT);
   });
 
@@ -140,9 +119,7 @@ describe("TranscriptRowLayout — no formatted figure hides the value the daemon
     );
     expect(formatter).toHaveBeenCalledTimes(1);
 
-    // Two more paints of the SAME row, each moving something a streaming window
-    // moves — a kind label here stands for a lease write, a hover, a reveal tick —
-    // and none of them moving the instant the row is stamped with.
+    // Repaints that never move the instant, as a lease write, hover or reveal tick would not.
     for (const kindLabel of ["tool.invoked", "tool.result"]) {
       rerender(
         <TranscriptRowLayout
@@ -153,14 +130,13 @@ describe("TranscriptRowLayout — no formatted figure hides the value the daemon
         />,
       );
     }
-    // The control that the re-renders were real: the row's own text moved.
+    // Confirms the re-renders were real.
     expect(container.querySelector(".meridian-transcript-row-layout__kind")?.textContent).toBe(
       "tool.result",
     );
     expect(formatter).toHaveBeenCalledTimes(1);
 
-    // ...and the memo is keyed on the instant rather than frozen at mount, so a row
-    // whose instant moves is re-read rather than showing the moment before it.
+    // The memo is keyed on the instant, so a row whose instant moves is re-read.
     rerender(
       <TranscriptRowLayout
         agentHueStep={0}
@@ -198,9 +174,8 @@ describe("TranscriptRowLayout — superseded rows and the revealed footer", () =
   });
 
   it("renders the footer into the tree so Tab can reach it, and omits it when empty", () => {
-    // Revealed by CSS on `:hover` / `:focus-within` — which only works if the
-    // element is IN the tree while hidden. A footer conditionally mounted on hover
-    // is unreachable by keyboard, which is the failure the hover reveal must avoid.
+    // Revealed by CSS on `:hover` / `:focus-within`, so the element must be in the tree while
+    // hidden; a footer mounted on hover is unreachable by keyboard.
     const withFooter = basicRow({ footer: <button type="button">Edit</button> });
     expect(
       withFooter.querySelector(".meridian-transcript-row-layout__footer button")?.textContent,

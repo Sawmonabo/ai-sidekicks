@@ -1,9 +1,6 @@
-// Dispatch: what a served reply actually settles, and what it does not.
-//
-// A resolved call is not a successful send: `run.intervene` answers with a lifecycle
-// state that may say the run declined the message. The version kept off every
-// response is what guards the next steer, and a rejected call propagates rather than
-// being turned into a sentence.
+// Dispatch: a resolved call is not a successful send, since `run.intervene` answers with a
+// lifecycle state that may decline the message. The version kept off every response guards
+// the next steer, and a rejected call propagates.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -16,10 +13,7 @@ import {
 
 describe("ComposerSendRouter — a fulfilled intervention is not a successful send", () => {
   it("keeps the message for a steer the run rejected, and renders the daemon's cause", async () => {
-    // The finding: fulfillment was treated as success, so a normally rejected steer
-    // cleared the user's draft as if it had landed. The draft is the send
-    // bar's to clear and it clears on `sent` alone, so a refusal here is what keeps
-    // the words in the line.
+    // The draft clears on `sent` alone, so a refusal here is what keeps the words in the line.
     const call = vi
       .fn()
       .mockResolvedValue(
@@ -29,14 +23,12 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
 
     expect(outcome.status).toBe("refused");
     expect(outcome.status === "refused" && outcome.refusal.origin).toBe("daemon");
-    // The response's own machine-readable cause, in the field the console renders in
-    // mono — never a category this module invented for it.
+    // The response's own machine-readable cause, never a category this module invented.
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("run.invalid_transition");
   });
 
   it("names the lifecycle state where the response carried no cause", async () => {
-    // `rejectionReason` is optional on the steer arm, and an absent one still leaves
-    // the daemon's own word for what happened.
+    // `rejectionReason` is optional; an absent one still leaves the lifecycle state as the code.
     const call = vi.fn().mockResolvedValue(interventionResponse("expired", 11));
     const outcome = await routerWith(call).send("steer me", RUN_TARGET);
 
@@ -44,8 +36,7 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
   });
 
   it("negative control: the same call answering `applied` is a send", async () => {
-    // Without this the cases above would hold over a router that had started
-    // refusing every steer.
+    // Without this, the cases above would also pass a router that refused every steer.
     const call = vi.fn().mockResolvedValue(STEER_APPLIED);
     const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
 
@@ -53,9 +44,8 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
   });
 
   it("treats the two fallback states as sends, because the message traveled", async () => {
-    // `accepted` is the daemon's admission and `degraded` is the orchestration layer
-    // having fallen back — the transition table puts both on the path where the run
-    // takes the message, so keeping the draft would invite a duplicate steer.
+    // Both states have the run taking the message, so keeping the draft would invite a
+    // duplicate steer.
     for (const state of ["requested", "accepted", "degraded"]) {
       const call = vi.fn().mockResolvedValue(interventionResponse(state, 8));
       const outcome = await routerWith(call).send("try the other branch", RUN_TARGET);
@@ -66,10 +56,8 @@ describe("ComposerSendRouter — a fulfilled intervention is not a successful se
 
 describe("ComposerSendRouter — the next steer is guarded with the answer's own version", () => {
   it("sends the version the last intervention answered with", async () => {
-    // An applied native steer advances the run version with no state event to
-    // broadcast it, so the store's projection stays at 7 and every later steer under
-    // it would be refused as stale. The response is the only place the fresh
-    // comparand exists, and this is what keeps it.
+    // An applied native steer advances the run version with no state event, so the
+    // projection stays at 7 and only the response holds the fresh comparand.
     const call = vi.fn().mockResolvedValue(STEER_APPLIED);
     const router = routerWith(call);
 
@@ -81,8 +69,7 @@ describe("ComposerSendRouter — the next steer is guarded with the answer's own
   });
 
   it("keeps the version a refusal answered with, so the retry is guarded", async () => {
-    // The reject-re-read-retry loop, closed without a re-read: a refused
-    // intervention still answers with the run's current version.
+    // A refused intervention still answers with the run's current version.
     const call = vi
       .fn()
       .mockResolvedValueOnce(interventionResponse("expired", 12))
@@ -96,9 +83,8 @@ describe("ComposerSendRouter — the next steer is guarded with the answer's own
   });
 
   it("negative control: a projection ahead of the answer is the one that is sent", async () => {
-    // The run advances through its own state stream with no control pressed, so
-    // preferring the kept answer unconditionally would pin every later steer to the
-    // version the last settlement saw — and a refusal carries no way back.
+    // The run advances through its state stream too, so preferring the kept answer would pin
+    // every later steer to a stale version.
     const call = vi.fn().mockResolvedValue(interventionResponse("applied", 8));
     const router = routerWith(call);
 
@@ -109,9 +95,8 @@ describe("ComposerSendRouter — the next steer is guarded with the answer's own
   });
 
   it("guards a steer the store has never projected a version for", async () => {
-    // Without a projection the router refuses; with an answer kept from an earlier
-    // intervention there is a comparand, and it is a wire figure rather than a zero
-    // this module invented.
+    // Without a projection the router refuses; a comparand kept from an earlier answer is a
+    // wire figure, not an invented zero.
     const call = vi.fn().mockResolvedValue(STEER_APPLIED);
     const router = routerWith(call);
 

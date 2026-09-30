@@ -1,10 +1,7 @@
 // The tab strip: what a served frame marks, its controls, and the drop arithmetic in place.
-//
-// The drag cases here are the ones `tab-reorder.test.ts` cannot make: that file proves
-// `pageMoveIndex` computes the right number, and these prove the strip feeds it the
-// right drop position — a rightward drag, a leftward one, the trailing drop position,
-// and a drop of a payload naming a page this strip does not draw. A component that
-// passed the drop position straight through would still pass the arithmetic suite.
+// The drag cases are the ones `tab-reorder.test.ts` cannot make: they prove the strip feeds
+// `pageMoveIndex` the right drop position (rightward, leftward, trailing, and a payload naming
+// a page the strip does not draw).
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
@@ -16,14 +13,7 @@ import { PAGE_TAB_DRAG_MEDIA_TYPE } from "../tab-reorder.js";
 
 const THREE_PAGES: PageListReading = threePreviewPages();
 
-/**
- * The three handlers, typed by the props they satisfy.
- *
- * `PageTabStripProps` supplies each signature, so a mock declared against it is checked
- * against the real contract — an untyped `vi.fn()` would satisfy nothing and a handler
- * renamed on the props would leave every assertion here passing against a component
- * that no longer takes it.
- */
+/** The three handlers, typed against `PageTabStripProps` so a renamed prop breaks this suite. */
 interface StripHandlers {
   readonly onSelect: Mock<PageTabStripProps["onSelect"]>;
   readonly onClose: Mock<PageTabStripProps["onClose"]>;
@@ -95,9 +85,7 @@ describe("the tab strip's frame", () => {
       },
     });
     expect(screen.getByText("Loading")).toBeTruthy();
-    // `"page"` and not `"true"`: the strip is a set of pages and `aria-current` has a
-    // token for exactly that, which tells a screen reader WHICH kind of current this
-    // is rather than only that something is.
+    // `"page"`, not `"true"`: the strip is a set of pages and `aria-current` has a token for that.
     expect(tabFace(0).getAttribute("aria-current")).toBe("page");
   });
 
@@ -121,10 +109,8 @@ describe("the tab strip's frame", () => {
   });
 
   it("marks the selected tab with a class the stylesheet can key on", () => {
-    // `aria-current` sits on the FACE, because that is the interactive element — so a
-    // rule keyed on the tab ITEM's own `aria-current` matches nothing and the selected
-    // tab is drawn like every other one. No unit tier can see that, because no cascade
-    // runs here; what this case holds is the hook the browser tier then resolves.
+    // `aria-current` sits on the face, the interactive element, so a rule keyed on the tab item
+    // matches nothing. No unit tier runs the cascade; this holds the hook the browser tier uses.
     renderStrip(THREE_PAGES);
     expect(tabAt(0).className).toContain("meridian-preview-tab--selected");
     expect(tabAt(1).className).not.toContain("meridian-preview-tab--selected");

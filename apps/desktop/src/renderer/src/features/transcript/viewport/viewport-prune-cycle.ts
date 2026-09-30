@@ -1,31 +1,12 @@
-// The transcript window's cap cycle: one prune, asked with every condition that can
-// refuse it, and the re-ask a refusal owes.
+// The window's cap cycle: one prune asked with every condition that can refuse it, and the
+// re-ask a refusal owes.
 //
-// WHY THIS IS ITS OWN OBJECT. `viewport-controller.ts` is the wiring — it owns the
-// four objects, decides when each is asked anything, and tells the tree what
-// changed. Applying the cap is a different job with its own state: the conditions
-// the last pass was asked with, the outcome it produced, and the rule that says
-// whether a refusal has since lifted. That state is read by nothing else and is
-// exactly what a re-ask must not invent, so it lives beside the pass that produces
-// it rather than among the controller's fields.
-//
-// WHAT IT DOES NOT DECIDE. Not which rows exist — the window holds those, and the
-// controller reads them back after a pass. Not where the reader is — the anchor
-// decides that, and this object only ASKS it: for the floor the drop may not walk
-// past, for the rows the reader is engaged with, and for whether a pin or a hold it
-// was refused for is gone. And not what the tree is told: a pass changes the window
-// and this object notifies nobody, which is what keeps the controller's single
-// publication point single.
-//
-// THE COMPENSATION IS HERE BECAUSE THE CYCLE IS WHAT INCURRED IT. Dropping rows
-// above the fold moves every offset below them, and the number of pixels owed is
-// known only to the pass that took them. The controller decides WHEN to pay it —
-// after the row set it holds has been rebuilt, so a glide's own geometry sample
-// never wakes a subscriber against a stale key list.
-//
-// Its cases are `viewport-controller.test.ts`': the cycle is driven through
-// `reconcile` and `retryDeferredPrune` and through nothing else, so driving it
-// apart from the controller would be driving a stand-in for the caller.
+// The state a re-ask needs (last conditions, outcome, held set) lives beside the pass that
+// produces it, not among the controller's fields. The cycle asks the anchor for the floor, the
+// held rows and whether a pin is gone, and notifies nobody, which keeps the controller's
+// publication point single. It owns the compensation for pruned height because only the pass
+// knows how many pixels it took; the controller decides when to pay it, after the row set is
+// rebuilt, so a glide's geometry sample never wakes a subscriber against stale keys.
 
 import { IdleMemoryTrim, type IdleTrimPass } from "./idle-trim.js";
 import { type ReadingAnchor } from "../scroll/reading-anchor.js";
@@ -39,13 +20,14 @@ import {
   type PruneOutcome,
 } from "./window-cap.js";
 
+/** Collaborators of a `ViewportPruneCycle`. */
 export interface ViewportPruneCycleOptions {
   readonly window: TranscriptWindow;
   readonly measurements: RowMeasurementTable;
   readonly anchor: ReadingAnchor;
   readonly scroll: ScrollController;
   readonly clock: Clock;
-  /** Overridden by tests only; `frame-bounds.ts` owns the shipped dwell. */
+  /** Overridden by tests only; `viewport-constants.ts` owns the shipped dwell. */
   readonly idleTrimDwellMs?: number;
 }
 
@@ -57,39 +39,27 @@ export interface ViewportPruneCycleResult {
   readonly readingFloorRowKey: string | undefined;
 }
 
+/** Applies the window cap under every refusal condition and re-asks when a refusal lifts. */
 export class ViewportPruneCycle {
   readonly #window: TranscriptWindow;
   readonly #measurements: RowMeasurementTable;
   readonly #anchor: ReadingAnchor;
   readonly #scroll: ScrollController;
   /**
-   * The time bound on what a pass leaves behind.
-   *
-   * OWNED HERE BECAUSE `run` IS THE ACTIVITY SIGNAL. The trim measures a quiet
-   * transcript against the clock, and this method is called once per reconcile — the
-   * frame's own definition of the transcript having moved. Holding it in the controller
-   * would have meant a second reader of that same fact.
+   * Owned here because `run` is called once per reconcile, the frame's signal that the
+   * transcript moved; the trim measures quiet time against the clock.
    */
   readonly #idleTrim: IdleMemoryTrim;
 
   #lastOutcome: PruneOutcome | undefined;
   /**
-   * The conditions the last pass folded in, kept so a deferred prune can be
-   * re-asked with them.
-   *
-   * The surrounding feed reports these on a render, and the three of them are
-   * exactly what a re-ask must NOT invent: re-running the prune against a row set
-   * this frame made up would apply the cap to a window nobody is showing.
+   * The conditions the last pass folded in, kept so a deferred prune is re-asked with them; a
+   * re-ask must not invent a row set nobody is showing.
    */
   #lastConditions: ViewportConditions | undefined;
   /**
-   * The held set the last pass was run against, so `held-rows` can be answered by
-   * comparing it with the anchor's current one.
-   *
-   * The held set is not on `ViewportConditions` — the pass reads it off the
-   * anchor — so without this field the one question that refusal turns on, "is the
-   * reader still engaged with the rows that blocked the drop", has nothing to be
-   * asked against.
+   * The held set the last pass ran against. It is not on `ViewportConditions`, so `held-rows`
+   * is answered by comparing it with the anchor's current one.
    */
   #lastHeldRowKeys: readonly string[] = [];
 
@@ -117,9 +87,8 @@ export class ViewportPruneCycle {
   }
 
   /**
-   * The row the prune may not walk past, or `undefined` while following — where
-   * the tail IS the position and the frame glides back to it, so the window is
-   * free to take every row the cap allows.
+   * The row the prune may not walk past, or `undefined` while following, when the tail is the
+   * position and the cap may take every row it allows.
    */
   public readingFloorRowKey(): string | undefined {
     const reading = this.#anchor.state;
@@ -127,17 +96,11 @@ export class ViewportPruneCycle {
   }
 
   /**
-   * Take one render's rows and apply the cap to them.
-   *
-   * Order matters. Ingest first so the window knows about every row; prune second
-   * so the cap is applied to the full set. The pruned height is summed BEFORE the
-   * priors are dropped: after the loop below there is nothing left to ask how tall
-   * the pruned rows were.
+   * Ingests one render's rows, then applies the cap to the full set. The pruned height is summed
+   * before the priors are dropped, since afterwards nothing can say how tall those rows were.
    */
   public run(conditions: ViewportConditions): ViewportPruneCycleResult {
-    // Before anything else: the transcript has moved. If it had been still for a dwell,
-    // this is where the trim runs — the end of the quiet period, which is the moment
-    // the tables it walks are known to be stale.
+    // The transcript moved: if it was still for a dwell, the idle trim runs now.
     this.#idleTrim.noteActivity();
     this.#lastConditions = conditions;
     const readingFloorRowKey = this.readingFloorRowKey();
@@ -164,14 +127,11 @@ export class ViewportPruneCycle {
   }
 
   /**
-   * Move the offset up by exactly what the pass took from above the reader.
+   * Moves the offset up by exactly what the pass took from above the reader.
    *
-   * Arithmetic rather than a second anchor glide: React has not re-rendered yet, so
-   * the virtualizer still answers in the pre-prune offset space. What was dropped is
-   * known exactly and the reading floor guarantees every pixel of it sat above the
-   * reader, so subtracting the sum leaves their row under the same pixel with no
-   * measurement read at all. Returns whether the offset moved, so the caller can
-   * fall back to the anchor glide when there was nothing or nowhere to compensate.
+   * Arithmetic, not an anchor glide: React has not re-rendered, so the virtualizer still answers
+   * in pre-prune offsets, and the reading floor guarantees the dropped pixels sat above the
+   * reader. Returns whether the offset moved, so the caller can fall back to the anchor glide.
    */
   public compensateForPrunedHeight(prunedHeightPx: number): boolean {
     const currentScrollTopPx = this.#scroll.geometry?.scrollTop;
@@ -186,27 +146,11 @@ export class ViewportPruneCycle {
   /**
    * The conditions a re-ask is owed with, or `undefined` when nothing is owed.
    *
-   * WHY A SECOND ENTRY POINT AND NOT A WIDER RECONCILE. A pass is driven by the
-   * three conditions the surrounding feed reports — the row set, the turn
-   * activity, the reveal drain — and four of the seven refusals below are conditions
-   * NONE of those three carry: a reader above the tail, a pin, a programmatic write
-   * in flight, and a held row are facts about this frame. A window left over its cap
-   * by one of them therefore stayed over cap until the log happened to change, which
-   * on an idle session is never — the reader came back to the tail and the rows the
-   * cap had already refused to take stayed in memory indefinitely.
-   *
-   * IT READS `owedBecause` AND NOT `deferredBecause`, which is the difference
-   * between closing that failure and closing half of it. A pass that stops at the
-   * reader's floor having already taken rows is APPLIED and still over its cap, so
-   * it names no deferral at all — and read through `deferredBecause` it reported
-   * nothing owed and was re-asked by nobody, which is the same indefinite residency
-   * in the case the floor makes most likely.
-   *
-   * Answers `undefined` cheaply when nothing is owed: a window inside its cap, or
-   * one still held by the condition that refused it, reports nothing — which is what
-   * lets the binding ask on a reading transition without checking anything first,
-   * and is also what keeps the re-ask from spinning, since a residual whose blocker
-   * has not lifted answers `undefined` however many times it is asked.
+   * A second entry point because a reader above the tail, a pin, a programmatic write and a held
+   * row are facts about this frame that the feed's conditions do not carry; without it the window
+   * stays over cap until the log changes. Reads `owedBecause`, not `deferredBecause`: a pass that
+   * applied but stopped at the reading floor still over cap names no deferral. Answers
+   * `undefined` cheaply and cannot spin while the blocker stands.
    */
   public owedConditions(): ViewportConditions | undefined {
     const conditions = this.#lastConditions;
@@ -217,40 +161,20 @@ export class ViewportPruneCycle {
     return this.#deferralHasCleared(owedBecause) ? conditions : undefined;
   }
 
-  /**
-   * Drop the hold on the last row set.
-   *
-   * Called from the controller's teardown: a disposed frame that kept it would hold
-   * a whole window's identity list alive for as long as anything still referenced
-   * the corpse. The idle trim beside it needs nothing here — it arms no work, so
-   * there is none to cancel.
-   */
+  /** Drops the hold on the last row set on teardown, so a disposed frame keeps nothing alive. */
   public forgetConditions(): void {
     this.#lastConditions = undefined;
     this.#lastHeldRowKeys = [];
   }
 
   /**
-   * Whether the condition that refused the last pass is gone.
+   * Whether the condition that refused the last pass is gone. Total over
+   * `PRUNE_DEFERRAL_REASONS`, so a new reason is a compile error until classified.
    *
-   * TOTAL over `PRUNE_DEFERRAL_REASONS`, so a reason `window-cap.ts` registers is a
-   * compile error here until it is classified — which is the point: the failure this
-   * method exists to prevent is a refusal nobody re-asks about, and a new refusal
-   * that silently fell through to "never retry" would be exactly that failure again.
-   *
-   * THE THREE ARMS THAT ANSWER `false` ARE NOT UNOBSERVABLE, THEY ARE ALREADY
-   * OBSERVED. `under-cap` is not a refusal to retry at all — the window is within
-   * its cap and there is nothing owed. `active-turn` and `reveal-drain` are read
-   * straight off `ViewportConditions`, so the feed that reports them
-   * re-runs the pass the moment either changes; retrying them here would be a
-   * second reader of one fact, racing the first.
-   *
-   * `held-rows` is answered by COMPARING the held set rather than by asking whether
-   * it is empty: what has to have changed for a blocked walk to get further is the
-   * engagement that blocked it, and a reader who released one row and held another
-   * has changed nothing the walk can use. Comparing also makes the re-ask
-   * single-shot — the pass that follows records the set it ran against, so the same
-   * residual over the same holds answers `false` from then on.
+   * `under-cap` owes nothing, and the feed already re-runs the pass when `active-turn` or
+   * `reveal-drain` changes, so those answer `false`. `held-rows` compares the held set rather
+   * than testing for empty: only a changed engagement helps a blocked walk, and comparing makes
+   * the re-ask single-shot.
    */
   #deferralHasCleared(owedBecause: PruneDeferralReason): boolean {
     switch (owedBecause) {
@@ -271,12 +195,8 @@ export class ViewportPruneCycle {
 }
 
 /**
- * Whether two held-row readings name the same rows, order ignored.
- *
- * Order is ignored because the anchor's held set is a `Map`'s key order and a
- * re-hold moves a key without changing which rows are engaged; the walk reads the
- * set through a `Set`, so a reordering is invisible to it and must be invisible
- * here too or the re-ask would fire on a fact the prune cannot use.
+ * Whether two held-row readings name the same rows, ignoring order: the walk reads the set
+ * through a `Set`, so a reordering must not trigger a re-ask.
  */
 function sameRowKeySet(left: readonly string[], right: readonly string[]): boolean {
   if (left.length !== right.length) {

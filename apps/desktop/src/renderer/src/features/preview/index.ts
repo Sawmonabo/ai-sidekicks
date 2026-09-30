@@ -1,3 +1,3 @@
-// The preview feature's public entry: the registrations `app/` calls.
+// The preview feature's public entry: the registration `app/` calls.
 
 export { registerPreviewPanes } from "./contributions/panes.js";

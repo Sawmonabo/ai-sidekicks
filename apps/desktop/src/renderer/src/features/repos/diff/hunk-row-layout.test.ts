@@ -34,8 +34,8 @@ describe("hunk body layout — unified is the identity, and holds no array", () 
   });
 
   it("holds nothing per line, whatever the hunk's size", () => {
-    // The allocation the finding is about: a five-thousand-line hunk in unified mode
-    // used to become five thousand objects describing an arithmetic sequence.
+    // A five-thousand-line unified hunk must not become five thousand objects describing an
+    // arithmetic sequence.
     const wide = Array.from({ length: 5_000 }, (_unused, index) =>
       line("context", `line ${String(index)}`),
     );

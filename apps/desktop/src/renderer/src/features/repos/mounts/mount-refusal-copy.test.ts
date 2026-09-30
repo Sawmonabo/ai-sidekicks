@@ -1,8 +1,4 @@
-// The repo mounts' refusal copy: one move per code, and the three-way distinction.
-//
-// EVERY CASE HERE FAILS WITHOUT THE TABLE. Without it the recovery field on the repo
-// mounts' refusal shapes is empty, so a person meeting `repo.already_attached` reads the
-// code and nothing else.
+// The repo mounts' refusal copy: one move per code, and the reuse conflict's three-way distinction.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,8 +16,8 @@ describe("mountRefusalRemedy — every registered code has a move", () => {
   });
 
   it("negative control: a code the repo mounts do not own gets nothing invented for it", () => {
-    // The console must not answer a refusal it has no copy for with a generic
-    // sentence: the daemon's own detail is then the only true thing on screen.
+    // The console must not answer a refusal it has no copy for with a generic sentence: the
+    // daemon's own detail is then the only true thing on screen.
     expect(mountRefusalRemedy("session.not_found")).toBeUndefined();
   });
 
@@ -37,10 +33,8 @@ describe("mountRefusalRemedy — already attached routes to the mount that exist
   it("says the repository is already on the session and where to find it", () => {
     const recovery = mountRefusalRemedy("repo.already_attached");
     expect(recovery?.nextMove).toContain("already attached");
-    // NOT a link and NOT a mount id: the refusal carries neither, and comparing paths
-    // in the renderer is exactly what the trust envelope reserves to the daemon. The
-    // move sends a person to the mount that already holds the repository
-    // rather than fabricating a route to a row.
+    // Not a link or a mount id: the refusal carries neither, and comparing paths is the
+    // daemon's job. The move points at the mount that already holds the repository.
     expect(recovery?.nextMove).toContain("the mount that already holds it");
   });
 });

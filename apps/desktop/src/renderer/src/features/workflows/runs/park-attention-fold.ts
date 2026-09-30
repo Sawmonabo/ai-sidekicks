@@ -1,52 +1,17 @@
-// The park attention fold: what a set of parked runs reads as, once the ones waiting
-// on the same thing are counted together.
-//
-// WHY A FOLD EXISTS AT ALL. A provider account that has spent its window parks every
-// run dispatching against it, and the engine says so by stamping each of those parked
-// phases with the same `parkAttentionKey`. Drawn one entry per run that is one fact
-// reported N times — six lines saying the same account is out of capacity, none of
-// them saying it is one account. The engine mints the key for exactly this, and until
-// this module nothing read it: the key reached `WorkflowParkedPhase`, traveled
-// through the projection, and stopped.
-//
-// THE FOLD IS OVER PARKED PHASES AND THE COUNT IS OVER RUNS. Those are two different
-// collections and conflating them is the easy defect here: a run whose fan-out parked
-// two branches against one account contributes two parked phases and ONE affected
-// run, and an entry reporting "2 runs affected" for a single run would be a number an
-// operator cannot reconcile with the list under it. `affectedRunCount` is therefore
-// the size of a set of run ids, never a length of anything else.
-//
-// A SET THAT IS NOT UNIFORMLY KEYED NEVER FOLDS, AND THE UNKEYED PARK IS NOT DROPPED.
-// The engine computes a key only where it can correlate the wait; where it cannot,
-// the member is absent. Such a park takes an entry of its own — the run it belongs to
-// surfaces on its own terms — so the fold FAILS OPEN toward more entries rather than
-// fewer. The opposite disposition, folding unkeyed parks together under some "no key"
-// bucket, would invent a correlation the engine declined to state.
-//
-// THE FOLD GATES NOTHING. It is a reading for a person, not an input to a control:
-// cancel, resume, re-pin and start are the daemon's adjudications and an attention
-// entry never suppresses, delays, or enables one. Nor does it notify — the run list
-// mints no OS notification; whether one is raised is decided by notifications, not by
-// a run list.
-//
-// ORDER IS FIRST ENCOUNTER OVER ROWS THE PROJECTION ALREADY SORTED. The rows arrive
-// newest first, so walking them gives a stable order with no second comparator to
-// disagree with the first — and an entry folding three runs sits where its FIRST run
-// sits, which is the one an operator scanning the list meets first.
+// The park attention fold: parked runs waiting on the same thing, counted together. The engine
+// stamps each phase parked against one provider account with the same `parkAttentionKey`; drawn
+// per run that would be one fact reported N times. The fold is over parked phases but the count
+// is over runs: `affectedRunCount` is the size of a set of run ids, so a run parking two branches
+// on one account counts once. A park with no key (the engine could not correlate it) takes its
+// own entry; the fold fails open toward more entries. It gates and notifies nothing. Order is
+// first encounter over rows the projection already sorted newest first.
 
 import type { WorkflowParkedPhase, WorkflowParkReason } from "./run-list-rows.js";
 import { parkAwaitsPerson } from "./run-list-rows.js";
 
 /**
- * One line of the run list's attention list: either a correlated wait, or one park the engine
- * could not correlate.
- *
- * TWO ARMS RATHER THAN ONE SHAPE WITH AN OPTIONAL KEY, because the two are different
- * things to draw and different things to count. A folded entry is about a shared
- * cause and names it; an uncorrelated entry is about one phase of one run and names
- * those. A single shape carrying `parkAttentionKey?` would leave every reader to
- * re-derive which of the two it was holding — the discriminator defect
- * `run-list-rows.ts` records for the park members themselves.
+ * One line of the run list's attention list: a correlated wait, or one park the engine could not
+ * correlate. Two arms, not an optional key, so no reader re-derives which one it holds.
  */
 export type WorkflowParkAttentionEntry = WorkflowFoldedParks | WorkflowUncorrelatedPark;
 
@@ -55,31 +20,16 @@ export interface WorkflowFoldedParks {
   readonly kind: "folded";
   /** The engine's own correlation key. An opaque wire value, rendered verbatim. */
   readonly parkAttentionKey: string;
-  /**
-   * How many distinct RUNS this entry stands for. Never a count of phases.
-   *
-   * One run parking two branches against one account is one affected run, and the
-   * list under this entry will show it once — so a phase count here would be a figure
-   * contradicted by the rows beside it.
-   */
+  /** How many distinct runs this entry stands for; never a count of phases. */
   readonly affectedRunCount: number;
   /**
-   * The park reasons folded here, distinct and in first-encounter order.
-   *
-   * Carried rather than assumed: the key is minted for provider-capacity waits in
-   * practice, but the wire admits it on any parked phase, and a list that hard-coded
-   * one reason would mislabel the day the engine correlates the other. A reader
-   * naming the reasons reads them off this.
+   * The park reasons folded here, distinct and in first-encounter order. Carried, not assumed:
+   * the wire admits the key on any parked phase.
    */
   readonly parkReasons: readonly WorkflowParkReason[];
   /**
-   * True when any park in this fold ends only when a person ends it.
-   *
-   * ANY rather than ALL, which is the fail-closed direction: an entry standing for
-   * six waits, one of which needs somebody, needs somebody. The per-park reading is
-   * `parkAwaitsPerson`'s and is not remade here — the badge, the phase node and this
-   * entry all spend amber on the same answer, which is what keeps any two of them from
-   * disagreeing about one phase.
+   * True when any park in this fold ends only when a person ends it. Any, not all: one wait that
+   * needs somebody means the entry does. The per-park reading is `parkAwaitsPerson`'s.
    */
   readonly awaitsPerson: boolean;
 }
@@ -98,22 +48,15 @@ export interface WorkflowRunParks {
 }
 
 /**
- * Every live park, folded where the engine correlated it and standing alone where it
- * did not.
- *
- * Takes the runs' parked phases rather than whole snapshots, on
- * `projectParkedPhases`' reason one module over: what this needs is a run's identity
- * and its live parks, and demanding a snapshot would make a caller holding neither
- * build one.
+ * Every live park, folded where the engine correlated it and standing alone where it did not.
+ * Takes parked phases rather than snapshots, as `projectParkedPhases` does.
  */
 export function foldParkAttention(
   runParks: readonly WorkflowRunParks[],
 ): readonly WorkflowParkAttentionEntry[] {
   const accumulatorsByKey = new Map<string, ParkAttentionAccumulator>();
-  // One pending entry per line, in first-encounter order. A fold's pending entry is
-  // its ACCUMULATOR rather than its key, so the settling pass below needs no second
-  // lookup and has no absent case to answer for — a key pushed here is a key already in
-  // the map, and a `Map.get` there would have made that invariant something to re-check.
+  // Pending entries in first-encounter order; a fold's entry is its accumulator, so settling
+  // needs no second map lookup.
   const pendingEntries: (WorkflowUncorrelatedPark | ParkAttentionAccumulator)[] = [];
   for (const { workflowRunId, parkedPhases } of runParks) {
     for (const parked of parkedPhases) {
@@ -131,20 +74,15 @@ export function foldParkAttention(
       accumulator.admit(workflowRunId, parked);
     }
   }
-  // Settled only once every park has been admitted, so an entry's count is the whole
-  // fold rather than however much of it had been walked when its entry was placed.
+  // Settled after every park is admitted, so a count is the whole fold.
   return pendingEntries.map((pending) =>
     pending instanceof ParkAttentionAccumulator ? pending.settle() : pending,
   );
 }
 
 /**
- * Accumulates one key's fold while the walk is in progress.
- *
- * A class rather than a mutable literal because the invariant — distinct runs,
- * distinct reasons, and the disjunction over `awaitsPerson` — is what this holds, and
- * a literal updated at the call site is where the run set silently becomes a counter
- * that double-counts a two-branch fan-out.
+ * Accumulates one key's fold during the walk. A class so the run set stays a set and cannot
+ * become a counter that double-counts a two-branch fan-out.
  */
 class ParkAttentionAccumulator {
   readonly #parkAttentionKey: string;

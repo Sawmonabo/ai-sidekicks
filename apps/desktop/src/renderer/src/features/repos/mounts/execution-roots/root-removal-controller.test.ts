@@ -11,15 +11,12 @@ import {
   type RootRemovalRecorder,
 } from "./root-removal-controller.js";
 
-/** The roots the scripted daemon answers for. */
 const WORKTREE_ID = "worktree-reviewer";
 
-/** The daemon: the call records the transition and answers `retired`. */
 const SCRIPTED_DAEMON: RootRemovalOperations = {
   retireWorktree: ({ worktreeId }) => Promise.resolve({ worktreeId, state: "retired" }),
 };
 
-/** A recorder that keeps every reading it was given, in order. */
 class ReadingLog implements RootRemovalRecorder {
   public readonly readings: RootRemovalReading[] = [];
 
@@ -50,8 +47,8 @@ describe("RootRemovalController — the removal", () => {
   });
 
   it("asks for the ordinary removal, never the discard", async () => {
-    // The discard belongs to its own confirm. This one sends the ordinary removal, which
-    // the daemon refuses when the tree changed since its risks were read.
+    // The discard has its own confirm. The ordinary removal is refused by the daemon when the
+    // tree changed since its risks were read.
     const requests: WorktreeRetireRequest[] = [];
     const { controller } = open(WORKTREE_ID, {
       retireWorktree: (request) => {
@@ -64,8 +61,7 @@ describe("RootRemovalController — the removal", () => {
   });
 
   it("reports the send before it reports the answer", async () => {
-    // Both moments reach the recorder: a confirmation with no in-flight state would look
-    // unresponsive for the length of the call.
+    // A confirmation with no in-flight state would look unresponsive for the length of the call.
     const { controller, log } = open(WORKTREE_ID);
     await controller.send();
     expect(log.readings.map((reading) => reading.status)).toStrictEqual(["sending", "settled"]);

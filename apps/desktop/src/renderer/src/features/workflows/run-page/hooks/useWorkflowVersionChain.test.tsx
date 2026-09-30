@@ -1,5 +1,5 @@
-// What the chain read offers a picker: what the read ANSWERED, in the order it arrived
-// with the pin marked by comparison, and nothing when no pin names a version.
+// What the chain read offers a picker: what the read answered, in arrival order with the pin
+// marked by comparison, and nothing when no pin names a version.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi, type Mock } from "vitest";
@@ -12,7 +12,7 @@ import {
   type WorkflowVersionChainReadCall,
 } from "./useWorkflowVersionChain.js";
 
-/** The pin every case reads for, and the chain the call answers with. */
+/** The pin every case reads for; the call answers with `ANSWERED_CHAIN`. */
 const PINNED_VERSION = "wfv-03";
 
 const ANSWERED_CHAIN: readonly WorkflowVersionChainEntry[] = [
@@ -130,8 +130,8 @@ describe("the chain before an answer exists", () => {
     await settle();
 
     expect(observed.latest()).toStrictEqual([]);
-    // A question never put, not an answer of none: a read against a made-up id would ask
-    // about a version nobody named.
+    // A question never put, not an answer of none: a read against a made-up id would ask about
+    // a version nobody named.
     expect(readChain).not.toHaveBeenCalled();
   });
 });

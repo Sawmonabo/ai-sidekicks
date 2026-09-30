@@ -1,7 +1,4 @@
-// The artifact card, and its registration.
-//
-// The registration is checked here rather than in the registry's own suite, which says
-// nothing about which feature registers which card.
+// The artifact card, and its registration into the inline card registry.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -54,14 +51,13 @@ describe("inline artifact card — the registration", () => {
   });
 
   it("negative control: an empty registry answers nothing", () => {
-    // Without this, the two cases above would pass over a registry that answered from
-    // somewhere else entirely, and the registration call would be doing nothing.
+    // Without this the cases above would pass over a registry that answered from elsewhere.
     expect(new InlineCardRegistry().bodyFor("artifact")).toBeUndefined();
   });
 
   it("writes the registry it is given and never the process-wide one", () => {
-    // The registrar closes over no singleton. A body that reached one would render
-    // correctly in every case above and still leak into the running console.
+    // A body that reached the process-wide registry would render correctly above and still
+    // leak into the running console.
     fill();
     expect(inlineCardRegistry.registeredCardKinds()).toStrictEqual([]);
   });

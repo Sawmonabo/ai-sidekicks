@@ -1,15 +1,6 @@
-// The repository calls a component in this feature is handed, named once.
-//
-// A component takes its calls as an argument and reaches for no bridge to make them: the
-// mount reader, the mode switch, and the attach, bind, prepare and retire controllers all
-// send what they are given, and a test hands them stubs. A call answers the response
-// itself; a rejection propagates to whoever made the call.
-//
-// The reads take an abort signal and the acts deliberately do not. A read is asked by a
-// view that may go away before the answer lands, so the signal lets the call stop. An
-// act records something, and one that reached the daemon has happened: abandoning the
-// console's half of it would leave a person looking at a view that says it did not
-// occur while the daemon's own transition says it did.
+// The repository calls a component is handed, named once so a test hands stubs. The reads take
+// an abort signal and the acts do not: a view may go away before a read lands, but an act that
+// reached the daemon has happened, and abandoning it would leave the view saying it did not.
 
 import type {
   ExecutionMode,

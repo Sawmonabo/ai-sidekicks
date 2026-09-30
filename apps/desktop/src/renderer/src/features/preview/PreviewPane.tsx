@@ -1,8 +1,5 @@
-// The pane layout's browser pane: the body the registry mounts for the `browser` kind.
-//
-// It draws the pane layout's frame and an empty body. The tab strip, the address field and the
-// page viewport are `PreviewPaneContent.tsx`, which takes the page readings, the page acts
-// and a view host as arguments.
+// The browser pane the registry mounts for the `browser` kind. The tab strip, address field and
+// page viewport are in `PreviewPaneContent.tsx`.
 
 import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
 import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";

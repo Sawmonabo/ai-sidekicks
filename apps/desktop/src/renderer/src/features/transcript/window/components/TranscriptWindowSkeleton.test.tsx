@@ -1,8 +1,6 @@
-// The window's skeleton rows, held to the two facts the store carries.
-//
-// Every case drives a REAL store rather than a stubbed reading: the claim is that the
-// pane follows `initialized` and `degradedCause`, and a fixture that published those
-// two names itself would pass over a component reading neither.
+// Drives a real store, not a stub: the claim is that the skeleton follows `initialized` and
+// `degradedCause`, and a fixture that published those itself would pass over a component reading
+// neither.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -35,10 +33,8 @@ describe("before the first read lands", () => {
 
 describe("when the first read itself failed", () => {
   it("draws no skeleton rows for a read that is already over", () => {
-    // `OpenSessionEntry` marks `read-failed` when the first read is refused or
-    // rejects, and leaves the store uninitialized — so a pane that asked
-    // "initialized?" alone drew twelve `aria-busy` skeleton rows for as long as the
-    // failure stood.
+    // A failed first read leaves the store uninitialized with `read-failed` standing; the
+    // skeleton must not stay up over a read that is over.
     const sessionStore = openStore();
     sessionStore.markReadFailed();
 

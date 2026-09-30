@@ -16,8 +16,8 @@ describe("OpenDiffControl", () => {
   });
 
   it("negative control: two rows on one card are told apart by name and not by position", () => {
-    // A mount with three workspaces draws three of these, and a name of "Changes"
-    // alone would be three identical controls to anyone reading by accessible name.
+    // A mount with three workspaces draws three of these; "Changes" alone would name all
+    // three identically.
     const { getByLabelText } = render(
       <>
         <OpenDiffControl subject={WORKSPACE} onOpenDiff={() => undefined} />

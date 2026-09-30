@@ -1,13 +1,5 @@
-// The mount every suite in this directory that drives a whole form runs its cases through.
-//
-// HOISTED ON THE SECOND SUITE, not written twice, and READ BY EVERY ONE SINCE — the three
-// that split out of `SchemaForm.test.tsx` (the leaf controls, the group fieldset, and
-// where a description and a finding are attached), the collection field list's, and the raw
-// editor's. A count of them is deliberately not written here: the number moves every time
-// a cluster earns its own file, which is the one thing this module is indifferent to. What
-// each of them needs is the same thing — one schema, mounted through the real hook, with
-// the composed answer and the real report readable beside the markup. A second copy of
-// that mount would have been two answers to what a form under test IS.
+// The mount every whole-form suite in this directory runs its cases through: one schema
+// through the real hook, with the composed answer and the real report readable beside it.
 
 import { fireEvent, render, screen, within } from "@testing-library/react";
 
@@ -17,23 +9,16 @@ import { resolveSchemaValidatorCompiler } from "../hooks/useSchemaForm.test-supp
 import { settle } from "@test/helpers/settle.js";
 import { useSchemaForm } from "../hooks/useSchemaForm.js";
 
-/** Where the form below writes the answer the controls composed, for a case to read. */
+/** Where the form writes the answer the controls composed. */
 const COMPOSED_ANSWER_CLASS = "composed-answer";
 
-/** Where the form writes what the schema actually said, so a case can walk the report. */
+/** Where the form writes the report's sentences. */
 const REPORTED_ISSUES_CLASS = "reported-issues";
 
 /**
- * The form, mounted over one schema through its own hook.
- *
- * It writes the composed answer out beside the controls, because the value a submission
- * would carry is the only thing that settles what a control MEANT: a select that looks
- * right and reports `undefined` renders identically to one that reports a member.
- *
- * And it writes the report's own sentences out for the same reason one level up: whether
- * a finding reached a person is a question about the report and the DOM together, and a
- * case that listed the expected sentences by hand would pass over a report that had grown
- * a fourth one nothing drew.
+ * The form mounted over one schema through its own hook. It writes out the composed answer
+ * (only that settles what a control meant) and the report's sentences, so a case can find a
+ * finding nothing drew.
  */
 export function SchemaFormWithReadout(props: { readonly inputSchema: unknown }): React.JSX.Element {
   const form = useSchemaForm(props.inputSchema);
@@ -49,18 +34,10 @@ export function SchemaFormWithReadout(props: { readonly inputSchema: unknown }):
 }
 
 /**
- * Render one schema's form, let its compiler land, and hand back the container.
- *
- * THE WAIT IS PART OF THE MOUNT, because the form opens in two steps: the controls the
- * mapper drew are on screen immediately, and the schema compiler arrives on its own chunk
- * — so a container read straight after `render` holds a form with no verdict in it, and
- * every case in this directory is about a verdict or about a control that carries one.
- * What happens INSIDE that window is `use-schema-form.compiler.test.tsx`'s subject and is
- * reached through its own unsettled mount.
- *
- * AND THE WAIT IS THE CHUNK'S OWN, taken from the mount beside this one rather than
- * restated: a settle alone crosses one macrotask and races the first `import()` in a
- * file's registry, which `use-schema-form.test-support.tsx` states in full.
+ * Render one schema's form and wait for its compiler chunk, so the container holds a verdict.
+ * The wait is `resolveSchemaValidatorCompiler`'s: a bare `settle` races the first `import()`
+ * (`useSchemaForm.test-support.tsx`). The window before the verdict is
+ * `useSchemaForm.compiler.test.tsx`'s subject.
  */
 export async function renderForm(inputSchema: unknown): Promise<HTMLElement> {
   await resolveSchemaValidatorCompiler();
@@ -69,37 +46,33 @@ export async function renderForm(inputSchema: unknown): Promise<HTMLElement> {
   return container;
 }
 
-/** The answer the drawn controls have composed so far, read back as a value. */
+/** The answer the drawn controls have composed so far. */
 export function composedAnswer(container: HTMLElement): unknown {
   return JSON.parse(container.querySelector(`.${COMPOSED_ANSWER_CLASS}`)?.textContent ?? "null");
 }
 
-/** Every sentence the schema reported about this answer, read off the real report. */
+/** Every sentence the schema reported about this answer. */
 export function reportedIssueTexts(container: HTMLElement): readonly string[] {
   return JSON.parse(
     container.querySelector(`.${REPORTED_ISSUES_CLASS}`)?.textContent ?? "[]",
   ) as readonly string[];
 }
 
-/** Every sentence the form actually drew, wherever on the form it drew it. */
+/** Every sentence the form drew, wherever it drew it. */
 export function renderedIssueTexts(container: HTMLElement): readonly string[] {
   return [...container.querySelectorAll(".meridian-schema-field__issues li")].map(
     (entry) => entry.textContent ?? "",
   );
 }
 
-/** The findings block the form drew about the whole answer, rather than about a member. */
+/** The findings block about the whole answer, rather than about a member. */
 export function rootIssuesElement(container: HTMLElement): Element | null {
   return container.querySelector(".meridian-schema-form > .meridian-schema-field__issues");
 }
 
 /**
- * The fieldset one collection drew, which is what a case scopes a query to.
- *
- * Scoped rather than global, because the control that answers an optional container reads
- * the same on a collection's legend as on a group's — one component draws both — so a
- * form holding either beside the other offers two buttons of that name and a global query
- * would press whichever came first.
+ * The fieldset one collection drew, to scope queries: the activation button reads the same
+ * on a list's legend as on a group's, so a global query would press whichever came first.
  */
 export function listFieldset(container: HTMLElement): HTMLElement {
   const fieldset = container.querySelector(".meridian-schema-list");
@@ -110,13 +83,8 @@ export function listFieldset(container: HTMLElement): HTMLElement {
 }
 
 /**
- * Answer every optional collection this form drew.
- *
- * What a case ABOUT ENTRIES needs before there are any: an optional collection opens
- * unanswered and draws no entry controls at all, so a case about how a row is named or
- * where its finding lands has to say it is answering the collection first. Pressed through
- * the real control under its real label rather than by reaching into the draft, because
- * the control is the only way a person reaches that state.
+ * Answer every optional collection this form drew, through the real control. An optional
+ * collection opens unanswered and draws no entry controls until then.
  */
 export function answerEveryCollection(container: HTMLElement): void {
   for (const fieldset of container.querySelectorAll(".meridian-schema-list")) {
@@ -130,13 +98,7 @@ export function answerEveryCollection(container: HTMLElement): void {
   }
 }
 
-/**
- * Press the control that adds one entry to the named collection.
- *
- * Named rather than "the only list", because the add control's accessible name carries
- * its collection now: a helper that reached for a fixed one would be a helper that only
- * works on forms with one list, which is the shape the name exists to distinguish.
- */
+/** Press the add control of the named collection; its accessible name carries the label. */
 export function addListEntry(collectionLabel: string): void {
   fireEvent.click(screen.getByRole("button", { name: `Add an entry to ${collectionLabel}` }));
 }

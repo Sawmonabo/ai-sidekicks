@@ -1,16 +1,10 @@
-// A registered run-control row dispatches through the render that is ON SCREEN.
+// A registered run-control row dispatches through the render that is on screen.
 //
-// The rows are memoized on what they SAY, so the run list, the comparand source
-// and the caller's own dispatcher are all read through a ref when a person presses
-// Enter. That makes WHERE the ref is written the safety property: a pass React
-// discards has already run this hook, and a pass discarded while the caller was being
-// re-addressed to another session or another bridge carries that dispatch state —
-// latch, idempotency keys and all. If the discarded pass could write the ref, the row
-// still on screen would dispatch through a dispatch state nobody is looking at.
-//
-// Driven through a real transition that suspends, and asserted while the pass is still
-// abandoned: a case that let the tree recover first would pass over the defect,
-// because the recovering render writes the committed value back.
+// Rows read the run list, comparand source and dispatcher through a ref, so where the ref is
+// written is the safety property: a pass React discards must not write it, or the row on screen
+// would dispatch through a dispatch state nobody is looking at. Driven through a suspending
+// transition and asserted while the pass is still abandoned, since a recovering render writes
+// the committed value back.
 
 import { render } from "@testing-library/react";
 import { useMemo, useState } from "react";
@@ -34,11 +28,8 @@ const PAUSE_COMMAND_ID = `runs.pause.${TARGET_RUN}`;
 const CAPABLE = capabilityReadout([["claude", []]], [[TARGET_RUN, "claude"]]);
 
 /**
- * The hook under a tree that can re-address and suspend in one transition.
- *
- * The two dispatch states are the case's, handed in as props: what the assertion needs is
- * which of them the registered row dispatched through, and one minted inside the tree
- * would be a fresh identity on every pass rather than two distinguishable ones.
+ * The hook under a tree that can re-address and suspend in one transition. The two dispatch
+ * states are props, since one minted inside the tree would be a fresh identity every pass.
  */
 function ReaddressableRunCommandContributor(props: {
   readonly committedDispatchState: RunControlDispatchState;
@@ -84,9 +75,8 @@ describe("the run-control palette rows dispatch through the committed render", (
     });
     commandRegistry.get(PAUSE_COMMAND_ID)?.run();
 
-    // The rows say the same thing in both passes, so the command object never
-    // changed — only which dispatch state it would reach. Dispatching through the abandoned
-    // one would mint an idempotency key on a latch no live render holds.
+    // The rows say the same thing in both passes, so the command never changed, only which
+    // dispatch state it would reach.
     expect(abandoned.calls).toStrictEqual([]);
     expect(committed.calls).toStrictEqual<readonly RecordedRunControlCall[]>([
       { verb: "pause", runId: TARGET_RUN, expectedRunVersion: 7 },
@@ -94,8 +84,7 @@ describe("the run-control palette rows dispatch through the committed render", (
   });
 
   it("negative control: a committed re-address DOES move the row onto the new dispatch state", async () => {
-    // Without this the case above would pass over a hook that ignored its input
-    // entirely, or over a driver whose transition never re-ran this component at all.
+    // Without this the case above would pass over a hook that ignored its input.
     const committed = recordingRunControlDispatch();
     const later = recordingRunControlDispatch();
     const readdress: { current: (() => void) | undefined } = { current: undefined };
@@ -107,8 +96,8 @@ describe("the run-control palette rows dispatch through the committed render", (
       />,
     );
 
-    // The same re-address, committed rather than abandoned: no transition and no
-    // suspension, so React keeps the pass.
+    // The same re-address, committed rather than abandoned: no suspension, so React keeps the
+    // pass.
     rerender(
       <ReaddressableRunCommandContributor
         committedDispatchState={later.dispatchState}

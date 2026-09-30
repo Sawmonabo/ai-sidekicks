@@ -1,7 +1,5 @@
-// A page tab's icon slot: a turning mark while the page loads, else the page's own
-// icon, else nothing. The icon arrives as the image's bytes, so it is drawn from a
-// `data:` address and nothing is fetched. Styled by `PageTabStrip.css`, which the strip
-// imports.
+// A page tab's icon slot: a spinner while the page loads, else the page's favicon, else nothing.
+// The favicon arrives as bytes and is drawn from a `data:` address, so nothing is fetched.
 
 import type { PreviewPage } from "@ai-sidekicks/contracts";
 

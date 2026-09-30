@@ -1,13 +1,7 @@
-// Four lanes streaming at once, on a clock that only moves when told to.
-//
-// `ManualClock` is the instrument, not a convenience: the budget claim the engine
-// makes is "nothing is armed when nothing is streaming", and `pendingCount` is the
-// only way to check that rather than assert it. Every case that ends settled ends
-// with that count at zero.
-//
-// A lane that FAILED a transition is `reveal-engine.quarantine.test.ts`': what the
-// engine does with a smoother that threw, what such a lane goes on costing, and what
-// it takes to get it back.
+// Four lanes streaming at once, on a clock that only moves when told to. `ManualClock` is the
+// instrument: the budget claim is "nothing is armed when nothing is streaming", which
+// `pendingCount` checks. A lane that failed a transition is covered by
+// `reveal-engine.quarantine.test.ts`.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -21,9 +15,8 @@ import { RevealEngine } from "./reveal-engine.js";
 import type { RevealDiagnostic, RevealFrame } from "./reveal-model.js";
 
 function engineOn(clock: ManualClock): RevealEngine {
-  // The engine no longer arms its own frame: every drain is submitted to the frame
-  // coordinator's phase two, so `clock.runFrame()` here runs the coordinator's frame
-  // and the coordinator runs the drain. What `pendingCount` measures is unchanged.
+  // Every drain is submitted to the frame coordinator's second phase, so `clock.runFrame()` runs
+  // the coordinator's frame and the coordinator runs the drain.
   return new RevealEngine({ frameCoordinator: new AnimationFrameCoordinator({ clock }) });
 }
 
@@ -80,10 +73,8 @@ describe("the reveal engine — the frame budget", () => {
   });
 
   it("has its drain series retired when the coordinator that keyed it is disposed", () => {
-    // The engine's key is composed out of the coordinator's identity, so the
-    // coordinator's dispose is what closes it — one owner for one key. Left open, a
-    // feed's drain series outlives the feed, and the registry's bound then counts
-    // engines this renderer has ever mounted rather than the ones it is drawing.
+    // The engine's key is composed from the coordinator's identity, so the coordinator's dispose
+    // closes it. Left open, a feed's drain series would outlive the feed.
     const clock = new ManualClock();
     const frameCoordinator = new AnimationFrameCoordinator({ clock });
     const engine = new RevealEngine({ frameCoordinator });
@@ -182,10 +173,8 @@ describe("the reveal engine — four lanes", () => {
   });
 
   it("clears the catch-up mark once the lane it was behind has finished", () => {
-    // Catching up is a fact about an ALLOCATION, not a badge a lane keeps: it means
-    // this lane took another lane's unspent share this frame. Once the short lane
-    // has settled there is nobody to take a share from, so the mark clears even
-    // though the long lane still has as much text left as it did a frame ago.
+    // Catching up is a fact about an allocation: this lane took another lane's unspent share
+    // this frame. Once the short lane settles there is nobody to take from, so the mark clears.
     const clock = new ManualClock();
     const engine = engineOn(clock);
     engine.ingest({ laneId: "fast", mode: "direct", text: prose(10) });
@@ -232,16 +221,14 @@ describe("the reveal engine — the visible text never regresses", () => {
   });
 
   it("never leaves a published prefix ending on half a character", () => {
-    // The budget is spent as a UTF-16 code-unit count, so an emoji-dense lane is
-    // where a frame boundary falls inside a character. Reading the lead half alone
-    // would put a replacement glyph on screen for one frame — a flicker the reveal
-    // gate cannot catch, because a lone surrogate is not one of its volatile
-    // characters.
+    // The budget is spent as a UTF-16 code-unit count, so an emoji-dense lane puts a frame
+    // boundary inside a character. The gate cannot catch a lone surrogate (it is not one of its
+    // volatile characters), so the engine must.
     const clock = new ManualClock();
     const engine = engineOn(clock);
     const grinningFace = "😀";
     const leadUnit = grinningFace.slice(0, 1);
-    // One leading letter, so the frame's even code-unit budget lands INSIDE a pair
+    // One leading letter, so the frame's even code-unit budget lands inside a pair
     // rather than tidily between two of them.
     const emojiLane = `a${grinningFace.repeat(REVEAL_FRAME_CHARACTER_BUDGET)}`;
     engine.ingest({ laneId: "lane-1", mode: "direct", text: emojiLane });
@@ -278,9 +265,8 @@ describe("the reveal engine — the visible text never regresses", () => {
     expect(diagnostics.map((diagnostic) => diagnostic.kind)).toStrictEqual([
       "out-of-band-source-change",
     ]);
-    // Re-based on what the two sources agree on, not on how much had been
-    // published: holding the LENGTH would have swapped "started at noon" for
-    // "failed to start, " in one frame with no budget spent.
+    // Rebased on what the two sources agree on, not on the published length, which would swap
+    // "started at noon" for "failed to start, " in one frame with no budget spent.
     expect(engine.publishedText("lane-1")).toBe("The run ");
     expect(diagnostics[0]?.detail).toContain("8 characters both sources agree on");
     expect(diagnostics[0]?.detail).toContain("15 characters were retracted");
@@ -290,8 +276,7 @@ describe("the reveal engine — the visible text never regresses", () => {
   });
 
   it("keeps the agreed prefix when the rewrite is SHORTER than what was published", () => {
-    // Clamping to `min(publishedLength, sourceLength)` truncated the visible text
-    // here — the one case the published-text contract says cannot happen silently.
+    // Clamping to `min(publishedLength, sourceLength)` would truncate the visible text here.
     const clock = new ManualClock();
     const engine = engineOn(clock);
     const diagnostics: RevealDiagnostic[] = [];
@@ -318,7 +303,7 @@ describe("the reveal engine — the visible text never regresses", () => {
     expect(engine.publishedText("lane-1").length).toBeGreaterThan(sharedCharacterCount);
 
     // Same length, diverging at character 40: the case where holding the published
-    // LENGTH would have looked correct and shown different characters.
+    // length would have looked correct and shown different characters.
     const rewritten =
       prose(sharedCharacterCount) + prose(original.length - sharedCharacterCount).toUpperCase();
     expect(rewritten).toHaveLength(original.length);
@@ -358,8 +343,8 @@ describe("the reveal engine — the visible text never regresses", () => {
   });
 
   it("negative control: the same lane WOULD have reached the budget without the gate", () => {
-    // Prose with no markdown in it publishes the whole frame budget, so the 478
-    // above is the gate withholding rather than the engine running short.
+    // Prose with no markdown publishes the whole frame budget, so the 478 above is the gate
+    // withholding rather than the engine running short.
     const clock = new ManualClock();
     const engine = engineOn(clock);
     engine.ingest({ laneId: "lane-1", mode: "direct", text: prose(580) });

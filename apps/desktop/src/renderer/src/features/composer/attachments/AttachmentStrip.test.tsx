@@ -39,16 +39,13 @@ describe("the composer's attachment strip", () => {
     );
     const strip = container.querySelector(".meridian-composer-attachments");
     expect(strip?.textContent).toContain("notes.md");
-    // The running count against the bound, which is a figure and never a gate.
+    // A figure, never a gate.
     expect(strip?.textContent).toContain("1 of 10 attached");
   });
 
   it("carries its name on an element that can hold one", () => {
-    // A `div` is `generic`, and naming a generic element names nothing, so an
-    // `aria-label` on one reaches no assistive technology. A landmark takes it, and the
-    // strip is one, a standing region beside the message line. The accessibility tier
-    // cannot stand in for this case: `aria-prohibited-attr` is outside the WCAG A/AA tag
-    // set that tier runs.
+    // `aria-label` on a generic `div` reaches no assistive technology. The accessibility tier
+    // cannot stand in: `aria-prohibited-attr` is outside the WCAG A/AA tag set it runs.
     const { container } = render(
       <AttachmentStrip
         stagedAttachments={bindingHolding([sendingEntry("ingesting")])}

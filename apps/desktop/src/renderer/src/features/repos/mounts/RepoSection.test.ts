@@ -1,10 +1,5 @@
-// What the section's one read burst puts on screen.
-//
-// The cases here drive the real section over scripted daemon calls, because the claim worth
-// checking is that the daemon's answer reaches the screen.
-//
-// The controls the section and its rows carry are `RepoSection.controls.test.ts`, beside
-// this file.
+// What the section's one read burst puts on screen, driving the real section over scripted
+// daemon calls. The controls are in `RepoSection.controls.test.ts`.
 
 import { within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -20,18 +15,15 @@ describe("RepoSection — the mounts this session actually holds", () => {
     await section.advanceUntil(() => {
       expect(section.container.querySelectorAll(MOUNT_CARD_SELECTOR)).toHaveLength(3);
     });
-    // Health is the axis only `repo.mountRead` carries, and it is the one that decides
-    // whether the sidebar opens this section at all. One card of each verdict — the
-    // whole of `RepoMountHealth.status` — so every rendering is reachable from one
-    // session rather than two of three being unreachable from any.
+    // Health is the axis only `repo.mountRead` carries. One card of each verdict, the whole of
+    // `RepoMountHealth.status`, so every rendering is reachable from one session.
     const [healthy, unreachable, drifted] = [
       ...section.container.querySelectorAll(MOUNT_CARD_SELECTOR),
     ];
     expect(within(healthy as HTMLElement).getByText("healthy")).toBeDefined();
     expect(within(unreachable as HTMLElement).getByText("unreachable")).toBeDefined();
     expect(within(drifted as HTMLElement).getByText("identity_mismatch")).toBeDefined();
-    // Each card names the root it is about, so the three are three mounts rather than
-    // one mount drawn three times.
+    // Each card names its root, so the three are three mounts rather than one drawn thrice.
     const labels = [healthy, unreachable, drifted].map((card) => card?.getAttribute("aria-label"));
     expect(new Set(labels).size).toBe(3);
   });

@@ -1,21 +1,9 @@
-// What the viewport draws, and what it refuses to mount.
-//
-// WHAT IS ASSERTED HERE AND WHAT IS NOT. `happy-dom` answers zero for every
-// geometry read, which `vitest.config.ts` already says out loud about the browser
-// tier: "a reading-anchor or scroll-monotonicity assertion under it would pass
-// vacuously". So the geometry-dependent states — the tail pill's appearance, the
-// anchor holding a position across an append — are asserted where they can be
-// driven honestly, in `reading-anchor.test.ts` and `viewport-controller.test.ts`,
-// and this file asserts what a DOM shim can answer truthfully: that the feed is
-// named, that only a slice of the log is in the document, that the two degradations
-// are reported, and that a settled viewport has no timer armed.
-//
-// The one thing the shim is asked to stand in for is the LAYOUT ENGINE, not a module
-// under test: a viewport of zero height makes the virtualizer's own range empty by
-// construction, so `withLaidOutViewport` gives the scroll container a height. Every
-// module in the assertion path — the viewport, the controller, the chokepoint, the
-// measurement ledger, and the real `@tanstack/react-virtual` instance — is the
-// shipped one.
+// What the viewport draws and refuses to mount. `happy-dom` answers zero for every geometry
+// read, so geometry-dependent states (the tail pill, the anchor holding across an append) are
+// asserted in `reading-anchor.test.ts` and `viewport-controller.test.ts`. Here: the feed is
+// named, only a slice of the log is in the document, the two degradations are reported, and a
+// settled viewport has no timer armed. `withLaidOutViewport` stands in for the layout engine
+// only; every module in the assertion path is the shipped one.
 
 import { act, render, screen } from "@testing-library/react";
 import { useEffect } from "react";
@@ -35,11 +23,8 @@ const LAID_OUT_VIEWPORT_HEIGHT_PX = 400;
 const LAID_OUT_CONTENT_HEIGHT_PX = 10_000;
 
 /**
- * Give every element a viewport height, for the length of one case.
- *
- * `happy-dom` reports zero for `clientHeight`, and the virtualizer treats a zero
- * outer size as "no range at all" — so without this the window would be empty for a
- * reason that has nothing to do with the code under test.
+ * Give every element a viewport height for one case: `happy-dom` reports zero, and the
+ * virtualizer treats a zero outer size as no range at all.
  */
 function withLaidOutViewport(): void {
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(
@@ -48,12 +33,8 @@ function withLaidOutViewport(): void {
 }
 
 /**
- * Give the box content taller than itself, for the length of one case.
- *
- * Separate from the layout stub above because the chokepoint clamps every write to
- * `scrollHeight - clientHeight`: without this a scroll assertion passes over a
- * transcript that could not have moved, and with it every case would pay for a
- * geometry only the two scroll cases read.
+ * Give the box content taller than itself for one case. Separate from the layout stub because
+ * the chokepoint clamps writes to `scrollHeight - clientHeight`; only the scroll cases pay for it.
  */
 function withScrollableContent(): void {
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(
@@ -61,7 +42,6 @@ function withScrollableContent(): void {
   );
 }
 
-/** Somewhere for a case to keep the binding the harness minted. */
 interface BindingHolder {
   binding: TranscriptViewportBinding | undefined;
 }
@@ -80,12 +60,8 @@ interface BoundTranscriptViewportProps {
 }
 
 /**
- * The composition every caller of the viewport performs: mint one binding, hand it
- * down.
- *
- * The harness exists because the viewport no longer mints its own — which is the
- * property under test — so a case that rendered it bare would be asserting against
- * a component that cannot be rendered at all.
+ * The composition every viewport caller performs: mint one binding, hand it down. The viewport
+ * does not mint its own, so rendering it bare would assert against an unrenderable component.
  */
 function BoundTranscriptViewport(props: BoundTranscriptViewportProps): React.JSX.Element {
   const binding = useTranscriptViewport({
@@ -119,10 +95,9 @@ interface DetachedBindingProps {
 }
 
 /**
- * A viewport, and beside it a binding nobody handed to it.
- *
- * The shape the viewport must not have: one binding held by the surrounding feed for
- * the find walk, and a second one — the viewport's own — holding the element. The case below acts on the held one and watches the element not move.
+ * A viewport, and beside it a binding nobody handed to it: the shape the viewport must not
+ * have (a second binding holding the element). The case below acts on the held one and
+ * watches the element not move.
  */
 function DetachedBindingBeside(props: DetachedBindingProps): React.JSX.Element {
   const detachedBinding = useTranscriptViewport({
@@ -179,10 +154,8 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("negative control: every row IS reachable — the log itself is not truncated", () => {
-    // Without this the case above would pass over a viewport that rendered one row
-    // and dropped the rest of the session on the floor. The sizer carries the whole
-    // log's height, and every mounted row names the index it stands for, so the rows
-    // that are not in the document are addressable rather than gone.
+    // Without this the case above would pass over a viewport that dropped the rest of the
+    // session. The sizer carries the whole log's height and each mounted row names its index.
     withLaidOutViewport();
     const rows = syntheticRows(LONG_LOG_ROW_COUNT);
     const { container } = render(
@@ -216,9 +189,7 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("says nothing about an empty session while its first read is in flight", () => {
-    // The pane draws twelve skeleton rows during this window. The empty sentence
-    // rendered above them said the session was empty at the one moment nobody could
-    // know that — two statements about one screen, and this is the false one.
+    // The pane draws skeleton rows in this window; the empty sentence above them would be false.
     render(
       <BoundTranscriptViewport
         clock={new ManualClock()}
@@ -232,9 +203,8 @@ describe("the transcript viewport — the feed", () => {
   });
 
   it("speaks the moment the read lands, without waiting for a row", () => {
-    // The other arm, and the reason the gate is on the READ rather than on a delay:
-    // a settled read over an empty log is exactly when the sentence is true, and a
-    // window that stayed silent then would leave a genuinely empty session blank.
+    // The gate is on the read, not a delay: a settled read over an empty log is exactly when
+    // the sentence is true.
     const { rerender } = render(
       <BoundTranscriptViewport
         clock={new ManualClock()}
@@ -267,8 +237,7 @@ describe("the transcript viewport — the feed", () => {
         feedLabel="Transcript"
       />,
     );
-    // Row measurements coalesce onto one frame; past that a viewport nobody is
-    // streaming into holds nothing armed at all.
+    // Row measurements coalesce onto one frame; after that a quiet viewport holds nothing armed.
     for (let pass = 0; pass < 4; pass += 1) {
       clock.runFrame();
     }
@@ -312,8 +281,7 @@ describe("the transcript viewport — the feed", () => {
         feedLabel="Transcript"
       />,
     );
-    // Degraded, never discarded: BOTH rows are in the document under keys of their
-    // own. Sharing the key would have left one row where the projection sent two,
+    // Both rows are in the document under keys of their own; a shared key would leave one,
     // because the library's caches are keyed by item key.
     expect(container.querySelectorAll(".meridian-transcript-viewport__row")).toHaveLength(2);
   });
@@ -338,14 +306,12 @@ describe("the transcript viewport — the feed", () => {
     act(() => {
       holder.binding?.jumpToTail();
     });
-    // The caller's binding reaches the element the caller can see, because the viewport
-    // takes its binding as a prop rather than holding a second one nobody else can name.
+    // The caller's binding reaches the element because the viewport takes it as a prop.
     expect(scrollContainer?.scrollTop).toBeGreaterThan(0);
   });
 
   it("negative control: a binding the viewport was not handed scrolls nothing", () => {
-    // The assertion above is only worth having if an unattached binding is visibly
-    // inert — which is exactly what a second `useTranscriptViewport` beside the tree is.
+    // Only meaningful if an unattached binding is visibly inert, like a second hook.
     withLaidOutViewport();
     withScrollableContent();
     const detachedHolder: BindingHolder = { binding: undefined };

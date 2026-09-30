@@ -1,9 +1,5 @@
-// The classifier decides once — so these cases are about the ONE table.
-//
-// The failure this guards against is drift: a glyph table and a layout table that agree
-// until somebody adds a kind to one of them. Every case here reads the classifier's
-// own answer rather than a per-field lookup, which is what makes the drift unrepresentable
-// rather than merely unlikely.
+// Cases about the one classifier table: each reads the classifier's own answer rather than a
+// per-field lookup, so the glyph, label and layout cannot drift apart.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -48,8 +44,7 @@ describe("the row kind classifier", () => {
   });
 
   it("negative control: a near-miss type is NOT absorbed by a prefix", () => {
-    // Without this, a `startsWith("tool.")` implementation would pass every case above
-    // and silently give an unreviewed future type the tool layout.
+    // Without this, a `startsWith("tool.")` implementation would pass every case above.
     expect(classifyTranscriptRow(sampleRunRow({ type: "tool.rehearsed" }))).toBeUndefined();
     expect(classifyTranscriptRow(sampleRunRow({ type: "assistant.message.v2" }))).toBeUndefined();
   });
@@ -71,8 +66,8 @@ describe("the row kind classifier", () => {
   });
 
   it("classifies from the type alone — never from the tool's name", () => {
-    // The wire declares no tool kind, so reading one out of the name would be the
-    // console asserting a fact the daemon never sent.
+    // The wire declares no tool kind, so reading one out of the name would assert a fact the
+    // daemon never sent.
     const bash = classifyTranscriptRow(
       sampleRunRow({ type: "tool.result", payload: { toolName: "Bash" } }),
     );
@@ -105,9 +100,7 @@ describe("the tool result state", () => {
   });
 
   it("negative control: an unread body is not reported as unavailable", () => {
-    // `undefined` means nobody asked for the body; `unavailable` means somebody asked
-    // and it could not be read. Collapsing the two would put a failure on every
-    // collapsed row in the log.
+    // `undefined` means nobody asked for the body; `unavailable` means it could not be read.
     expect(toolResultState("tool.result", undefined)).toBe("ok");
     expect(toolResultState("tool.result", undefined)).not.toBe("body-unavailable");
   });
