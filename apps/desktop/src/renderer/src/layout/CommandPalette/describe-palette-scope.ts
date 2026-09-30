@@ -1,12 +1,8 @@
-// The palette's scoped-context row: what a command would act on if run now.
+// The palette's scope row: what a command acts on if run now.
 
 import type { AppRoute } from "@renderer/routing/routes.js";
 
-/**
- * Name what the palette's commands act on for `route`.
- *
- * A palette listing "Interrupt the run" without naming which run invites a mistake.
- */
+/** Names what the palette's commands act on for `route`, so "Interrupt the run" is unambiguous. */
 export function describePaletteScope(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":

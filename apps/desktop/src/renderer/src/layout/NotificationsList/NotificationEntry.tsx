@@ -4,27 +4,11 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatDateTime } from "@renderer/lib/wire-figures.js";
 
 /**
- * One item.
- *
- * Rendered as a button when the caller supplied a way to open it and as plain
- * text otherwise, so the console never offers a press that goes nowhere. The
- * scope reads off `runId` exactly as the projection discriminates it: an item
- * carrying one is that run's, an item without one is the session's aggregate,
- * and the console labels which without recomputing either.
- *
- * The chip reads the item's state word as the projection wrote it: `Waiting on you`,
- * `Finished`, `Failed`, or a workflow's Notify step's own text. The banner main
- * posts says the same words, so the list keeps no wording of its own for them.
- * Exactly one trigger earns red and a glyph, the one that names a failure, so the
- * two-hue rule holds: amber means a person is needed, red means something failed.
- *
- * THE INSTANT CARRIES ITS DAY. Rows are grouped by SESSION and by nothing else —
- * there is no day divider anywhere in this list — so a clock-only reading would make
- * an item raised this afternoon and one raised last Tuesday at the same minute the
- * same eight characters, separated only by a hover title a keyboard never reaches.
- * `formatDateTime` is the console's formatter for exactly that case and says so in
- * its own words; the alternative is a divider this list cannot have, because its
- * one grouping axis is already spent on the session.
+ * One attention item: a button when the caller supplied a way to open it, plain text otherwise, so
+ * the console never offers a press that goes nowhere. The scope reads off `runId` as the
+ * projection discriminates it (a run's item, or the session's aggregate). The chip shows the
+ * projection's state word verbatim; only the failure trigger takes red and a glyph. The timestamp
+ * carries its date because rows group by session, with no day divider.
  */
 export function NotificationEntry(props: {
   readonly item: AttentionItem;

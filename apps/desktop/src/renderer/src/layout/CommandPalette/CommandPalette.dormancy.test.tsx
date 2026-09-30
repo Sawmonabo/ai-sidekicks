@@ -1,16 +1,6 @@
-// A closed palette costs nothing, and an open one is acting on what it said it was.
-//
-// Two claims:
-//
-//   • The registry's search and its visible-command count ran on every render of the
-//     frame, so a palette nobody had opened re-ranked the whole command set each time
-//     the route or the command context moved.
-//   • The scope row was re-resolved on every render, so a person who read "acting on
-//     X", typed, and pressed Enter could be acting on something else.
-//
-// The counters below are the instrument for the first: a registry that RECORDS how
-// often it was asked, so "evaluates nothing while closed" is measured rather than
-// asserted.
+// A closed palette costs nothing, and an open one acts on the scope it showed. The registry
+// counters measure that a closed palette never searches, and the scope row must not follow the
+// live route while the palette is open.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,18 +19,12 @@ const CONTEXT: WhenClauseContext = {
   onSettings: false,
 };
 
-/**
- * What the palette put on the page.
- *
- * `document.body` and not the render container: `Dialog.Portal` mounts the popup
- * outside the tree `render` returns, so a case reading the container would compare
- * against an empty string and pass whatever it was asserting.
- */
+/** The page text, from `document.body` because `Dialog.Portal` mounts outside the container. */
 function paletteText(): string {
   return document.body.textContent ?? "";
 }
 
-/** The scope row's value, which is the only text the capture claim is about. */
+/** The scope row's value, the only text the capture claim is about. */
 function scopeRowText(): string {
   return document.querySelector(".command-palette__scope-value")?.textContent ?? "";
 }
@@ -90,8 +74,7 @@ describe("the palette — dormant while closed", () => {
         revision={1}
       />,
     );
-    // Re-rendered with a moved context and a bumped revision, which is exactly what
-    // the frame does as a person navigates: both used to force a fresh search.
+    // A moved context and bumped revision, as when a person navigates, must not force a search.
     rerender(
       <CommandPalette
         registry={registry}
@@ -108,8 +91,7 @@ describe("the palette — dormant while closed", () => {
   });
 
   it("asks it the moment it opens — the control", async () => {
-    // Without this, a palette that had simply stopped working would pass the case
-    // above.
+    // Without this, a palette that had stopped working would pass the case above.
     const registry = registryWithCommands();
     render(
       <CommandPalette
@@ -152,9 +134,7 @@ describe("the palette — the captured scope", () => {
       />,
     );
     await settle();
-    // The target a person read is the target they act on. Read off the scope ROW
-    // rather than the whole page, because a command's own title may legitimately
-    // contain the word a later scope label uses.
+    // Read off the scope row: a command title may contain a word a later scope label uses.
     expect(scopeRowText()).toBe("Session: refactor the projector");
   });
 

@@ -1,15 +1,6 @@
-// The rail's entry table is total, and the compiler is what makes it so.
-//
-// The table used to be an array, which enforced nothing: a fourth `RailDestination`
-// would have typechecked and rendered nowhere, and every runtime check written
-// against the array would have gone on passing because the array was internally
-// consistent with itself. So the guard being asserted here is the TYPE — a total
-// `Record` over the destination union — and the runtime cases exist to make the
-// claim readable and to fail loudly if the type is ever widened to `Partial`.
-//
-// Each positive case is paired with a control that fails the same way a real gap
-// would, because "no destination is missing" is worth nothing unless the check can
-// tell a missing one from a present one.
+// The rail's entry table is total, which the type enforces (a `Record` over the destination union);
+// the runtime cases make that readable and fail if the type is widened to `Partial`. Each positive
+// case has a control showing the check can tell a missing entry from a present one.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -23,12 +14,8 @@ import {
 } from "./NavigationRail.js";
 
 /**
- * The compile-time control.
- *
- * A table missing `settings` is not a total `Record<RailDestination, …>`, and the
- * directive below asserts exactly that: if the table's type were ever loosened, the
- * suppressed error would stop occurring and `@ts-expect-error` would itself become
- * the error. The claim cannot rot quietly in either direction.
+ * The compile-time control: a table missing `settings` is not a total `Record`, so if the type were
+ * loosened the suppressed error would stop occurring and the directive itself would fail.
  */
 // @ts-expect-error — deliberately missing `settings`; totality is the property.
 const TABLE_THE_COMPILER_REJECTS: Readonly<Record<RailDestination, RailEntryTemplate>> = {
@@ -63,8 +50,7 @@ describe("the rail's entry table — one entry per declared destination", () => 
   });
 
   it("negative control: the table the compiler rejects is short at runtime too", () => {
-    // The `@ts-expect-error` above is the real guard; this reads the same object
-    // back so the suppressed line is not merely a comment nobody executes.
+    // The `@ts-expect-error` above is the real guard; this executes the suppressed line.
     expect(destinationsWithoutEntry(TABLE_THE_COMPILER_REJECTS)).toStrictEqual(["settings"]);
   });
 
@@ -90,9 +76,7 @@ describe("NavigationRail — absent, never disabled", () => {
   });
 
   it("renders no button at all for a destination it was not handed", () => {
-    // "Absent, not disabled" is structural here rather than conditional: the rail
-    // carries no availability flag, so a destination a caller leaves out has no
-    // greyed-out shape to render and no way to acquire one.
+    // The rail has no availability flag, so a destination left out has no greyed-out shape.
     const entries = RAIL_DESTINATIONS.filter((destination) => destination !== "workflows").map(
       entryFor,
     );

@@ -1,20 +1,8 @@
 /*
- * The command palette's chrome.
- *
- * Every color here is a Meridian token (`--meridian-*`, generated from
- * `console/tokens/palette.ts`). There is no literal color in this file and there
- * must never be one: the contrast tier measures the TOKENS, and a hard-coded hex
- * would be a value the accessibility sweep cannot see.
- *
- * Motion settles, never bounces. Entrances fade with a 2 px rise
- * over `--meridian-motion-settle` (180 ms) using `@starting-style`, and nothing
- * overshoots. `prefers-reduced-motion` is collapsed to opacity globally by the
- * generated base sheet, so this file does not restate it.
- *
- * Attention is steered by LUMINANCE, not hue: a matched character is the
- * full-strength text token against a muted row, and the highlighted row sits on
- * `--meridian-surface-raised`. Amber and red appear only in the absence block,
- * where they mean what the two-hue rule says they mean.
+ * The command palette's chrome. Colors are Meridian tokens only, so the contrast tier can measure
+ * them. Entrances fade with a 2 px rise over `--meridian-motion-settle` and never overshoot;
+ * reduced motion is handled by the generated base sheet. Attention is steered by luminance: amber
+ * and red appear only in the empty-state block.
  */
 
 .command-palette__backdrop {
@@ -32,8 +20,7 @@
 
 .command-palette__popup {
   position: fixed;
-  /* Sits above center: the eye is already high on the screen when the chord is
-     pressed, and a centered dialog would drop the first result below the gaze. */
+  /* Above center, so the first result is not below the gaze. */
   top: 12vh;
   left: 50%;
   transform: translateX(-50%);
@@ -60,7 +47,7 @@
   translate: 0 2px;
 }
 
-/* The scoped-context row: what the commands below act on. */
+/* The scope row: what the commands below act on. */
 .command-palette__scope {
   display: flex;
   align-items: center;
@@ -150,16 +137,8 @@
 }
 
 /*
- * Why a listed row cannot be run, beside the row that cannot run.
- *
- * The faint treatment its sibling above uses, and no attention hue: a control that is
- * closed because the runtime is not serving is not a failure and not a person's
- * decision to make here — the banner over the frame carries the attention, and a second
- * amber inside every closed row would be the same alarm printed once per act.
- *
- * The TITLE stays at full contrast. Dimming it would make the reason harder to read
- * than the row it explains, which is backwards for the one row on the list a person is
- * being asked to read rather than press.
+ * Why a listed row cannot be run. Faint and no attention hue: the banner over the frame carries
+ * the attention. The title stays at full contrast so the reason is not harder to read than the row.
  */
 .command-palette__item-unavailable {
   flex: 0 0 auto;
@@ -167,13 +146,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/*
- * Where the chord sits. LAYOUT ONLY — the keycap itself is `ChordHint`, and this
- * rule deliberately sets nothing about how a key is drawn: the console has one
- * keycap treatment, and a chord painted here as a single string could not separate
- * the modifiers from the key, so a screen reader would read "⌘K" as "place of
- * interest sign K".
- */
+/* Where the chord sits; the keycap itself is `ChordHint`, so this sets layout only. */
 .command-palette__chord {
   display: flex;
   flex: 0 0 auto;
@@ -185,10 +158,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/*
- * The five kinds of nothing. Each absence gets its own shape because the operator's
- * next move differs for each, so no two of them collapse into one row.
- */
+/* Empty states: each absence gets its own shape because the next move differs. */
 .command-palette__empty-state {
   display: flex;
   flex-direction: column;
@@ -206,7 +176,7 @@
   color: var(--meridian-text-faint);
 }
 
-/* not loaded — a skeleton in the row's shape. */
+/* Loading: a skeleton in the row's shape. */
 .command-palette__skeleton-row {
   height: 1.25rem;
   margin: var(--meridian-space-2) var(--meridian-space-4);
@@ -222,7 +192,7 @@
   width: 54%;
 }
 
-/* error — a red-edged row carrying the code and the message verbatim. */
+/* Error: a red-edged row carrying the code and the message verbatim. */
 .command-palette__empty-state--error {
   border-left: var(--meridian-leading-edge) solid var(--meridian-red-mark);
   background: var(--meridian-red-ground);
@@ -245,7 +215,7 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* not checked — a dotted badge. */
+/* Not checked: a dotted badge. */
 .command-palette__badge {
   align-self: flex-start;
   padding: 0 var(--meridian-space-2);
@@ -256,7 +226,7 @@
   line-height: 1.6;
 }
 
-/* unknown, still computing — a badge with a clock glyph. */
+/* Still computing: a badge with a clock glyph. */
 .command-palette__badge--computing {
   border-style: solid;
   border-color: var(--meridian-amber-mark);
@@ -281,7 +251,7 @@
   gap: var(--meridian-space-3);
 }
 
-/* The refused press, below the rows: its edge closes the rows rather than opening the input. */
+/* The refused press, below the rows. */
 .command-palette__refusal {
   padding: var(--meridian-space-2) var(--meridian-space-4);
   border-top: 1px solid var(--meridian-edge);

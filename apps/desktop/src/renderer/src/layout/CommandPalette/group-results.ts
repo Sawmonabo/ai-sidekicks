@@ -9,10 +9,8 @@ export interface CommandResultGroup {
 }
 
 /**
- * Group ranked results by category.
- *
- * Insertion order is first-appearance order, so the best-ranked category leads and the
- * categories do not reshuffle as a person types.
+ * Groups ranked results by category in first-appearance order, so the best-ranked category leads
+ * and categories do not reshuffle as a person types.
  */
 export function groupResults(
   results: readonly CommandSearchResult[],

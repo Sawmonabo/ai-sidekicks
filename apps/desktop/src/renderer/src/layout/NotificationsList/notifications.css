@@ -1,11 +1,5 @@
-/* The notification center's own styles.
- *
- * A column of session groups, each a heading over a stack of rows. The rows carry
- * no color of their own: severity is already spent on the chip, and a second
- * carrier of the same fact would be the two-hue rule broken twice for one item.
- * What varies between an actionable row and an informational one is the chip and
- * the fold it sits in, which is exactly the axis suppression keys on.
- */
+/* The notification center's styles: a column of session groups, each a heading over a stack of
+ * rows. Rows carry no color of their own; severity is already on the chip. */
 
 .meridian-attention {
   display: flex;
@@ -50,9 +44,8 @@
   color: var(--meridian-text-faint);
 }
 
-/* One row, in both of its forms. The button form resets the platform's chrome so a
-   pressable row and a plain one are the same shape — the press is an affordance the
-   hover treatment and the browser's focus mark announce, not a different object. */
+/* One row in both forms. The button form resets the platform chrome so a pressable row and a
+   plain one share a shape. */
 .meridian-attention__row {
   display: flex;
   flex-direction: column;

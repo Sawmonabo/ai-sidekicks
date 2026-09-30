@@ -1,25 +1,8 @@
-// What an open palette shows and what it acts on are one reading.
-//
-// THE FINDING. Only the scope LABEL was latched. The search still recomputed against
-// the live `context` and the dispatch still handed that one to `registry.invoke`, so a
-// route change under an open palette left the row saying "acting on X" over Y's rows —
-// and the act that followed was evaluated against Y. Latching the label alone is worse
-// than latching nothing: without it the row at least agreed with the list it sat over.
-//
-// THE INSTRUMENT IS THE REGISTRY, not the DOM. Which context a search or an invocation
-// was performed against is a fact about the call, and reading it off the rendered list
-// would prove it only for the commands that happen to differ between two contexts. The
-// registry below records both, so "the rows are still X's" and "the act targeted X" are
-// two assertions over the same recorded calls.
-//
-// AND A LATCHED SUBJECT CAN GO AWAY. The window's own commands are registered from an
-// effect and removed when what they close over goes away, so a captured row can name a
-// command the registry no longer holds. The dispatch used to discard `invoke`'s answer,
-// which made that case look exactly like a command that ran — the palette closed and
-// nothing happened. The last two cases are the typed refusal that replaced it.
-//
-// WHAT IS NOT HERE. The dormancy claim and the scope row's own text are
-// `CommandPalette.dormancy.test.tsx`'s, and the highlight's warm is the preload suite's.
+// What an open palette shows and what it acts on are one reading: a route change under an open
+// palette must neither change the rows nor retarget the run. The registry records the context each
+// search and invocation received, which proves the reading used for every command, not just those
+// that differ between contexts. The last two cases cover a latched command leaving the registry.
+// The dormancy and scope-row claims are in `CommandPalette.dormancy.test.tsx`.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -33,7 +16,7 @@ import { type CommandDefinition } from "@renderer/registries/commands/command-ty
 import { CommandPalette } from "./CommandPalette.js";
 import type { WhenClauseContext } from "@renderer/registries/commands/when-clause/when-clause.js";
 
-/** The reading a person opens the palette on: they are looking at a session screen. */
+/** The reading the palette opens on: a session screen. */
 const ON_SESSION: WhenClauseContext = {
   sessionActive: true,
   onSessions: false,
@@ -42,7 +25,7 @@ const ON_SESSION: WhenClauseContext = {
   onSettings: false,
 };
 
-/** Where the route moves to underneath them. Every command above is hidden here. */
+/** Where the route moves to underneath the open palette; every command above is hidden here. */
 const ON_SETTINGS: WhenClauseContext = {
   ...ON_SESSION,
   onSession: false,
@@ -54,12 +37,12 @@ const SETTINGS_COMMAND_ID = "test.openKeyboardPage";
 const SESSION_COMMAND_TITLE = "Interrupt the run";
 const SETTINGS_COMMAND_TITLE = "Open the keyboard page";
 
-/** Which command ran, in the order it was asked. The only thing a `run` records. */
+/** Which commands ran, in order. */
 interface RunLedger {
   readonly ran: string[];
 }
 
-/** The command the palette opens over. Its own factory, so a case can re-register it. */
+/** The command the palette opens over; a factory so a case can re-register it. */
 function sessionCommand(ledger: RunLedger): CommandDefinition {
   return {
     id: SESSION_COMMAND_ID,
@@ -73,10 +56,8 @@ function sessionCommand(ledger: RunLedger): CommandDefinition {
 }
 
 /**
- * The command the route moves ONTO, offered nowhere the other one is.
- *
- * Non-overlapping on purpose: every assertion here is about WHICH reading was used, and
- * a command offered under both contexts would render identically either way.
+ * The command the route moves onto, offered nowhere the other one is. Non-overlapping so a
+ * command offered in both contexts cannot render identically under either reading.
  */
 function settingsCommand(ledger: RunLedger): CommandDefinition {
   return {
@@ -120,27 +101,22 @@ function refusalText(): string | undefined {
 }
 
 /**
- * Assert the palette asked to close, and asked for nothing else.
- *
- * The COUNT is deliberately not pinned. Selecting a row asks the combobox to close and
- * the palette asks as well, so a run produces more than one request — a number here
- * would pin a library detail, and what the case is about is that it asked at all.
+ * Asserts the palette asked to close and asked for nothing else. The count is not pinned: the
+ * combobox and the palette each request a close, and how many is a library detail.
  */
 function expectAskedToClose(openChanges: readonly boolean[]): void {
   expect(openChanges).not.toStrictEqual([]);
   expect(openChanges.every((requested) => requested === false)).toBe(true);
 }
 
-/** Press a row the way a person does — the click the list binds, not a synthetic run. */
+/** Presses a row through the click the list binds, as a person does. */
 function pressRow(title: string): void {
   fireEvent.click(screen.getByRole("option", { name: new RegExp(title, "u") }));
 }
 
 /**
- * The palette open over the session screen, with a way to move the route under it.
- *
- * `open` stays `true` across the re-render on purpose: the frame is what closes this,
- * and holding it open is what lets a case assert that the palette did NOT ask to close.
+ * The palette open over the session screen, with a way to move the route under it. `open` stays
+ * true across the re-render so a case can assert the palette did not ask to close.
  */
 function openPaletteOverSession(ledger: RunLedger): {
   readonly registry: RecordingCommandRegistry;
@@ -180,8 +156,7 @@ describe("the palette — the captured command context", () => {
     palette.moveRouteToSettings();
     await settle();
 
-    // The list a person is reading does not change under their hands, and every search
-    // the palette performed while open was performed against the reading it opened on.
+    // The list does not change under a person's hands; every search used the opening reading.
     expect(optionTitles()).toStrictEqual([SESSION_COMMAND_TITLE]);
     expect(palette.registry.searchedContexts.length).toBeGreaterThan(0);
     expect(palette.registry.searchedContexts.every((searched) => searched === ON_SESSION)).toBe(
@@ -190,8 +165,7 @@ describe("the palette — the captured command context", () => {
   });
 
   it("acts on the reading it displayed, not on the route it ended up over", async () => {
-    // The half a rows-only assertion cannot make: a dispatch handed the live context
-    // would find this command hidden and run nothing at all, silently.
+    // A dispatch handed the live context would find this command hidden and run nothing.
     const ledger: RunLedger = { ran: [] };
     const palette = openPaletteOverSession(ledger);
     await settle();
@@ -204,14 +178,12 @@ describe("the palette — the captured command context", () => {
     expect(ledger.ran).toStrictEqual([SESSION_COMMAND_ID]);
     expect(palette.registry.invokedContexts).toStrictEqual([ON_SESSION]);
     expect(refusalText()).toBeUndefined();
-    // And it closes, which is the ordinary path this suite must not lose.
+    // And it closes: the ordinary path.
     expectAskedToClose(palette.openChanges);
   });
 
   it("refuses by name when the latched command is gone, and stays open over its rows", async () => {
-    // The subject went away while the palette was open. Acting on the live route
-    // instead would be the mis-targeting the capture exists to prevent, arriving by the
-    // one path the capture does not cover.
+    // The command left the registry while the palette was open; the live route must not stand in.
     const ledger: RunLedger = { ran: [] };
     const palette = openPaletteOverSession(ledger);
     await settle();
@@ -223,21 +195,18 @@ describe("the palette — the captured command context", () => {
     await settle();
 
     expect(ledger.ran).toStrictEqual([]);
-    // Asserted present before it is read: a palette that discarded the outcome renders
-    // no row at all, and a `toContain` over nothing reports an argument-type complaint
-    // rather than the absence that is the finding.
+    // Asserted present first: with no refusal row, `toContain` fails with an argument-type error.
     expect(refusalText()).toBeDefined();
     expect(refusalText()).toContain("unknown-command");
     expect(refusalText()).toContain("no longer registered");
-    // Still open, and the rows a person was reading are still there — the inline shape.
+    // Still open with the rows in place: the inline shape.
     expect(palette.openChanges).toStrictEqual([]);
     expect(optionTitles()).toStrictEqual([SESSION_COMMAND_TITLE]);
   });
 
   it("negative control: an ordinary press renders no refusal and leaves none behind", async () => {
-    // Without this, a palette that refused every press would satisfy the case above.
-    // The second half is the clearing rule: a refusal is a fact about one press, and
-    // one left standing over a later successful run would be a false report.
+    // Without this, a palette that refused every press would pass the case above. A refusal is
+    // about one press, so one left over a later successful run would be false.
     const ledger: RunLedger = { ran: [] };
     const palette = openPaletteOverSession(ledger);
     await settle();

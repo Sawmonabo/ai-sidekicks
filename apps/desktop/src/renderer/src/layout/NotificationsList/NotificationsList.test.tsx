@@ -1,9 +1,5 @@
-// What the notification center puts on screen, and the two controls it must not.
-//
-// The hardest properties here are absences: there is no dismiss anywhere in the
-// contract, and per-session mute is deferred while the console design allows it — so
-// the center must offer neither, and "must not render a control" is exactly the claim a
-// type cannot make.
+// What the notification center puts on screen. The center must not render a dismiss control,
+// which is a claim a type cannot make.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -59,7 +55,7 @@ function readingOf(
   };
 }
 
-/** The sessions this panel's fan-out asked about. The panel renders none of them. */
+/** The sessions this panel's fan-out asked about; the panel renders none of them. */
 const ADDRESSED_SESSION_IDS: readonly string[] = ["session-a", "session-b"];
 
 /** One session the fan-out never got an answer for, refused with a session refusal. */
@@ -165,7 +161,7 @@ describe("members the boundary refused", () => {
     );
     const text = container.textContent ?? "";
     expect(text).toContain("2 deliveries could not be read");
-    // Groups above and the dropped line below: a partial read shows both halves.
+    // A partial read shows the groups above and the dropped line below.
     expect(container.querySelectorAll(".meridian-attention__group")).toHaveLength(1);
   });
 
@@ -175,8 +171,8 @@ describe("members the boundary refused", () => {
   });
 
   it("never reports an all-clear for a read it could recognize none of", () => {
-    // The failure this catches is the worst one this list has: a person is told
-    // nothing needs them on the strength of a read whose every member was refused.
+    // Guards the worst failure: telling a person nothing needs them from a read whose every member
+    // was refused.
     const { container } = render(
       <NotificationsList
         reading={{
@@ -194,11 +190,8 @@ describe("members the boundary refused", () => {
 });
 
 describe("a read that did not cover every session", () => {
-  // The worst sentence this list has is the all-clear, and without this arm it would
-  // be reachable on a read one session never answered: a fan-out that dropped the
-  // refusals would read an empty projection from the sessions that did answer as
-  // "nothing", and tell a person they were free on a question half the console never
-  // got back.
+  // Guards the all-clear: a fan-out that dropped the refusals would read an empty projection from
+  // the sessions that answered and tell a person they were free.
 
   it("never says a person is free while a session went unchecked", () => {
     const { container } = render(
@@ -209,9 +202,8 @@ describe("a read that did not cover every session", () => {
   });
 
   it("negative control: the same empty read with every session answered draws only the heading", () => {
-    // Nothing waiting is shown by absence, so the list keeps its heading and draws
-    // nothing under it. Without this, the not-checked cases here would pass over a
-    // center that drew its warning for every empty read.
+    // Nothing waiting shows by absence: heading only. Without this, the not-checked cases would
+    // pass over a center that warned on every empty read.
     const { container } = render(<NotificationsList reading={readingOf([])} />);
     expect(container.querySelector(".meridian-attention__title")?.textContent).toBe("Needs you");
     expect(container.querySelector(".meridian-nothing")).toBeNull();
@@ -219,8 +211,8 @@ describe("a read that did not cover every session", () => {
   });
 
   it("keeps the dropped-member line beside the coverage warning", () => {
-    // Two different facts about one read — members this console could not recognize,
-    // and sessions that never answered — and neither may stand in for the other.
+    // Unrecognized members and unanswered sessions are different facts; neither may stand in
+    // for the other.
     const { container } = render(
       <NotificationsList
         reading={{
@@ -239,9 +231,8 @@ describe("a read that did not cover every session", () => {
 });
 
 describe("when an attention item was raised", () => {
-  // The two instants are one calendar day apart at the same wall-clock minute, which
-  // is the collision the reading has to survive: rows are grouped by session and by
-  // nothing else, so nothing else in this list says which day an item belongs to.
+  // Two instants a day apart at the same minute: rows group by session only, so nothing else says
+  // which day an item belongs to.
   const RAISED_TODAY = "2026-01-01T10:00:00.000Z";
   const RAISED_NEXT_DAY = "2026-01-02T10:00:00.000Z";
 
@@ -267,8 +258,7 @@ describe("when an attention item was raised", () => {
   });
 
   it("negative control: the clock-only reading of those two instants is one string", () => {
-    // Without this the case above would pass over two instants that were never a
-    // collision, and would prove nothing about which formatter the row reaches for.
+    // Without this, the case above would pass over two instants that never collided.
     expect(formatClockTime(RAISED_NEXT_DAY)).toBe(formatClockTime(RAISED_TODAY));
   });
 
@@ -284,8 +274,8 @@ describe("when an attention item was raised", () => {
 });
 
 describe("what makes the attention read run again", () => {
-  // The read goes through the console's one refresh scheduler, so time is frozen and a
-  // case releases a coalesced read by moving the clock past its window.
+  // The read goes through the one refresh scheduler, so time is frozen and a case releases a
+  // coalesced read by moving the clock past its window.
 
   function registryOn(clock: ManualClock): SessionStoreRegistry {
     return new SessionStoreRegistry({ read: () => Promise.resolve(undefined), clock });

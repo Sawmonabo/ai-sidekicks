@@ -1,17 +1,5 @@
-// The manual retry, and the two things a control with no rendered state has to get
-// right: how many runtimes one gesture starts, and that a failed start leaves the
-// control working.
-//
-// Nothing here renders a disabled state, so there is no flag to read between a
-// double-click and two concurrent starts of the same runtime. The supervisor's next
-// report is what eventually says `starting`, and it arrives several frames after the
-// press — so the double-press case puts the second press AFTER a macrotask boundary
-// rather than inside the first press's own tick, which is the harder claim and the one
-// a person makes.
-//
-// AND THE KEY HAS TO COME BACK ON EVERY WAY THE START CAN END. A key released only on
-// the answered arm leaves the control dead for the life of the window the first time
-// the call rejects.
+// A double press must start the runtime once, and the key must come back however the start ends.
+// The second press lands after a macrotask boundary, the way a person's does.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,8 +17,7 @@ function recordingStart(starts: string[], answer: () => Promise<void>): DaemonSt
 
 describe("useDaemonStartAction", () => {
   it("puts one start for a double press while the first is still running", async () => {
-    // Without the guard, two presses against a start that has not answered would reach
-    // the main process twice and start the same runtime concurrently.
+    // Without the guard, two presses reach the main process and start the runtime twice.
     const starts: string[] = [];
     let answerFirstPress!: () => void;
     const held = new Promise<void>((resolve) => {
@@ -49,9 +36,7 @@ describe("useDaemonStartAction", () => {
   });
 
   it("gives the key back once the start has answered", async () => {
-    // The positive control for the release: without it the case above is satisfied by
-    // an action that takes the key once and never returns it, which is a control that
-    // works exactly one time per window.
+    // Positive control: without it, an action that never returns the key would pass the case above.
     const starts: string[] = [];
     const start = recordingStart(starts, () => Promise.resolve());
     const { result } = renderHook(() => useDaemonStartAction(start));
@@ -63,8 +48,7 @@ describe("useDaemonStartAction", () => {
   });
 
   it("gives the key back when the start REJECTS, and hands over the rejection", async () => {
-    // A rejected start ended the act as surely as an answered one, and leaving the key
-    // held would kill the one control a stopped runtime has left.
+    // A rejected start ends the act too; a held key would kill the control.
     const starts: string[] = [];
     const start = recordingStart(starts, () =>
       Promise.reject(new Error("the main process could not reach the supervisor")),

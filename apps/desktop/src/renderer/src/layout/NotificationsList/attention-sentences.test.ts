@@ -1,10 +1,6 @@
-// One settled read, one sentence — and the wordings that must not blur together.
-//
-// Every case here is really the same assertion from a different side: a person who
-// hears this sentence and cannot see the panel must be able to tell a read that found
-// nothing from a read that covered less than it was asked to. The two shapes that
-// would break that are a zero left silent when coverage was incomplete, and a
-// coverage gap left out of a sentence that reported a count.
+// One settled read, one sentence. A person hearing it without seeing the panel must tell a read
+// that found nothing from one that covered less than asked: a zero must not be silent when coverage
+// was incomplete, and a coverage gap must not be left out of a counted sentence.
 
 import { describe, expect, it } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
@@ -58,8 +54,8 @@ function answered(options: {
     summary: new AttentionSummary(options.items ?? []),
     droppedCount: options.droppedCount ?? 0,
     refusedSessions: options.refusedSessions ?? [],
-    // The sentence is composed from what the read FOUND and from how much of it went
-    // unanswered, so the address set names the sessions and decides nothing here.
+    // The sentence uses what the read found and how much went unanswered; the address set only
+    // names sessions.
     addressedSessionIds: ["s-1", "s-2"],
   };
 }
@@ -75,9 +71,8 @@ describe("what one settled attention read says", () => {
   });
 
   it("stays silent only for a read that found nothing and covered everything", () => {
-    // The whole point of the zero wording. A read that answered for every session
-    // and dropped nothing has nothing to say; anything less does, and the sentence has
-    // to carry that difference on its own because nobody hearing it can see the panel.
+    // A read that answered for every session and dropped nothing has nothing to say; anything less
+    // must say so, since a listener cannot see the panel.
     expect(describeAttentionSettlement(answered({}))).toBeUndefined();
     expect(
       describeAttentionSettlement(answered({ refusedSessions: [refusedSession("s-1")] })),

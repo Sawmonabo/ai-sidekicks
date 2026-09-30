@@ -1,13 +1,7 @@
-/* The frame's own styles: the window box, its banners and the screen region.
- *
- * Every color is a Meridian custom property, so the whole frame follows the scheme
- * attribute without a single conditional in JSX. Every space is a step on the scale.
- */
+/* The frame's own styles: the window box, its banners and the screen region. */
 
-/* The reflow floor is declared here, on the one box every console window lays out
-   inside, so no view below it has to hold the criterion on its own. Below the
-   floor the document scrolls horizontally, which is what WCAG 2.2 SC 1.4.10 permits
-   below 320 CSS px; at and above it the frame is fluid and nothing switches. */
+/* The reflow floor lives on this box. Below it the document scrolls horizontally, which WCAG 2.2
+   SC 1.4.10 permits under 320 CSS px; above it the frame is fluid. */
 .meridian-frame {
   display: grid;
   grid-template-columns: 52px minmax(0, 1fr);
@@ -22,13 +16,8 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
-/* The app chrome's `inert` carrier while a modal overlay is open. See `FrameChrome.tsx`.
-   `display: contents` for the same reason the boundary's remount carrier uses it:
-   the element exists to hold an attribute, and a box here would sit between the
-   frame's grid and the two children it places, so the rail would lose its 52px
-   track and the column its `minmax(0, 1fr)` one. Inertness is a property of the
-   node tree rather than of layout, so removing the box costs the attribute
-   nothing. */
+/* Carries `inert` while a modal overlay is open. `display: contents` keeps it out of the grid, so
+   the rail and the column still get their tracks. */
 .meridian-frame__background {
   display: contents;
 }

@@ -1,14 +1,8 @@
-// The half of the attention panel that is for people who cannot see it.
-//
-// `attention-sentences.test.ts` pins WHAT is said. This file pins WHEN, which is the
-// part a sentence composer cannot get wrong on its own and a view can: silent while
-// the read is in flight, said once when it settles, said again when a later
-// settlement differs, and never repeated because the list happened to render.
-//
-// The last one is the case with teeth. This read RE-READS — every session store
-// that moves pushes it — so a hook that spoke on each render would say the same
-// sentence at every push, and a hook that latched a flag at mount would say the
-// first settlement and swallow the coverage gap that appeared on the third.
+// The half of the attention panel for people who cannot see it. `attention-sentences.test.ts`
+// pins what is said; this pins when: silent while the read is in flight, once when it settles,
+// again when a later settlement differs, and never because the list merely rendered. The read
+// re-reads whenever a session store moves, so a hook speaking per render would repeat and one
+// latching a flag at mount would swallow a later coverage gap.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -72,16 +66,9 @@ function AnnouncementProbe(props: { readonly reading: AttentionReading }): null 
 }
 
 /**
- * Mount the probe under the console's real announcer, with its calls recorded.
- *
- * The announcer is REAL and its `announce` is spied rather than replaced, so the
- * hook is exercised against the object the frame actually mounts — the spy answers
- * "what was said and how many times", which reading the live region cannot: a
- * sentence said twice in a row leaves the region holding exactly the text it held
- * after the first.
- *
- * A `ManualClock` freezes the hold window, so nothing published here clears on how
- * fast the runner happened to be.
+ * Mounts the probe under the real announcer with `announce` spied, not replaced. The spy records
+ * what was said and how often, which the live region cannot: a sentence said twice leaves the same
+ * text. A `ManualClock` freezes the hold window.
  */
 function mountProbe(reading: AttentionReading): {
   readonly spoken: () => readonly string[];
@@ -111,9 +98,8 @@ function mountProbe(reading: AttentionReading): {
 
 describe("the attention reading announces its settlement", () => {
   it("says nothing while the read is still in flight", () => {
-    // `undefined` is the hook's "still reading" arm and is deliberately not an
-    // empty string: an empty string is what the announcer publishes to CLEAR a
-    // region, so a silent arm written that way would wipe whatever was standing.
+    // The still-reading arm is `undefined`, not an empty string, which would clear a standing
+    // region.
     const probe = mountProbe({ phase: "reading" });
 
     expect(probe.spoken()).toStrictEqual([]);
@@ -127,9 +113,8 @@ describe("the attention reading announces its settlement", () => {
   });
 
   it("does not say it again because the list rendered again", async () => {
-    // The negative control for a hook that announced from its render body or from
-    // an effect keyed on the reading OBJECT: this read is pushed at from every
-    // session store, so an equal reading arrives repeatedly with a new identity.
+    // Control for a hook announcing from its render body or keyed on the reading object: equal
+    // readings arrive repeatedly with a new identity.
     const probe = mountProbe({ phase: "reading" });
     await probe.rerender(answered({ items: [itemNeeding("a")] }));
     await probe.rerender(answered({ items: [itemNeeding("a")] }));
@@ -139,9 +124,8 @@ describe("the attention reading announces its settlement", () => {
   });
 
   it("speaks a later settlement that says something different", async () => {
-    // The negative control from the other side: a flag latched at the first
-    // settlement would leave every re-read after it silent, so the coverage gap
-    // below would reach only the people who can see the panel.
+    // Control from the other side: a flag latched at the first settlement would silence the later
+    // coverage gap.
     const probe = mountProbe({ phase: "reading" });
     await probe.rerender(answered({ items: [itemNeeding("a")] }));
     await probe.rerender(answered({ items: [itemNeeding("a")], refusedSessionIds: ["session-b"] }));

@@ -1,15 +1,6 @@
-// Running against the latched reading, and both ways it can refuse.
-//
-// The overlay's suite drives the arm a person actually meets — a command the registry
-// no longer holds — through the rendered rows. This file is the other arm and the
-// vocabulary itself: `hidden-in-context` is reachable in production (a feature that
-// unregisters and re-registers a command with a narrower `when` while the palette is
-// open leaves a captured row over a command the captured reading no longer admits), and
-// an arm that ships with no case at all is an arm whose sentence nobody has read.
-//
-// THE REFUSAL IS NOT A SECOND ELIGIBILITY RULE, and the first case is what says so: the
-// registry decides, against the reading it was handed, and these cases assert what it
-// decided rather than re-deriving it.
+// Running against the latched reading, and both ways it can refuse. `hidden-in-context` is
+// reachable when a command is re-registered under a narrower `when` while the palette is open.
+// The registry decides eligibility; these cases assert its decision, not a second rule.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,8 +27,7 @@ function commandOfferedOnSession(ran: string[]): CommandDefinition {
 
 describe("running a latched command", () => {
   it("runs and refuses nothing where the reading still admits the command", () => {
-    // The control every refusal case below rests on: a dispatch that refused
-    // unconditionally would satisfy both of them.
+    // Control for the refusal cases: a dispatch that always refused would satisfy both.
     const ran: string[] = [];
     const registry = new CommandRegistry();
     registry.register(commandOfferedOnSession(ran));
@@ -60,8 +50,7 @@ describe("running a latched command", () => {
   });
 
   it("names a command the captured reading no longer admits, and runs nothing", () => {
-    // Re-registered under a clause the captured reading answers `false`, which is what a
-    // feature does when what its commands close over changes while the palette is open.
+    // Re-registered under a clause the captured reading answers `false`.
     const ran: string[] = [];
     const registry = new CommandRegistry();
     registry.register(commandOfferedOnSession(ran));

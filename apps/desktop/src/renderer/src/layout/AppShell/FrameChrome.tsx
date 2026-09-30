@@ -1,30 +1,12 @@
-// The chrome itself: the rail, the banner stack, and one region for whatever the
-// route names.
+// The chrome: the rail, the banner stack, and one region for the routed screen.
 //
-// The frame owns chrome and nothing else. It does not know what a session screen
-// is, and the features do not know the frame exists — they register a renderer for a
-// route and the router mounts it. That separation is what lets the features ship in
-// parallel, and it is why the screen arrives as `children` rather than an import: an
-// import would make the frame depend on every feature.
+// The screen arrives as `children` so the frame depends on no feature. The background wrapper
+// carries `inert` while a modal overlay is up: the dialog traps focus but leaves the rest of the
+// app in the accessibility tree, and the wrapper is `display: contents` so the frame's grid still
+// places the rail and the column. `overlays` stays outside it, so the dialog remains reachable.
 //
-// THE BACKGROUND WRAPPER IS THE APP CHROME'S `inert` GUARD, and it is why the rail and the
-// column are wrapped rather than left as direct children. The widget library's dialog
-// runs under `modal="trap-focus"`, which traps focus and deliberately does not lock the
-// document's scroll — and leaves inerting the app root to the app's chrome, because the dialog
-// cannot know what "the rest of the app" is. Focus containment alone leaves the rail
-// and the whole screen in the accessibility tree, reachable by every reader that
-// navigates by structure rather than by focus. The wrapper carries `display: contents`,
-// so it is a place to hang the attribute and not a box: the frame's grid still places
-// the rail and the column itself, which is what keeps this a one-attribute change
-// rather than a layout one. `overlays` stays OUTSIDE it — inerting the dialog along
-// with the background would leave a person nothing to reach at all.
-//
-// THIS IS A SEPARATE MODULE FROM `AppFrame.tsx` for a reason that is not only the
-// one-component rule: the announcement hook below has to run BELOW the window's
-// announcer provider — context is read by tree position — and a component cannot
-// consume a provider it renders itself. `AppFrame` mounts the provider and renders
-// this; the prop contract is declared here, beside the body that reads every member
-// of it, and re-exported there under the name callers type against.
+// This is separate from `AppFrame.tsx` because the announcement hook below must run under the
+// announcer provider that `AppFrame` mounts.
 
 import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
@@ -34,6 +16,7 @@ import { NavigationRail, type RailEntry } from "../NavigationRail/NavigationRail
 import { formatRoute, type AppRoute } from "@renderer/routing/routes.js";
 import { type RailDestination } from "@renderer/routing/route-readers.js";
 
+/** What a caller hands the frame chrome. */
 export interface FrameChromeProps {
   readonly route: AppRoute;
   readonly railEntries: readonly RailEntry[];
@@ -45,18 +28,11 @@ export interface FrameChromeProps {
   readonly children: React.ReactNode;
   /** Rendered above the screen: the palette, dialogs, anything window-scoped. */
   readonly overlays?: React.ReactNode;
-  /**
-   * True while a modal overlay owns focus.
-   *
-   * The frame's background is `inert` for exactly that lifetime — see the
-   * background-wrapper note in the file header. It is a prop rather than
-   * something the frame works out for itself because `overlays` is filled by the
-   * caller: the frame renders whatever it is handed and is not the owner
-   * of any overlay's open state.
-   */
+  /** True while a modal overlay owns focus; the frame's background is `inert` meanwhile. */
   readonly modalOverlayOpen?: boolean;
 }
 
+/** The rail, banners and routed screen, with the background made inert under a modal overlay. */
 export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
   useRefusalBannerAnnouncements(props.banners);
   return (
@@ -88,17 +64,7 @@ export function FrameChrome(props: FrameChromeProps): React.JSX.Element {
             </div>
           )}
           <main className="meridian-frame__screen">
-            {/*
-              KEYED BY THE ROUTE, so navigating away from a crash is the retry.
-              The boundary's caught error is its own state, and with one identity
-              across every route one screen's render throw would hide the NEXT
-              screen behind the previous route's failure card until someone clicked
-              "Try again" — a control offering to re-render a route they had already
-              left. `formatRoute` rather than a second identity function: it is
-              `routing/`'s existing total, round-tripping
-              rendering of a route, so two routes are one boundary exactly when they
-              are one address.
-            */}
+            {/* Keyed by the route so navigating away from a crash clears the boundary's error. */}
             <ErrorBoundary key={formatRoute(props.route)} regionName={screenNameFor(props.route)}>
               {props.children}
             </ErrorBoundary>
@@ -122,9 +88,7 @@ function screenNameFor(route: AppRoute): string {
     case "settings":
       return "Settings";
     case "pane-harness":
-      // Fixture-only, and named the way a person driving it would: the boundary's
-      // copy reads "The pane harness could not be rendered", which is the truth
-      // about the screen rather than about the pane inside it.
+      // Fixture-only.
       return "The pane harness";
     case "not-found":
       return "This window";

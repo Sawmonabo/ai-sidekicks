@@ -1,19 +1,6 @@
-// The icon rail: three destinations, always in the same place.
-//
-// The main window has a narrow rail with a fixed set of destinations. Fixed is the
-// point — a rail whose contents change with context is a rail nobody builds muscle
-// memory for, and the design's whole claim about the console is that a person stops
-// looking for things.
-//
-// Two rules show up here in miniature:
-//
-//   • **Absent, not disabled.** A destination the window cannot reach is not
-//     rendered greyed out; it is not rendered. This rail renders exactly the
-//     entries it is handed and carries no availability flag of its own — an
-//     unreachable destination is one its caller left out.
-//   • **Quiet.** The rail carries no color except the accent on the current
-//     destination. It is the console's most-seen component, so it is the one that most
-//     has to stay quiet.
+// The icon rail: a fixed set of destinations, always in the same place, so a person builds muscle
+// memory. It renders exactly the entries it is handed and has no availability flag: an unreachable
+// destination is absent, not disabled. It carries no color except the accent on the current one.
 
 import type { GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
@@ -27,16 +14,19 @@ export interface RailEntryTemplate {
   readonly glyph: GlyphName;
 }
 
+/** One rail destination with what it shows. */
 export interface RailEntry extends RailEntryTemplate {
   readonly destination: RailDestination;
 }
 
+/** The entries to render, which one is current, and the selection callback. */
 export interface NavigationRailProps {
   readonly entries: readonly RailEntry[];
   readonly current: RailDestination | undefined;
   readonly onSelect: (destination: RailDestination) => void;
 }
 
+/** The console's icon rail: one button per handed entry, the current one marked. */
 export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
   return (
     <nav className="meridian-rail" aria-label="Console sections">
@@ -70,24 +60,13 @@ export function NavigationRail(props: NavigationRailProps): React.JSX.Element {
 }
 
 /**
- * The rail's fixed contents, one entry per destination.
- *
- * A total `Record` over the destination union rather than an array, because "one
- * entry per destination" is a claim only an indexed table can hold: as an array it
- * enforced nothing, and a fourth `RailDestination` would have typechecked and
- * rendered nowhere — the exact failure `RAIL_DESTINATIONS` is a walkable tuple to
- * prevent, left open on the one table that consumes it.
- *
- * ORDER IS NOT HERE. A record's key order is an artifact of how it was written; the
- * rail's order is a design decision, so it is read from the `RAIL_DESTINATIONS`
- * tuple where the entries are built (`rail-navigation.ts`), not from this literal.
+ * What each rail destination shows. A total `Record` over the destination union, so a new
+ * destination fails to typecheck until it has an entry. Rail order is not here: it comes from the
+ * `RAIL_DESTINATIONS` tuple where the entries are built (`rail-navigation.ts`).
  */
 export const RAIL_ENTRY_TEMPLATES: Readonly<Record<RailDestination, RailEntryTemplate>> = {
   sessions: { label: "Sessions", glyph: "sessions" },
-  // The `workflow` glyph the pane kind already uses, rather than a plural sibling
-  // drawn beside it. One picture per concept is what makes the glyphs one set — the
-  // destination and the pane it opens are the same thing at two scales, and
-  // two glyphs for them would differ only by whoever drew the second one.
+  // Reuses the `workflow` glyph: one picture per concept keeps the glyphs one set.
   workflows: { label: "Workflows", glyph: "workflow" },
   settings: { label: "Settings", glyph: "settings" },
 };
