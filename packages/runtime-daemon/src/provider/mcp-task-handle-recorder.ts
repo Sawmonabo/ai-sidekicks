@@ -16,7 +16,9 @@
 
 import type { Database, Statement } from "better-sqlite3";
 
-import type { DriverDiagnosticsEmitter, DriverProviderName } from "./driver-diagnostics.js";
+import type { ProviderName } from "@ai-sidekicks/contracts";
+
+import type { DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 
 /**
  * The maximum stored length of an MCP `taskId`, in Unicode code points as SQLite's `length()`
@@ -135,7 +137,7 @@ interface StoredHandleRow {
 
 /** The sole writer of `command_receipts.mcp_task_id`; one per driver binding (attribution). */
 export class McpTaskHandleRecorder {
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #claimHandleStatement: Statement<[string, string]>;
   readonly #readStoredHandleStatement: Statement<[string]>;
@@ -143,7 +145,7 @@ export class McpTaskHandleRecorder {
   constructor(
     database: Database,
     options: {
-      readonly provider: DriverProviderName;
+      readonly provider: ProviderName;
       readonly diagnostics: DriverDiagnosticsEmitter;
     },
   ) {

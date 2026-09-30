@@ -38,7 +38,9 @@
 // through `subagent.started` and `subagent.completed`, never through the child's own frames.
 // The terminal-emission gate consumes the route unchanged.
 
-import { type DriverDiagnosticsEmitter, type DriverProviderName } from "./driver-diagnostics.js";
+import type { ProviderName } from "@ai-sidekicks/contracts";
+
+import { type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 
 /**
  * The capability a thread-scoped frame carries, which selects its carve-out: `usage` and
@@ -58,15 +60,8 @@ export type ThreadFrameFamilyClass =
   | { readonly scope: "unknown" };
 
 /**
- * One inbound frame as the router sees it. The code that builds it must derive `threadId` by
- * these rules, because the router reads only what this interface declares:
- * - Codex frames carry an explicit thread member, so `threadId` is that member verbatim and
- *   `null` only when the frame omits one. A child's registration is dispatched from the
- *   announcement's own members before the announcement frame is routed, so the announcement never
- *   waits on its own registration.
- * - Claude frames carry no thread-id member and mark children by subagent identity. `threadId`
- *   is the frame's `subagentId` where it has one and the session's own thread id otherwise. It is
- *   never `null` for a session frame, which would quarantine every ordinary Claude frame.
+ * One inbound frame as the router sees it. The router reads only what this interface declares,
+ * so each driver's frame type states how it derives `threadId` from its own wire.
  */
 export interface RoutableProviderFrame {
   /** The frame's wire kind, verbatim and untrusted; carried as data only. */
@@ -168,7 +163,7 @@ export interface ThreadFrameRouterConfig {
 
 /** Holds the thread registry for one session and makes the routing decision for each frame. */
 export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutableProviderFrame> {
-  readonly #provider: DriverProviderName;
+  readonly #provider: ProviderName;
   readonly #diagnostics: DriverDiagnosticsEmitter;
   readonly #config: ThreadFrameRouterConfig;
 
@@ -182,7 +177,7 @@ export class ThreadFrameRouter<TFrame extends RoutableProviderFrame = RoutablePr
   readonly #quarantinedFrames: TFrame[] = [];
 
   constructor(options: {
-    readonly provider: DriverProviderName;
+    readonly provider: ProviderName;
     readonly diagnostics: DriverDiagnosticsEmitter;
     readonly config: ThreadFrameRouterConfig;
   }) {

@@ -16,17 +16,15 @@
 //   read the message; a default with a distinguishable code (`-32602`) would let a broken
 //   classifier pass, so that code is only a second accepted shape.
 
-import type { DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type { DriverCapabilityFlag, ProviderName } from "@ai-sidekicks/contracts";
 
-import {
-  CAPABILITY_DETECTION_TABLES,
-  CAPABILITY_PROBE_NEGATIVE_CONTROLS,
-  type CapabilityDetectionMechanism,
-  type CapabilityDetectionReading,
-  type CapabilityProbeExchange,
-  type CapabilityProbeRequest,
+import type {
+  CapabilityDetectionMechanism,
+  CapabilityDetectionReading,
+  CapabilityProbeExchange,
+  CapabilityProbeRequest,
 } from "../capability-probe.js";
-import type { FlooredDriverName } from "../capability-refresh.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 import type {
   DeclareDriverCapabilitiesInput,
   DeclareDriverCapabilitiesResult,
@@ -144,8 +142,9 @@ export function codexResultReply(): unknown {
   return { jsonrpc: "2.0", id: 1, result: {} };
 }
 
-function defaultReply(driverName: FlooredDriverName, probeName: string): unknown {
-  const isNegativeControl = probeName === CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName];
+function defaultReply(driverName: ProviderName, probeName: string): unknown {
+  const isNegativeControl =
+    probeName === PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityProbeNegativeControl;
   if (driverName === "claude") {
     return isNegativeControl ? claudeUnsupportedSubtypeReply(probeName) : claudeSuccessReply();
   }
@@ -160,10 +159,10 @@ export interface RecordingProbeTransportOptions {
 /** Records every probe dispatch and answers from the defaults above, or a per-name override. */
 export class RecordingCapabilityProbeTransport {
   readonly requests: CapabilityProbeRequest[] = [];
-  readonly #driverName: FlooredDriverName;
+  readonly #driverName: ProviderName;
   readonly #replies: Readonly<Record<string, unknown>>;
 
-  constructor(driverName: FlooredDriverName, options: RecordingProbeTransportOptions = {}) {
+  constructor(driverName: ProviderName, options: RecordingProbeTransportOptions = {}) {
     this.#driverName = driverName;
     this.#replies = options.replies ?? {};
   }
@@ -192,17 +191,16 @@ export class RecordingCapabilityProbeTransport {
  * reading's resolved path, and an invented default would pass that check by accident.
  */
 export function fullyProbedDetectionReading(
-  driverName: FlooredDriverName,
+  driverName: ProviderName,
   boundExecutablePath: string,
 ): CapabilityDetectionReading {
   const detectionSource: Record<DriverCapabilityFlag, CapabilityDetectionSource> = {} as Record<
     DriverCapabilityFlag,
     CapabilityDetectionSource
   >;
-  for (const [flag, mechanism] of Object.entries(CAPABILITY_DETECTION_TABLES[driverName]) as [
-    DriverCapabilityFlag,
-    CapabilityDetectionMechanism,
-  ][]) {
+  for (const [flag, mechanism] of Object.entries(
+    PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable,
+  ) as [DriverCapabilityFlag, CapabilityDetectionMechanism][]) {
     detectionSource[flag] = mechanism.detectionSource;
   }
   return { driverName, boundExecutablePath, detectionSource, withdrawnFlags: [], diagnostics: [] };

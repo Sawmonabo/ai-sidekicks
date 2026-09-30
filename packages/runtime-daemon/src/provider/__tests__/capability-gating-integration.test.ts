@@ -10,6 +10,7 @@ import {
   DRIVER_CAPABILITY_FLAGS,
   type DriverCapabilityFlag,
   type ExecutionPosture,
+  type ProviderName,
 } from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
@@ -26,7 +27,7 @@ import type {
   ProviderDriver,
 } from "../provider-driver.js";
 
-const DRIVER_NAME: string = "claude";
+const DRIVER_NAME: ProviderName = "claude";
 // One shared version makes the binding and the capability cache agree by construction.
 const CONTRACT_VERSION: string = "1.2.3";
 

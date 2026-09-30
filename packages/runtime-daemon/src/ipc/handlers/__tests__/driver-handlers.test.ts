@@ -15,11 +15,12 @@ import type {
   JsonRpcNotification,
   UserId,
   ProviderCommandBindingGroup,
+  ProviderName,
   RunId,
   SessionEvent,
   SessionId,
 } from "@ai-sidekicks/contracts";
-import { DRIVER_CAPABILITY_FLAGS, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
+import { DRIVER_CAPABILITY_FLAGS, JsonRpcErrorCode, PROVIDER_NAMES } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
 import {
@@ -160,21 +161,21 @@ async function dispatchExpectingRejection(
   return settlement.thrown;
 }
 
-function catalogDeps(drivers: Record<string, ProviderDriver>): DriverCatalogDeps {
+function catalogDeps(drivers: Partial<Record<ProviderName, ProviderDriver>>): DriverCatalogDeps {
   return {
     providerRegistry: {
-      listAvailable: () => Object.keys(drivers),
-      lookup: (driverId: string) => drivers[driverId],
+      listAvailable: () => PROVIDER_NAMES.filter((driverName) => drivers[driverName] !== undefined),
+      lookup: (driverId: ProviderName) => drivers[driverId],
     },
   };
 }
 
 function dispatchDeps(
-  drivers: Record<string, ProviderDriver>,
-  resolveDriverForRun: (runId: RunId) => string | undefined,
+  drivers: Partial<Record<ProviderName, ProviderDriver>>,
+  resolveDriverForRun: (runId: RunId) => ProviderName | undefined,
 ): DriverDispatchDeps {
   return {
-    providerRegistry: { lookup: (driverId: string) => drivers[driverId] },
+    providerRegistry: { lookup: (driverId: ProviderName) => drivers[driverId] },
     resolveDriverForRun,
   };
 }
@@ -204,16 +205,22 @@ function capabilityGate(
  * got past the gate still fails the zero-call assertions.
  */
 async function realProviderRegistry(
-  driverSeeds: Record<
-    string,
-    {
-      flags: Partial<Record<DriverCapabilityFlag, boolean>>;
-      operations: Partial<ProviderDriver>;
-    }
+  driverSeeds: Partial<
+    Record<
+      ProviderName,
+      {
+        flags: Partial<Record<DriverCapabilityFlag, boolean>>;
+        operations: Partial<ProviderDriver>;
+      }
+    >
   >,
 ): Promise<ProviderRegistry> {
   const providerRegistry = new ProviderRegistry();
-  for (const [driverName, seed] of Object.entries(driverSeeds)) {
+  for (const driverName of PROVIDER_NAMES) {
+    const seed = driverSeeds[driverName];
+    if (seed === undefined) {
+      continue;
+    }
     // Undeclared flags are false, never absent.
     const flags = Object.fromEntries(
       DRIVER_CAPABILITY_FLAGS.map((flag) => [flag, seed.flags[flag] ?? false]),

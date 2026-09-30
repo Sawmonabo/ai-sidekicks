@@ -407,7 +407,10 @@ export interface CodexLifecycleOptions extends CodexConnectionOptions {
 
 /**
  * One inbound Codex notification as the thread-frame router sees it; `params` rides along so a
- * held frame still carries its content when its registration lands.
+ * held frame still carries its content when its registration lands. `threadId` is the frame's
+ * explicit thread member verbatim, `null` only when the frame omits one. A child's registration
+ * is dispatched from the announcement's own members before the announcement is routed, so the
+ * announcement never waits on its own registration.
  */
 export interface CodexRoutableFrame extends RoutableProviderFrame {
   readonly params: unknown;

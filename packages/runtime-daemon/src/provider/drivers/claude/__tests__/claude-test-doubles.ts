@@ -5,7 +5,8 @@
 import type { ApplyInterventionParams, RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
-import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV, type SpawnEnvPair } from "../../../spawn-env.js";
+import type { SpawnEnvPair } from "../../../spawn-env.js";
+import { CLAUDE_DRIVER_DESCRIPTOR } from "../claude-driver-descriptor.js";
 import type { ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type {
   ClaudeAuthProbeReading,
@@ -241,7 +242,9 @@ export class FakeClaudeSessionTransport implements ClaudeSessionTransport {
    * the guard follows it.
    */
   #requireMandatedEnvironment(mandatedEnvironment: readonly SpawnEnvPair[]): void {
-    for (const [name, value] of Object.entries(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude)) {
+    for (const [name, value] of Object.entries(
+      CLAUDE_DRIVER_DESCRIPTOR.autoUpdateOptOutEnvironment,
+    )) {
       if (mandatedEnvironment.find((pair) => pair[0] === name)?.[1] !== value) {
         throw new Error(
           `A Claude child was started without the mandated ${name}=${value}, which the transport obligations forbid.`,

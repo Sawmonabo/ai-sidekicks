@@ -11,7 +11,11 @@
 // The error classes carry a stable `driver.*` code and a leak-safe message with structured
 // `fields`, like `ipc/session-errors.ts`.
 
-import type { DriverCapabilities, DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import type {
+  DriverCapabilities,
+  DriverCapabilityFlag,
+  ProviderName,
+} from "@ai-sidekicks/contracts";
 import type { ProviderDriver } from "./provider-driver.js";
 
 /**
@@ -57,12 +61,11 @@ interface RegisteredDriver {
 
 /** Holds the registered drivers and gates capability-bound calls on their cached flags. */
 export class ProviderRegistry {
-  // Keyed by the canonical driver id (a plain string such as `"claude"`).
-  readonly #drivers: Map<string, RegisteredDriver> = new Map();
+  readonly #drivers: Map<ProviderName, RegisteredDriver> = new Map();
 
   // Per-driver registration token; a superseded `register` sees a newer token and drops its
   // result (see `register`).
-  readonly #registrationSeq: Map<string, number> = new Map();
+  readonly #registrationSeq: Map<ProviderName, number> = new Map();
 
   /**
    * Registers a driver under `driverId`, or refreshes it: awaits `driver.getCapabilities()` once
@@ -71,7 +74,7 @@ export class ProviderRegistry {
    * The latest-initiated call wins when two calls for the same id overlap, whichever
    * `getCapabilities()` resolves first, because a later call carries newer provider state.
    */
-  async register(driverId: string, driver: ProviderDriver): Promise<void> {
+  async register(driverId: ProviderName, driver: ProviderDriver): Promise<void> {
     // Claim the token before the await so a later call can supersede this one.
     const token: number = (this.#registrationSeq.get(driverId) ?? 0) + 1;
     this.#registrationSeq.set(driverId, token);
@@ -95,7 +98,7 @@ export class ProviderRegistry {
   }
 
   /** Returns the registered driver, or `undefined` on a miss; it never throws. */
-  lookup(driverId: string): ProviderDriver | undefined {
+  lookup(driverId: ProviderName): ProviderDriver | undefined {
     return this.#drivers.get(driverId)?.driver;
   }
 
@@ -104,7 +107,7 @@ export class ProviderRegistry {
    * unregistered driver, `DriverCapabilityUnsupportedError` otherwise. It tests `!== true`, so a
    * flag whose cached value is `undefined` (a bogus flag from an untyped caller) is rejected too.
    */
-  checkCapability(driverId: string, flag: DriverCapabilityFlag): void {
+  checkCapability(driverId: ProviderName, flag: DriverCapabilityFlag): void {
     const entry = this.#drivers.get(driverId);
     if (entry === undefined) {
       throw new DriverUnavailableError(driverId);
@@ -115,7 +118,7 @@ export class ProviderRegistry {
   }
 
   /** Returns the registered driver ids, one per driver. */
-  listAvailable(): readonly string[] {
+  listAvailable(): readonly ProviderName[] {
     return [...this.#drivers.keys()];
   }
 }

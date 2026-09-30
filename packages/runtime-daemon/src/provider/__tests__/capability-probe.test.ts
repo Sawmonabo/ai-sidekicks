@@ -6,7 +6,11 @@
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
+import {
+  DRIVER_CAPABILITY_FLAGS,
+  type DriverCapabilityFlag,
+  type ProviderName,
+} from "@ai-sidekicks/contracts";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
@@ -23,23 +27,17 @@ import {
   codexUnknownVariantReply,
 } from "../__fixtures__/capability-probe-doubles.js";
 import {
-  CAPABILITY_DETECTION_TABLES,
-  CAPABILITY_PROBE_CHANNELS,
-  CAPABILITY_PROBE_NEGATIVE_CONTROLS,
-  CAPABILITY_PROBE_PROHIBITED_WIRE_NAMES,
-  CODEX_CAPABILITY_DETECTION_TABLE,
   CapabilityProbeNegativeControlError,
   CapabilityProbeProhibitedNameError,
   applyCapabilityDetection,
   assertProbeWireNameAdmissible,
-  classifyClaudeProbeReply,
-  classifyCodexProbeReply,
   readCapabilityDetection,
   type CapabilityDetectionMechanism,
   type DriverCapabilityDetectionTable,
   type ProbeAdmissibilityConjunct,
+  type ProbeAnswer,
 } from "../capability-probe.js";
-import { DriverCliVersionBelowFloorError, type FlooredDriverName } from "../capability-refresh.js";
+import { DriverCliVersionBelowFloorError } from "../capability-refresh.js";
 import {
   DriverCapabilitiesWriter,
   type DeclareDriverCapabilitiesResult,
@@ -53,9 +51,22 @@ import {
   readCodexCapabilityDetection,
   refreshCodexCapabilities,
 } from "../drivers/codex/capabilities.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 import type { SpawnedProviderVersionReading } from "../version-gate.js";
 
-const DRIVERS: readonly FlooredDriverName[] = ["claude", "codex"];
+const DRIVERS: readonly ProviderName[] = ["claude", "codex"];
+
+const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable =
+  PROVIDER_DRIVER_DESCRIPTORS.codex.capabilityDetectionTable;
+
+// The Claude classifier reads no probe name: its refusal is name-level already.
+function classifyClaudeProbeReply(payload: unknown): ProbeAnswer {
+  return PROVIDER_DRIVER_DESCRIPTORS.claude.classifyCapabilityProbeReply(payload, "");
+}
+
+function classifyCodexProbeReply(payload: unknown, probeName: string): ProbeAnswer {
+  return PROVIDER_DRIVER_DESCRIPTORS.codex.classifyCapabilityProbeReply(payload, probeName);
+}
 
 /** The closed conjunct set, restated apart from the module's type, which is erased at runtime. */
 const ADMISSIBILITY_CONJUNCTS: readonly ProbeAdmissibilityConjunct[] = [
@@ -82,27 +93,28 @@ function probedFlagsOf(table: DriverCapabilityDetectionTable): DriverCapabilityF
   );
 }
 
-const VERSION_READINGS: Readonly<Record<FlooredDriverName, SpawnedProviderVersionReading>> = {
+const VERSION_READINGS: Readonly<Record<ProviderName, SpawnedProviderVersionReading>> = {
   claude: CLAUDE_VERSION_READING,
   codex: CODEX_VERSION_READING,
 };
 
 /** The build a driver's detection read is bound to, from its version reading. */
-function boundPathFor(driverName: FlooredDriverName): string {
+function boundPathFor(driverName: ProviderName): string {
   return VERSION_READINGS[driverName].resolvedExecutablePath;
 }
 
 /** The drivers whose table declares a probe, derived so a table edit cannot make a test vacuous. */
-const PROBING_DRIVERS: readonly FlooredDriverName[] = DRIVERS.filter(
-  (driverName) => probedFlagsOf(CAPABILITY_DETECTION_TABLES[driverName]).length > 0,
+const PROBING_DRIVERS: readonly ProviderName[] = DRIVERS.filter(
+  (driverName) =>
+    probedFlagsOf(PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable).length > 0,
 );
 
 /** The probed flag a withdrawal assertion runs through, named so a table edit cannot swap it. */
-const WITHDRAWAL_CANARY_FLAG: Readonly<Partial<Record<FlooredDriverName, DriverCapabilityFlag>>> = {
+const WITHDRAWAL_CANARY_FLAG: Readonly<Partial<Record<ProviderName, DriverCapabilityFlag>>> = {
   codex: "steer",
 };
 
-function withdrawalCanaryFor(driverName: FlooredDriverName): DriverCapabilityFlag {
+function withdrawalCanaryFor(driverName: ProviderName): DriverCapabilityFlag {
   const canary = WITHDRAWAL_CANARY_FLAG[driverName];
   if (canary === undefined) {
     throw new Error(`test fixture error: driver '${driverName}' declares no withdrawal canary`);
@@ -141,7 +153,7 @@ describe("the declared detection-mechanism table", () => {
   it.each(DRIVERS)("is TOTAL over the canonical flag set for driver '%s'", (driverName) => {
     // Walks DRIVER_CAPABILITY_FLAGS, not the table's keys: a table total over itself but stale
     // against the contract fails here, which is what a union growth produces.
-    const table = CAPABILITY_DETECTION_TABLES[driverName];
+    const table = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable;
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       expect(Object.hasOwn(table, flag)).toBe(true);
     }
@@ -149,7 +161,7 @@ describe("the declared detection-mechanism table", () => {
   });
 
   it.each(DRIVERS)("names a failing conjunct on EVERY static entry of '%s'", (driverName) => {
-    const table = CAPABILITY_DETECTION_TABLES[driverName];
+    const table = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable;
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       const mechanism = table[flag];
       if (mechanism.detectionSource !== "static") {
@@ -164,7 +176,7 @@ describe("the declared detection-mechanism table", () => {
   });
 
   it.each(DRIVERS)("declares a real probe on EVERY probed entry of '%s'", (driverName) => {
-    const table = CAPABILITY_DETECTION_TABLES[driverName];
+    const table = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityDetectionTable;
     for (const flag of probedFlagsOf(table)) {
       const mechanism = table[flag];
       expect(mechanism.detectionSource).toBe("probed");
@@ -197,7 +209,9 @@ describe("zero billed turns, asserted at the provider transport", () => {
         // No name that starts a thread or a turn is issued. A probe may name a `turn/*` method
         // (`turn/steer` acts on an existing turn), so assert against the prohibited set, not the
         // namespace.
-        expect(CAPABILITY_PROBE_PROHIBITED_WIRE_NAMES).not.toContain(request.probeName);
+        expect(
+          PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityProbeProhibitedNames,
+        ).not.toContain(request.probeName);
         // The request shape has no message, prompt, content or params member, so a user message
         // cannot be expressed on this seam. It carries the build, which is what a capability
         // answer is about.
@@ -207,25 +221,35 @@ describe("zero billed turns, asserted at the provider transport", () => {
           "driverName",
           "probeName",
         ]);
-        expect(request.channel).toBe(CAPABILITY_PROBE_CHANNELS[driverName]);
+        expect(request.channel).toBe(
+          PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityProbeChannel,
+        );
         expect(request.driverName).toBe(driverName);
         expect(request.boundExecutablePath).toBe(boundPathFor(driverName));
       }
     },
   );
 
-  it.each(DRIVERS)("never issues `mcp_set_servers` for '%s'", async (driverName) => {
+  it.each(DRIVERS)("never issues a prohibited name for '%s'", async (driverName) => {
     const transport = new RecordingCapabilityProbeTransport(driverName);
     await readCapabilityDetection({
       driverName,
       boundExecutablePath: boundPathFor(driverName),
       exchange: transport.exchange,
     });
-    expect(transport.issuedProbeNames).not.toContain("mcp_set_servers");
     // The prohibition holds wherever the name reaches the dispatcher, not only in this run.
-    expect(CAPABILITY_PROBE_PROHIBITED_WIRE_NAMES).toContain("mcp_set_servers");
+    for (const probeName of PROVIDER_DRIVER_DESCRIPTORS[driverName]
+      .capabilityProbeProhibitedNames) {
+      expect(transport.issuedProbeNames).not.toContain(probeName);
+      expect(() => {
+        assertProbeWireNameAdmissible(driverName, probeName);
+      }).toThrow(CapabilityProbeProhibitedNameError);
+    }
+  });
+
+  it("refuses the set-replacing `mcp_set_servers` reconcile at the dispatcher (Claude)", () => {
     expect(() => {
-      assertProbeWireNameAdmissible("mcp_set_servers");
+      assertProbeWireNameAdmissible("claude", "mcp_set_servers");
     }).toThrow(CapabilityProbeProhibitedNameError);
   });
 
@@ -248,7 +272,7 @@ describe("zero billed turns, asserted at the provider transport", () => {
 
 describe("the capability-probe negative control", () => {
   it.each(PROBING_DRIVERS)("fails the whole read when it SUCCEEDS on '%s'", async (driverName) => {
-    const control = CAPABILITY_PROBE_NEGATIVE_CONTROLS[driverName];
+    const control = PROVIDER_DRIVER_DESCRIPTORS[driverName].capabilityProbeNegativeControl;
     const transport = new RecordingCapabilityProbeTransport(driverName, {
       replies: { [control]: driverName === "claude" ? claudeSuccessReply() : codexResultReply() },
     });
@@ -264,7 +288,7 @@ describe("the capability-probe negative control", () => {
   });
 
   it("fails the read when the control's answer is unclassifiable (Codex)", async () => {
-    const control = CAPABILITY_PROBE_NEGATIVE_CONTROLS.codex;
+    const control = PROVIDER_DRIVER_DESCRIPTORS.codex.capabilityProbeNegativeControl;
     const transport = new RecordingCapabilityProbeTransport("codex", {
       replies: { [control]: "not a json-rpc frame" },
     });

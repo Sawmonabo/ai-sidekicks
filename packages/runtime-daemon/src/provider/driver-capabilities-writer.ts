@@ -18,10 +18,10 @@ import {
   ProviderToolMetadataSchema,
   type DriverCapabilityFlag,
   type NormalizedProviderToolMetadata,
+  type ProviderName,
 } from "@ai-sidekicks/contracts";
 import type { Database, Statement, Transaction } from "better-sqlite3";
 
-import { declaredOutputSpeedLevelsFor } from "./driver-output-speed.js";
 import {
   assertValidCapabilityFlags,
   assertValidCliVersionReport,
@@ -29,6 +29,7 @@ import {
   assertValidGetCapabilitiesResultShape,
   ProviderOutputValidationError,
 } from "./provider-output-validation.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "./provider-driver.js";
 
 // One driver's stored capabilities: every flag, the contract version and the normalized tools.
@@ -54,7 +55,7 @@ function snapshotsEqual(
 
 /** One capability declaration; `result.cliVersion` is persisted with the snapshot. */
 export interface DeclareDriverCapabilitiesInput {
-  readonly driverName: string;
+  readonly driverName: ProviderName;
   readonly result: GetCapabilitiesResult;
 }
 
@@ -360,9 +361,9 @@ export class DriverCapabilitiesWriter {
 
   /**
    * Rebuilds a driver's capabilities from the durable cache without asking the driver, in one
-   * DEFERRED read transaction. `outputSpeedLevels` comes from the static per-driver table.
+   * DEFERRED read transaction. `outputSpeedLevels` comes from the provider's descriptor.
    */
-  hydrate(driverName: string): DriverCapabilityHydrationResult {
+  hydrate(driverName: ProviderName): DriverCapabilityHydrationResult {
     const cached: CachedDriverCapabilityRead = this.#readTxn.deferred(driverName);
     if (cached.snapshot === undefined) {
       return { hit: false, reason: "never_written" };
@@ -380,9 +381,9 @@ export class DriverCapabilitiesWriter {
         // Copied: `CapabilityDetails.tools` is readonly, `GetCapabilitiesResult.tools` is mutable.
         tools: [...cached.snapshot.tools],
         cliVersion: cached.storedCliVersion,
-        // Present iff the cached flag says so; copied because the table's arrays are frozen.
+        // Present iff the cached flag says so; copied because the descriptor's arrays are frozen.
         ...(cached.snapshot.flags.output_speed
-          ? { outputSpeedLevels: [...declaredOutputSpeedLevelsFor(driverName)] }
+          ? { outputSpeedLevels: [...PROVIDER_DRIVER_DESCRIPTORS[driverName].outputSpeedLevels] }
           : {}),
       },
     };

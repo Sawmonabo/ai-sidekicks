@@ -8,12 +8,13 @@ import {
   DriverCapabilityReportSchema,
   type DriverCapabilities,
   type DriverCapabilityFlag,
+  type ProviderName,
 } from "@ai-sidekicks/contracts";
 
 import { DriverCapabilityCache } from "../capability-cache.js";
 import type { DriverCapabilityHydrationResult } from "../driver-capabilities-writer.js";
-import { declaredOutputSpeedLevelsFor } from "../driver-output-speed.js";
 import type { GetCapabilitiesResult } from "../provider-driver.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 
 function flagsWith(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): DriverCapabilities {
   const flags = Object.fromEntries(
@@ -28,14 +29,14 @@ function flagsWith(overrides: Partial<Record<DriverCapabilityFlag, boolean>>): D
  */
 function hydrationHit(
   capabilities: DriverCapabilities,
-  driverName: string,
+  driverName: ProviderName,
 ): DriverCapabilityHydrationResult {
   const result: GetCapabilitiesResult = {
     capabilities,
     tools: [{ name: "bash", idempotency_class: "manual_reconcile_only" }],
     cliVersion: { raw: "2.1.251 (Claude Code)", semver: "2.1.251" },
     ...(capabilities.flags.output_speed
-      ? { outputSpeedLevels: [...declaredOutputSpeedLevelsFor(driverName)] }
+      ? { outputSpeedLevels: [...PROVIDER_DRIVER_DESCRIPTORS[driverName].outputSpeedLevels] }
       : {}),
   };
   return { hit: true, result };
@@ -57,7 +58,7 @@ describe("DriverCapabilityCache", () => {
     ]);
     expect(DriverCapabilityReportSchema.safeParse(report).success).toBe(true);
     // The second read is served from the entry and must carry the driver's own vocabulary too.
-    const declaredLevels = [...declaredOutputSpeedLevelsFor("claude")];
+    const declaredLevels = [...PROVIDER_DRIVER_DESCRIPTORS.claude.outputSpeedLevels];
     expect(report.outputSpeedLevels).toStrictEqual(declaredLevels);
     expect(cache.read("claude").outputSpeedLevels).toStrictEqual(declaredLevels);
   });
@@ -91,9 +92,6 @@ describe("DriverCapabilityCache", () => {
           cliVersion: { raw: "1.0.0", semver: "1.0.0" },
         },
       }),
-      resolveOutputSpeedLevels: () => {
-        throw new Error("the vocabulary must not be resolved for an undeclared flag");
-      },
     });
 
     expect(Object.hasOwn(cache.read("claude"), "outputSpeedLevels")).toBe(false);
@@ -115,7 +113,7 @@ describe("DriverCapabilityCache", () => {
   it("subscribes at CONSTRUCTION and invalidates the named driver", () => {
     // Subscribing at construction catches an update that lands before the first read; otherwise
     // the entry that read writes would be stale from birth.
-    let publish: ((driverName: string) => void) | undefined;
+    let publish: ((driverName: ProviderName) => void) | undefined;
     const hydrate = vi.fn(() => hydrationHit(flagsWith({}), "claude"));
     const cache = new DriverCapabilityCache({
       hydrateDurableCapabilities: hydrate,

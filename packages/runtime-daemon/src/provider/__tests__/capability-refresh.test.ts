@@ -2,6 +2,7 @@
 // CapabilityRefreshScheduler, which pairs the capability refresh with the auth probe and keeps a
 // failed, hung or stale-lifetime leg from stopping the poll or writing the wrong auth state.
 
+import type { ProviderName } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
@@ -10,15 +11,14 @@ import {
   CAPABILITY_REFRESH_INTERVAL_MS,
   CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS,
   CapabilityRefreshScheduler,
-  DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
   parseCliVersionReport,
   type CapabilityRefreshDiagnostic,
   type CapabilityRefreshDriverEntry,
-  type FlooredDriverName,
 } from "../capability-refresh.js";
 import type { DriverAuthProbeResult } from "../provider-driver.js";
+import { PROVIDER_DRIVER_DESCRIPTORS } from "../provider-driver-descriptors.js";
 
 describe("parseCliVersionReport", () => {
   it("derives the canonical semver from a prose-wrapped raw string, preserving raw verbatim", () => {
@@ -56,7 +56,7 @@ interface FakeDriverEntry {
   setProbeResult(result: DriverAuthProbeResult | Error): void;
 }
 
-function buildFakeDriverEntry(driverName: FlooredDriverName): FakeDriverEntry {
+function buildFakeDriverEntry(driverName: ProviderName): FakeDriverEntry {
   let refreshResult: DeclareDriverCapabilitiesResult | Error = {
     snapshotChange: "unchanged",
     cliVersionRefreshed: false,
@@ -185,7 +185,11 @@ describe("CapabilityRefreshScheduler", () => {
     // A mid-lifetime downgrade below the floor: the refresh leg refuses, the diagnostic carries
     // the registered code, and the loop survives.
     codex.setRefreshResult(
-      new DriverCliVersionBelowFloorError("codex", "0.140.0", DRIVER_CLI_VERSION_FLOORS.codex),
+      new DriverCliVersionBelowFloorError(
+        "codex",
+        "0.140.0",
+        PROVIDER_DRIVER_DESCRIPTORS.codex.cliVersionFloor,
+      ),
     );
     await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
     expect(diagnostics).toHaveLength(1);

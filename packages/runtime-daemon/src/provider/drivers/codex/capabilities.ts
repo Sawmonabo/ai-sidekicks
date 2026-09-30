@@ -26,9 +26,9 @@ import type {
   DriverCapabilityDeclarationSink,
 } from "../../driver-capabilities-writer.js";
 import type { DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
-import { DRIVER_OUTPUT_SPEED_LEVELS } from "../../driver-output-speed.js";
 import type { SpawnedProviderVersionReading } from "../../version-gate.js";
 
+import { CODEX_DRIVER_DESCRIPTOR } from "./codex-driver-descriptor.js";
 import { getCodexToolMetadata } from "./tools.js";
 import type { DriverCliVersionReport, GetCapabilitiesResult } from "../../provider-driver.js";
 
@@ -82,12 +82,6 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
   });
 
 /**
- * Empty, like the `false` `output_speed` flag: a caller carrying an `outputSpeed` is refused
- * instead of forwarding an unvalidated value.
- */
-export const CODEX_OUTPUT_SPEED_LEVELS: readonly string[] = DRIVER_OUTPUT_SPEED_LEVELS.codex;
-
-/**
  * Composes the `getCapabilities()` report from the build `reading` and probe `detection`; the
  * result is fresh, so a caller's mutation cannot corrupt a later declaration. Throws the floor
  * gate's errors for a bad version, and a plain `Error` for a foreign or mismatched reading.
@@ -126,7 +120,7 @@ export function getCodexCapabilities(
     detectionSource: { ...detection.detectionSource },
     // Present only when the flag is true, which it never is for this driver.
     ...(CODEX_CAPABILITY_FLAGS.output_speed
-      ? { outputSpeedLevels: [...CODEX_OUTPUT_SPEED_LEVELS] }
+      ? { outputSpeedLevels: [...CODEX_DRIVER_DESCRIPTOR.outputSpeedLevels] }
       : {}),
   };
 }

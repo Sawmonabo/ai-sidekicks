@@ -1,6 +1,6 @@
 /**
- * Capability refresh: the CLI-version floor and the scheduler that re-reads capabilities. The floor
- * lives here so neither driver tree imports the other.
+ * Capability refresh: the CLI-version floor gate and the scheduler that re-reads capabilities. Each
+ * provider's floor value is on its descriptor.
  *
  * - The floor fails closed with two 409 codes: `driver.cli_version_unparseable` (no canonical
  *   semver) and `driver.cli_version_below_floor`. Neither is `version.floor_exceeded`, which
@@ -13,6 +13,7 @@
  *   `indeterminate`: fail closed, yet distinct from `unauthenticated`.
  */
 
+import type { ProviderName } from "@ai-sidekicks/contracts";
 import semver from "semver";
 
 import { type CapabilityDetectionReading, isCapabilityProbeError } from "./capability-probe.js";
@@ -20,20 +21,7 @@ import type { DeclareDriverCapabilitiesResult } from "./driver-capabilities-writ
 import { type DriverDiagnosticKind, type DriverDiagnosticsEmitter } from "./driver-diagnostics.js";
 import { CLI_VERSION_RAW_MAX_LEN } from "./provider-output-validation.js";
 import type { DriverAuthProbeResult, DriverCliVersionReport } from "./provider-driver.js";
-
-/** The two drivers the V1 floor table answers for. */
-export type FlooredDriverName = "claude" | "codex";
-
-/**
- * The oldest CLI build each driver accepts (a floor, not a pin), compared against the in-band
- * reading of the spawned process.
- */
-export const DRIVER_CLI_VERSION_FLOORS: Readonly<Record<FlooredDriverName, string>> = Object.freeze(
-  {
-    claude: "2.1.234",
-    codex: "0.141.0",
-  },
-);
+import { PROVIDER_DRIVER_DESCRIPTORS } from "./provider-driver-descriptors.js";
 
 /**
  * Thrown when a provider-reported version yields no canonical semver (`code`
@@ -42,9 +30,9 @@ export const DRIVER_CLI_VERSION_FLOORS: Readonly<Record<FlooredDriverName, strin
  */
 export class DriverCliVersionUnparseableError extends Error {
   readonly code = "driver.cli_version_unparseable" as const;
-  readonly fields: { readonly driverName: FlooredDriverName; readonly raw: string };
+  readonly fields: { readonly driverName: ProviderName; readonly raw: string };
 
-  constructor(driverName: FlooredDriverName, raw: string) {
+  constructor(driverName: ProviderName, raw: string) {
     super("The provider CLI's reported version could not be parsed to a semantic version");
     this.name = "DriverCliVersionUnparseableError";
     this.fields = {
@@ -58,12 +46,12 @@ export class DriverCliVersionUnparseableError extends Error {
 export class DriverCliVersionBelowFloorError extends Error {
   readonly code = "driver.cli_version_below_floor" as const;
   readonly fields: {
-    readonly driverName: FlooredDriverName;
+    readonly driverName: ProviderName;
     readonly reportedSemver: string;
     readonly floor: string;
   };
 
-  constructor(driverName: FlooredDriverName, reportedSemver: string, floor: string) {
+  constructor(driverName: ProviderName, reportedSemver: string, floor: string) {
     super("The provider CLI's reported version is below the configured minimum floor");
     this.name = "DriverCliVersionBelowFloorError";
     this.fields = { driverName, reportedSemver, floor };
@@ -80,7 +68,7 @@ const SEMVER_TOKEN_PATTERN = /\d+\.\d+\.\d+(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*
  * verbatim.
  */
 export function parseCliVersionReport(
-  driverName: FlooredDriverName,
+  driverName: ProviderName,
   raw: string,
 ): DriverCliVersionReport {
   const token = SEMVER_TOKEN_PATTERN.exec(raw)?.[0];
@@ -96,13 +84,13 @@ export function parseCliVersionReport(
  * `DriverCliVersionUnparseableError` for a non-canonical `semver` instead of a raw `TypeError`.
  */
 export function assertCliVersionMeetsFloor(
-  driverName: FlooredDriverName,
+  driverName: ProviderName,
   report: DriverCliVersionReport,
 ): void {
   if (semver.valid(report.semver) !== report.semver) {
     throw new DriverCliVersionUnparseableError(driverName, report.raw);
   }
-  const floor = DRIVER_CLI_VERSION_FLOORS[driverName];
+  const floor = PROVIDER_DRIVER_DESCRIPTORS[driverName].cliVersionFloor;
   if (semver.lt(report.semver, floor)) {
     throw new DriverCliVersionBelowFloorError(driverName, report.semver, floor);
   }
@@ -125,7 +113,7 @@ export const CAPABILITY_REFRESH_POLL_LEG_TIMEOUT_MS: number = 2 * 60 * 1000;
  */
 export interface CapabilityRefreshDriverEntry {
   /** Canonical driver id; the auth-record key. */
-  readonly driverName: FlooredDriverName;
+  readonly driverName: ProviderName;
   /**
    * Re-reads the declaration and declares it through the writer, which owns change detection; the
    * result is ignored. Every poll must take a new detection reading: replaying the attach-time one
@@ -159,7 +147,7 @@ export interface DriverAuthStateRecord {
  */
 export interface CapabilityRefreshDiagnostic {
   readonly nodeId: string;
-  readonly driverName: FlooredDriverName;
+  readonly driverName: ProviderName;
   /**
    * `capability-probe` refines `capability-refresh`: the detection read runs inside
    * `refreshDeclaration()`, and this marks failures the probe surface caused. A read that only
@@ -395,7 +383,7 @@ export class CapabilityRefreshScheduler {
   #recordAuthState(
     nodeId: string,
     generation: number,
-    driverName: FlooredDriverName,
+    driverName: ProviderName,
     record: DriverAuthStateRecord,
   ): void {
     // A record from a poll begun under an earlier node lifetime must not land on the current
@@ -418,7 +406,7 @@ export class CapabilityRefreshScheduler {
 
   #reportFailure(
     nodeId: string,
-    driverName: FlooredDriverName,
+    driverName: ProviderName,
     dispatchedLeg: CapabilityRefreshDiagnostic["leg"],
     outcome: PollLegOutcome<unknown>,
   ): void {
