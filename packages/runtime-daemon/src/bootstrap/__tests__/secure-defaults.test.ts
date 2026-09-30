@@ -1,12 +1,13 @@
-// Invalid config fails closed with a typed error, an insecure setting is refused on the wire,
-// and each override event is emitted once per process. Both modules hold singleton state, so
-// every case starts from a reset.
+// Binding before load throws, invalid config fails closed with a typed error, the settings view
+// holds only its two keys, an insecure setting is refused on the wire, and each override event is
+// emitted once per process. Both modules hold singleton state, so every case starts from a reset.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
+import { bootstrap, assertLoadedForBind } from "../index.js";
 import {
   SecureDefaultOverrideEmitter,
   type SecurityDefaultOverrideEvent,
@@ -44,6 +45,15 @@ beforeEach(() => {
 afterEach(() => {
   SecureDefaults.__resetForTest();
   SecureDefaultOverrideEmitter.__resetForTest();
+});
+
+describe("load-before-bind", () => {
+  it("assertLoadedForBind() throws when called before SecureDefaults.load()", () => {
+    expect(SecureDefaults.isLoaded()).toBe(false);
+    expect(() => assertLoadedForBind()).toThrow(
+      /SecureDefaults\.load\(config\) must complete before any listener bind\(\)/,
+    );
+  });
 });
 
 // The typed error and its stable `code` are what callers key on, so each case checks the
@@ -96,6 +106,22 @@ describe("fail-closed on invalid config", () => {
     expect(caught.code).toBe("missing_required_setting");
     expect(caught.message).toMatch(/bannerFormat/);
     expect(SecureDefaults.isLoaded()).toBe(false);
+  });
+});
+
+// The exact key set catches an added leaking field; the value round-trip catches a
+// hard-coded constant.
+
+describe("effectiveSettings non-secret typed values", () => {
+  it("returns exactly the two config keys, each carrying the loaded value", () => {
+    bootstrap(VALID_BASE_CONFIG);
+    const eff = SecureDefaults.effectiveSettings();
+
+    // Sorted, so the order of the returned literal does not matter.
+    expect(Object.keys(eff).sort()).toEqual(["bannerFormat", "localIpcPath"]);
+
+    expect(eff.localIpcPath).toBe("/tmp/ai-sidekicks-test.sock");
+    expect(eff.bannerFormat).toBe("text");
   });
 });
 
@@ -156,6 +182,22 @@ describe("single-emit-per-startup", () => {
     expect(sink).toHaveBeenCalledTimes(1);
     expect(sink).toHaveBeenCalledWith(makeOverrideEvent(1));
     expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(true);
+  });
+
+  it("emits independently for two distinct behaviors, each exactly once", () => {
+    const sink = vi.fn<SecurityDefaultOverrideSink>();
+    SecureDefaultOverrideEmitter.setSink(sink);
+
+    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
+    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(2));
+    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
+    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(2));
+
+    expect(sink).toHaveBeenCalledTimes(2);
+    const behaviorsCalled = sink.mock.calls.map((call) => call[0].behavior).sort();
+    expect(behaviorsCalled).toEqual([1, 2]);
+    expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(true);
+    expect(SecureDefaultOverrideEmitter.hasEmitted(2)).toBe(true);
   });
 
   it("emit() throws when no sink is installed and keeps the behavior's one event", () => {
