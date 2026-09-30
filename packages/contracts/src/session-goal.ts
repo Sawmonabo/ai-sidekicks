@@ -1,15 +1,11 @@
-// A goal inside a session: the condition one agent works toward until it is met,
-// cleared or stopped unmet, set with `session.goalUpdate` and removed with
-// `session.goalClear`, and the two events that record each change.
+// A goal inside a session: the condition one agent works toward until it is met, cleared or
+// stopped unmet, set with `session.goalUpdate` and removed with `session.goalClear`, and the two
+// events that record each change. A goal is a command used inside a session, never what the
+// session is, so nothing here names a session by one. The transcript draws every goal row from
+// the two events; there is no separate goal store.
 //
-// A goal is a command used inside a session, never what the session is: a session
-// may carry no goal, one, or several over its life, and nothing here names or
-// labels a session by one. The transcript draws every goal row from the two events
-// below; there is no separate goal store.
-//
-// This module imports nothing from `./event.js`. `event.ts` registers the two
-// payloads below as event variants, so an import back would close an eager
-// module-scope cycle that throws at load time.
+// Must not import `./event.js`: it registers the two payloads below as event variants, so an
+// import back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 
 import { uuidTextFormSchema } from "./internal/branded.js";
@@ -20,20 +16,15 @@ import { SessionAcknowledgementSchema, type SessionAcknowledgement } from "./ses
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 /**
- * The longest goal the daemon accepts. The field in the composer refuses on the
- * same number rather than cutting the text, because the goal sent is the text the
- * person wrote. The shortest is one character that is not whitespace, which the
- * text schema below enforces.
+ * The longest goal accepted. An over-long goal is refused, not cut, because the goal sent is the
+ * text the person wrote. The shortest is one character that is not whitespace.
  */
 export const SESSION_GOAL_MAX_LENGTH = 4096;
 
 /**
- * A goal's condition, as the person wrote it.
- *
- * `text` is 1 to {@link SESSION_GOAL_MAX_LENGTH} characters, not blank and free of
- * NUL. It is checked as written and never trimmed: the text stored and sent is the
- * text typed. Clearing is its own operation, so an update with empty text is
- * refused rather than read as a clear.
+ * A goal's condition, as the person wrote it. `text` is 1 to {@link SESSION_GOAL_MAX_LENGTH}
+ * characters, not blank and free of NUL, checked as written and never trimmed. Clearing is its
+ * own operation, so an update with empty text is refused rather than read as a clear.
  */
 export interface SessionGoal {
   text: string;
@@ -54,10 +45,9 @@ const SESSION_GOAL_STATUS_VALUES = [
 ] as const;
 
 /**
- * Where a goal stands. `complete` and `impossible` are final: a goal's last status
- * is what its row draws, so every ending the row can show is a member. Only Claude
- * Code sends `impossible`, carrying the judge's reason. Clearing is the event
- * `session.goal_cleared`, never a status.
+ * Where a goal stands. `complete` and `impossible` are final; a goal's last status is what its
+ * row draws. Only Claude Code sends `impossible`, carrying the judge's reason. Clearing is the
+ * event `session.goal_cleared`, never a status.
  */
 export type SessionGoalStatus = (typeof SESSION_GOAL_STATUS_VALUES)[number];
 /** Every {@link SessionGoalStatus}, in the order above. */
@@ -67,9 +57,8 @@ export const SessionGoalStatusSchema: z.ZodType<SessionGoalStatus, SessionGoalSt
   SESSION_GOAL_STATUS_VALUES,
 );
 
-// The agent a goal is sent to. `agentId` is a UUID whose brand belongs to the live
-// agent contract; the member is the unbranded UUID text form so that brand can
-// narrow it later with no change to what parses.
+// The agent a goal is sent to: the unbranded UUID text form, since the `agentId` brand belongs to
+// the live agent contract.
 const goalAgentIdSchema = uuidTextFormSchema;
 
 /** Sets or replaces the goal of one agent in the session. The last write wins. */
@@ -108,12 +97,9 @@ export const SessionGoalClearRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema, agentId: goalAgentIdSchema }).strict();
 
 /**
- * The `session.goal_updated` payload: the goal and where it now stands.
- *
- * `reason` is the provider's judge's reason, present exactly when the status is
- * `impossible`, the one ending that carries words. A type alias rather than an
- * interface, because the event variant that carries it narrows the envelope's
- * record-typed payload and only an alias has the index signature that needs.
+ * The `session.goal_updated` payload: the goal and where it now stands. `reason` is the
+ * provider's judge's reason, present exactly when the status is `impossible`. A type alias
+ * because only an alias has the index signature the envelope's record-typed payload needs.
  */
 export type SessionGoalUpdatedPayload = {
   sessionId: SessionId;

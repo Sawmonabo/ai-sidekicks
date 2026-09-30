@@ -1,9 +1,6 @@
-// The three retention bounds on Settings › Runtime, and `Delete old data`.
-//
-// Only two things go on their own past a bound: the service's diagnostic logs
-// and a workflow run's step data. `Keep sessions for` only makes a finished
-// session eligible; nothing removes a session except the purge, which the
-// person confirms after reading the count it would remove.
+// The three retention bounds on Settings › Runtime, and `Delete old data`. Only the service's
+// diagnostic logs and a workflow run's step data go on their own past a bound; a session is
+// removed only by the purge, which the person confirms after reading the count.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -123,6 +120,8 @@ export interface DaemonRetentionMethodDescriptors {
     DaemonRetentionPurgeResponse
   > & { readonly procedureType: "mutation" };
 }
+
+/** The retention methods' names, procedure types and shapes. */
 export const DAEMON_RETENTION_METHOD_DESCRIPTORS: DaemonRetentionMethodDescriptors =
   defineMethodDescriptors({
     "daemon.retentionRead": {

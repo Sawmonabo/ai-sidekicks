@@ -1,10 +1,7 @@
-// The reads behind a session's inspector sections, and the one switch the
-// inspector carries: what fills the context (the same reading feeds the composer's
-// ring), the memory paths with the `Auto memory` switch, and the hooks the
-// provider loaded. The per-session controls are `session-controls.ts`.
-//
-// Every figure and list here is the provider's own report for this session, read
-// by the daemon and never computed on the screen.
+// The reads behind a session's inspector sections, and the one switch the inspector carries: what
+// fills the context (the same reading feeds the composer's ring), the memory paths with the
+// `Auto memory` switch, and the hooks the provider loaded. Every figure and list is the
+// provider's own report for this session, read by the daemon and never computed on the screen.
 import { z } from "zod";
 
 import { composedTextSchema, countSchema, percentSchema } from "./internal/wire-scalars.js";
@@ -14,16 +11,12 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 import { SessionAddressedRequestSchema, type SessionAddressedRequest } from "./session-controls.js";
 
-// --------------------------------------------------------------------------
-// What fills the context
-// --------------------------------------------------------------------------
-
 /**
- * Where the session compacts and the slider's range. The top stop is the
- * provider's own compaction point on this window; the bottom stop is the session's
- * fixed start plus a tenth of the window, rounded up, and is `null` on Codex until
- * the first usage report says what the session loads. `sessionOverride` draws the
- * `session` mark: the bound differs from the Settings default.
+ * Where the session compacts and the slider's range. The top stop is the provider's own
+ * compaction point on this window; the bottom stop is the session's fixed start plus a tenth of
+ * the window, rounded up, and is `null` on Codex until the first usage report says what the
+ * session loads. `sessionOverride` draws the `session` mark: the bound differs from the Settings
+ * default.
  */
 export interface SessionCompactionBound {
   boundPercent: number;
@@ -43,8 +36,8 @@ const SessionCompactionBoundSchema: z.ZodType<SessionCompactionBound> = z
 const CONTEXT_CATEGORY_KIND_VALUES = ["used", "deferred", "buffer", "free"] as const;
 
 /**
- * How Claude Code marks a bucket: counted as used, deferred (dimmed and left out
- * of the used figure), the compaction buffer, or free space.
+ * How Claude Code marks a bucket: counted as used, deferred (dimmed and left out of the used
+ * figure), the compaction buffer, or free space.
  */
 export type SessionContextCategoryKind = (typeof CONTEXT_CATEGORY_KIND_VALUES)[number];
 
@@ -63,8 +56,8 @@ export interface SessionContextCategory {
 }
 
 /**
- * What fills the context, per provider. Claude Code reports named buckets; Codex
- * reports totals only, the four figures of its token-usage update.
+ * What fills the context, per provider. Claude Code reports named buckets; Codex reports totals
+ * only, the four figures of its token-usage update.
  */
 export type SessionContextBreakdown =
   | { provider: "claude"; categories: SessionContextCategory[] }
@@ -114,11 +107,10 @@ export interface SessionContextUsage {
 }
 
 /**
- * One reading of the session's context, which feeds the ring and the inspector's
- * `Context` section alike so the two never disagree. Every figure is the
- * provider's own, read at creation, on every model change and on each usage
- * report. `usage` is `null` until the provider has reported one, which on Codex is
- * the first turn's report.
+ * One reading of the session's context, which feeds the ring and the inspector's `Context`
+ * section alike so the two never disagree. Every figure is the provider's own, read at creation,
+ * on every model change and on each usage report. `usage` is `null` until the provider has
+ * reported one, which on Codex is the first turn's report.
  */
 export interface SessionContextReading {
   sessionId: SessionId;
@@ -143,10 +135,6 @@ export const SessionContextReadingSchema: z.ZodType<SessionContextReading> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Memory and hooks
-// --------------------------------------------------------------------------
-
 /** One memory file or folder the provider reported for this session. */
 export interface SessionMemoryEntry {
   path: string;
@@ -154,10 +142,9 @@ export interface SessionMemoryEntry {
 }
 
 /**
- * The inspector's `Memory` section: the account home the memory lives under, the
- * `Auto memory` switch and the memory paths. `enabledAtNextStart` is present while
- * a change waits for the provider's next start, which is how Claude Code applies
- * the switch.
+ * The inspector's `Memory` section: the account home the memory lives under, the `Auto memory`
+ * switch and the memory paths. `enabledAtNextStart` is present while a change waits for the
+ * provider's next start, which is how Claude Code applies the switch.
  */
 export interface SessionMemoryReadResponse {
   sessionId: SessionId;
@@ -206,8 +193,8 @@ export const SessionAutoMemoryUpdateResponseSchema: z.ZodType<SessionAutoMemoryU
   .strict();
 
 /**
- * One hook Codex loaded for the session's folder. `event`, `source` and
- * `trustStatus` are Codex's own words, carried as sent.
+ * One hook Codex loaded for the session's folder. `event`, `source` and `trustStatus` are
+ * Codex's own words, carried as sent.
  */
 export interface SessionCodexHook {
   key: string;
@@ -233,9 +220,8 @@ export interface SessionCodexHookFolder {
 }
 
 /**
- * The inspector's `Hooks` section. Codex reports the hooks it loaded; Claude Code
- * reports none, so its arm lists the files it reads hooks from. The daemon's own
- * hooks are never listed.
+ * The inspector's `Hooks` section. Codex reports the hooks it loaded; Claude Code reports none,
+ * so its arm lists the files it reads hooks from. The daemon's own hooks are never listed.
  */
 export type SessionHookListResponse =
   | { sessionId: SessionId; provider: "codex"; folders: SessionCodexHookFolder[] }
@@ -286,10 +272,6 @@ export const SessionHookListResponseSchema: z.ZodType<SessionHookListResponse> =
       })
       .strict(),
   ]);
-
-// --------------------------------------------------------------------------
-// The methods
-// --------------------------------------------------------------------------
 
 /** The inspector's methods, keyed by method name. */
 export interface SessionInspectorMethodDescriptors {

@@ -70,9 +70,7 @@ export const WorkflowSecretSummarySchema: z.ZodType<WorkflowSecretSummary> = z.d
   ],
 );
 
-// --------------------------------------------------------------------------
 // The reference
-// --------------------------------------------------------------------------
 
 const WORKFLOW_SECRET_REFERENCE_FORM = /^secret:\/\/(project|shared)\/([^/]+)$/u;
 
@@ -105,9 +103,7 @@ export function parseWorkflowSecretReference(text: string): WorkflowSecretRefere
     : null;
 }
 
-// --------------------------------------------------------------------------
 // The methods
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.secretCreate` input. The daemon seals `secretValue` in the keychain
@@ -195,9 +191,7 @@ export const WorkflowSecretListResponseSchema: z.ZodType<WorkflowSecretListRespo
  */
 export const WORKFLOW_REDACTED_WIRE_MEMBERS: readonly string[] = ["secretValue", "token"];
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /** A secret name that breaks the rule, or that its place already holds. */
 export const WORKFLOW_SECRET_NAME_INVALID_CODE = "workflow.secret_name_invalid" as const;
@@ -265,9 +259,7 @@ export interface WorkflowSecretStoreUnavailableDetails {
 export const WorkflowSecretStoreUnavailableDetailsSchema: z.ZodType<WorkflowSecretStoreUnavailableDetails> =
   z.object({ cause: z.enum(WORKFLOW_SECRET_STORE_UNAVAILABLE_CAUSES) }).strict();
 
-// --------------------------------------------------------------------------
 // Method descriptors
-// --------------------------------------------------------------------------
 
 /** The `workflow.secret*` methods, keyed by name. */
 export interface WorkflowSecretMethodDescriptors {

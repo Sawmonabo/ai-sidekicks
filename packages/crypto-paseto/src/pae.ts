@@ -1,18 +1,14 @@
 /**
- * PAE — Pre-Authentication Encoding.
- *
- * Encodes a list of byte-strings into a single length-prefixed concatenation
- * that defends against canonicalization attacks (two different piece-sets
- * producing the same byte stream).
+ * PASETO Pre-Authentication Encoding: joins byte strings into one length-prefixed stream, so two
+ * different piece lists can never produce the same bytes.
  *
  *   PAE(pieces) = LE64(len(pieces))
  *               || LE64(len(pieces[0])) || pieces[0]
  *               || LE64(len(pieces[1])) || pieces[1]
  *               || ...
  *
- * LE64(n) is a 64-bit little-endian unsigned integer with the **high bit
- * (bit 63) cleared** — i.e., the most-significant bit of byte[7] is forced
- * to 0 after encoding. This is the load-bearing detail of PAE.
+ * LE64(n) is a 64-bit little-endian unsigned integer with bit 63 cleared (the top bit of byte[7]
+ * is forced to 0); the encoding depends on that.
  */
 export function pae(pieces: readonly Uint8Array[]): Uint8Array {
   const totalLength =
@@ -35,8 +31,7 @@ export function pae(pieces: readonly Uint8Array[]): Uint8Array {
 }
 
 function writeLE64HighBitCleared(out: Uint8Array, offset: number, value: number): void {
-  // JS safe integer max is 2^53 - 1, well below 2^63. We split value into low
-  // 32 bits and high (up to 21) bits, then clear bit 63 explicitly.
+  // A JS safe integer is below 2^53, so the value splits into low 32 bits and up to 21 high bits.
   let lo = value >>> 0;
   let hi = Math.floor(value / 0x1_0000_0000) >>> 0;
   for (let i = 0; i < 4; i++) {
@@ -47,6 +42,6 @@ function writeLE64HighBitCleared(out: Uint8Array, offset: number, value: number)
     out[offset + 4 + i] = hi & 0xff;
     hi >>>= 8;
   }
-  // Clear bit 63 (high bit of byte[7]).
+  // Clear bit 63.
   out[offset + 7] = out[offset + 7]! & 0x7f;
 }

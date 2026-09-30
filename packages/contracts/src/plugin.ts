@@ -1,16 +1,15 @@
-// Plugins: the Browse plugins view's wire. Each provider's own plugin catalogs,
-// what one plugin carries, installing and removing a plugin, the installed list,
-// the marketplaces a person adds, and a Codex plugin's apps per account.
+// Plugins: the Browse plugins view's wire. Each provider's plugin catalog, what one plugin
+// carries, installing and removing it, the installed list, the marketplaces a person adds, and a
+// Codex plugin's apps per account.
 //
-// The daemon answers every verb through the provider's own plugin commands, run
-// against a plugin home the daemon owns, one per provider: never an account home
-// and never the person's own home. A plugin the person installed in their own
-// terminal is read without writing and listed as installed there; installing it
-// here installs the same plugin into the daemon's plugin home. Catalogs shared
-// between people are never listed, because the product has one person.
+// The daemon answers every verb through the provider's own plugin commands, run against a plugin
+// home the daemon owns, one per provider: never an account home and never the person's own home.
+// A plugin installed in the person's own terminal is read without writing and listed as installed
+// there; installing it here installs the same plugin into the daemon's plugin home. Catalogs
+// shared between people are never listed, because the product has one person.
 //
-// An installed plugin's agents and skills reach the saved-agent list and the skill
-// list as their read-only plugin origin; those lists, not this file, carry them.
+// An installed plugin's agents and skills reach the saved-agent and skill lists as their
+// read-only plugin origin; those lists carry them, not this file.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -20,16 +19,14 @@ import {
   type ProviderAccountId,
   type ProviderName,
 } from "./provider-account.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace. */
 const pluginTokenSchema = (label: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_TOKEN_MAX_LEN, label);
 
-// --------------------------------------------------------------------------
 // The plugin as a list serves it
-// --------------------------------------------------------------------------
 
 /**
  * One plugin: its provider's id for it, its name and the name a person reads, its
@@ -88,9 +85,7 @@ export const PluginCatalogEntrySchema: z.ZodType<PluginCatalogEntry> = z
   .object({ ...pluginSummaryFields, carries: PluginCarriedCountsSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // plugin.catalogList
-// --------------------------------------------------------------------------
 
 /**
  * One provider's catalog, filtered by `query` as the person types. Neither
@@ -127,9 +122,7 @@ export const PluginCatalogListResponseSchema: z.ZodType<PluginCatalogListRespons
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // plugin.read
-// --------------------------------------------------------------------------
 
 /** One plugin, named by its provider and that provider's id for it. */
 export interface PluginRef {
@@ -208,9 +201,7 @@ export const PluginReadResponseSchema: z.ZodType<PluginReadResponse> = z
   .object({ items: PluginCarriedItemsSchema, source: PluginSourceSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // plugin.install and plugin.uninstall
-// --------------------------------------------------------------------------
 
 /**
  * The installed plugin. The same verb serves a plugin installed in the person's own
@@ -234,9 +225,7 @@ export const PluginUninstallResponseSchema: z.ZodType<PluginUninstallResponse> =
   .object({ uninstalled: z.literal(true) })
   .strict();
 
-// --------------------------------------------------------------------------
 // plugin.installedList
-// --------------------------------------------------------------------------
 
 /** The installed plugins of one provider, or of both when `provider` is absent. */
 export interface PluginInstalledListRequest {
@@ -260,14 +249,12 @@ export const PluginInstalledListResponseSchema: z.ZodType<PluginInstalledListRes
   .object({ plugins: z.array(PluginSummarySchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // plugin.marketplaceAdd and plugin.marketplaceRemove
-// --------------------------------------------------------------------------
 
 /**
  * Adds a marketplace by a repository address or a folder, through the provider's
- * own verb. A folder is picked with the platform's own chooser; main's relay puts
- * its path in place of the chooser's token. Each provider's official marketplace
+ * own verb. A folder is picked with the platform's own chooser; the desktop main
+ * process puts its path in place of the chooser's token. Each provider's official marketplace
  * is there without adding it.
  */
 export interface PluginMarketplaceAddRequest {
@@ -319,9 +306,7 @@ export const PluginMarketplaceRemoveResponseSchema: z.ZodType<PluginMarketplaceR
   .object({ removed: z.literal(true) })
   .strict();
 
-// --------------------------------------------------------------------------
 // plugin.appList
-// --------------------------------------------------------------------------
 
 /**
  * A Codex plugin's apps. An app is a tool server its provider hosts, reached
@@ -384,9 +369,7 @@ export const PluginAppListResponseSchema: z.ZodType<PluginAppListResponse> = z
   .object({ apps: z.array(PluginAppSchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // The plugin.* method table
-// --------------------------------------------------------------------------
 
 /** The `plugin.*` methods. */
 export interface PluginMethodDescriptors {

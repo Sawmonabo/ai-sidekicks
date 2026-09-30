@@ -1,17 +1,11 @@
-// A session's tasks in its provider's own cloud: sending one, the session's live
-// list of them, one task's last reported state, a Codex attempt's diff, and bringing
-// a task back into the session.
+// A session's tasks in its provider's own cloud. The daemon only calls the provider's cloud
+// verbs and never runs the remote work, so a task's state is only what its provider
+// reported: Codex reports `pending`, `ready`, `applied` or `error`; Claude Code's command
+// line reads no status, so its task stays `submitted`. The task shape is split by provider
+// so neither can carry the other's states.
 //
-// The daemon only calls the provider's own cloud verbs, under the session's account
-// and from the session's folder; it never runs the remote work. So a task's state is
-// only what its provider reported. Codex reports `pending`, `ready`, `applied` or
-// `error`; Claude Code's command line reads no status at all, so its task is
-// `submitted` for its whole life. The task shape is split by provider so neither can
-// carry the other's states, and a state no provider reported cannot parse.
-//
-// This module imports nothing that reaches `./event.js`: `event.ts` imports the task
-// update payload from here, and a cycle among eager module-scope schemas throws at
-// load.
+// Nothing imported here may reach `./event.js`, which imports the task update payload from
+// this module: a cycle among eager module-scope schemas throws at load.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -45,18 +39,16 @@ export const CloudTaskIdSchema: z.ZodType<CloudTaskId, CloudTaskId> = z
   .max(CLOUD_TASK_ID_MAX_LEN)
   .brand<"CloudTaskId">() as unknown as z.ZodType<CloudTaskId, CloudTaskId>;
 
-/** One attempt of a Codex task, counted from 1. */
+// One attempt of a Codex task, counted from 1.
 const CloudTaskAttemptSchema = z.number().int().min(1).max(CLOUD_TASK_ATTEMPTS_MAX);
 
-/** The label of a Codex cloud environment, as the account's own tasks name it or as typed. */
+// The label of a Codex cloud environment, as the account's tasks name it or as typed.
 const CloudEnvironmentLabelSchema = wireFreeFormString(
   CLOUD_ENVIRONMENT_LABEL_MAX_LEN,
   "Cloud environment",
 );
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /**
  * Sending to the cloud is refused because this session cannot use its provider's
@@ -64,6 +56,7 @@ const CloudEnvironmentLabelSchema = wireFreeFormString(
  * claude.ai Pro, Max or Team sign-in, or a project with no GitHub remote.
  */
 export const CLOUD_UNAVAILABLE_CODE = "cloud.unavailable" as const;
+/** Type of {@link CLOUD_UNAVAILABLE_CODE}. */
 export type CloudUnavailableCode = typeof CLOUD_UNAVAILABLE_CODE;
 
 const CLOUD_UNAVAILABLE_REASON_VALUES = [
@@ -73,12 +66,11 @@ const CLOUD_UNAVAILABLE_REASON_VALUES = [
 ] as const;
 /** Why {@link CLOUD_UNAVAILABLE_CODE} refused. */
 export type CloudUnavailableReason = (typeof CLOUD_UNAVAILABLE_REASON_VALUES)[number];
+/** Every {@link CloudUnavailableReason}. */
 export const CLOUD_UNAVAILABLE_REASONS: readonly CloudUnavailableReason[] =
   CLOUD_UNAVAILABLE_REASON_VALUES;
 
-// --------------------------------------------------------------------------
 // The task
-// --------------------------------------------------------------------------
 
 /**
  * What Codex reported when an attempt was applied to the session's folder: all of
@@ -168,9 +160,7 @@ export const CloudTaskSchema: z.ZodType<CloudTask> = z.union([
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
 // cloud.taskStart
-// --------------------------------------------------------------------------
 
 /**
  * Sends one message to the session's provider's cloud as a new task instead of to
@@ -183,7 +173,7 @@ export interface CloudTaskStartRequest {
   environment?: string | undefined;
   attempts?: number | undefined;
 }
-/** Parses a {@link CloudTaskStartRequest}; a blank prompt and attempts outside 1 to 4 are refused. */
+/** Parses a {@link CloudTaskStartRequest}; a blank prompt or attempts outside 1 to 4 fail. */
 export const CloudTaskStartRequestSchema: z.ZodType<CloudTaskStartRequest, CloudTaskStartRequest> =
   z
     .object({
@@ -203,9 +193,7 @@ export const CloudTaskStartResponseSchema: z.ZodType<CloudTaskStartResponse> = z
   .object({ taskId: CloudTaskIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // cloud.taskList (live)
-// --------------------------------------------------------------------------
 
 /** The session whose cloud tasks a `cloud.taskList` subscription follows. */
 export interface CloudTaskListRequest {
@@ -229,9 +217,7 @@ export const CloudTaskListFrameSchema: z.ZodType<CloudTaskListFrame> = z
   .object({ sessionId: SessionIdSchema, tasks: z.array(CloudTaskSchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // cloud.taskRead
-// --------------------------------------------------------------------------
 
 /** The task to read. */
 export interface CloudTaskReadRequest {
@@ -242,9 +228,7 @@ export const CloudTaskReadRequestSchema: z.ZodType<CloudTaskReadRequest, CloudTa
   .object({ taskId: CloudTaskIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // cloud.taskDiffRead
-// --------------------------------------------------------------------------
 
 /** A ready Codex task's diff; `attempt` picks one of a task's several attempts. */
 export interface CloudTaskDiffReadRequest {
@@ -268,9 +252,7 @@ export const CloudTaskDiffReadResponseSchema: z.ZodType<CloudTaskDiffReadRespons
   .object({ taskId: CloudTaskIdSchema, attempt: CloudTaskAttemptSchema, diff: z.string() })
   .strict();
 
-// --------------------------------------------------------------------------
 // cloud.taskApply
-// --------------------------------------------------------------------------
 
 /**
  * Brings a task back. On Codex the daemon takes a file checkpoint and then applies
@@ -302,9 +284,7 @@ export const CloudTaskApplyResponseSchema: z.ZodType<CloudTaskApplyResponse> = z
   ],
 );
 
-// --------------------------------------------------------------------------
 // cloud.task_updated
-// --------------------------------------------------------------------------
 
 /**
  * A task was sent, or its provider reported a new state, or it was brought back. The
@@ -319,9 +299,7 @@ export const CloudTaskUpdatedPayloadSchema: z.ZodType<CloudTaskUpdatedPayload> =
   .object({ task: CloudTaskSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // Methods
-// --------------------------------------------------------------------------
 
 /** The `cloud.*` methods, keyed by name. */
 export interface CloudMethodDescriptors {
@@ -349,6 +327,7 @@ export interface CloudMethodDescriptors {
   >;
 }
 
+/** The `cloud.*` methods' names, procedure types and shapes. */
 export const CLOUD_METHOD_DESCRIPTORS: CloudMethodDescriptors = defineMethodDescriptors({
   "cloud.taskStart": {
     method: "cloud.taskStart",

@@ -1,14 +1,10 @@
 // Strict RFC 8032 Ed25519 verification on the v4.public path.
 //
-// `@noble/curves` defaults its ed25519 wrapper to `zip215: true`, which skips
-// the small-order public-key rejection. Against a small-order public key the
-// `[8][k]A` term drops out of the cofactored verification equation, so a single
-// `(R, S)` pair verifies for every message — a universal forgery on the path
-// that authenticates v4.public tokens. `verifyV4Public` therefore pins
-// `{ zip215: false }`; this file is the guard that keeps it pinned.
-//
-// The same defect was fixed on the daemon's audit-log signing path; this closes
-// the crypto-paseto instance. Pre-first-release, so no live exposure.
+// `@noble/curves` defaults its ed25519 wrapper to `zip215: true`, which skips the small-order
+// public-key rejection. Against a small-order key the `[8][k]A` term drops out of the cofactored
+// verification equation, so a single `(R, S)` pair verifies for every message: a universal forgery
+// on the path that authenticates v4.public tokens. `verifyV4Public` therefore pins
+// `{ zip215: false }`, and this file is the guard that keeps it pinned.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -36,25 +32,23 @@ function hex(hexString: string): Uint8Array {
   return out;
 }
 
-// y = 1, x = 0 — the identity point. Canonically encoded and order 1, so it is
-// small-order: exactly the key class RFC 8032 strict verification refuses and
-// ZIP-215 admits.
+// y = 1, x = 0: the identity point, canonically encoded and order 1. Strict RFC 8032 refuses this
+// small-order key class and ZIP-215 admits it.
 function smallOrderPublicKey(): Uint8Array {
   const publicKey = new Uint8Array(32);
   publicKey[0] = 1;
   return publicKey;
 }
 
-// R = the identity encoding, S = 0. Nothing about this pair is derived from a
-// message or a secret key — that is the point.
+// R = the identity encoding, S = 0: derived from no message or secret key.
 function smallOrderSignature(): Uint8Array {
   const signature = new Uint8Array(SIGNATURE_LENGTH);
   signature[0] = 1;
   return signature;
 }
 
-// y = p = 2^255 - 19, little-endian. RFC 8032 requires y < p; ZIP-215 accepts
-// any y < 2^256 and reduces mod p, so this decodes to y = 0 under the default.
+// y = p = 2^255 - 19, little-endian. RFC 8032 requires y < p; ZIP-215 reduces mod p, so this
+// decodes to y = 0 under the default.
 function nonCanonicalPublicKey(): Uint8Array {
   const publicKey = new Uint8Array(32).fill(0xff);
   publicKey[0] = 0xed;
@@ -62,10 +56,9 @@ function nonCanonicalPublicKey(): Uint8Array {
   return publicKey;
 }
 
-// `verifyV4Public` runs four gates (header, segment count, footer, strict
-// base64url canonical form) before it reaches the signature check. Encoding the
-// body with Node's canonical unpadded base64url keeps every one of those gates
-// satisfied, so a rejection can only come from the signature check itself.
+// `verifyV4Public` runs four gates (header, segment count, footer, strict base64url) before the
+// signature check. Canonical unpadded base64url keeps them all satisfied, so a rejection can only
+// come from the signature check.
 function encodeForgedToken(payload: Uint8Array, signature: Uint8Array): string {
   const bodyBytes = new Uint8Array(payload.length + signature.length);
   bodyBytes.set(payload, 0);
@@ -81,24 +74,15 @@ describe("v4.public strict RFC 8032 verification (small-order public keys)", () 
     const token = encodeForgedToken(payload, signature);
     const preAuthenticationEncoding = pae([HEADER_BYTES, payload, EMPTY, EMPTY]);
 
-    // This bare noble call is the negative control, not a redundant duplicate
-    // of the module assertion below — do not "simplify" it away. It runs on the
-    // exact triple `verifyV4Public` will check (same PAE pre-image, same
-    // signature, same key) and proves the forgery is genuinely accepted at the
-    // library default. Without it, the rejection below is unattributable: a
-    // test asserting only that a garbage token throws stays green with the
-    // `{ zip215: false }` fix reverted, because some earlier parse gate would
-    // throw anyway.
-    //
-    // If this assertion ever FAILS, noble has changed its default to strict.
-    // The explicit `{ zip215: false }` is then redundant but still correct and
-    // must stay — pinning it is what makes the guarantee independent of the
-    // dependency's default rather than a side effect of it.
+    // This bare noble call is the negative control, not a duplicate of the assertion below. It
+    // runs on the exact triple `verifyV4Public` checks and proves the forgery is accepted at the
+    // library default. Without it the rejection below is unattributable: a garbage-token test stays
+    // green with the `{ zip215: false }` fix reverted, because an earlier parse gate throws anyway.
+    // If it ever fails, noble has made strict the default; the explicit option must still stay.
     expect(ed25519.verify(signature, preAuthenticationEncoding, publicKey)).toBe(true);
 
     expect(() => verifyV4Public(token, publicKey)).toThrow(InvalidTokenError);
-    // Pin the gate, not just the error class: the message proves rejection came
-    // from the signature check rather than from parsing.
+    // The message proves the signature check rejected it, not parsing.
     expect(() => verifyV4Public(token, publicKey)).toThrow(/signature verification failed/);
   });
 
@@ -110,8 +94,7 @@ describe("v4.public strict RFC 8032 verification (small-order public keys)", () 
       const payload = utf8(claims);
       const preAuthenticationEncoding = pae([HEADER_BYTES, payload, EMPTY, EMPTY]);
 
-      // One signature, arbitrarily many messages — this is what makes the
-      // ZIP-215 default a universal forgery rather than a single bad token.
+      // One signature for every message is what makes the ZIP-215 default a universal forgery.
       expect(ed25519.verify(signature, preAuthenticationEncoding, publicKey)).toBe(true);
       expect(() => verifyV4Public(encodeForgedToken(payload, signature), publicKey)).toThrow(
         InvalidTokenError,
@@ -126,24 +109,19 @@ describe("v4.public strict RFC 8032 verification (small-order public keys)", () 
     const token = encodeForgedToken(payload, signature);
     const preAuthenticationEncoding = pae([HEADER_BYTES, payload, EMPTY, EMPTY]);
 
-    // The other half of the tightening: `zip215: false` narrows the accepted
-    // y range from [0, 2^256) to [0, p), so this key no longer decodes at all.
-    // Under the default it reduces to y = 0 — itself small-order, which the
-    // same forged pair satisfies.
+    // `zip215: false` narrows the accepted y range from [0, 2^256) to [0, p), so this key no
+    // longer decodes. Under the default it reduces to y = 0, itself small-order.
     expect(ed25519.verify(signature, preAuthenticationEncoding, publicKey)).toBe(true);
     expect(() => verifyV4Public(token, publicKey)).toThrow(InvalidTokenError);
-    // Strict mode refuses to decode the point, noble catches that internally
-    // and returns false, so this still surfaces as a verification failure
-    // rather than the `signature decode failed` catch path.
+    // Noble catches the decode refusal and returns false, so this surfaces as a verification
+    // failure, not the `signature decode failed` path.
     expect(() => verifyV4Public(token, publicKey)).toThrow(/signature verification failed/);
   });
 });
 
-// `zip215: false` also tightens canonical-encoding acceptance, so the real risk
-// of the change is refusing something legitimate. `rfc-vectors-v4-public.test.ts`
-// proves the module still accepts every 4-S-* vector; this proves *why* that is
-// safe — the upstream vectors' own keys and signatures satisfy strict RFC 8032
-// at the primitive level, so acceptance does not rest on wrapper leniency.
+// `zip215: false` risks refusing something legitimate. `rfc-vectors-v4-public.test.ts` shows the
+// module still accepts every 4-S-* vector; this shows why: the vectors' own keys and signatures
+// satisfy strict RFC 8032 at the primitive level.
 describe("upstream 4-S-* vectors satisfy strict RFC 8032 at the primitive level", () => {
   interface PasetoV4Vector {
     name: string;
@@ -162,8 +140,7 @@ describe("upstream 4-S-* vectors satisfy strict RFC 8032 at the primitive level"
     (vector) => vector.name.startsWith("4-S-") && !vector["expect-fail"],
   );
 
-  // Non-zero-count guard: a `for` loop over an empty filter registers no tests
-  // and reports green. Mirrors the guard in the other vector suites.
+  // A `for` loop over an empty filter registers no tests and reports green.
   it("filter selects at least one positive v4.public vector", () => {
     expect(positiveSigningVectors.length).toBeGreaterThan(0);
   });

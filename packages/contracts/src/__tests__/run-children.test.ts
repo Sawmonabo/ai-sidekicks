@@ -1,5 +1,4 @@
-// A child's own controls: each accepts the call a child's view makes and refuses
-// the cases the controls name.
+// A child's own controls: each accepts the call a child's view makes and refuses invalid ones.
 import { describe, expect, it } from "vitest";
 
 import {

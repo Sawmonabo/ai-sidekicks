@@ -21,9 +21,7 @@ import {
   type PresenceState,
 } from "../presence.js";
 
-// Real RFC 9562 UUIDs (mix of v4 and v7). `RFC_9562_TEXT_FORM` validates the version
-// nibble + variant bits in canonical positions; mismatch is rejected at the
-// branded-id schema layer.
+// A real RFC 9562 UUID; the branded-id schema checks the version nibble and variant bits.
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 
 const DEVICE_ID = "device-7c4a-9b1c-1b7c";
@@ -32,10 +30,7 @@ const DEVICE_TYPE = "desktop";
 const SECOND_DEVICE_TYPE = "mobile";
 const LAST_ACTIVITY_AT = "2026-05-22T14:30:00.000Z";
 
-// Fixture returns a wire-shaped object without per-field brand casts —
-// safeParse accepts plain UUID strings and brands them on the way out.
-// The schema (not the type system) is the unit under test, so feeding raw
-// wire data is the natural test surface.
+// Raw wire data with no brand casts: the schema, not the type system, is under test.
 const buildHeartbeatPayload = () => ({
   deviceId: DEVICE_ID,
   activityState: "online" as PresenceState,
@@ -47,12 +42,7 @@ const buildHeartbeatPayload = () => ({
   },
 });
 
-// =============================================================================
-// PresenceStateSchema — canonical lifecycle enum
-// =============================================================================
-//
-// The wire form is EXACTLY four lowercase literals. Adding `"away"` /
-// `"busy"` is a contract break.
+// The wire form is exactly four lowercase literals; adding `"away"` or `"busy"` breaks it.
 
 describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting, offline})", () => {
   const EXPECTED_STATES = ["online", "idle", "reconnecting", "offline"] as const;
@@ -73,33 +63,12 @@ describe("PresenceStateSchema (wire form is exactly {online, idle, reconnecting,
   });
 });
 
-// =============================================================================
-// PresenceHeartbeatSchema
-// =============================================================================
-//
-// Canonical wire form:
-//   * 2 outer fields `{deviceId, activityState}`
-//   * 4 REQUIRED metadata fields
-//     `{deviceType, focusedSessionId, lastActivityAt, appVisible}`
-//
-// All 4 metadata keys MUST be present at parse time. `focusedSessionId` is
-// nullable (the value may be `null` when the user is not focused on a
-// session) — the KEY is always present. The
-// no-focus case is serialized as `null` on the wire; an absent key is
-// REJECTED. `undefined` is also rejected to pin against future drift to
-// `.nullish()`, which would re-admit the absent-key shape the schema
-// explicitly rejects.
-//
-// `deviceId` and `metadata.deviceType` compose `wireFreeFormString` (NUL-byte
-// rejection / whitespace-only rejection) per the package wire-trust-boundary
-// convention. Explicit NUL-byte regression tests live near the boundary
-// checks below.
+// A heartbeat has outer `{deviceId, activityState}` and four required metadata keys
+// `{deviceType, focusedSessionId, lastActivityAt, appVisible}`. `focusedSessionId` is `null`
+// when no session is focused; an absent key or `undefined` is refused. `deviceId` and
+// `metadata.deviceType` compose `wireFreeFormString`.
 
 describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
-  // ----------------------------------------------------------------------
-  // Happy paths
-  // ----------------------------------------------------------------------
-
   it("accepts a fully-populated heartbeat (both outer + all 4 metadata fields)", () => {
     const parsed = PresenceHeartbeatSchema.parse(buildHeartbeatPayload());
     expect(parsed.deviceId).toBe(DEVICE_ID);
@@ -126,10 +95,6 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
     expect(parsed.metadata.appVisible).toBe(false);
   });
 
-  // ----------------------------------------------------------------------
-  // Outer fields are all REQUIRED.
-  // ----------------------------------------------------------------------
-
   it.each(["deviceId", "activityState"] as const)(
     "rejects heartbeat missing required outer field: %s",
     (field) => {
@@ -144,12 +109,6 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
       }
     },
   );
-
-  // ----------------------------------------------------------------------
-  // Metadata fields — ALL 4 keys REQUIRED at parse time.
-  // focusedSessionId additionally accepts explicit null as its value
-  // (nullable shape); absent key and `undefined` value are both REJECTED.
-  // ----------------------------------------------------------------------
 
   it.each(["deviceType", "focusedSessionId", "lastActivityAt", "appVisible"] as const)(
     "rejects heartbeat with metadata field KEY ABSENT: %s (all 4 keys required)",
@@ -181,9 +140,7 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
   });
 
   it("rejects heartbeat with focusedSessionId: undefined (.nullable() admits null but NOT undefined)", () => {
-    // Pin against future drift to `.nullish()` — that shape would re-admit
-    // the absent-key case (zod treats `undefined` as "absent" semantically),
-    // which the schema explicitly rejects.
+    // `.nullish()` would re-admit the absent-key case, since zod treats `undefined` as absent.
     const valid = buildHeartbeatPayload();
     const broken = {
       ...valid,
@@ -199,10 +156,6 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
     const result = PresenceHeartbeatSchema.safeParse(withoutMetadata);
     expect(result.success).toBe(false);
   });
-
-  // ----------------------------------------------------------------------
-  // Field-level type guards — ID composability, ISO datetime, boolean shape
-  // ----------------------------------------------------------------------
 
   it("rejects heartbeat carrying a userId (no user axis survives)", () => {
     const valid = buildHeartbeatPayload();
@@ -237,14 +190,7 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
-  // ----------------------------------------------------------------------
-  // Length-cap boundaries — DEVICE_ID_MAX_LEN / DEVICE_TYPE_MAX_LEN
-  // ----------------------------------------------------------------------
-  //
-  // Pin both the inclusive accept (= MAX_LEN) and the strict reject
-  // (= MAX_LEN + 1) for each cap. Guards
-  // against silent widening — a future PR that bumps either constant
-  // without intent will fail these tests.
+  // Each cap accepts exactly MAX_LEN and rejects MAX_LEN + 1, so a silent widening fails.
 
   it("accepts a heartbeat with deviceId at DEVICE_ID_MAX_LEN (boundary)", () => {
     const valid = buildHeartbeatPayload();
@@ -276,17 +222,8 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
-  // ----------------------------------------------------------------------
-  // wireFreeFormString composition — NUL-byte log-injection guard
-  // ----------------------------------------------------------------------
-  //
-  // `deviceId` and `metadata.deviceType` compose `wireFreeFormString` (see
-  // session.ts:118), which rejects NUL bytes as an OpenTelemetry log-
-  // injection guard. A buggy or hostile client emitting
-  // `deviceId: "ios-\0-injection"` would otherwise corrupt structured log
-  // lines / OTel traces (NUL terminates string serialization at the
-  // observability layer). These tests pin the composition; removing the
-  // helper would re-open the injection vector.
+  // `wireFreeFormString` rejects NUL bytes, which would otherwise corrupt structured log lines
+  // and traces from a buggy or hostile client (`deviceId: "ios-\0-injection"`).
 
   it("rejects a heartbeat with NUL byte in deviceId (wireFreeFormString log-injection guard)", () => {
     const valid = buildHeartbeatPayload();
@@ -324,13 +261,7 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
-  // ----------------------------------------------------------------------
-  // .strict() anti-leakage — outer AND nested rejection of unknown keys.
-  // ----------------------------------------------------------------------
-  //
-  // Both the outer object and the metadata sub-object MUST reject unknown
-  // keys at parse time. Matches the convention used by every other request
-  // schema in this package; pins the canonical surface against silent drift.
+  // Both the outer object and the metadata sub-object refuse unknown keys.
 
   it("rejects arbitrary unknown TOP-LEVEL key (.strict() outer guard)", () => {
     const broken = { ...buildHeartbeatPayload(), unexpected: "field" };
@@ -346,10 +277,6 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
     expect(PresenceHeartbeatSchema.safeParse(broken).success).toBe(false);
   });
 
-  // ----------------------------------------------------------------------
-  // Composability spot-check — a second device of the same user
-  // ----------------------------------------------------------------------
-
   it("accepts a heartbeat from a second device of the same user", () => {
     const valid = buildHeartbeatPayload();
     const payload = {
@@ -363,9 +290,7 @@ describe("PresenceHeartbeatSchema (2 outer + 4 metadata fields)", () => {
   });
 });
 
-// =============================================================================
-// Requests — presence is the machine's, so neither request names a session
-// =============================================================================
+// Presence is the machine's, so neither request names a session.
 
 describe.each([
   ["PresenceReadRequestSchema", PresenceReadRequestSchema],
@@ -380,14 +305,8 @@ describe.each([
   });
 });
 
-// =============================================================================
-// MachinePresenceSchema — the devices connected to this machine
-// =============================================================================
-//
-// Wire shape:
-//   `{devices: Array<{deviceId, deviceType, appVisible, state}>}`
-//
-// `presence.read` answers with it and `presence.subscribe` pushes it.
+// `presence.read` answers with `{devices: Array<{deviceId, deviceType, appVisible, state}>}`
+// and `presence.subscribe` pushes it.
 
 const buildDeviceEntry = () => ({
   deviceId: DEVICE_ID,

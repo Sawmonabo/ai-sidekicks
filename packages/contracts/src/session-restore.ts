@@ -1,25 +1,19 @@
-// Undo: the dry run a person reads before anything moves, the undo itself (with edit
-// and resend as the same call), the event every undo settles with, and the list of a
-// session's snapshots.
+// Undo: the dry run a person reads before anything moves, the undo itself (with edit and resend
+// as the same call), the event every undo settles with, and the list of a session's snapshots.
 //
-// An undo goes back to a stable point: one of the person's own messages, named by its
-// cursor in the session's history, or one of the session's snapshots. A numeric or
-// provider position never appears here; the daemon and the provider adapter keep
-// those. The conversation is cut with the provider's own verb and the files are put
-// back from the daemon's own checkpoints, so a dry run and an undo name the same three
-// choices: the conversation and the files, the conversation alone, or the files alone.
-//
-// Request schemas are double-T (`z.ZodType<T, T>`) and result and event schemas
-// single-T, matching `session.ts`.
+// An undo goes back to a stable point: one of the person's own messages, named by its cursor in
+// the session's history, or one of the session's snapshots. A numeric or provider position never
+// appears here. The conversation is cut with the provider's own verb and the files are put back
+// from the daemon's own checkpoints, so a dry run and an undo name the same three choices: the
+// conversation and the files, the conversation alone, or the files alone.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import {
-  ArtifactIdSchema,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  type ArtifactId,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
 import {
   EventCursorSchema,
   FILE_PATH_MAX_LEN,
@@ -28,10 +22,6 @@ import {
   type EventCursor,
   type SessionId,
 } from "./session.js";
-
-// --------------------------------------------------------------------------
-// Snapshots
-// --------------------------------------------------------------------------
 
 /** The longest snapshot id the daemon accepts. */
 export const SNAPSHOT_ID_MAX_LEN = 256;
@@ -81,14 +71,7 @@ export const SessionSnapshotListResponseSchema: z.ZodType<SessionSnapshotListRes
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// What an undo goes back to, and what it puts back
-// --------------------------------------------------------------------------
-
-/**
- * The point an undo goes back to: the moment before one of the person's messages, or
- * one of the session's snapshots.
- */
+/** The point an undo goes back to: before one of the person's messages, or a snapshot. */
 export type SessionRestoreTarget =
   | { kind: "message"; anchorCursor: EventCursor }
   | { kind: "snapshot"; snapshotId: SnapshotId };
@@ -115,11 +98,10 @@ const SessionRestoreScopeSchema: z.ZodType<SessionRestoreScope, SessionRestoreSc
  *
  * - `symbolic_link`, `hard_link`, `not_a_regular_file`: the path is not a plain file.
  * - `directory_moved`: the folder that held it moved.
- * - `too_large`: a file over 10 MiB a command changed, on a disk that cannot clone it,
- *   so no copy of it was kept.
- * - `branch_moved_by_command`: a command that moved the branch (a commit, a checkout, a
- *   reset, a pull) changed it; putting it back would turn the branch's commits into
- *   uncommitted reversals.
+ * - `too_large`: a file over 10 MiB a command changed, on a disk that cannot clone it, so no
+ *   copy of it was kept.
+ * - `branch_moved_by_command`: a command that moved the branch (a commit, a checkout, a reset, a
+ *   pull) changed it; putting it back would turn the branch's commits into uncommitted reversals.
  */
 export const SESSION_RESTORE_SKIP_REASONS = [
   "symbolic_link",
@@ -150,10 +132,6 @@ export interface SessionRestoreAlsoChanged {
   paths: string[];
 }
 
-// --------------------------------------------------------------------------
-// The dry run
-// --------------------------------------------------------------------------
-
 /** Asks what an undo would do, and changes nothing. */
 export interface SessionRestorePreviewRequest {
   sessionId: SessionId;
@@ -173,15 +151,12 @@ export const SessionRestorePreviewRequestSchema: z.ZodType<
   .strict();
 
 /**
- * What an undo would do, which the question before it states.
- *
- * `fileCount` and `lineCount` are the files it would put back and the lines across
- * them. `affectedChildCount` and `runningCommands` count the agents and the commands
- * started after the point that are still running, which the undo stops first.
- * `ignoredFolders` and `commandsRanAfterPoint` feed the two lines the count's hover
- * title carries whenever a command ran after the point: the folders the project
- * ignores are never put back, and neither is what a command wrote outside the working
- * folder. `alsoChangedBy` names the paths in this undo another session changed since
+ * What an undo would do. `fileCount` and `lineCount` are the files it would put back and the
+ * lines across them. `affectedChildCount` and `runningCommands` count the agents and commands
+ * started after the point that are still running, which the undo stops first. `ignoredFolders`
+ * and `commandsRanAfterPoint` feed the notice shown whenever a command ran after the point: the
+ * folders the project ignores are never put back, and neither is what a command wrote outside
+ * the working folder. `alsoChangedBy` names the paths in this undo another session changed since
  * the point; they are left as they are unless the undo includes them.
  */
 export interface SessionRestorePreviewResponse {
@@ -215,28 +190,18 @@ export const SessionRestorePreviewResponseSchema: z.ZodType<SessionRestorePrevie
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The undo
-// --------------------------------------------------------------------------
-
-/**
- * The edited message an edit and resend sends once the undo has applied, with the
- * files it carries.
- */
+/** The edited message an edit and resend sends once the undo has applied, with its files. */
 export interface SessionRestoreResend {
   content: string;
   attachments?: ArtifactId[] | undefined;
 }
 
 /**
- * Undoes to a point, and with `resend` sends an edited message from there in the same
- * call, so a cut conversation is never left with nothing sent unremarked.
- *
- * `clientIdempotencyKey` is unique within the session, so a retried undo never cuts
- * twice. `includeAlsoChanged` puts back the paths another session also changed since
- * the point; it is false unless the person pressed the include line. `resend` goes
- * only with the conversation and the files together, because an edit and resend puts
- * both back exactly as `Undo to here` does.
+ * Undoes to a point, and with `resend` sends an edited message from there in the same call, so a
+ * cut conversation is never left with nothing sent unremarked. `clientIdempotencyKey` is unique
+ * within the session, so a retried undo never cuts twice. `includeAlsoChanged` puts back the
+ * paths another session also changed since the point; it is false unless the person asked.
+ * `resend` goes only with the conversation and the files together, as `Undo to here` does.
  */
 export interface SessionRestoreRequest {
   sessionId: SessionId;
@@ -272,14 +237,11 @@ export const SessionRestoreRequestSchema: z.ZodType<SessionRestoreRequest, Sessi
       },
     );
 
-// What an undo reports. One undo has one result: what was asked, what went back,
-// the files it actually put back, and the daemon's reason for each asked-for part
-// that did not. An undo can land in part: the conversation cut can apply while
-// the files cannot go back, or the reverse; `restored: "nothing"` means the
-// conversation and the files are as they were. Edit and resend is the same undo
-// followed by a send, as one operation: when the undo applied and the send did
-// not, the result says so with the send's reason, so the conversation is never
-// left cut with nothing sent unremarked.
+// One undo has one result: what was asked, what went back, the files it actually put back, and
+// the daemon's reason for each asked-for part that did not. An undo can land in part: the
+// conversation cut can apply while the files cannot go back, or the reverse; `restored:
+// "nothing"` means both are as they were. When an edit and resend's undo applied and its send did
+// not, the result says so with the send's reason.
 
 /** Why one asked-for part did not go back, in the daemon's words. */
 export interface SessionRestoreFailure {
@@ -290,9 +252,9 @@ const SessionRestoreFailureSchema: z.ZodType<SessionRestoreFailure> = z
   .strict();
 
 /**
- * What the files part of an undo actually did: the files it put back, the lines
- * across them, and every file it skipped with the reason. The undo reports its own
- * figures rather than the dry run's, because the folder can change between the two.
+ * What the files part of an undo actually did: the files it put back, the lines across them, and
+ * every file it skipped with the reason. These are the undo's own figures, not the dry run's,
+ * because the folder can change between the two.
  */
 export interface SessionRestoreFileOutcome {
   restoredFileCount: number;
@@ -301,8 +263,8 @@ export interface SessionRestoreFileOutcome {
 }
 
 /**
- * A finished undo: what was asked, what went back, and why each other asked-for
- * part did not. `files` is present exactly when the files went back.
+ * A finished undo: what was asked, what went back, and why each other asked-for part did not.
+ * `files` is present exactly when the files went back.
  */
 export interface SessionRestoreFinished {
   outcome: "restore-finished";
@@ -360,18 +322,13 @@ export const SessionRestoreResultSchema: z.ZodType<SessionRestoreResult> = z.dis
   ],
 );
 
-// --------------------------------------------------------------------------
-// The event every undo settles with
-// --------------------------------------------------------------------------
-
 /** The event an undo settles with, whatever it managed to do. */
 export const SESSION_RESTORE_FINISHED_EVENT = "session.restore_finished" as const;
 
 /**
- * The payload of {@link SESSION_RESTORE_FINISHED_EVENT}: one stored record per undo,
- * carrying its result, which holds what applied, the files it put back and the
- * cause of what did not. The conversation cut is recorded as well by the run's own
- * rolled-back event, which covers the conversation alone.
+ * The payload of {@link SESSION_RESTORE_FINISHED_EVENT}: one stored record per undo, carrying its
+ * result. The conversation cut is also recorded by the run's own rolled-back event, which covers
+ * the conversation alone.
  */
 export interface SessionRestoreFinishedPayload {
   sessionId: SessionId;
@@ -387,11 +344,7 @@ export const SessionRestoreFinishedPayloadSchema: z.ZodType<SessionRestoreFinish
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Methods
-// --------------------------------------------------------------------------
-
-/** The undo methods. */
+/** The undo methods, keyed by method name. */
 export interface SessionRestoreMethodDescriptors {
   readonly "session.restorePreview": MethodDescriptor<
     "session.restorePreview",

@@ -96,20 +96,15 @@ describe("KeyRing", () => {
     expect(() => new KeyRing([r1, r2, active])).toThrow(InvalidKeyError);
   });
 
-  // v4.local mandates 32-byte symmetric keys. Without intake validation, a
-  // malformed entry would survive construction and only surface as a
-  // `v4.local key must be 32 bytes` error during the first encrypt/decrypt —
-  // far from the cause. Mirror the assert at the ring boundary.
+  // Without this check a bad key would surface only at the first encrypt or decrypt, far from
+  // the cause.
   it("throws InvalidKeyError when constructor receives an entry whose key is not 32 bytes", () => {
     const malformed: KeyRingEntry = { ...entry("k_1"), key: randomBytes(31) };
     expect(() => new KeyRing([malformed])).toThrow(InvalidKeyError);
   });
 
-  // Defense-in-depth against caller mutation: the constructor deep-clones
-  // each entry so that subsequent mutation of caller-owned references does
-  // not bleed into the ring. The `readonly` annotation on `KeyRingEntry`
-  // only constrains TypeScript reassignment — it does not stop a caller
-  // from writing to `entry.key[0]` or `entry.createdAt.setTime()`.
+  // `readonly` does not stop a caller writing to `entry.key[0]` or `entry.createdAt.setTime()`, so
+  // the constructor deep-clones each entry.
   it("isolates the ring from post-construction mutation of caller-owned entries", () => {
     const original = entry("k_1");
     const originalFirstByte = original.key[0];
@@ -126,16 +121,9 @@ describe("KeyRing", () => {
     expect(active.createdAt.getTime()).toBe(originalCreatedAt);
   });
 
-  // Symmetric defense-in-depth: accessors must also clone on the way out.
-  // If `active()` / `byId()` returned the internal reference, a caller
-  // could mutate `retiredAt` and break the "exactly one active" invariant,
-  // or mutate `key` bytes to corrupt verification. Cloning out closes the
-  // mutation surface alongside the clone-in path covered above.
-  //
-  // `readonly` on `KeyRingEntry` is a TypeScript-only guarantee — the
-  // emitted JS lets a caller write through the reference. These tests
-  // cast via `MutableEntry` to *exercise* that runtime surface and prove
-  // the ring stays isolated from it.
+  // Accessors must also clone on the way out: a shared reference would let a caller change
+  // `retiredAt` and break the "exactly one active" invariant, or change key bytes. `readonly` is
+  // type-only, so these tests cast via `MutableEntry` to write through the returned value.
   type MutableEntry = { -readonly [K in keyof KeyRingEntry]: KeyRingEntry[K] };
 
   it("isolates the ring from mutation of values returned by active()", () => {

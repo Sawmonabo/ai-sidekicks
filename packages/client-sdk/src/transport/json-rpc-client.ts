@@ -1,57 +1,11 @@
-// Typed JSON-RPC client transport
+// Typed JSON-RPC client over a pluggable byte-frame transport: `call` and `subscribe` validate
+// every outbound payload with Zod before the wire write and every inbound payload before it
+// reaches the caller. Validation errors surface; they are never swallowed.
 //
-// This file owns the SDK-side runtime that wraps a pluggable byte-frame transport
-// (`ClientTransport` from `./types.ts`) with typed `call<P, R>` / `subscribe<T>`
-// operations against the daemon's JSON-RPC method-namespace registry. Every outbound
-// payload is Zod-validated BEFORE the wire write, every inbound payload is Zod-validated
-// BEFORE it surfaces to the caller — the SDK does NOT swallow validation errors.
-//
-//   * "typed JSON-RPC client transport" surface owed to desktop renderer + CLI
-//     consumers.
-//   * `transport/jsonRpcClient.ts` CREATE (transport-layer + Zod wrapping
-//     primitive).
-//   * `JsonRpcClient` class signature contract (constructor + `call<P, R>` +
-//     `subscribe<T>`).
-//   * MCP TypeScript SDK pattern (reference; see
-//     https://github.com/modelcontextprotocol/typescript-sdk) — separation of
-//     envelope-layer client from byte-framing transport.
-//
-// Invariants this module enforces at the client boundary (mirrors the daemon-side
-// registry/dispatch invariants):
-//   * Caller-side params validation: `paramsSchema.parse(params)` runs
-//     BEFORE the wire envelope is constructed. A caller passing a malformed
-//     `params` value fails fast with a typed `JsonRpcSchemaError` and never
-//     reaches the daemon — the substrate would also reject, but fail-fast
-//     at the SDK boundary keeps the error provenance local.
-//   * Daemon-side result validation: every successful JSON-RPC response is
-//     validated against the caller-provided `resultSchema` BEFORE the
-//     promise resolves. A response that fails validation surfaces as
-//     `JsonRpcSchemaError` (a CORRUPTED-SERVER signal, distinct from the
-//     `-32603` daemon-internal error code). The SDK does NOT silently
-//     coerce or swallow.
-//   * Streaming-notify validation: every `$/subscription/notify` frame's
-//     `params.value` is validated against the per-subscription `valueSchema`
-//     BEFORE landing in the consumer queue. Validation failure ENDS the
-//     stream with `JsonRpcSchemaError` rejected from pending `next()` calls.
-//
-// What this file does NOT do:
-//   * `ClientTransport.send` / `onMessage` handle Content-Length-prefixed
-//     LSP framing. This module works at the JSON-RPC envelope layer above
-//     framing.
-//   * Implement the `daemon.hello` handshake. `opts.protocolVersion` is
-//     attached to every outgoing request envelope the actual handshake
-//     (`call("daemon.hello",...)`) is the caller's concern, typically wired
-//     by the bootstrap code that instantiates the client.
-//   * Owns `packages/client-sdk/src/session-client.ts` boundary
-//     resolution; that file consumes `JsonRpcClient` from here.
-//   * Re-implement JSON-RPC error mapping. The SDK side does the INVERSE
-//     of `mapJsonRpcError` (daemon-side, in
-//     `packages/runtime-daemon/src/ipc/jsonrpc-error-mapping.ts`): we
-//     receive numeric error codes and surface them as a typed
-//     `JsonRpcRemoteError` with `code` / `message` / optional `data`.
-//
-// `protocolVersion` is an ISO 8601 `YYYY-MM-DD` date-string): mirrors
-// the narrowed `JsonRpcRequest.protocolVersion`.
+// Works at the JSON-RPC envelope layer above the transport's framing. It does not perform the
+// `daemon.hello` handshake: the caller negotiates a version and passes it as `protocolVersion`.
+// It is the inverse of the daemon's `mapJsonRpcError`: numeric error codes come back as a typed
+// `JsonRpcRemoteError`.
 
 import type {
   JsonRpcErrorData,
@@ -73,30 +27,19 @@ import type { ZodType } from "zod";
 
 import type { ClientTransport, LocalSubscriptionConsumer } from "./types.js";
 
-// --------------------------------------------------------------------------
 // Typed error classes
-// --------------------------------------------------------------------------
 
 /**
- * Thrown by the SDK when the daemon returns a JSON-RPC error response. The
- * `code` is the JSON-RPC numeric (one of the values in `JsonRpcErrorCode`
- * from `@ai-sidekicks/contracts`), `message` is the daemon-sanitized
- * human-readable string, and `data` is the optional structured `{ type,
- * fields?
- *
- * Distinct from `JsonRpcSchemaError` — this class wraps the wire's `error`
- * branch (the daemon's path), while `JsonRpcSchemaError` flags
- * SDK-internal validation failures (caller bug or server-corruption).
+ * Thrown when the daemon returns a JSON-RPC error response. `code` is the numeric error code,
+ * `message` the daemon-sanitized text, and `data` the optional structured `{ type, fields? }`.
+ * Distinct from `JsonRpcSchemaError`, which flags validation failures inside the SDK.
  */
 export class JsonRpcRemoteError extends Error {
-  /** The JSON-RPC numeric error code (spec see `JsonRpcErrorCode`). */
+  /** The JSON-RPC numeric error code. */
   public readonly code: number;
   /**
-   * The structured `{ type, fields? }` envelope from the wire's `error.data`,
-   * or `undefined` when the daemon emitted a bare numeric error (an
-   * unregistered internal `-32603` carries no `data`). `data.type` is the
-   * canonical dotted discriminator clients switch on — read it instead of the
-   * coarse numeric `code`.
+   * The structured `{ type, fields? }` from the wire's `error.data`, or `undefined` for a bare
+   * numeric error. Switch on the dotted `data.type` rather than the coarse numeric `code`.
    */
   public readonly data: JsonRpcErrorData | undefined;
 
@@ -109,29 +52,12 @@ export class JsonRpcRemoteError extends Error {
 }
 
 /**
- * Thrown when Zod validation fails at the SDK boundary. Three failure
- * modes:
- *   * Caller-side `params` validation (caller bug — fail-fast before wire).
- *   * Server-side `result` validation (server-corruption — daemon returned
- *     malformed data).
- *   * Streaming `value` validation (server-corruption — daemon emitted a
- *     malformed `$/subscription/notify` frame).
- *
- * The `phase` field discriminates which surface fired so test code (and
- * downstream observability) can route the error appropriately. Phase 3
- * test ID asserts on this class for the result-validation case
- * specifically.
+ * Thrown when Zod validation fails at the SDK boundary. `phase` says which surface failed:
+ * caller `params` (caller bug, nothing was sent), daemon `result`, or streaming `value` (both
+ * mean the daemon sent malformed data).
  */
 export class JsonRpcSchemaError extends Error {
-  /**
-   * Which validation surface fired:
-   *   * `"params"` — caller passed malformed params; never reached the wire.
-   *   * `"result"` — daemon returned a result that fails the caller's
-   *     `resultSchema` (server-corruption signal).
-   *   * `"value"` — daemon emitted a streaming `$/subscription/notify`
-   *     whose `value` fails the per-subscription `valueSchema` (server-
-   *     corruption signal).
-   */
+  /** Which validation surface failed. */
   public readonly phase: "params" | "result" | "value";
   /** The originating Zod issue payload (raw `ZodError.issues`). */
   public readonly issues: ReadonlyArray<unknown>;
@@ -145,77 +71,48 @@ export class JsonRpcSchemaError extends Error {
 }
 
 /**
- * Thrown by every in-flight `call` / `next()` when the underlying transport
- * disconnects. Carries the transport's reason on `cause` so callers can
- * discriminate clean shutdowns (`reason === undefined`) from error-driven
- * disconnects.
+ * Thrown by every in-flight `call` and `next()` when the transport disconnects. `cause` carries
+ * the transport's reason; it is unset for a clean shutdown.
  */
 export class JsonRpcTransportClosedError extends Error {
   public constructor(reason: Error | undefined) {
     super(reason !== undefined ? `Transport closed: ${reason.message}` : "Transport closed");
     this.name = "JsonRpcTransportClosedError";
     if (reason !== undefined) {
-      // `cause` is the standard ECMAScript Error chaining property.
-      // `Object.assign` keeps the assignment compatible with older lib targets
-      // that don't model `cause` directly on Error.
+      // `Object.assign` because older lib targets do not model `cause` on Error.
       Object.assign(this, { cause: reason });
     }
   }
 }
 
-// --------------------------------------------------------------------------
-// Internal pending-request entry
-// --------------------------------------------------------------------------
+// Pending request entry
 
 interface PendingRequest {
   readonly resolve: (result: unknown) => void;
   readonly reject: (error: Error) => void;
   readonly resultSchema: ZodType<unknown>;
   /**
-   * When present, this pending entry is the subscribe-init request for the
-   * referenced subscription. `#handleResponse` reads this and installs the
-   * `#subscriptions` map entry SYNCHRONOUSLY (in the same frame as the
-   * inbound response dispatch) so a coalesced `response` + first
-   * `$/subscription/notify` pair — both frames parsed from one transport
-   * read — finds the subscription registered when `#handleNotification`
-   * runs against the second frame. Without this hook, registration would
-   * happen in the `subscribe().then` microtask, which only runs AFTER the
-   * current synchronous frame finishes (and the notify has already been
-   * dropped against the unknown-id silent-drop branch).
+   * Set for a subscribe-init request. `#handleResponse` registers the subscription synchronously
+   * so a response and its first `$/subscription/notify`, parsed from one transport read, do not
+   * lose the notification to the unknown-id drop. Registration is skipped if a cancel already
+   * moved the state out of `"pending"`.
    *
-   * The cancel-during-pending race is preserved: the synchronous handler
-   * skips registration if `state.status` has already left `"pending"`
-   * (because `#cancelSubscription` ran first), and `subscribe().then`
-   * still emits the best-effort wire cancel against the daemon-issued id.
-   *
-   * Declared as a required `| undefined` rather than an optional
-   * property so that `exactOptionalPropertyTypes: true` (tsconfig) can
-   * narrow correctly when the issuer passes `undefined` for a non-
-   * subscribe call.
+   * A required `| undefined` rather than optional, so `exactOptionalPropertyTypes` narrows
+   * correctly.
    */
   readonly subscriptionInitState: SubscriptionState<unknown> | undefined;
 }
 
-// --------------------------------------------------------------------------
-// Internal subscription state
-// --------------------------------------------------------------------------
+// Subscription state
 
 /**
- * Per-subscription internal state. The handle returned to the caller
- * (`LocalSubscriptionHandle` below) holds a back-reference to this state so
- * `cancel()` and `next()` can drive it.
- *
- * Lifecycle states:
- *   * `pending` — initial response not yet arrived. Notifications targeted
- *     at this subscription are buffered (the daemon would not emit any
- *     before issuing the subscriptionId, but the SDK is defensive).
- *   * `active` — initial response arrived; subscriptionId populated;
- *     notifications drain into the queue.
- *   * `completed` — server-side cancel, client-cancel, or transport close.
- *     Subsequent `next()` calls drain remaining queue then return
+ * Lifecycle of one subscription:
+ *   * `pending` - the init response has not arrived.
+ *   * `active` - the id is known and notifications drain into the queue.
+ *   * `completed` - cancelled or transport closed; `next()` drains the queue, then returns
  *     `undefined`.
- *   * `errored` — a `value` schema validation failure or transport error
- *     occurred. Subsequent `next()` calls reject with the stored error.
+ *   * `errored` - a value failed validation or the transport failed; `next()` rejects with the
+ *     stored error.
  */
 type SubscriptionStatus = "pending" | "active" | "completed" | "errored";
 
@@ -230,37 +127,17 @@ interface SubscriptionState<T> {
     readonly resolve: (value: T | undefined) => void;
     readonly reject: (error: Error) => void;
   }>;
-  /** Set when status transitions to `errored`. */
+  /** Set when status becomes `errored`. */
   error: Error | undefined;
-  /**
-   * Set while a `$/subscription/cancel` RPC is in flight. Used by
-   * `#cancelSubscription` to make `cancel()` idempotent across the wire-RPC
-   * window: a second `cancel()` call landing AFTER the wire frame has been
-   * emitted but BEFORE the daemon ack has resolved awaits the same promise
-   * rather than emitting a duplicate cancel frame. Once the RPC settles,
-   * `state.status` transitions to `completed` / `errored` via
-   * `completeSubscription` / `completeSubscriptionWithError`, so the
-   * terminal-status guard at the top of `#cancelSubscription` intercepts
-   * subsequent calls before they reach this field — leaving
-   * `cancelInFlight` set after resolution is a safe no-op.
-   */
+  /** Set while a wire cancel is in flight, so a second `cancel()` awaits the same promise. */
   cancelInFlight: Promise<void> | undefined;
 }
 
-// --------------------------------------------------------------------------
-// LocalSubscriptionConsumer handle implementation
-// --------------------------------------------------------------------------
+// Subscription handle
 
 /**
- * Concrete implementation of the `LocalSubscriptionConsumer<T>` interface.
- * Holds a back-reference to its `SubscriptionState<T>` and to the parent client
- * (so `cancel()` can emit the cancel wire frame).
- *
- * Why a class rather than an object literal: `[Symbol.asyncIterator]()`
- * needs to construct a fresh iterator object that closes over the same
- * state, and `subscriptionId` is mutated in place (Option A from the
- * advisor's `subscriptionId` analysis — sync return, post-init mutation).
- * A class encapsulates the mutation behind a typed accessor.
+ * The `LocalSubscriptionConsumer<T>` returned to callers. A class so the async iterator can close
+ * over the same state and `subscriptionId` can be filled in after the init response.
  */
 class LocalSubscriptionHandle<T> implements LocalSubscriptionConsumer<T> {
   readonly #state: SubscriptionState<T>;
@@ -293,11 +170,7 @@ class LocalSubscriptionHandle<T> implements LocalSubscriptionConsumer<T> {
             value === undefined ? { value: undefined, done: true } : { value, done: false },
         );
       },
-      /**
-       * Implements early-cleanup contract — `for await ... break` triggers
-       * this and we emit a wire-level cancel via the handle's `cancel()` so
-       * the daemon releases its `StreamingPrimitive` entry.
-       */
+      // `for await ... break` lands here; cancel so the daemon releases the subscription.
       async return(): Promise<IteratorResult<T>> {
         await cancel();
         return { value: undefined, done: true };
@@ -307,20 +180,13 @@ class LocalSubscriptionHandle<T> implements LocalSubscriptionConsumer<T> {
 }
 
 /**
- * Pull the next value from a subscription's queue/waiter chain. Returns
- * `undefined` when the subscription has completed and the queue has
- * drained; rejects when the subscription has errored.
- *
- * Hoisted out of the handle class so the iterator factory can reuse the
- * same algorithm without duplicating the queue/waiter logic.
+ * Pull the next value from a subscription's queue or park a waiter. Resolves `undefined` once the
+ * subscription completed and the queue is drained; rejects if it errored.
  */
 function pullFromSubscription<T>(state: SubscriptionState<T>): Promise<T | undefined> {
-  // Drain queued values first regardless of status — values that landed
-  // before completion / error are still valid to surface.
+  // Queued values are surfaced even after completion or error.
   if (state.queue.length > 0) {
-    // Non-null assertion: length > 0 guarantees `shift()` returns T, but
-    // `noUncheckedIndexedAccess: true` widens the inferred type. The
-    // explicit cast here is the documented pattern for queue drains.
+    // `shift()` is defined here; `noUncheckedIndexedAccess` widens it to `T | undefined`.
     const value = state.queue.shift() as T;
     return Promise.resolve(value);
   }
@@ -330,38 +196,21 @@ function pullFromSubscription<T>(state: SubscriptionState<T>): Promise<T | undef
   if (state.status === "errored" && state.error !== undefined) {
     return Promise.reject(state.error);
   }
-  // Park a waiter — fulfilled when the next `$/subscription/notify` lands
-  // or the subscription terminates.
   return new Promise<T | undefined>((resolve, reject) => {
     state.waiters.push({ resolve, reject });
   });
 }
 
 /**
- * Push an already-validated value into a subscription's queue, draining
- * any pending waiter first.
- *
- * Precondition: the caller MUST have validated `value` against
- * `state.valueSchema` before invoking. `#handleNotification` does this at
- * the wire boundary via `SubscriptionNotifyParamsSchema(state.valueSchema)`,
- * which validates the wrapper shape AND the per-subscription `value` in a
- * single Zod parse. Centralizing the validation there (a) eliminates the
- * double-validation that previously ran here, and (b) keeps the
- * server-corruption cleanup path (`#subscriptions` map delete +
- * best-effort wire cancel) co-located with the wire-level
- * `#handleNotification` scope, where it has access to `this.call` and
- * `this.#subscriptions`.
+ * Push an already-validated value to a waiting consumer, or queue it. The caller must have
+ * validated `value` against `state.valueSchema`; `#handleNotification` does that with the wrapper
+ * schema.
  */
 function pushSubscriptionValue<T>(state: SubscriptionState<T>, value: T): void {
   if (state.status === "completed" || state.status === "errored") {
-    // Race-tolerance: notifications that arrive after cancel/error are
-    // dropped per the streaming-primitive's documented contract
-    // (jsonrpc-streaming.ts:373-377 — "silent no-op after `complete()` or
-    // `cancel()`"). The SDK mirrors the same posture for inbound frames
-    // that race against client-side cancel.
+    // Frames racing a cancel or an error are dropped, as the daemon's streaming primitive does.
     return;
   }
-  // Hand off to a waiting consumer if one exists; otherwise queue the value.
   const waiter = state.waiters.shift();
   if (waiter !== undefined) {
     waiter.resolve(value);
@@ -370,19 +219,13 @@ function pushSubscriptionValue<T>(state: SubscriptionState<T>, value: T): void {
   state.queue.push(value);
 }
 
-/**
- * Transition a subscription to `completed`. Wakes every pending waiter
- * with `undefined` (stream end). Idempotent — calling on an already-
- * terminated subscription is a no-op.
- */
+/** Ends a subscription cleanly and resolves every waiter with `undefined`. Idempotent. */
 function completeSubscription<T>(state: SubscriptionState<T>): void {
   if (state.status === "completed" || state.status === "errored") {
     return;
   }
   state.status = "completed";
-  // Drain waiters. Queued values remain consumable per the
-  // pullFromSubscription contract (drain queue first, then surface
-  // status).
+  // Queued values stay consumable.
   while (state.waiters.length > 0) {
     const waiter = state.waiters.shift();
     if (waiter !== undefined) {
@@ -392,9 +235,8 @@ function completeSubscription<T>(state: SubscriptionState<T>): void {
 }
 
 /**
- * Transition a subscription to `errored`. Wakes every pending waiter with
- * the supplied error and stores it so future `next()` calls reject
- * consistently. Idempotent.
+ * Ends a subscription with `error`, rejects every waiter and stores it so later `next()` calls
+ * reject too. Idempotent.
  */
 function completeSubscriptionWithError<T>(state: SubscriptionState<T>, error: Error): void {
   if (state.status === "completed" || state.status === "errored") {
@@ -410,64 +252,23 @@ function completeSubscriptionWithError<T>(state: SubscriptionState<T>, error: Er
   }
 }
 
-// --------------------------------------------------------------------------
 // JsonRpcClient
-// --------------------------------------------------------------------------
 
-/**
- * Optional `JsonRpcClient` constructor options. Phase 3 ships with a single
- * field; the type stays open for additive extension (telemetry hooks,
- * default-timeout configuration, request-context decorators) at later
- * phases.
- */
+/** Constructor options for `JsonRpcClient`. */
 export interface JsonRpcClientOptions {
   /**
-   * The protocol version attached to every outgoing JSON-RPC request envelope. ISO
-   * 8601 `YYYY-MM-DD` date-string):.
-   *
-   * REQUIRED — the daemon's substrate gate
-   * (`packages/runtime-daemon/src/ipc/local-ipc-gateway.ts#dispatchFrame`)
-   * rejects every non-handshake envelope missing or carrying a malformed
-   * `protocolVersion` with `-32600 InvalidRequest /
-   * transport.invalid_protocol_version`. The SDK's TypeScript surface
-   * therefore mirrors the wire contract: callers MUST advertise a version
-   * at construction. There is intentionally no library-side default —
-   * the protocol version is NEGOTIATED via `daemon.hello`
-   * (`packages/contracts/src/jsonrpc-negotiation.ts`), not contracts-level
-   * state, so a canonical fallback would mask missed handshakes.
-   *
-   * Pre-handshake bootstrap convention: callers send `daemon.hello` with
-   * their preferred / highest-supported version and use the daemon's
-   * `DaemonHelloAck.protocolVersion` for the rest of the session. The
-   * substrate exempts `daemon.hello` from envelope-level enforcement, so
-   * the value advertised on the handshake call itself is don't-care
-   * (the negotiation parameter rides in `params.protocolVersion`).
+   * The protocol version sent on every request envelope (ISO 8601 `YYYY-MM-DD`). Required: the
+   * daemon rejects a non-handshake request without a valid one. There is no default because the
+   * version is negotiated with `daemon.hello`; the caller passes the acknowledged version, and
+   * the handshake request itself is exempt from the check.
    */
   readonly protocolVersion: string;
 }
 
 /**
- * Typed JSON-RPC client wrapping a `ClientTransport` with `call<P, R>` and
- * `subscribe<T>` operations. Single-instance per transport — the constructor
- * registers the inbound dispatcher and close handler exactly once.
- *
- * Usage shape (Phase 5 `session-client.ts` consumer):
- *   ```typescript
- *   const transport = await openLocalIpcTransport(socketPath);
- *   const client = new JsonRpcClient(transport, { protocolVersion: "2026-05-01" });
- *   const session = await client.call(
- *     "session.create",
- *     payload,
- *     SessionCreateRequestSchema,
- *     SessionCreateResponseSchema,
- *   );
- *   const subscription = client.subscribe(
- *     "session.subscribe",
- *     { sessionId: session.id },
- *     EventEnvelopeSchema,
- *   );
- *   for await (const event of subscription) { ... }
- *   ```
+ * Typed JSON-RPC client for one `ClientTransport`, with `call<P, R>` and `subscribe<T>`. The
+ * constructor registers the transport's inbound and close handlers, so use one client per
+ * transport.
  */
 export class JsonRpcClient {
   readonly #transport: ClientTransport;
@@ -482,32 +283,24 @@ export class JsonRpcClient {
     this.#transport = transport;
     this.#protocolVersion = opts.protocolVersion;
 
-    // Register inbound dispatcher exactly once per transport.
+    // The transport allows one inbound handler; this is it.
     transport.onMessage((msg) => {
       this.#handleInbound(msg);
     });
 
-    // Register close handler — rejects all in-flight requests and ends all
-    // subscriptions.
+    // Closing rejects all in-flight requests and ends all subscriptions.
     transport.onClose((reason) => {
       this.#handleClose(reason);
     });
   }
 
   /**
-   * Issue a typed JSON-RPC request and await the typed response.
+   * Issues a typed JSON-RPC request and resolves with the validated result.
    *
-   * Thin wrapper over `#issueRequest`. See `#issueRequest`'s JSDoc for
-   * the full order-of-operations and throws contract — they are identical
-   * for `call`, which simply omits the subscribe-init state.
-   *
-   * @param method - The dotted-namespace method name (e.g. `session.create`).
-   * @param params - The method's request payload.
-   * @param paramsSchema - Zod schema for `P`. Validates `params` BEFORE
-   *   the wire write.
-   * @param resultSchema - Zod schema for `R`. Validates the daemon's
-   *   `result` AFTER the wire response.
-   * @returns The validated `R` value.
+   * @throws JsonRpcSchemaError when `params` fail `paramsSchema` (phase `"params"`, nothing sent)
+   *   or the result fails `resultSchema` (phase `"result"`).
+   * @throws JsonRpcRemoteError when the daemon answers with an error.
+   * @throws JsonRpcTransportClosedError when the transport is or becomes closed.
    */
   public async call<P, R>(
     method: string,
@@ -519,38 +312,9 @@ export class JsonRpcClient {
   }
 
   /**
-   * Internal: shared request-issuance pipeline used by both public `call`
-   * and `subscribe`. The `subscriptionInitState` parameter lets subscribe
-   * carry the per-subscription state object through to the pending entry
-   * so `#handleResponse` can install `#subscriptions` synchronously
-   * (see `PendingRequest.subscriptionInitState` JSDoc for the wire-
-   * coalescing race this prevents).
-   *
-   * Order of operations:
-   *   1. `paramsSchema.parse(params)` — fail-fast on caller-side malformed
-   *      input (throws `JsonRpcSchemaError(phase: "params")`).
-   *   2. Generate the next request id (monotonic numeric counter; spec
-   *      — numeric is sufficient).
-   *   3. Park a `PendingRequest` keyed by id.
-   *   4. Send the framed envelope via `transport.send`.
-   *   5. The promise resolves when the inbound dispatcher correlates a
-   *      response by id and validates `result` against `resultSchema`
-   *      (rejects with `JsonRpcSchemaError(phase: "result")` on failure).
-   *      An error response rejects with `JsonRpcRemoteError`. For
-   *      subscribe inits, `#handleResponse` ALSO installs `#subscriptions`
-   *      synchronously before invoking `pending.resolve` so the next
-   *      coalesced inbound frame can be dispatched against the new id.
-   *
-   * The `protocolVersion` from constructor opts is attached to every
-   * outgoing envelope.
-   *
-   * @throws JsonRpcSchemaError - When `params` fail caller-side validation
-   *   (phase: `"params"`) or `result` fails server-side validation
-   *   (phase: `"result"`).
-   * @throws JsonRpcRemoteError - When the daemon returns a JSON-RPC error
-   *   response.
-   * @throws JsonRpcTransportClosedError - When the transport disconnects
-   *   before the response arrives.
+   * Shared pipeline for `call` and `subscribe`: validate params, allocate an id, park a pending
+   * entry and send. `subscriptionInitState` is carried on the entry so `#handleResponse` can
+   * register the subscription synchronously.
    */
   async #issueRequest<P, R>(
     method: string,
@@ -559,9 +323,7 @@ export class JsonRpcClient {
     resultSchema: ZodType<R>,
     subscriptionInitState: SubscriptionState<unknown> | undefined,
   ): Promise<R> {
-    // Step 1: caller-side params validation. Fail-fast before any wire
-    // I/O — the daemon would also reject, but local validation keeps the
-    // error provenance close to the caller.
+    // Fail fast on bad params before any wire I/O.
     const paramsParsed = paramsSchema.safeParse(params);
     if (!paramsParsed.success) {
       throw new JsonRpcSchemaError(
@@ -571,29 +333,19 @@ export class JsonRpcClient {
       );
     }
 
-    // Refuse new calls on a closed transport — the `send()` would also
-    // throw, but the typed error here gives consistent rejection semantics
-    // for callers that may have queued a call across a close event.
+    // Refuse calls made after close so callers see a typed error.
     if (this.#closed) {
       throw new JsonRpcTransportClosedError(this.#closeReason);
     }
 
-    // Step 2: allocate the request id and envelope. Numeric ids are
-    // monotonically incrementing; spec.
     const id = this.#allocateId();
     const envelope = this.#buildRequestEnvelope(id, method, paramsParsed.data);
 
-    // Step 3 + 4: park the pending entry then send. Park BEFORE send so a
-    // synchronous-resolution transport (in-memory test double) cannot race
-    // ahead of the entry being registered. This mirrors the substrate's
-    // own `state.dispatchInFlight++` ordering in
-    // `local-ipc-gateway.ts`'s `#dispatchFrame` (we hold the slot before
-    // permitting the response side to consume it).
+    // Park the entry before sending so a transport that answers synchronously cannot beat it.
     return new Promise<R>((resolve, reject) => {
       this.#pending.set(id, {
         resolve: (raw: unknown) => {
-          // Step 5a: validate result against resultSchema BEFORE resolving
-          // the caller's promise.
+          // Validate the result before resolving the caller.
           const resultParsed = resultSchema.safeParse(raw);
           if (!resultParsed.success) {
             reject(
@@ -612,30 +364,19 @@ export class JsonRpcClient {
         subscriptionInitState,
       });
 
-      // Send is the last action; if it throws synchronously, drop the
-      // pending entry and surface the error.
+      // If send fails, drop the pending entry and surface the error.
       try {
         const sendResult = this.#transport.send(envelope);
-        // `ClientTransport.send` is declared `void | Promise<void>` (see
-        // `types.ts`). Use a duck-typed thenable check rather than
-        // `instanceof Promise`: implementations may return cross-realm
-        // Promises (workers, iframes) or non-native thenables that
-        // satisfy the contract but fail the prototype-chain identity
-        // check. Mirrors the absorption logic in `Promise.resolve`.
+        // `send` may return a cross-realm Promise or a non-native thenable, so test for `then`
+        // instead of `instanceof Promise`.
         if (
           sendResult !== undefined &&
           sendResult !== null &&
           typeof (sendResult as { then?: unknown }).then === "function"
         ) {
-          // Use `Promise.resolve(...).catch(...)` rather than calling
-          // `.catch` directly on the thenable. The PromiseLike contract
-          // (TC39 spec) only requires `.then`; valid thenables MAY omit
-          // `.catch`, in which case the direct call would throw
-          // synchronously (TypeError) and the outer try/catch would
-          // delete the pending entry while the transport's send may
-          // actually have succeeded — leaking the daemon's response on
-          // arrival. `Promise.resolve` absorbs any thenable into a
-          // native Promise, so `.catch` is guaranteed to exist.
+          // A thenable may lack `.catch`; a direct call would throw here and delete the
+          // pending entry even though the send may have succeeded.
+          // `Promise.resolve` turns any thenable into a native Promise.
           Promise.resolve(sendResult as PromiseLike<void>).catch((err: unknown) => {
             this.#pending.delete(id);
             reject(err instanceof Error ? err : new Error(String(err)));
@@ -649,42 +390,13 @@ export class JsonRpcClient {
   }
 
   /**
-   * Open a typed streaming subscription against the daemon.
+   * Opens a typed streaming subscription. Returns the handle synchronously; `subscriptionId` is
+   * empty until the init response arrives, which happens before the first value resolves, so do
+   * not read it synchronously. Each `$/subscription/notify` value is validated against
+   * `valueSchema` before it is queued.
    *
-   * Order of operations:
-   *   1. Construct a `LocalSubscriptionHandle<T>` with empty `subscriptionId`
-   *      (Option A — sync return, post-init mutation per advisor analysis).
-   *   2. Issue an outbound `call` for `method` with the supplied `params`.
-   *      The daemon's subscribe-handler (sibling, e.g.
-   *      `session.subscribe`) returns `{ subscriptionId }` contract.
-   *   3. When the initial response arrives, mutate the handle's
-   *      `subscriptionId` and register the subscription state against
-   *      the inbound `$/subscription/notify` dispatcher.
-   *   4. Each subsequent `$/subscription/notify` whose
-   *      `params.subscriptionId` matches lands its `params.value` (after
-   *      `valueSchema.parse`) in the handle's queue.
-   *   5. The caller terminates with `handle.cancel()` — the SDK emits a
-   *      `$/subscription/cancel` request and awaits ack.
-   *
-   * The subscribe call's `params` carries no SDK-side schema; the typed
-   * sessionClient wrapper is responsible for call-site param
-   * validation.
-   *
-   * Note on synchronous return + asynchronous initialization: the
-   * `subscriptionId` is empty until the initial response settles. Callers
-   * MUST NOT consume `handle.subscriptionId` synchronously after
-   * `subscribe()` returns; it is populated before the FIRST `next()` /
-   * iterator tick resolves a value (because the daemon issues the id in
-   * the initial response BEFORE emitting any notifications).
-   *
-   * @param method - The dotted-namespace subscribe method (e.g.
-   *   `session.subscribe`).
-   * @param params - The subscribe payload. Type-erased at this layer
-   *   (`unknown`) Tasks contract — typed wrappers narrow per-method.
-   * @param valueSchema - Zod schema for the per-notification `value` shape.
-   *   Every inbound `$/subscription/notify` is validated against this
-   *   schema before reaching the consumer queue.
-   * @returns A `LocalSubscriptionConsumer<T>` consumer handle.
+   * `params` are not validated here: the typed wrappers own per-method params. The daemon's
+   * response must carry at least `{ subscriptionId }`.
    */
   public subscribe<T>(
     method: string,
@@ -701,38 +413,19 @@ export class JsonRpcClient {
       cancelInFlight: undefined,
     };
 
-    // Pre-build the cancel function so the handle has a stable reference
-    // even if the initial response is still in flight when the caller
-    // invokes `cancel()`. The cancel implementation handles the
-    // "id-not-yet-known" case by waiting for the initial response.
+    // Built before the request so `cancel()` works while the init response is in flight.
     const handle = new LocalSubscriptionHandle<T>(state, () => this.#cancelSubscription(state));
 
-    // Issue the subscribe request. Note: we pass an `unknown`-typed
-    // params schema to `call` — the wrappers (sessionClient)
-    // construct the typed schemas. At this layer the contract is
-    // "the daemon returns at minimum `{ subscriptionId:
-    // SubscriptionId }`" (UUID-branded — see
-    // `subscribeInitResultSchema` JSDoc / Codex F2 closure). We
-    // pass `subscribeInitResultSchema` directly to `#issueRequest`
-    // so the brand flows through to the resolved
-    // `result.subscriptionId` consumed below (no widen-down cast).
+    // Params are not validated here; the typed wrappers own them.
     const passthroughParams: ZodType<unknown> = passthroughSchema;
 
-    // Cast through `unknown` because `SubscriptionState<T>` has `T` in
-    // contravariant position on the waiter resolve callbacks, breaking
-    // direct subtype assignment to `SubscriptionState<unknown>`. The
-    // dispatcher map's runtime contract is "route by subscriptionId
-    // string", so erasing the type at the map boundary is correct;
-    // `pushSubscriptionValue` casts back into the original `T` via the
-    // captured `valueSchema`.
+    // Cast through `unknown`: `T` sits in a contravariant position on the waiter callbacks, so
+    // `SubscriptionState<T>` is not assignable to `SubscriptionState<unknown>`. The map only
+    // routes by id.
     const dispatcherState = state as unknown as SubscriptionState<unknown>;
 
-    // Issue via `#issueRequest` so the pending entry carries the
-    // `subscriptionInitState` metadata. This causes `#handleResponse`
-    // to install `#subscriptions` synchronously when the init response
-    // arrives, BEFORE the next inbound frame can be dispatched (see
-    // `PendingRequest.subscriptionInitState` JSDoc for the wire-
-    // coalescing race this prevents).
+    // Going through `#issueRequest` lets `#handleResponse` register the subscription
+    // synchronously.
     void this.#issueRequest(
       method,
       params,
@@ -741,16 +434,9 @@ export class JsonRpcClient {
       dispatcherState,
     ).then(
       (result) => {
-        // Cancel-during-pending race reconciliation: if the consumer
-        // invoked `handle.cancel()` while the subscribe init was still in
-        // flight, `#cancelSubscription` already settled the state to
-        // `completed`. The synchronous registration in `#handleResponse`
-        // saw `state.status !== "pending"` and skipped registration, so
-        // the subscription is correctly detached on the dispatcher side.
-        // We MUST emit a best-effort wire cancel now so the daemon
-        // cleans up its subscription registry (otherwise the daemon
-        // holds an orphaned subscription that only transport-close
-        // reaps).
+        // The consumer cancelled while the init was in flight, so `#handleResponse` skipped
+        // registration. Send a best-effort wire cancel so the daemon does not keep an orphan
+        // subscription until the transport closes.
         if (state.status === "completed" || state.status === "errored") {
           void this.call(
             SUBSCRIPTION_CANCEL_METHOD,
@@ -758,41 +444,18 @@ export class JsonRpcClient {
             passthroughSchema,
             cancelResultSchema,
           ).catch(() => {
-            // Best-effort: swallow cancel failures. The local state is
-            // already terminal; a failed cleanup-cancel cannot un-do
-            // that. The daemon's transport-disconnect path is the
-            // ultimate safety net if this best-effort cancel never
-            // lands.
+            // The local state is already terminal; a failed cleanup cancel changes nothing.
           });
           return;
         }
-        // The success path is otherwise a no-op here — the synchronous
-        // `#handleResponse` block already populated `state.subscriptionId`,
-        // transitioned `state.status` to `"active"`, and registered the
-        // state against `#subscriptions` BEFORE this microtask ran.
-        //
-        // DO NOT re-add `this.#subscriptions.set(...)` here. Registration
-        // is intentionally synchronous in `#handleResponse` to defeat the
-        // wire-coalescing race where a subscribe response and its first
-        // `$/subscription/notify` arrive in the same transport read — a
-        // microtask-deferred registration drops that first notification.
-        // See `PendingRequest.subscriptionInitState` JSDoc for the full
-        // explainer and the regression test
-        // `__tests__/jsonRpcClient.test.ts > subscribe-init registers
-        //  #subscriptions synchronously`.
+        // Otherwise nothing to do: `#handleResponse` already set the id, made the state
+        // `"active"` and registered it. Do not register here: a registration deferred to this
+        // microtask loses a notification that arrives in the same transport read as the
+        // response.
       },
       (err: unknown) => {
-        // Subscribe init failed. End the subscription with the error so
-        // any pending iterator/await calls surface it. (If the consumer
-        // already called cancel-before-init, the state is already
-        // terminal; `completeSubscriptionWithError`'s status-guard
-        // makes the call a no-op.) The synchronous
-        // `subscribeInitResultSchema.safeParse(env.result)` gate in
-        // `#handleResponse` skipped registration on schema failure, so
-        // there is no `#subscriptions` entry to clean up here. (Post-F2
-        // the sync gate and the resolve-path schema parse use the
-        // SAME schema, so this invariant is enforced in lockstep —
-        // see the `#handleResponse` JSDoc above for the full rationale.)
+        // Init failed, so end the subscription with the error. No `#subscriptions` entry
+        // exists to clean up, because `#handleResponse` registers only on a valid init result.
         completeSubscriptionWithError(state, err instanceof Error ? err : new Error(String(err)));
       },
     );
@@ -800,26 +463,17 @@ export class JsonRpcClient {
     return handle;
   }
 
-  /**
-   * Test-only inspection helper — returns the count of in-flight requests.
-   * Documented as test-surface; production callers SHOULD NOT rely on this
-   * count for application logic. Kept exported because the Phase 3 test
-   * suite needs to verify pending-entry cleanup on transport close.
-   */
+  /** Number of in-flight requests. For tests that check cleanup on close and on error. */
   public get pendingCount(): number {
     return this.#pending.size;
   }
 
-  /**
-   * Test-only inspection helper — returns the count of active subscriptions.
-   */
+  /** Number of registered subscriptions. For tests. */
   public get subscriptionCount(): number {
     return this.#subscriptions.size;
   }
 
-  // ------------------------------------------------------------------------
   // Internals
-  // ------------------------------------------------------------------------
 
   #allocateId(): number {
     const id = this.#nextId;
@@ -828,12 +482,7 @@ export class JsonRpcClient {
   }
 
   #buildRequestEnvelope(id: JsonRpcId, method: string, params: unknown): JsonRpcRequest {
-    // Conditional spread for `params` only (a request MAY omit `params`
-    // per spec). `protocolVersion` is REQUIRED at construction (see
-    // `JsonRpcClientOptions.protocolVersion` JSDoc for rationale) so
-    // it always appears on the envelope. The substrate's `daemon.hello`
-    // exemption handles the bootstrap-handshake case where the version on
-    // the wire is don't-care.
+    // `params` is omitted when undefined; `protocolVersion` is always sent.
     const envelope: JsonRpcRequest = {
       jsonrpc: JSONRPC_VERSION,
       id,
@@ -845,7 +494,7 @@ export class JsonRpcClient {
   }
 
   #handleInbound(msg: JsonRpcResponseEnvelope | JsonRpcNotification): void {
-    // Discriminate response (has `id`) from notification (no `id`).
+    // Only responses carry an `id`.
     if ("id" in msg) {
       this.#handleResponse(msg);
       return;
@@ -856,10 +505,7 @@ export class JsonRpcClient {
   #handleResponse(env: JsonRpcResponseEnvelope): void {
     const pending = this.#pending.get(env.id);
     if (pending === undefined) {
-      // Unknown id — defensive drop. A correctly-behaved daemon never
-      // emits a response without a matching outbound request, but a
-      // misbehaving peer / racing reconnect / proxy injection should not
-      // crash the client.
+      // Unknown id: drop it rather than crash on a misbehaving peer.
       return;
     }
     this.#pending.delete(env.id);
@@ -868,44 +514,11 @@ export class JsonRpcClient {
       return;
     }
 
-    // The daemon's wire-ordering invariant (the daemon writes the
-    // subscribe response BEFORE the first `$/subscription/notify`)
-    // guarantees the response precedes notifies on the wire, but that is
-    // only sufficient if the SDK installs the subscription dispatcher
-    // entry SYNCHRONOUSLY in the same frame as the response. If the
-    // parser delivers the response and the first notify back-to-back from
-    // a single transport read (normal coalescing on a stream socket),
-    // `#handleNotification` runs immediately after this method returns —
-    // BEFORE `subscribe().then` has had a chance to fire as a microtask.
-    // Without sync registration here, that first notification would hit
-    // the unknown-id silent-drop branch and be lost.
-    //
-    // We run `subscribeInitResultSchema.safeParse(env.result)` here
-    // (rather than a looser `typeof + length` shape probe) so the
-    // synchronous registration gate and the resolve-path Zod parse
-    // CANNOT diverge. Before that, the prior
-    // shape probe accepted any non-empty string, so a malformed
-    // `subscriptionId` (e.g. `"not-a-uuid"`) registered synchronously
-    // into `#subscriptions` AHEAD of the schema's tighter UUID check
-    // running inside `pending.resolve(...)` — the rejected promise
-    // surfaced to the consumer as a `JsonRpcSchemaError`, but the
-    // orphan `#subscriptions` entry persisted until transport close
-    // (the `.then(err)` branch at lines 781-792 explicitly assumes
-    // "no `#subscriptions` entry to clean up here", which only holds
-    // if the sync gate is at LEAST as strict as the schema). Using
-    // the canonical schema here keeps both gates in lockstep: a
-    // malformed response NEVER registers, and the consumer-side
-    // promise still rejects via the same `pending.resolve(env.result)`
-    // path on the next line (the resolve-side parse runs against the
-    // pending's `resultSchema` and fails the same way it always did).
-    //
-    // Cancel-during-pending: if `handle.cancel()` ran while the init
-    // was in flight, `#cancelSubscription` already moved
-    // `state.status` out of `"pending"`. We skip registration in that
-    // case so the subscription stays detached; the
-    // `subscribe().then` success branch then emits the best-effort
-    // wire-level cancel against the daemon-issued id so the daemon's
-    // subscription registry doesn't hold an orphan.
+    // Register a subscribe-init subscription right here, not in a later microtask. The daemon
+    // writes the init response before the first notify, and a stream socket can deliver both in
+    // one read, so `#handleNotification` runs before any microtask. Parsing with the same
+    // schema as the resolve path keeps a malformed init from ever registering. Skipped when a
+    // cancel already moved the state out of `"pending"`; `subscribe()` then cancels on the wire.
     if (pending.subscriptionInitState !== undefined) {
       const initParse = subscribeInitResultSchema.safeParse(env.result);
       if (initParse.success) {
@@ -924,19 +537,11 @@ export class JsonRpcClient {
 
   #handleNotification(env: JsonRpcNotification): void {
     if (env.method !== SUBSCRIPTION_NOTIFY_METHOD) {
-      // Unknown notification method — defensive drop. Phase 3 only knows
-      // about `$/subscription/notify`. Future phases (e.g.
-      // `$/subscription/complete`) will add discriminator branches.
+      // Only `$/subscription/notify` is understood; drop anything else.
       return;
     }
-    // Route the notification to the matching subscription. We do NOT
-    // pre-validate the params shape against `SubscriptionNotifyParamsSchema`
-    // generically here — instead we extract the `subscriptionId` defensively
-    // and look up the per-subscription state, then let
-    // `pushSubscriptionValue` run the typed `valueSchema.parse` against
-    // `params.value`. This keeps the value-validation surface attached to
-    // the per-subscription `valueSchema` (rather than a generic schema
-    // that would lose the `T` type).
+    // Route by `subscriptionId` first, then validate the whole frame against the schema of
+    // the subscription it belongs to, so the value keeps its type `T`.
     const params = env.params;
     if (typeof params !== "object" || params === null) {
       return;
@@ -947,24 +552,14 @@ export class JsonRpcClient {
     }
     const state = this.#subscriptions.get(subscriptionIdRaw);
     if (state === undefined) {
-      // Race-tolerance: a notification arrived for a subscription we no
-      // longer track (cancel raced ahead, init failed, etc.). Drop silently
-      // per the streaming-primitive's documented contract.
+      // A notification for a subscription we no longer track (cancelled, failed init): drop.
       return;
     }
-    // Validate the wrapper shape (subscriptionId + value) using the
-    // per-subscription valueSchema-aware factory from contracts. This
-    // single Zod parse covers BOTH the wrapper shape AND the per-
-    // subscription `value` — `pushSubscriptionValue` consumes the
-    // validated `parsed.data.value` directly without re-validation.
+    // One parse validates the wrapper and the per-subscription `value`.
     const wrapperSchema = SubscriptionNotifyParamsSchema(state.valueSchema);
     const parsed = wrapperSchema.safeParse(params);
     if (!parsed.success) {
-      // Server-corruption: end the subscription with a value-phase
-      // schema error. We classify wrapper-shape failures as `value` phase
-      // because the SDK consumer only ever sees per-value validation
-      // (the wrapper structure is an implementation detail of the
-      // streaming primitive, not part of the SDK's public surface).
+      // Ends the stream with a `value`-phase error; consumers only see per-value validation.
       completeSubscriptionWithError(
         state,
         new JsonRpcSchemaError(
@@ -973,35 +568,20 @@ export class JsonRpcClient {
           parsed.error.issues,
         ),
       );
-      // Remove from the dispatcher map so subsequent stray notifications
-      // for this id hit the "subscription not found, drop silently" branch
-      // above instead of the "errored, drop silently" guard inside
-      // `pushSubscriptionValue`. Without this delete, the daemon's
-      // `StreamingPrimitive` entry would persist (the producer keeps
-      // calling `subscription.next(value)` and the daemon keeps framing
-      // notifications the SDK silently drops).
+      // Untrack the id so stray frames hit the unknown-id drop.
       this.#subscriptions.delete(state.subscriptionId);
-      // Best-effort wire cancel so the daemon releases its
-      // `StreamingPrimitive` entry. The local state has already
-      // transitioned to `errored` — the response (success or failure) is
-      // irrelevant; we just need the daemon to clean up. `void` + `.catch`
-      // is the documented fire-and-forget idiom in this repo.
+      // Best-effort wire cancel so the daemon stops streaming to a dead subscription.
       void this.call(
         SUBSCRIPTION_CANCEL_METHOD,
         { subscriptionId: state.subscriptionId },
         passthroughSchema,
         cancelResultSchema,
       ).catch(() => {
-        // Swallow rejections (transport-closed, daemon-already-dropped-it,
-        // schema-validation on the cancel ack). The local state is already
-        // terminal; nothing to do on failure.
+        // Ignore failures: the local state is already terminal.
       });
       return;
     }
-    // Push the wrapper-validated value. The wrapper parse already ran
-    // `state.valueSchema` against `value` as part of its shape check, so
-    // `parsed.data.value` is the validated `T` (erased to `unknown` at the
-    // dispatcher-map boundary).
+    // The wrapper parse already validated `value` against `state.valueSchema`.
     pushSubscriptionValue(state, parsed.data.value);
   }
 
@@ -1014,16 +594,12 @@ export class JsonRpcClient {
 
     const transportError = new JsonRpcTransportClosedError(reason);
 
-    // Reject every pending request.
     for (const [, entry] of this.#pending) {
       entry.reject(transportError);
     }
     this.#pending.clear();
 
-    // End every active subscription. Use `errored` rather than `completed`
-    // when the transport closed with a non-nominal reason — consumers can
-    // discriminate clean-close (resolve `undefined`) from error-close
-    // (reject with the transport error) on their pending `next()` calls.
+    // A non-clean close errors the subscriptions; a clean one completes them.
     for (const [, state] of this.#subscriptions) {
       if (reason !== undefined) {
         completeSubscriptionWithError(state, transportError);
@@ -1035,159 +611,64 @@ export class JsonRpcClient {
   }
 
   /**
-   * Internal: cancel a subscription, idempotently across the entire cancel
-   * lifecycle. The cancel wire envelope is a JSON-RPC REQUEST (carries
-   * `id`) per `jsonrpc-streaming.ts:252-257` — the client awaits the
-   * `SubscriptionCancelResult` to confirm teardown.
-   *
-   * Idempotency contract (per `LocalSubscriptionConsumer.cancel()` JSDoc in
-   * `types.ts:244-258` — "a second `cancel()` call resolves immediately
-   * without re-emitting the wire frame"). Three guards, in order:
-   *
-   *   1. Terminal-status guard. If `state.status` is `completed` or
-   *      `errored`, the subscription has already settled; return
-   *      immediately. This covers the post-resolution "third cancel" path.
-   *   2. Cancel-before-init guard. If the subscribe initial response has
-   *      not yet settled when the caller invokes `cancel()`, the
-   *      `subscriptionId` is the empty-string sentinel and we cannot emit a
-   *      meaningful cancel here. We settle the local state to `completed`
-   *      (treating consumer-initiated cancel as a clean teardown — pending
-   *      `next()` calls resolve `undefined`, mirroring the post-init clean
-   *      cancel path). The race with the in-flight init response is
-   *      reconciled in `subscribe().then`: when the init response lands and
-   *      carries the daemon-issued `subscriptionId`, the success branch
-   *      sees `state.status === "completed"` and emits a best-effort
-   *      wire-level cancel against the just-issued id so the daemon
-   *      cleans up its subscription registry. (Without that reconcile,
-   *      the daemon would hold an orphaned subscription that only
-   *      transport-close reaps.) The next `cancel()` call after this guard
-   *      hits the terminal-status guard above, so no duplicate frame is
-   *      emitted even if the consumer cancels twice during the pre-init
-   *      window.
-   *   3. In-flight-cancel guard. If a previous `cancel()` has already
-   *      emitted the wire frame and is still awaiting the daemon ack, the
-   *      second caller awaits the SAME promise rather than emitting a
-   *      duplicate `$/subscription/cancel` request. Both callers observe
-   *      the same outcome — clean
-   *      teardown via `completeSubscription`, or local error via
-   *      `completeSubscriptionWithError` if the daemon nacks. The wire-
-   *      emit half is broken out into `#emitCancelRpc` so the public
-   *      entry point can register the in-flight promise into
-   *      `state.cancelInFlight` BEFORE the first `await`.
+   * Cancels a subscription; safe to call repeatedly. Terminal state returns immediately; before
+   * the init response there is no id to cancel, so the subscription completes locally and
+   * `subscribe()` sends the wire cancel once the id arrives; a cancel already in flight is
+   * awaited rather than sent twice.
    */
   async #cancelSubscription<T>(state: SubscriptionState<T>): Promise<void> {
     if (state.status === "completed" || state.status === "errored") {
-      // Idempotent — terminal.
       return;
     }
     if (state.status === "pending" || state.subscriptionId === "") {
-      // Cancel-before-init: end locally without a wire frame. The
-      // subsequent cancel call hits the terminal-status guard above so the
-      // pre-init window is itself idempotent.
+      // Cancel before init: end locally without a wire frame.
       completeSubscription(state);
       return;
     }
     if (state.cancelInFlight !== undefined) {
-      // Idempotent — wire frame already in flight; second caller awaits the
-      // same promise. Resolves to the same outcome (clean teardown via
-      // `completeSubscription`, or local error via
-      // `completeSubscriptionWithError` if the daemon ack failed).
+      // A wire cancel is in flight; wait for the same outcome.
       return state.cancelInFlight;
     }
-    // First caller in the active-subscription window — register the
-    // in-flight promise SYNCHRONOUSLY before the first await so any
-    // concurrent caller's third-guard check observes a non-undefined
-    // `cancelInFlight`.
+    // Store the promise before any await so a concurrent caller sees it.
     state.cancelInFlight = this.#emitCancelRpc(state);
     return state.cancelInFlight;
   }
 
   /**
-   * Internal: wire-emit half of `#cancelSubscription`. Broken out so the
-   * public entry can register the returned promise into
-   * `state.cancelInFlight` for cross-call idempotency BEFORE the first
-   * `await`. The dispatcher-map cleanup mirrors the original inline
-   * implementation — successful cancel completes the subscription and
-   * removes from `#subscriptions`; a failed cancel (wire error, schema
-   * corruption) errors the subscription locally and removes from
-   * `#subscriptions`.
-   *
-   * Active-subscription precondition: callers MUST have verified
-   * `state.status === "active"` and `state.subscriptionId !== ""` BEFORE
-   * invoking — `#cancelSubscription` is the only caller and enforces both.
+   * Sends the wire cancel for an active subscription and untracks it. A failed cancel still ends
+   * the subscription locally, with the error. Only `#cancelSubscription` calls it.
    */
   async #emitCancelRpc<T>(state: SubscriptionState<T>): Promise<void> {
     try {
       await this.call(
         SUBSCRIPTION_CANCEL_METHOD,
         { subscriptionId: state.subscriptionId },
-        // The cancel params + result schemas live in contracts; we
-        // re-use a passthrough for params to avoid coupling the SDK to
-        // the brand-validating schema (the daemon validates regardless,
-        // and the SDK's params shape for cancel is internal).
+        // The cancel params are internal, so skip brand validation; the daemon validates.
         passthroughSchema,
         cancelResultSchema,
       );
     } catch (err) {
-      // A failed cancel (wire error, schema corruption) still locally
-      // ends the subscription — the consumer's `next()` should not hang
-      // waiting for a cancel that the daemon may not have processed.
-      // We surface the cancel error on the subscription so the consumer
-      // can see why the stream stopped.
+      // End locally even if the daemon did not confirm, so `next()` does not hang; the
+      // consumer sees the cancel error.
       completeSubscriptionWithError(state, err instanceof Error ? err : new Error(String(err)));
-      // Remove from the dispatcher map so future stray notifications
-      // don't reactivate it.
+      // Untrack so stray notifications do not reactivate it.
       this.#subscriptions.delete(state.subscriptionId);
       return;
     }
-    // Successful cancel: complete the subscription and remove from
-    // dispatcher.
     completeSubscription(state);
     this.#subscriptions.delete(state.subscriptionId);
   }
 }
 
-// --------------------------------------------------------------------------
 // Internal helper schemas
-// --------------------------------------------------------------------------
-//
-// These are minimal Zod schemas used inside `JsonRpcClient` to type-erase
-// edge cases that don't fit the typed `call<P, R>` surface (subscribe-init
-// shape, cancel-result shape, passthrough for sub-methods that bypass
-// strict caller-side validation). The `z` import is hoisted to the top of
-// the file alongside the other module imports.
 
-/**
- * Passthrough schema — accepts any value verbatim. Used inside `subscribe`
- * for the params side (the typed sessionClient wrapper handles
- * per-subscription param validation upstream) and inside cancel emission
- * (the daemon owns the param validation contract).
- */
+/** Accepts any value; used where the daemon owns validation. */
 const passthroughSchema: ZodType<unknown> = z.unknown();
 
 /**
- * Initial subscribe response shape: at minimum `{ subscriptionId:
- * SubscriptionId }` (UUID-branded per `jsonrpc-streaming.ts:166`). Phase 3
- * handlers may layer additional fields (e.g. `session.subscribe` could return
- * `{ subscriptionId, cursor }`) — the schema below uses `.loose()`
- * (passthrough-equivalent permissive parsing) to accept additional fields
- * without rejecting. The SDK's subscribe primitive only consumes
- * `subscriptionId`; the typed wrapper at the sessionClient layer is
- * responsible for the full shape.
- *
- * The `subscriptionId` field uses the canonical `SubscriptionIdSchema`
- * (RFC 9562 UUID, brand-narrowed to `SubscriptionId`) rather than the
- * looser `z.string().min(1)` it carried at first landing. Before that, a
- * daemon corruption or proxy
- * injection that returns a non-UUID `subscriptionId` was previously
- * registered into `#subscriptions` synchronously by `#handleResponse` and
- * then surfaced via the consumer-side schema rejection — leaving an
- * orphan in `#subscriptions` until transport close. Tightening here +
- * tightening the synchronous shape extraction in `#handleResponse` (now
- * uses `subscribeInitResultSchema.safeParse(env.result)` rather than a
- * raw `typeof + length` check) keeps registration and validation in
- * lockstep: a malformed init response NEVER registers, and the resolve-
- * path schema parse becomes the single source of truth.
+ * Subscribe-init response: at least `{ subscriptionId }` as a UUID. `.loose()` lets a handler add
+ * fields (such as a cursor) that the typed wrappers read. `#handleResponse` uses this same schema,
+ * so registration and validation cannot disagree.
  */
 const subscribeInitResultSchema: ZodType<{ subscriptionId: SubscriptionId }> = z
   .object({
@@ -1195,12 +676,7 @@ const subscribeInitResultSchema: ZodType<{ subscriptionId: SubscriptionId }> = z
   })
   .loose();
 
-/**
- * Cancel-result schema mirrors `SubscriptionCancelResultSchema` from
- * contracts but redeclares locally to avoid the `.strict()` ⊃ runtime cast
- * pattern that the contracts factory uses. The shape is `{ canceled: boolean }`
- * per `jsonrpc-streaming.ts:288-300`.
- */
+/** Cancel response `{ canceled }`. */
 const cancelResultSchema: ZodType<{ canceled: boolean }> = z.object({
   canceled: z.boolean(),
 });

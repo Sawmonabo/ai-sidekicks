@@ -55,20 +55,15 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
+import { DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
-  DRIVER_TOOL_NAME_MAX_LEN,
-  DRIVER_WIRE_HANDLE_MAX_LEN,
-  DRIVER_WIRE_TOKEN_MAX_LEN,
   ProviderOutputSpeedStateSchema,
-  RunIdSchema,
   type ProviderOutputSpeedState,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-transcript.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
-// --------------------------------------------------------------------------
 // The session's agent tree
-// --------------------------------------------------------------------------
 
 /**
  * The daemon-minted handle of a provider's own helper inside its parent's run.
@@ -103,9 +98,7 @@ export const AgentTreeMemberSchema: z.ZodType<AgentTreeMember> = z.discriminated
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
 // agent.list
-// --------------------------------------------------------------------------
 
 /** The session whose agents `agent.list` streams. */
 export interface AgentListRequest {
@@ -169,9 +162,7 @@ export const AgentListAckSchema: z.ZodType<AgentListAck> = z
   .object({ subscriptionId: SubscriptionIdSchema, agents: z.array(AgentListEntrySchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // agent.configUpdate
-// --------------------------------------------------------------------------
 
 /** A binding member a running agent's switch may name. */
 const switchMemberSchema = (label: string): z.ZodString =>
@@ -243,9 +234,7 @@ export const AgentConfigUpdateResponseSchema: z.ZodType<AgentConfigUpdateRespons
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // The agent.* method table
-// --------------------------------------------------------------------------
 
 /**
  * The `agent.*` methods. `agent.definitionSubscribe` resends the whole

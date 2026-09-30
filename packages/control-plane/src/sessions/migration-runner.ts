@@ -1,12 +1,9 @@
 // Applies the control plane's one Postgres schema.
 //
-// Concurrency: two control-plane boots can race on a fresh database. Both would
-// pass an unguarded probe, and the second `CREATE TABLE` would fail with `42P07
-// relation already exists`. So the apply runs in one transaction under a
-// `pg_advisory_xact_lock` and re-probes inside the lock: a racer blocks on the
-// lock, then finds the committed schema and returns. Postgres takes DDL locks at
-// the statement, not at `BEGIN`, so the daemon's SQLite `BEGIN IMMEDIATE` has no
-// direct analogue here.
+// Two control-plane boots can race on a fresh database: both would pass an unguarded probe and the
+// second `CREATE TABLE` would fail with `42P07 relation already exists`. So the apply runs in one
+// transaction under a `pg_advisory_xact_lock` and re-probes inside the lock; a racer blocks on the
+// lock, then finds the committed schema and returns.
 
 import { CONTROL_PLANE_SCHEMA_SQL } from "./control-plane-schema.js";
 

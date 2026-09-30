@@ -1,11 +1,10 @@
-// A session's spend: the committed figure and each agent's share of it, the cost
-// receipt the inspector reads by provider and account, and who a unit of work is
-// attributed to.
+// A session's spend: the committed figure and each agent's share of it, the cost receipt the
+// inspector reads by provider and account, and who a unit of work is attributed to.
 //
-// Every amount is integer micro-dollars. Each request is priced once, when it
-// completes, and never repriced, so small requests add up exactly and a figure is
-// rounded once, where it is drawn. The budget read and the receipt are served from
-// one fold over the per-turn usage rows, so the two can never disagree.
+// Every amount is integer micro-dollars. Each request is priced once, when it completes, and
+// never repriced, so small requests add up exactly and a figure is rounded once, where it is
+// drawn. The budget read and the receipt come from one fold over the per-turn usage rows, so
+// the two cannot disagree.
 import { z } from "zod";
 
 import { AgentTreeMemberSchema, type AgentTreeMember } from "./agent.js";
@@ -15,7 +14,7 @@ import {
   type BillingMode,
   type ProviderAccountId,
 } from "./provider-account.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
   SessionIdSchema,
   UserIdSchema,
@@ -28,13 +27,10 @@ import {
 export const UsdMicrosSchema: z.ZodType<number, number> = z.number().int().nonnegative();
 
 /**
- * The party a unit of work is attributed to, resolved by the daemon for each turn and
- * never supplied by a client or a driver.
- *
- * Two closed arms, the user reference required on the user arm and absent on the
- * system arm, rather than one nullable id: an unstamped value and a deliberately
- * unattributed one would otherwise be the same shape. Spend no user caused, such as
- * a sweep, an idle settlement or a recovery turn, lands on the `system` arm.
+ * The party a unit of work is attributed to, resolved by the daemon for each turn and never
+ * supplied by a client or a driver. Two arms rather than one nullable id, so an unstamped value
+ * and a deliberately unattributed one differ in shape. Spend no user caused, such as a sweep, an
+ * idle settlement or a recovery turn, lands on the `system` arm.
  */
 export type EffectivePrincipal = { kind: "user"; userId: UserId } | { kind: "system" };
 /** Parses an {@link EffectivePrincipal}; a `system` arm carrying a user is refused. */
@@ -44,14 +40,12 @@ export const EffectivePrincipalSchema: z.ZodType<EffectivePrincipal, EffectivePr
     z.object({ kind: z.literal("system") }).strict(),
   ]);
 
-// --------------------------------------------------------------------------
 // orchestration.budgetRead
-// --------------------------------------------------------------------------
 
 /**
- * One agent's spend in the session's tree, the lead included: `ownUsdMicros` is what
- * its own requests cost, and `subtreeUsdMicros` that plus every descendant's at any
- * depth. A helper request, such as a reviewer's, counts on the agent it belongs to.
+ * One agent's spend in the session's tree, the lead included: `ownUsdMicros` is what its own
+ * requests cost, and `subtreeUsdMicros` that plus every descendant's at any depth. A helper
+ * request, such as a reviewer's, counts on the agent it belongs to.
  */
 export interface AgentSpend {
   agent: AgentTreeMember;
@@ -72,9 +66,8 @@ export const AgentSpendSchema: z.ZodType<AgentSpend> = z
   });
 
 /**
- * The session's committed spend and each agent's share of it. The committed figure is
- * the one session cost every surface shows, never a sum a client takes over the rows
- * it happens to hold.
+ * The session's committed spend and each agent's share of it. The committed figure is the one
+ * session cost every surface shows, never a sum a client takes over the rows it holds.
  */
 export interface OrchestrationBudgetState {
   sessionId: SessionId;
@@ -100,9 +93,7 @@ export const OrchestrationBudgetReadRequestSchema: z.ZodType<
   OrchestrationBudgetReadRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
-// --------------------------------------------------------------------------
 // orchestration.costReceiptRead
-// --------------------------------------------------------------------------
 
 /** The session whose cost receipt `orchestration.costReceiptRead` answers with. */
 export interface SessionCostReceiptRequest {
@@ -115,9 +106,8 @@ export const SessionCostReceiptRequestSchema: z.ZodType<
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
 /**
- * One provider account's spend: its tokens and its dollars. `billingMode` labels the
- * figure and never changes how it is derived; `unknown` is never presented as billed
- * dollars. The screen names the account from the account's own record.
+ * One provider account's spend: its tokens and its dollars. `billingMode` labels the figure and
+ * never changes how it is derived; `unknown` is never presented as billed dollars.
  */
 export interface SessionCostReceiptAccountRow {
   providerAccountId: ProviderAccountId;
@@ -142,8 +132,8 @@ export interface SessionCostReceiptVoiceRow {
 }
 
 /**
- * One provider the session spent on: a row per account it spent on, its voice row
- * where the session made voice calls on it, and a subtotal the daemon computes.
+ * One provider the session spent on: a row per account it spent on, its voice row where the
+ * session made voice calls on it, and a subtotal the daemon computes.
  */
 export interface SessionCostReceiptProvider {
   driverName: string;
@@ -165,9 +155,9 @@ export const SessionCostReceiptProviderSchema: z.ZodType<SessionCostReceiptProvi
   .strict();
 
 /**
- * The session's spend, decomposed by provider and account, beside the committed
- * figure it adds up to. Providers are in the order the session first spent on them,
- * the session's own provider first. A session that has spent nothing has no provider.
+ * The session's spend, decomposed by provider and account, beside the committed figure it adds
+ * up to. Providers are in the order the session first spent on them, the session's own provider
+ * first; a session that has spent nothing has none.
  */
 export interface SessionCostReceipt {
   sessionTotal: OrchestrationBudgetState;

@@ -1,10 +1,8 @@
-// Git read contracts for the panes — the branch list both base pickers use,
-// reading a file's lines by path or by blob, and the signal that a session's
-// working folder changed.
+// Git read contracts for the panes: the branch list both base pickers use, reading a file's lines
+// by path or by blob, and the signal that a session's working folder changed.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// This module imports nothing from `./event.js` and nothing whose imports reach it, which would
+// close an eager module cycle.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -27,11 +25,6 @@ export const GitObjectIdSchema: z.ZodType<GitObjectId, GitObjectId> = z
   .string()
   .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u, "Expected a git object name")
   .brand<"GitObjectId">() as unknown as z.ZodType<GitObjectId, GitObjectId>;
-
-// --------------------------------------------------------------------------
-// Git reads for the panes — `repo.branchList`, `repo.fileRead`,
-// `repo.workingTreeSubscribe`.
-// --------------------------------------------------------------------------
 
 /** `repo.branchList`: the mount whose branches both base pickers list. */
 export interface RepoBranchListRequest {

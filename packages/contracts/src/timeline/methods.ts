@@ -1,35 +1,9 @@
-// The six `timeline.*` method strings, each BOUND to the
-// request/response schemas that carry it.
-//
-// Six methods, all `query`, riding the daemon JSON-RPC transport only (the timeline is a daemon-local projection over the
-// session event log and no tRPC sibling exists). Method tails are camelCase.
-//
-// ----------------------------------------------------------------------------
-// Why the strings are bound to schemas rather than just declared
-// ----------------------------------------------------------------------------
-//
-// The defect was not that the timeline shapes were missing —
-// they were in the canonical doc — but that nothing said WHICH WIRE METHOD
-// carried each one, so an operation's schema name resolved while its method
-// string did not. Declaring bare constants would close half of that: the
-// names would exist, and a handler binder could still register
-// `timeline.childRunExpand` against the reasoning-surface schemas and typecheck.
-//
-// `TIMELINE_METHOD_DESCRIPTORS` is the pairing. It is the single place the
-// method string, its procedure type, its mutating flag, and its schema pair are
-// stated together, and the daemon's binder
-// (`packages/runtime-daemon/src/ipc/handlers/timeline-methods.ts`) takes a
-// descriptor rather than loose arguments, so no handler can bind a name to the
-// wrong schemas.
-//
-// ----------------------------------------------------------------------------
-// Nothing here registers a handler
-// ----------------------------------------------------------------------------
-//
-// This file holds contracts only. A method is registered by the daemon service
-// that answers it, and none is registered without one: a placeholder handler
-// would put a method on the wire that answers nothing, which is worse than a
-// method that is not on the wire.
+// The six `timeline.*` method strings, each bound to its request and response schemas. All are
+// `query` reads over the daemon JSON-RPC transport only: the timeline is a daemon-local
+// projection of the session event log. Binding the pair in `TIMELINE_METHOD_DESCRIPTORS`, which
+// the daemon's binder (`packages/runtime-daemon/src/ipc/handlers/timeline-methods.ts`) takes, is
+// what stops a handler being registered against the wrong schemas. This file registers no
+// handler: a placeholder would put a method on the wire that answers nothing.
 import type { MethodDescriptor } from "../method-descriptor.js";
 import {
   ChildRunExpandRequestSchema,
@@ -62,11 +36,17 @@ import {
   type TimelineSearchResponse,
 } from "./search.js";
 
+/** The method string of the paged timeline window. */
 export const TIMELINE_READ_METHOD = "timeline.read" as const;
+/** The method string of the reasoning-surface read. */
 export const TIMELINE_REASONING_SURFACE_READ_METHOD = "timeline.reasoningSurfaceRead" as const;
+/** The method string of the child-run expansion. */
 export const TIMELINE_CHILD_RUN_EXPAND_METHOD = "timeline.childRunExpand" as const;
+/** The method string of the row-body read. */
 export const TIMELINE_BODY_READ_METHOD = "timeline.bodyRead" as const;
+/** The method string of the omitted-patch read. */
 export const TIMELINE_PATCH_READ_METHOD = "timeline.patchRead" as const;
+/** The method string of the session search. */
 export const TIMELINE_SEARCH_METHOD = "timeline.search" as const;
 
 /** The closed set of method strings this namespace registers. */
@@ -78,10 +58,7 @@ export type TimelineMethodName =
   | typeof TIMELINE_PATCH_READ_METHOD
   | typeof TIMELINE_SEARCH_METHOD;
 
-/**
- * Every `timeline.*` method string, in the canonical registry table's row
- * order. A census a consumer can walk rather than a list it re-types.
- */
+/** Every `timeline.*` method string, for a consumer to walk instead of re-typing the list. */
 export const TIMELINE_METHOD_NAMES: readonly TimelineMethodName[] = Object.freeze([
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
@@ -92,16 +69,10 @@ export const TIMELINE_METHOD_NAMES: readonly TimelineMethodName[] = Object.freez
 ] as const);
 
 /**
- * What a registrar needs to bind a single timeline method: the name, the procedure
- * type, the version-gate `mutating` flag, and the schema pair the registry
- * validates params and result against.
- *
- * `mutating` is typed `false` rather than `boolean` on purpose. Every
- * operation is an idempotent `query` read, so the literal states a property of
- * this surface instead of leaving a per-descriptor decision that could be set
- * wrong. A later timeline MUTATION
- * would fail to typecheck against this interface, which is the point: it should
- * arrive with a deliberate widening, not by flipping a boolean.
+ * What a registrar needs to bind one timeline method: the name, procedure type, `mutating` flag
+ * and the schema pair the registry validates against. Every timeline method is a read, so
+ * `procedureType` is `"query"` and `mutating` is `false`; a timeline mutation must widen this
+ * interface deliberately.
  */
 export interface TimelineMethodBinding<
   MethodName extends TimelineMethodName,
@@ -147,13 +118,9 @@ export interface TimelineMethodDescriptorRegistry {
 }
 
 /**
- * The request and response TYPES each method string is bound to — the type-level
- * half of {@link TIMELINE_METHOD_DESCRIPTORS}, which carries the schemas.
- *
- * This exists so a registrar can be handed a method NAME and have its handler's
- * parameter and return types follow from it, with no schema argument to supply
- * and therefore none to supply wrongly. Keyed by the method string so
- * `TimelineMethodContract[M]` resolves for a generic `M`.
+ * The request and response types each method string is bound to: the type-level half of
+ * {@link TIMELINE_METHOD_DESCRIPTORS}. A registrar handed a method name gets its handler's
+ * parameter and return types from it.
  */
 export interface TimelineMethodContract {
   readonly [TIMELINE_READ_METHOD]: {
@@ -191,13 +158,8 @@ export type TimelineMethodResponse<MethodName extends TimelineMethodName> =
   TimelineMethodContract[MethodName]["response"];
 
 /**
- * The canonical method-to-schema binding for the `timeline.*` namespace —
- * the code-side mirror of the Timeline Method-Name Registry table.
- *
- * Frozen because it is a registry, not a builder: a consumer that could
- * re-point `TIMELINE_METHOD_DESCRIPTORS["timeline.read"].requestSchema` at
- * process start would be able to change what the daemon accepts on a method
- * without touching the method's own module.
+ * The method-to-schema binding for the `timeline.*` namespace. Frozen so no consumer can
+ * re-point a method's schema and change what the daemon accepts.
  */
 export const TIMELINE_METHOD_DESCRIPTORS: TimelineMethodDescriptorRegistry = Object.freeze({
   [TIMELINE_READ_METHOD]: Object.freeze({

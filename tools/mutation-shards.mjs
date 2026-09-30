@@ -1,23 +1,16 @@
 #!/usr/bin/env node
-// mutation-shards — splits the packages' mutation testing into CI shards and
-// merges the shards' results back into one incremental file per package.
+// Splits the packages' mutation testing into CI shards and merges the shards' results back into one
+// incremental file per package. StrykerJS has no sharding of its own (stryker-js#4806) and one
+// package's full run takes hours, so CI runs `stryker run --mutate <files>` per shard.
 //
-// StrykerJS has no sharding of its own (stryker-js#4806; its maintainers point
-// at incremental mode). One package's full run is hours on one runner, so the
-// CI job runs `stryker run --mutate <files>` per shard and this tool decides
-// the files:
+//   plan  - prints the GitHub Actions matrix. A pull request's shards hold only the source files it
+//           changed (`BASE_SHA` set); otherwise every source file. Files are dealt heaviest first
+//           onto the lightest shard, weighed by the tests each file's mutants ran in the saved
+//           results (a static mutant runs the whole suite), or by source length with no result yet.
+//   merge - folds each shard's results for the files it mutated over the package's saved ones, so
+//           the next run of any shard layout reuses every result.
 //
-//   plan  — prints the GitHub Actions matrix. A pull request's shards hold only
-//           the source files it changed (`BASE_SHA` set); otherwise every
-//           source file. Files are dealt largest first onto the lightest shard,
-//           weighed by the tests each file's mutants ran in the saved results
-//           (a static mutant runs the whole suite, so this is the real cost),
-//           or by source length where no result exists yet.
-//   merge — folds each shard's results for the files it mutated over the
-//           package's saved ones, so the next run of any shard layout reuses
-//           every result.
-//
-// Shard counts per package come from `MUTATION_SHARDS` (a JSON object).
+// `MUTATION_SHARDS` is a JSON object of shard counts per package.
 
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";

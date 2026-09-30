@@ -68,9 +68,7 @@ import {
 
 const isoInstant = z.iso.datetime({ offset: true });
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /** A `shared` definition saved by someone the daemon's operator check does not admit. */
 export const WORKFLOW_OPERATOR_REQUIRED_CODE = "workflow.operator_required" as const;
@@ -87,9 +85,7 @@ export const WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE = "workflow.import_schema_unkno
 /** The type of {@link WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE}. */
 export type WorkflowImportSchemaUnknownCode = typeof WORKFLOW_IMPORT_SCHEMA_UNKNOWN_CODE;
 
-// --------------------------------------------------------------------------
 // workflow.definitionCreate
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.definitionCreate` input. Saving a new workflow, duplicating one,
@@ -147,9 +143,7 @@ export const WorkflowDefinitionCreateResponseSchema: z.ZodType<WorkflowDefinitio
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.definitionRead
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.definitionRead` input: one definition, at `version` when given and at
@@ -224,9 +218,7 @@ export const WorkflowDefinitionReadResponseSchema: z.ZodType<WorkflowDefinitionR
     { message: "A token's last use is reported only beside the token's creation date." },
   );
 
-// --------------------------------------------------------------------------
 // workflow.definitionList
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.definitionList` input. Without `scope` it answers every visible scope
@@ -323,9 +315,7 @@ export const WorkflowDefinitionListResponseSchema: z.ZodType<WorkflowDefinitionL
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.versionRead and workflow.versionChainRead
-// --------------------------------------------------------------------------
 
 /** The `workflow.versionRead` input: a version is addressed by its definition and number. */
 export interface WorkflowVersionReadRequest {
@@ -453,9 +443,7 @@ export const WorkflowVersionChainReadResponseSchema: z.ZodType<WorkflowVersionCh
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.definitionUpdate and workflow.definitionDelete
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.definitionUpdate` input: Save, Restore, and a schedule change. It writes
@@ -533,9 +521,7 @@ export const WorkflowDefinitionDeleteResponseSchema: z.ZodType<WorkflowDefinitio
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.definitionExport and workflow.definitionImport
-// --------------------------------------------------------------------------
 
 const filePathSchema = wireFreeFormString(FILE_PATH_MAX_LEN, "filePath");
 
@@ -604,9 +590,7 @@ export const WorkflowDefinitionImportRequestSchema: z.ZodType<
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.versionDiffRead
-// --------------------------------------------------------------------------
 
 /** The `workflow.versionDiffRead` input: two versions of one workflow. */
 export interface WorkflowVersionDiffReadRequest {
@@ -649,9 +633,7 @@ export const WorkflowVersionDiffReadResponseSchema: z.ZodType<WorkflowVersionDif
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Method descriptors
-// --------------------------------------------------------------------------
 
 /** The `workflow.*` methods over definitions, keyed by name. */
 export interface WorkflowDefinitionMethodDescriptors {

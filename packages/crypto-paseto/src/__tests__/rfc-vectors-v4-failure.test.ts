@@ -1,11 +1,10 @@
 // PASETO v4 failure-vector conformance (4-F-*). Vectors vendored from
-// paseto-standard/test-vectors v4.json @ 32d7406591eb022f9eff88abb84106dd9d42c0f2
-// (retrieved 2026-05-20); see __fixtures__/PROVENANCE.md.
+// paseto-standard/test-vectors v4.json @ 32d7406591eb022f9eff88abb84106dd9d42c0f2;
+// see __fixtures__/PROVENANCE.md.
 //
-// Asserts the BASE InvalidTokenError (not the MacMismatchError subclass) for every
-// vector on purpose: 4-F-4 is rejected at the base64url canonical-form check BEFORE
-// the MAC step, so tightening the assertion would make a correct rejection fail.
-// MAC-mismatch coverage lives in v4-local.test.ts.
+// Every vector asserts the base InvalidTokenError, not the MacMismatchError subclass on purpose:
+// 4-F-4 is rejected at the base64url canonical-form check before the MAC step, so a stricter
+// assertion would fail a correct rejection. MAC-mismatch coverage lives in v4-local.test.ts.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
@@ -59,12 +58,9 @@ describe("PASETO v4 RFC failure-vector conformance (4-F-*)", () => {
     it(`${v.name} (negative) — decode throws InvalidTokenError`, () => {
       const footer = utf8(v.footer);
       const ia = utf8(v["implicit-assertion"]);
-      // Dispatch on the key the vector provides: 4-F-* are cross-purpose vectors, so
-      // each ships the key for the (wrong) operation it expects to be refused — e.g.
-      // 4-F-1 ships a public-key for a v4.local token, so verify must reject it. The
-      // if-guard narrows the optional to string for this synchronous binding; that
-      // narrowing would not survive into the deferred expect() closure, so binding the
-      // bytes to a const here avoids a non-null assertion at the call site.
+      // 4-F-* are cross-purpose vectors: each ships the key for the wrong operation, e.g. 4-F-1
+      // ships a public-key for a v4.local token, so verify must reject it. Binding the bytes to a
+      // const here avoids a non-null assertion inside the deferred expect() closure.
       if (v.key) {
         const key = hex(v.key);
         expect(() => decryptV4Local(v.token, key, footer, ia)).toThrow(InvalidTokenError);

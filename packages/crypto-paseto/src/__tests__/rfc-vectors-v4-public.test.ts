@@ -43,8 +43,7 @@ function utf8Decode(b: Uint8Array): string {
   return new TextDecoder().decode(b);
 }
 
-// Some vectors record secret-key as 64 bytes (Ed25519 seed||public). Noble 2.x
-// accepts the 32-byte seed; we slice the seed if a 64-byte secret-key is given.
+// Some vectors record secret-key as 64 bytes (Ed25519 seed||public); noble takes the 32-byte seed.
 function seedFromVector(v: PasetoV4Vector): Uint8Array {
   if (v["secret-key-seed"]) return hex(v["secret-key-seed"]);
   if (v["secret-key"]) {

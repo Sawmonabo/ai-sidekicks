@@ -1,25 +1,12 @@
-// The `provider.*` wire surface: each provider's own settings on this machine,
-// read and changed apart from its accounts.
+// The `provider.*` wire surface: each provider's own settings on this machine, apart from its
+// accounts (the `providerAccount.*` surface).
 //
-// A provider's section holds what belongs to the provider rather than to one
-// account: whether its command is installed and which version, where that
-// command lives, whether new sessions may start on it, how many helper processes
-// it may run at once, where it compacts automatically, Claude Code's output
-// style, Codex's shared terminal service, Claude Code's terminal plugin, the
-// paths it refuses an agent, the standing rules it keeps in its own files, and
-// the one-press install of a missing command. The accounts half is the
-// `providerAccount.*` surface beside this one.
-//
-// Every figure a knob is bounded by is read from the provider, never written
-// here: the compaction stops come from the provider's own models, and the output
-// styles from the installed build's own listing. The daemon holds the settings
-// in one table and hands them to the provider as flag settings at each start or
-// mid-session, never by writing the provider's own files. The standing rules are
-// the one exception, because they are the provider's: they are read from and
-// revoked in the provider's own files, and the daemon keeps no copy.
-//
-// None of this is a session event: a machine-level setting has no session to
-// belong to, and nothing here appends to a session's log.
+// Every figure a knob is bounded by comes from the provider, never from here: the compaction stops
+// from the provider's own models, the output styles from the installed build's own listing. The
+// daemon holds the settings in one table and hands them to the provider as flag settings, never by
+// writing the provider's own files. The standing rules are the exception because they are the
+// provider's: they are read from and revoked in its own files, and the daemon keeps no copy.
+// A machine-level setting belongs to no session, so none of this is a session event.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -34,41 +21,31 @@ import {
 import { RepoMountIdSchema, type RepoMountId } from "./repo.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
-// --------------------------------------------------------------------------
-// Length caps
-// --------------------------------------------------------------------------
-
-/** A provider command's version as the command itself reports it. */
+/** Longest accepted provider command version, as the command reports it. */
 export const PROVIDER_VERSION_MAX_LEN = 64;
-/** One output style's name, in the installed build's own spelling. */
+/** Longest accepted output style name. */
 export const PROVIDER_OUTPUT_STYLE_NAME_MAX_LEN = 128;
-/** The one line the build's own listing gives a style. */
+/** Longest accepted output style description. */
 export const PROVIDER_OUTPUT_STYLE_DESCRIPTION_MAX_LEN = 512;
-/** How many output styles one build may list. */
+/** Most output styles one build may list. */
 export const PROVIDER_OUTPUT_STYLES_MAX = 256;
-/** One protected-path pattern or one standing rule, in the provider's own words. */
+/** Longest accepted protected-path pattern or standing rule text. */
 export const PROVIDER_RULE_TEXT_MAX_LEN = 4096;
-/** A standing rule's decision word, carried as the provider spells it. */
+/** Longest accepted standing-rule decision word. */
 export const PROVIDER_RULE_DECISION_MAX_LEN = 64;
-/** The daemon-minted id of one standing rule. */
+/** Longest accepted standing-rule id. */
 export const PROVIDER_STANDING_RULE_ID_MAX_LEN = 256;
-/** The installer's own last lines, credential-shaped strings removed. */
+/** Longest accepted install failure reason: the installer's last lines, credentials removed. */
 export const PROVIDER_INSTALL_FAILURE_REASON_MAX_LEN = 4096;
-/** The installer command a failed install shows, for running it by hand. */
+/** Longest accepted installer command a failed install shows. */
 export const PROVIDER_INSTALL_COMMAND_MAX_LEN = 1024;
-
-// --------------------------------------------------------------------------
-// The provider's command: installed, too old, missing, or undecided
-// --------------------------------------------------------------------------
 
 /**
  * What the provider check found where the command resolves.
  *
- * Four readings and never a guess. `installed` names the version the command
- * reports. `tooOld` is installed below the version this build supports and names
- * the version that is needed. `notInstalled` found nothing runnable. The
- * `indeterminate` arm is the check that could not settle, which reads `Cannot
- * tell right now` and is never folded into either of the others.
+ * `installed` names the version the command reports. `tooOld` is installed below the version
+ * this build supports and names the version needed. `notInstalled` found nothing runnable.
+ * `indeterminate` is a check that could not settle and is never folded into another arm.
  */
 export type ProviderInstallation =
   | { state: "installed"; version: string }
@@ -95,14 +72,10 @@ export const ProviderInstallationSchema: z.ZodType<ProviderInstallation> = z.dis
   ],
 );
 
-// --------------------------------------------------------------------------
-// The knobs a provider's section draws
-// --------------------------------------------------------------------------
-
 /**
- * `Compact automatically at <N>% full`. `lowest` and `highest` are the lowest
- * bottom stop and the highest top stop that provider's models report, and the
- * value moves between them in steps of five.
+ * The compaction threshold, in percent full. `lowest` and `highest` are the lowest bottom stop and
+ * the highest top stop that provider's models report; the value moves between them in steps of
+ * five.
  */
 export interface ProviderAutoCompactBound {
   value: number;
@@ -110,7 +83,6 @@ export interface ProviderAutoCompactBound {
   highest: number;
 }
 
-// A whole-number percent: the auto-compact stops sit on whole steps.
 const wholePercentSchema = z.number().int().min(0).max(100);
 
 /** Parses a {@link ProviderAutoCompactBound}; the value sits on a step of five within the stops. */
@@ -131,7 +103,7 @@ export const ProviderAutoCompactBoundSchema: z.ZodType<ProviderAutoCompactBound>
     }
   });
 
-/** One output style the installed build lists, with the one line it gives it (none on `default`). */
+/** One output style the installed build lists, with its description (none on `default`). */
 export interface ProviderOutputStyle {
   name: string;
   description?: string | undefined;
@@ -181,12 +153,11 @@ export const ProviderOutputStyleSettingSchema: z.ZodType<ProviderOutputStyleSett
 /**
  * One provider's section as `provider.list` reads it.
  *
- * `commandPath` is `null` while the person has typed none, which reads
- * `Auto-detect`. `helpersAtOnce` is `0` where the provider decides. The
- * compaction bound and the output style are `null` until the provider has been
- * read, which a command that is missing or undecided never is. The output style
- * and the terminal plugin are Claude Code's alone and the shared terminal service
- * is Codex's alone, so each provider's row carries only its own.
+ * `commandPath` is `null` while the person has typed none (auto-detect). `helpersAtOnce` is `0`
+ * where the provider decides. The compaction bound and the output style are `null` until the
+ * provider has been read, which a missing or undecided command never is. The output style and the
+ * terminal plugin are Claude Code's alone and the shared terminal service is Codex's alone, so
+ * each provider's row carries only its own.
  */
 export type ProviderSettings = ClaudeProviderSettings | CodexProviderSettings;
 
@@ -202,14 +173,14 @@ interface ProviderSettingsCommon {
 export interface ClaudeProviderSettings extends ProviderSettingsCommon {
   provider: "claude";
   outputStyle: ProviderOutputStyleSetting | null;
-  /** Whether the app's plugin is in the person's own Claude Code (`Use Sidekicks in terminal Claude Code`). */
+  /** Whether the app's plugin is in the person's own Claude Code. */
   terminalPluginEnabled: boolean;
 }
 
 /** Codex's section. */
 export interface CodexProviderSettings extends ProviderSettingsCommon {
   provider: "codex";
-  /** `Reach Codex sessions started in a terminal`: the shared Codex service runs while this is on. */
+  /** Whether terminal-started Codex sessions are reachable; the shared service runs while on. */
   terminalSessionsReachable: boolean;
 }
 
@@ -272,10 +243,6 @@ export type ProviderAckResponse = Record<string, never>;
 /** Parses a {@link ProviderAckResponse}. */
 export const ProviderAckResponseSchema: z.ZodType<ProviderAckResponse> = z.object({}).strict();
 
-// --------------------------------------------------------------------------
-// provider.list
-// --------------------------------------------------------------------------
-
 /** `provider.list` takes nothing: it reads every provider on this machine. */
 export type ProviderListRequest = Record<string, never>;
 
@@ -294,18 +261,13 @@ export const ProviderListResponseSchema: z.ZodType<ProviderListResponse> = z
   .object({ providers: z.array(ProviderSettingsSchema) })
   .strict();
 
-// --------------------------------------------------------------------------
-// provider.update
-// --------------------------------------------------------------------------
-
 /**
  * One knob changed, one member per press.
  *
- * `commandPath: null` returns the command to `Auto-detect`; a new path is checked
- * again where it now points and the provider's model catalog is read again.
- * `outputStyle` is Claude Code's alone and `terminalSessionsReachable` Codex's
- * alone. A `helpersAtOnce` outside the range the provider accepts settles on the
- * nearest one it does, and the reply carries the value that settled.
+ * `commandPath: null` returns the command to auto-detect; a new path is checked again where it
+ * now points and the provider's model catalog is read again. `outputStyle` is Claude Code's alone
+ * and `terminalSessionsReachable` Codex's alone. A `helpersAtOnce` outside the range the provider
+ * accepts settles on the nearest value it accepts, and the reply carries the value that settled.
  */
 export interface ProviderUpdateRequest {
   provider: ProviderName;
@@ -365,15 +327,11 @@ export const ProviderUpdateRequestSchema: z.ZodType<ProviderUpdateRequest, Provi
       }
     });
 
-// --------------------------------------------------------------------------
-// provider.terminalPluginUpdate
-// --------------------------------------------------------------------------
-
 /**
- * Put the app's terminal plugin into the person's own Claude Code, or take it
- * out. On, Claude Code's own plugin commands add the app's plugin folder as a
- * marketplace and install the plugin, and one `env` key switches plugin hooks
- * on; off removes exactly those three and nothing the person added.
+ * Put the app's terminal plugin into the person's own Claude Code, or take it out. On, Claude
+ * Code's own plugin commands add the app's plugin folder as a marketplace and install the plugin,
+ * and one `env` key switches plugin hooks on; off removes exactly those three and nothing the
+ * person added.
  */
 export interface ProviderTerminalPluginUpdateRequest {
   provider: "claude";
@@ -386,15 +344,10 @@ export const ProviderTerminalPluginUpdateRequestSchema: z.ZodType<
   ProviderTerminalPluginUpdateRequest
 > = z.object({ provider: z.literal("claude"), enabled: z.boolean() }).strict();
 
-// --------------------------------------------------------------------------
-// provider.protectedPathList
-// --------------------------------------------------------------------------
-
 /**
- * One path an agent is refused on this provider, and where it came from: the
- * credential files this app always protects, or a deny rule the person set in
- * the provider's own configuration, global or in a project. Read-only: nothing
- * here adds, edits or removes an entry.
+ * One path an agent is refused on this provider, and where it came from: the credential files this
+ * app always protects, or a deny rule the person set in the provider's own configuration, global
+ * or in a project. Read-only: nothing here adds, edits or removes an entry.
  */
 export type ProviderProtectedPath =
   | { pattern: string; source: "builtIn" }
@@ -439,15 +392,9 @@ export const ProviderProtectedPathListResponseSchema: z.ZodType<ProviderProtecte
     .object({ provider: ProviderNameSchema, entries: z.array(ProviderProtectedPathSchema) })
     .strict();
 
-// --------------------------------------------------------------------------
-// provider.standingRuleList / provider.standingRuleRevoke
-// --------------------------------------------------------------------------
-//
-// The provider's own standing rules, read from its own files on every read and
-// never from a copy the daemon keeps: Codex's `.rules` files under each account
-// home and each trusted project, and Claude Code's `permissions` in its user,
-// project and project-local settings files. The console's own remembered rules
-// are a separate store and never appear here.
+// Standing rules are read from the provider's own files on every read: Codex's `.rules` files under
+// each account home and each trusted project, and Claude Code's `permissions` in its user, project
+// and project-local settings files. The console's own remembered rules never appear here.
 
 /** The daemon-minted id of one standing rule, derived from where the rule sits and what it says. */
 export type ProviderStandingRuleId = string & { readonly __brand: "ProviderStandingRuleId" };
@@ -471,10 +418,9 @@ export type ProviderStandingRuleScope =
   | { kind: "project"; repoMountId: RepoMountId };
 
 /**
- * One standing rule in the provider's own words: `decision` is the provider's
- * own word for what the rule does (Codex's `allow`, `prompt` or `forbidden`,
- * Claude Code's `allow`, `ask` or `deny`), and `text` the rule as its file holds
- * it.
+ * One standing rule in the provider's own words: `decision` is the provider's word for what the
+ * rule does (Codex's `allow`, `prompt` or `forbidden`, Claude Code's `allow`, `ask` or `deny`),
+ * and `text` the rule as its file holds it.
  */
 export interface ProviderStandingRule {
   ruleId: ProviderStandingRuleId;
@@ -522,8 +468,8 @@ export const ProviderStandingRuleRevokeRequestSchema: z.ZodType<
 > = z.object({ provider: ProviderNameSchema, ruleId: ProviderStandingRuleIdSchema }).strict();
 
 /**
- * `revoked` when the rule was removed from its file, `alreadyAbsent` when the
- * file no longer held it, so revoking twice settles the same way.
+ * `revoked` when the rule was removed from its file, `alreadyAbsent` when the file no longer held
+ * it, so revoking twice settles the same way.
  */
 export interface ProviderStandingRuleRevokeResponse {
   ruleId: ProviderStandingRuleId;
@@ -539,15 +485,10 @@ export const ProviderStandingRuleRevokeResponseSchema: z.ZodType<ProviderStandin
     })
     .strict();
 
-// --------------------------------------------------------------------------
-// provider.install / provider.installSubscribe / provider.installStop
-// --------------------------------------------------------------------------
-//
-// `Install` runs the provider's own installer where the service runs, as the
-// person, with its input empty and a 15-minute limit; `provider.installStop`
-// stops it and everything it started. The install is keyed by provider, so a
-// page opened while one runs finds it, and the stream's first message is that
-// provider's last outcome.
+// The install runs the provider's own installer where the service runs, as the person, with empty
+// input and a 15-minute limit; `provider.installStop` stops it and everything it started. The
+// install is keyed by provider so a page opened while one runs finds it, and the stream's first
+// message is that provider's last outcome.
 
 /** Where one provider's install has got to. */
 export type ProviderInstallProgress =
@@ -570,30 +511,25 @@ export const ProviderInstallProgressSchema: z.ZodType<ProviderInstallProgress> =
       .strict(),
   ]);
 
-// --------------------------------------------------------------------------
-// Refusals
-// --------------------------------------------------------------------------
-
 /**
- * The provider's command is not installed, so a setting that needs it cannot be
- * turned on: `Available for new sessions`, the shared terminal service, and the
- * terminal plugin.
+ * The provider's command is not installed, so a setting that needs it cannot be turned on:
+ * availability for new sessions, the shared terminal service, and the terminal plugin.
  */
 export const PROVIDER_NOT_INSTALLED_CODE = "provider.not_installed" as const;
+/** Type of {@link PROVIDER_NOT_INSTALLED_CODE}. */
 export type ProviderNotInstalledCode = typeof PROVIDER_NOT_INSTALLED_CODE;
 
 /** The provider is the last one available for new sessions, and one has to stay available. */
 export const PROVIDER_LAST_AVAILABLE_CODE = "provider.last_available" as const;
+/** Type of {@link PROVIDER_LAST_AVAILABLE_CODE}. */
 export type ProviderLastAvailableCode = typeof PROVIDER_LAST_AVAILABLE_CODE;
 
 /** Nothing runnable sits at the command path the person typed. */
 export const PROVIDER_COMMAND_NOT_RUNNABLE_CODE = "provider.command_not_runnable" as const;
+/** Type of {@link PROVIDER_COMMAND_NOT_RUNNABLE_CODE}. */
 export type ProviderCommandNotRunnableCode = typeof PROVIDER_COMMAND_NOT_RUNNABLE_CODE;
 
-// --------------------------------------------------------------------------
-// The method table
-// --------------------------------------------------------------------------
-
+/** The typed descriptor for each `provider.*` method. */
 export interface ProviderMethodDescriptors {
   readonly "provider.list": MethodDescriptor<
     "provider.list",

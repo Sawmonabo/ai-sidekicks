@@ -1,20 +1,7 @@
-// Deployed as a Cloudflare Worker via `@trpc/server/adapters/fetch`'s
-// `fetchRequestHandler`.
-//
-// Dual-gate enforcement runs at request entry:
-//   1. CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'  (kill-switch; default off)
-//   2. ENVIRONMENT === 'development'            (allow-list; only one passing value)
-// Both refusals return HTTP 503 immediately, before any router dispatch. Logging
-// the refusal reason is intentional — operator-facing diagnostic for misconfigured
-// dev instances.
-//
-// This module exposes TWO surfaces:
-//   - `buildControlPlaneFetchHandler(options)` — the test-friendly factory; every
-//     test drives this function.
-//   - `default { fetch }` — the deployable Worker module.
-//
-// No router is mounted yet: every procedure the control plane will serve lands
-// on `router` below.
+// The control plane's Worker entry, served through tRPC's fetch adapter.
+// Two gates run at request entry, before any router dispatch: CONTROL_PLANE_BOOTSTRAP_ENABLED must
+// be '1' and ENVIRONMENT must be 'development'. A refusal returns 503 and logs its reason so an
+// operator can diagnose a misconfigured dev instance. The router mounts no procedures yet.
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { t, type SessionRouterContext } from "../sessions/trpc.js";
@@ -29,13 +16,11 @@ export interface ControlPlaneHandlerOptions {
   /** tRPC endpoint base path. Defaults to `/trpc`. */
   readonly endpoint?: string;
   /**
-   * Request-id generator — defaults to `crypto.randomUUID()`. Tests inject
-   * a deterministic generator to assert on request-correlation logging.
+   * Request-id generator; defaults to `crypto.randomUUID()`. Tests inject a deterministic one.
    */
   readonly requestIdGenerator?: () => string;
   /**
-   * Refusal logger — defaults to `console.warn`. Tests inject a capture sink
-   * to assert the refusal-logging contract.
+   * Refusal logger; defaults to `console.warn`. Tests inject a capturing sink.
    */
   readonly refusalLogger?: (message: string) => void;
 }
@@ -61,7 +46,7 @@ export function buildControlPlaneFetchHandler(
   const generateRequestId = options.requestIdGenerator ?? (() => crypto.randomUUID());
   const log = options.refusalLogger ?? ((message: string) => console.warn(message));
 
-  // Built once at handler-construction time.
+  // Built once per handler, not per request.
   const router = t.router({});
 
   return async function handle(request, env) {

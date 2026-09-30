@@ -1,15 +1,13 @@
 // The plan record and the one call that answers it.
 //
-// A plan turn ends with a held request on one provider and a plan item on the
-// other; the daemon turns either into one plan record the screen renders
-// (`plan.proposed`) and one call answers (`plan.resolve`), and records the outcome
-// as `plan.accepted` or `plan.handed_off` so the system messages survive a reload.
-// The record is also a session artifact the inspector lists with its state word.
-// The first answer settles the plan everywhere, and a later answer reads back the
-// state it settled to rather than applying again.
+// A plan turn ends with a held request on one provider and a plan item on the other; the daemon
+// turns either into one plan record the screen renders (`plan.proposed`) and one call answers
+// (`plan.resolve`), and records the outcome as `plan.accepted` or `plan.handed_off` so the system
+// messages survive a reload. The first answer settles the plan everywhere; a later answer reads
+// back the state it settled to rather than applying again.
 //
-// This file imports nothing from `event.ts`: that module imports the payload
-// schemas below, and an import back would close an eager module cycle.
+// This file imports nothing from `event.ts`: that module imports the payload schemas below, and
+// an import back would close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema } from "./internal/branded.js";
@@ -118,7 +116,7 @@ export interface PlanResolveRequest {
   verdict: PlanVerdict;
   fresh?: PlanFreshSession | undefined;
 }
-/** Parses a {@link PlanResolveRequest}; `fresh` on another verdict, or missing on its own, is refused. */
+/** Parses a {@link PlanResolveRequest}; `fresh` must be present exactly on the `fresh` verdict. */
 export const PlanResolveRequestSchema: z.ZodType<PlanResolveRequest, PlanResolveRequest> = z
   .object({
     planId: PlanIdSchema,

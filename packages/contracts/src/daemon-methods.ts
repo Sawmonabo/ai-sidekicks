@@ -1,10 +1,6 @@
-// The daemon's method map, as every client of the daemon names it: every method a
-// machine's service answers, composed from each namespace's descriptor table, with the
-// request and result of each call and the emission of each subscription.
-//
-// Left out on purpose: the methods the desktop's main process answers for the daemon
-// (the page host's table) and the control plane's own procedures, which travel inside
-// `controlPlane.call`.
+// The daemon's method map, composed from each namespace's descriptor table. It leaves out
+// the methods the desktop's main process answers (the page host's table) and the control
+// plane's own procedures, which travel inside `controlPlane.call`.
 import type {
   AnyMethodDescriptor,
   MethodEmissionOf,
@@ -39,7 +35,7 @@ import type { PreviewPageLinkMethodDescriptors } from "./preview-page-host.js";
 import type { PreviewPortMethodDescriptors } from "./preview-port.js";
 import type { PreviewMethodDescriptors } from "./preview.js";
 import type { ProviderAccountMethodDescriptors } from "./provider-account-methods.js";
-import type { DriverMethodDescriptors } from "./provider-driver.js";
+import type { DriverMethodDescriptors } from "./provider-driver-wire.js";
 import type { SessionImportMethodDescriptors } from "./provider-import.js";
 import type { ProviderMethodDescriptors } from "./provider.js";
 import type { PtyMethodDescriptors, TerminalControlMethodDescriptors } from "./pty.js";

@@ -1,96 +1,70 @@
-// The `providerAccount.*` account record and how it is read: the node-local
-// provider-account registry's record as projected onto the wire, each
-// provider's readiness and its remedy, the per-limit quota-window reading,
-// `providerAccount.list`, and the `providerAccount.subscribe` live tail of
-// registry changes. Registering an account and signing in to it are in
-// `provider-account-sign-in.ts`; the other account methods, the credential
-// census over every account shape, and the method table are in
-// `provider-account-methods.ts`.
+// The `providerAccount.*` account record and how it is read: the account record as sent on the
+// wire, each provider's readiness and its remedy, the per-limit quota-window reading,
+// `providerAccount.list`, and the `providerAccount.subscribe` live tail. Registering and
+// signing in are in `provider-account-sign-in.ts`; the other account methods and the method
+// table are in `provider-account-methods.ts`.
 //
-// This module APPLIES both; it decides neither. Changing a member name, an
-// enum member, or a requiredness is a doc edit first.
-//
-// ----------------------------------------------------------------------------
-// Where tolerance lives, and where it must not
-// ----------------------------------------------------------------------------
-//
-// `ProviderAuthModeSchema` is a CLOSED union: the daemon is the producer on
-// every surface it appears on, so a value outside the union is a composition
-// defect and must fail loudly. The tolerance the account plane needs sits one
-// layer lower, at the boundary where a provider's own status output is READ —
-// `normalizeObservedProviderAuthMode` maps an unrecognized reported mode onto
-// the `unknown` arm and never throws, so a vendor adding a mode degrades an
-// observation's precision rather than failing the observation closed.
-//
+// `ProviderAuthModeSchema` is closed: the daemon produces every value on the wire, so an
+// unknown one is a defect and fails loudly. The tolerance sits where a provider's own status
+// output is read: `normalizeObservedProviderAuthMode` maps an unrecognized mode to `unknown`
+// and never throws.
 import { z } from "zod";
 
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 
-// --------------------------------------------------------------------------
-// Length caps
-// --------------------------------------------------------------------------
-//
-// Defense-in-depth bounds at the trust boundary, in the `wireFreeFormString`
-// tradition: the transport layer is the authoritative body-size enforcer, and
-// these stop a single pathological member long before that limit is reached.
-// Every cap here is a wire cap; none of them is a storage constraint, because
-// the DDL these shapes project declares no length CHECK on any TEXT column.
+// Length caps. Wire-only bounds that stop one oversized member long before the transport's
+// body-size limit; the database declares no length CHECK on these columns.
 
-/** Daemon-minted opaque account identity; mirrors `NODE_ID_MAX_LEN`. */
+/** Longest daemon-minted opaque account id; equals `NODE_ID_MAX_LEN`. */
 export const PROVIDER_ACCOUNT_ID_MAX_LEN = 256;
-/** Operator-chosen disambiguation label. */
+/** Longest operator-chosen account label. */
 export const PROVIDER_ACCOUNT_DISPLAY_LABEL_MAX_LEN = 256;
-/** RFC 5321 section 4.5.3.1.3 caps a forward path at 320 octets. */
+/** Longest provider-reported email; RFC 5321 caps a forward path at 320 octets. */
 export const PROVIDER_ACCOUNT_EMAIL_MAX_LEN = 320;
-/** Provider-reported organization identifier. */
+/** Longest provider-reported organization id. */
 export const PROVIDER_ACCOUNT_ORG_ID_MAX_LEN = 256;
-/** Provider-reported organization display name. */
+/** Longest provider-reported organization name. */
 export const PROVIDER_ACCOUNT_ORG_NAME_MAX_LEN = 256;
-/** The provider's own first-party sign-in command, carried for DISPLAY only. */
+/** Longest sign-in command; the command is shown, never run. */
 export const PROVIDER_SIGN_IN_INVOCATION_MAX_LEN = 512;
-/** Opaque daemon-minted correlation key for one brokered sign-in attempt. */
+/** Longest daemon-minted id of one sign-in attempt. */
 export const PROVIDER_LOGIN_ATTEMPT_ID_MAX_LEN = 256;
-/** Operator-facing failure text; carries no credential material and no home path. */
+/** Longest operator-facing sign-in failure text. */
 export const PROVIDER_LOGIN_FAILURE_REASON_MAX_LEN = 512;
-/** The provider's own limit identifier, carried verbatim as an untrusted string. */
+/** Longest provider limit id. */
 export const PROVIDER_QUOTA_LIMIT_ID_MAX_LEN = 128;
-/** The provider's own display label for a quota window. */
+/** Longest provider label for a quota window. */
 export const PROVIDER_QUOTA_LABEL_MAX_LEN = 256;
-/** The plan id as the provider sends it. */
+/** Longest provider plan id. */
 export const PROVIDER_ACCOUNT_PLAN_MAX_LEN = 128;
 
-// --------------------------------------------------------------------------
-// Closed enums
-// --------------------------------------------------------------------------
-//
-// Each enum is declared once as a non-exported literal tuple and surfaced twice:
-// as the Zod schema the wire parses with, and as a `readonly` array the
-// conformance suite reads to pin the member list against the DDL's CHECK list.
-// One declaration, two consumers — so the schema and the pin can never drift.
+// Each enum is one literal tuple surfaced twice: as the Zod schema the wire parses with, and as
+// a `readonly` array the schema conformance test compares with the database CHECK list.
 
 const PROVIDER_NAME_VALUES = ["claude", "codex"] as const;
 
 /**
- * The closed provider set. Byte-identical to the `provider_accounts.provider`
- * CHECK list and to the same closed driver-id union the MCP governance tables
- * use. Deliberately NOT `z.string()`: an account's provider selects which
- * driver, which credential-home layout, and which quota vocabulary apply, so an
- * unrecognized value has no safe interpretation.
+ * The closed provider set, equal to the `provider_accounts.provider` CHECK list. It is not
+ * `z.string()` because the provider selects the driver, credential-home layout and quota
+ * vocabulary, so an unknown value has no safe reading.
  */
 export type ProviderName = (typeof PROVIDER_NAME_VALUES)[number];
+/** Every `ProviderName`, in declaration order. */
 export const PROVIDER_NAMES: readonly ProviderName[] = PROVIDER_NAME_VALUES;
+/** Parses a {@link ProviderName}. */
 export const ProviderNameSchema: z.ZodType<ProviderName, ProviderName> =
   z.enum(PROVIDER_NAME_VALUES);
 
 const BILLING_MODE_VALUES = ["subscription", "metered", "unknown"] as const;
 
 /**
- * How an account is charged. `unknown` is the HONEST-ABSENCE arm and is never a
- * synonym for `metered`: it drives cost labeling and never cost derivation, so
- * rendering it as metered would attach a spend claim the daemon cannot support.
+ * How an account is charged. `unknown` means not known, never `metered`: it labels cost and
+ * never derives it, so showing it as metered would claim spend the daemon cannot support.
  */
 export type BillingMode = (typeof BILLING_MODE_VALUES)[number];
+/** Every `BillingMode`, in declaration order. */
 export const BILLING_MODES: readonly BillingMode[] = BILLING_MODE_VALUES;
+/** Parses a {@link BillingMode}. */
 export const BillingModeSchema: z.ZodType<BillingMode, BillingMode> = z.enum(BILLING_MODE_VALUES);
 
 const PROVIDER_ACCOUNT_HEALTH_STATE_VALUES = [
@@ -101,18 +75,16 @@ const PROVIDER_ACCOUNT_HEALTH_STATE_VALUES = [
 ] as const;
 
 /**
- * The STORED outcome of the last validation of an account: the driver's
- * authentication probe reading together with the credential-home observation
- * taken at that same moment.
- *
- * `indeterminate` is fail-closed — the probe could not decide, or none has ever
- * been taken. It is treated as NOT authenticated and is not itself a failure.
- * The column is nullable and this wire arm is not: a NULL stored reading
- * projects as `indeterminate`, never as authenticated and never as an error.
+ * The stored outcome of an account's last validation: the authentication probe reading with
+ * the credential-home observation taken at the same moment. `indeterminate` means the probe
+ * could not decide or none has run; it counts as not authenticated. The column is nullable
+ * and this wire value is not, so a NULL stored reading is sent as `indeterminate`.
  */
 export type ProviderAccountHealthState = (typeof PROVIDER_ACCOUNT_HEALTH_STATE_VALUES)[number];
+/** Every `ProviderAccountHealthState`, in declaration order. */
 export const PROVIDER_ACCOUNT_HEALTH_STATES: readonly ProviderAccountHealthState[] =
   PROVIDER_ACCOUNT_HEALTH_STATE_VALUES;
+/** Parses a {@link ProviderAccountHealthState}. */
 export const ProviderAccountHealthStateSchema: z.ZodType<
   ProviderAccountHealthState,
   ProviderAccountHealthState
@@ -128,19 +100,15 @@ const PROVIDER_AUTH_MODE_VALUES = [
 ] as const;
 
 /**
- * The authentication mode the provider's OWN status surface reports for a home
- * — observed, never assumed, and never derived by the daemon from the shape of
- * a credential file.
- *
- * `unknown` is the arm for "observed, and the provider named a mode this build
- * does not recognize". The SCHEMA is closed because the daemon is the producer
- * on every wire surface this type appears on; the tolerance belongs at the
- * observation boundary and is `normalizeObservedProviderAuthMode` below.
- *
- * The token VALUE is not on this wire.
+ * The authentication mode the provider's own status output reports for a home; never assumed
+ * or read from a credential file's shape. `unknown` means the provider named a mode this
+ * build does not recognize (see `normalizeObservedProviderAuthMode`). The token value is
+ * never on the wire.
  */
 export type ProviderAuthMode = (typeof PROVIDER_AUTH_MODE_VALUES)[number];
+/** Every `ProviderAuthMode`, in declaration order. */
 export const PROVIDER_AUTH_MODES: readonly ProviderAuthMode[] = PROVIDER_AUTH_MODE_VALUES;
+/** Parses a {@link ProviderAuthMode}; closed, so an unlisted value fails. */
 export const ProviderAuthModeSchema: z.ZodType<ProviderAuthMode, ProviderAuthMode> =
   z.enum(PROVIDER_AUTH_MODE_VALUES);
 
@@ -154,18 +122,16 @@ const PROVIDER_READINESS_STATE_VALUES = [
 ] as const;
 
 /**
- * The pre-computed answer to the question run admission will ask.
- *
- * Enumerated in FULL rather than aliased off `ProviderAccountHealthState`, so a
- * later health arm cannot silently widen this client-facing union: it widens
- * only in lockstep, and a new health arm requires an explicit readiness arm
- * added here. The first four arms are the resolved account's stored health
- * state verbatim; the last two stand in where resolution reached no account at
- * all. It AUTHORIZES NOTHING — admission re-validates unconditionally.
+ * The pre-computed answer to what run admission will ask. The first four values are the
+ * resolved account's stored health state; `no_account` and `no_default` stand in where
+ * resolution reached no account. It is listed in full, not aliased to the health state, so a
+ * new health value cannot widen it silently. It authorizes nothing: admission re-validates.
  */
 export type ProviderReadinessState = (typeof PROVIDER_READINESS_STATE_VALUES)[number];
+/** Every `ProviderReadinessState`, in declaration order. */
 export const PROVIDER_READINESS_STATES: readonly ProviderReadinessState[] =
   PROVIDER_READINESS_STATE_VALUES;
+/** Parses a {@link ProviderReadinessState}. */
 export const ProviderReadinessStateSchema: z.ZodType<
   ProviderReadinessState,
   ProviderReadinessState
@@ -174,44 +140,26 @@ export const ProviderReadinessStateSchema: z.ZodType<
 const PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES = ["probe", "run"] as const;
 
 /**
- * Which kind of reading produced a quota window. `probe` is the account's own
- * limits read, whoever asked for it: `Check now`, the five-minute read that runs
- * whether or not a page is open, and the read the daemon sends at a turn's end.
- * It describes the account's whole standing and replaces the stored set. `run`
- * is the provider's own push with a turn, which names only the windows it
- * carries and is merged into the stored set. No third value exists.
+ * Which kind of reading produced a quota window. `probe` is the account's own limits read,
+ * whoever asked for it; it covers the whole account and replaces the stored set. `run` is the
+ * provider's push during a turn; it names only the windows it carries and is merged in.
  */
 export type ProviderAccountUsageWindowSource =
   (typeof PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES)[number];
+/** Every `ProviderAccountUsageWindowSource`, in declaration order. */
 export const PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCES: readonly ProviderAccountUsageWindowSource[] =
   PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES;
+/** Parses a {@link ProviderAccountUsageWindowSource}. */
 export const ProviderAccountUsageWindowSourceSchema: z.ZodType<
   ProviderAccountUsageWindowSource,
   ProviderAccountUsageWindowSource
 > = z.enum(PROVIDER_ACCOUNT_USAGE_WINDOW_SOURCE_VALUES);
 
-// --------------------------------------------------------------------------
-// The tolerant observation boundary
-// --------------------------------------------------------------------------
-
 /**
- * Map a provider's own reported authentication mode onto the closed
- * `ProviderAuthMode` union. NEVER throws — a vendor adding a mode must degrade
- * an observation's precision, not fail the observation closed.
- *
- * Three outcomes, and the distinction between the last two is the point:
- *   - `null` — nothing was reported. Not observed, which is not the same as
- *     observed-and-unrecognized and must not be recorded as `unknown`.
- *   - a union member — the provider named a mode this build recognizes.
- *   - `"unknown"` — the provider named something, and this build does not
- *     recognize it. The observation still stands; only its precision is lost.
- *
- * A blank or whitespace-only report names no mode, so it reads as absence: the
- * provider supplied a field with nothing in it, which is indistinguishable from
- * having supplied no field.
- *
- * Accepts `unknown` deliberately — the caller's input is a value parsed out of
- * a provider's untyped status output, and narrowing it is this function's job.
+ * Maps a provider's reported authentication mode onto `ProviderAuthMode`; never throws, so a
+ * new vendor mode costs precision, not the observation. Returns `null` when nothing (or only
+ * blank text) was reported, which is not the same as `"unknown"` (reported but unrecognized).
+ * The input is `unknown` because it comes from a provider's untyped status output.
  */
 export function normalizeObservedProviderAuthMode(reportedMode: unknown): ProviderAuthMode | null {
   if (typeof reportedMode !== "string") {
@@ -226,76 +174,50 @@ export function normalizeObservedProviderAuthMode(reportedMode: unknown): Provid
     : "unknown";
 }
 
-// --------------------------------------------------------------------------
-// ProviderAccountId — daemon-minted opaque brand (NOT a UUID)
-// --------------------------------------------------------------------------
-//
-// It is deliberately NOT derived from credential material, an email address, a
-// subscription identifier, or a filesystem path: those rotate, and an identity
-// that rotates cannot key historical spend. No client, driver, or renderer
-// parses it — it selects a credential environment and nothing else.
-//
-// Non-UUID, so it composes `.brand()` inline in the `node-id.ts` /
-// `EventCursorSchema` idiom rather than going through `brandedUuidIdSchema`.
-// The `z.ZodType<T, T>` double-T annotation is required, not decorative: this
-// schema composes into REQUEST schemas whose Standard-Schema-V1 input inference
-// must resolve to `ProviderAccountId` rather than `unknown`.
-
+/**
+ * Daemon-minted opaque account id; not a UUID. It is not derived from credentials, an email,
+ * a subscription id or a path, because those rotate and the id keys historical spend. Nothing
+ * parses it; it only selects a credential environment.
+ */
 export type ProviderAccountId = string & { readonly __brand: "ProviderAccountId" };
+/**
+ * Parses a {@link ProviderAccountId}. Brands inline, like `NodeIdSchema`; the double-T
+ * annotation keeps request-schema input inference on `ProviderAccountId`, not `unknown`.
+ */
 export const ProviderAccountIdSchema: z.ZodType<ProviderAccountId, ProviderAccountId> = z
   .string()
   .min(1)
   .max(PROVIDER_ACCOUNT_ID_MAX_LEN)
   .brand<"ProviderAccountId">() as unknown as z.ZodType<ProviderAccountId, ProviderAccountId>;
 
-// --------------------------------------------------------------------------
-// CredentialGeneration
-// --------------------------------------------------------------------------
-
-/** The generation a freshly registered account is born at. */
+/** The generation a newly registered account starts at. */
 export const CREDENTIAL_GENERATION_MIN = 1;
 
 /**
- * Monotonic per account, starting at `CREDENTIAL_GENERATION_MIN` and strictly
- * increasing at each credential-home lifecycle transition. It never decreases
- * and never resets, including across a home reset.
- *
- * A plain `number` rather than a brand, matching the canonical wire, which
- * types every occurrence `credentialGeneration: number`. The constraint that
- * matters is the parser's, not the nominal type's: `.int()` because a
- * fractional generation compares unequal to every stored value, and the floor
- * because generation 0 would order BEFORE a freshly registered account and let
- * a fabricated reading read as newer than the account it describes.
+ * Per-account counter that starts at `CREDENTIAL_GENERATION_MIN` and rises at each
+ * credential-home transition; it never decreases or resets, even across a home reset.
  */
 export type CredentialGeneration = number;
+/**
+ * Parses a {@link CredentialGeneration}: an integer at or above the minimum. A fraction would
+ * match no stored value, and 0 would order before the account it describes.
+ */
 export const CredentialGenerationSchema: z.ZodType<CredentialGeneration, CredentialGeneration> = z
   .number()
   .int()
   .min(CREDENTIAL_GENERATION_MIN);
 
-// --------------------------------------------------------------------------
-// ProviderAccount — the registry record as projected onto the wire
-// --------------------------------------------------------------------------
-//
-// A PROJECTION, not a row mirror. Three column groups are deliberately absent:
-//   * `credential_home_path` — the home reaches an operator's screen through
-//     `ProviderSignInRemedy.credentialHomePath` and nowhere else. On every
-//     surface a session user can reach, `credential_home_path` names a
-//     column and nothing else.
-//   * `created_at` / `updated_at` — row bookkeeping with no wire consumer.
-//     `updated_at` moves on ANY mutation, so surfacing it beside the health
-//     pair would invite a reader to treat a relabel as a fresh observation.
-//   * `removal_intent` — the durable half of the cross-store removal protocol.
-//     An intent-marked row is refused at admission and is not a state a client
-//     renders.
-// The memory import's three columns project as the one `memoryImport` member,
-// and one member has no column at all: `expectedReloginAtEstimate` is DERIVED,
-// mode-dispatched from `loggedInAt` at read time.
+// `ProviderAccount` is a projection of the table row, not a mirror. Left out on purpose:
+// `credential_home_path` (reaches a screen only through `ProviderSignInRemedy`),
+// `created_at` / `updated_at` (`updated_at` moves on a relabel, so beside the health pair it
+// would look like a fresh observation), and `removal_intent` (a marked row is refused at
+// admission and never shown). The three memory-import columns become `memoryImport`, and
+// `expectedReloginAtEstimate` has no column: it is derived from `loggedInAt` on read.
 
 /**
- * How the account's one memory import went: `imported` counts what was copied and
- * when, `nothingToImport` found nothing to copy. An account keeps its outcome, so a
- * repeated import answers it again rather than copying twice.
+ * How the account's one memory import went: `imported` counts what was copied and when,
+ * `nothingToImport` found nothing to copy. The outcome is kept, so a repeat answers it again
+ * rather than copying twice.
  */
 export type ProviderAccountMemoryImportOutcome =
   | { outcome: "imported"; count: number; importedAt: string }
@@ -316,73 +238,54 @@ export const ProviderAccountMemoryImportOutcomeSchema: z.ZodType<
   z.object({ outcome: z.literal("nothingToImport") }).strict(),
 ]);
 
+/** One registered provider account as sent on the wire. */
 export interface ProviderAccount {
   accountId: ProviderAccountId;
   provider: ProviderName;
-  /** Operator-chosen; user-adjacent PII. Never provider-reported. */
+  /** Operator-chosen and personal data; never provider-reported. */
   displayLabel: string;
   credentialGeneration: CredentialGeneration;
   billingMode: BillingMode;
   /**
-   * Provider-REPORTED identity, present only where a health observation
-   * surfaced it. Each member is INDEPENDENTLY optional because a provider may
-   * report any subset, and an absent value stays absent rather than defaulting.
+   * Provider-reported identity, present only where a health observation surfaced it. Each
+   * member is optional on its own because a provider may report any subset.
    */
   observedAccountEmail?: string | undefined;
   observedAccountOrgId?: string | undefined;
   observedAccountOrgName?: string | undefined;
-  /**
-   * The plan id exactly as the provider sends it (`promax`, `pro`); the screen
-   * draws the provider's own name for it.
-   */
+  /** The plan id exactly as the provider sends it (`promax`, `pro`). */
   observedAccountPlan?: string | undefined;
-  /** Exactly one per provider, enforced by a partial unique index. */
+  /** At most one account per provider is the default; a partial unique index enforces it. */
   isDefault: boolean;
   healthState: ProviderAccountHealthState;
   /**
-   * The OTHER HALF of the stored observation pair — `health_observed_at`, which
-   * the table-level `CHECK ((health_state IS NULL) = (health_observed_at IS
-   * NULL))` holds set and cleared together with the reading it timestamps.
-   *
-   * `null` means no observation has ever been recorded for this account, which
-   * is the one thing `healthState` alone cannot say: a never-observed account
-   * and a probe that could not decide both project `indeterminate`, and only
-   * this member separates them.
-   *
-   * It rides the account record rather than only `ProviderReadiness.observedAt`
-   * because readiness is derived per PROVIDER from the resolved account, so
-   * every non-default account in a list reply — and every `account_changed`
-   * notification, which carries this shape — would otherwise carry a state with
-   * no age and no surface could apply a freshness test. Carried verbatim from
-   * the column; never re-derived, and never substituted from `updated_at`.
+   * When `healthState` was observed; the database sets and clears the two together. `null`
+   * means never observed, which `healthState` alone cannot say, since a never-probed account
+   * and an undecided probe are both `indeterminate`. It rides the account record because
+   * readiness covers only the resolved account, so every other account would otherwise have
+   * a state with no age. Never taken from `updated_at`.
    */
   healthObservedAt: string | null;
   /** `null` until a health observation has named a mode. */
   observedAuthMode: ProviderAuthMode | null;
   /**
-   * RFC 3339 UTC of the moment this home's credential was ISSUED — not the
-   * moment it was registered. `null` where neither a brokered sign-in nor a
-   * token registration produced an issuance anchor.
+   * RFC 3339 UTC when this home's credential was issued, not when it was registered. `null`
+   * where neither a sign-in nor a token registration produced an issuance time.
    */
   loggedInAt: string | null;
   /**
-   * When the credential was last seen refreshed. `null` means no refresh has been
-   * observed, never that none was needed; an account signed in with a pasted token
-   * never has one.
+   * When the credential was last seen refreshed. `null` means none observed, not that none
+   * was needed; an account signed in with a pasted token never has one.
    */
   lastRefreshObservedAt: string | null;
   /**
-   * An ESTIMATE, and the name says so. Mode-dispatched from `loggedInAt` by the
-   * provider's published issuance interval; `null` whenever `loggedInAt` or
-   * `observedAuthMode` is null, because an estimate with no anchor is a
-   * fabrication. A renderer MUST present it as an approximation, never as a
-   * deadline the daemon can vouch for.
+   * An estimate of when sign-in will be needed again, derived from `loggedInAt` and the
+   * auth mode; `null` when either is null. A renderer must show it as approximate.
    */
   expectedReloginAtEstimate: string | null;
   /**
-   * `false` = the operator silenced the BACKGROUND observer for this account.
-   * The deliberate probe verb and spawn validation still write the stored pair,
-   * because both are acts someone explicitly asked for.
+   * `false` means the operator silenced the background observer for this account. The probe
+   * verb and spawn validation still write the stored health pair.
    */
   probeEnabled: boolean;
   /**
@@ -399,6 +302,7 @@ export interface ProviderAccount {
   memoryImport: ProviderAccountMemoryImportOutcome | null;
 }
 
+/** Parses a {@link ProviderAccount}; rejects a non-`indeterminate` state without a timestamp. */
 export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> = z
   .object({
     accountId: ProviderAccountIdSchema,
@@ -428,10 +332,8 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
     isDefault: z.boolean(),
     healthState: ProviderAccountHealthStateSchema,
     healthObservedAt: z.iso.datetime({ offset: true }).nullable(),
-    // `.nullable()` and NOT `.optional()`: the canonical shape types these as
-    // `T | null`, so the member is always present and its absence of an
-    // observation is spelled explicitly. An optional member would make
-    // "unobserved" and "the producer forgot" the same value on the wire.
+    // Nullable, not optional: an optional member would make "unobserved" and "the producer
+    // forgot" the same value on the wire.
     observedAuthMode: ProviderAuthModeSchema.nullable(),
     loggedInAt: z.iso.datetime({ offset: true }).nullable(),
     lastRefreshObservedAt: z.iso.datetime({ offset: true }).nullable(),
@@ -443,78 +345,57 @@ export const ProviderAccountSchema: z.ZodType<ProviderAccount, ProviderAccount> 
   })
   .strict()
   .superRefine((account, ctx) => {
-    // A NULL observation timestamp means NO observation has ever been taken —
-    // the durable pair moves together under
-    // `CHECK ((health_state IS NULL) = (health_observed_at IS NULL))`, and a NULL
-    // stored pair projects as `indeterminate`. So `indeterminate` is the ONLY arm
-    // reachable without a timestamp, and it is deliberately reachable with one
-    // too: "never probed" and "probed, and the probe could not decide" are
-    // different facts about the same account, and the timestamp is what tells
-    // them apart. The other three arms are OUTCOMES of an observation and cannot
-    // exist without the moment they were read at; admitting one with a null
-    // timestamp would let a client render an authenticated account whose
-    // authentication has no age, which is the reading `expectedReloginAtEstimate`
-    // and the staleness banner both depend on.
+    // Only `indeterminate` can lack a timestamp ("never probed"); it can also carry one
+    // ("probed, could not decide"). The other states are outcomes of an observation, and one
+    // with no age would show an authenticated account whose authentication has no age.
     if (account.healthObservedAt === null && account.healthState !== "indeterminate") {
       ctx.addIssue({
         code: "custom",
-        // Pathed at the TIMESTAMP: the durable CHECK means a stored
-        // `authenticated` implies a stored observation time, so the member that
-        // went missing on the way to the wire is the timestamp, not the state.
+        // Pathed at the timestamp: a stored state implies a stored time, so the timestamp is
+        // the member that went missing.
         path: ["healthObservedAt"],
         message: `\`healthState: "${account.healthState}"\` is the outcome of an observation, so \`healthObservedAt\` cannot be null; only \`indeterminate\` is reachable unobserved`,
       });
     }
   });
 
-// --------------------------------------------------------------------------
-// Readiness and its remedy union
-// --------------------------------------------------------------------------
-
-/**
- * Operator-facing guidance that happens to travel structured.
- *
- * A UNION rather than one shape, because the three non-authenticated classes
- * have three different next actions with three different PRODUCIBLE field sets:
- * `no_account` has no credential home to name at all, and `no_default`
- * deliberately resolved to none of several homes, so a single sign-in shape
- * would have required inventing a path or arbitrarily electing an account —
- * exactly the arbitrary selection exists to prevent.
- *
- * The discriminant is `kind` and it is NOT redundant with `state`:
- * `reauth_required`, `home_missing`, and `indeterminate` all map to `sign_in`,
- * so the mapping is many-to-one and a client renders off `kind`.
- */
+/** Remedy for `no_account`: register an account for the provider. */
 export interface ProviderRegisterRemedy {
   kind: "register";
   provider: ProviderName;
 }
 
+/** Remedy for `no_default`: the operator picks one of the listed accounts as the default. */
 export interface ProviderChooseDefaultRemedy {
   kind: "choose_default";
-  /** The daemon names the candidates and refuses to elect one. */
+  /** The daemon lists the candidates and never picks one. */
   candidateAccountIds: ProviderAccountId[];
 }
 
+/** Remedy for a resolved account that is not authenticated: run the provider's own sign-in. */
 export interface ProviderSignInRemedy {
   kind: "sign_in";
-  /** REQUIRED on this arm: it is the arm where an account resolved. */
+  /** The resolved account; required because this is the arm where an account resolved. */
   accountId: ProviderAccountId;
-  /**
-   * The provider's OWN first-party sign-in command, for DISPLAY. The daemon
-   * never executes it, and this is not a shell string a client is invited to
-   * run on the operator's behalf.
-   */
+  /** The provider's own sign-in command, for display. Neither the daemon nor a client runs it. */
   signInInvocation: string;
-  /** The home that invocation authenticates INTO; display-only. */
+  /** The home that command signs in to; display only. */
   credentialHomePath: string;
 }
 
+/**
+ * The next step shown for a readiness state that is not `authenticated`. It is a union because
+ * each state has a different next action and field set: `no_account` has no home to name, and
+ * `no_default` resolved to none of several homes, so one sign-in shape would force a made-up
+ * path or an arbitrary pick. `kind` is not redundant with `state`: three states map to
+ * `sign_in`, so a client renders off `kind`.
+ */
 export type ProviderRemedy =
   | ProviderRegisterRemedy
   | ProviderChooseDefaultRemedy
   | ProviderSignInRemedy;
 
+/** Parses a {@link ProviderRemedy}, discriminated on `kind`. */
 export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z.discriminatedUnion(
   "kind",
   [
@@ -527,10 +408,8 @@ export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z
     z
       .object({
         kind: z.literal("choose_default"),
-        // NOT `.min(2)`: a one-account no-default state is still `no_default`,
-        // and the daemon lists whatever exists rather than electing the only
-        // candidate. `.min(1)` is the honest floor — this arm is reached only
-        // because accounts exist.
+        // Not `.min(2)`: one account with no default is still `no_default`, and the daemon
+        // lists it rather than electing it.
         candidateAccountIds: z.array(ProviderAccountIdSchema).min(1),
       })
       .strict(),
@@ -542,15 +421,8 @@ export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z
           PROVIDER_SIGN_IN_INVOCATION_MAX_LEN,
           "ProviderSignInRemedy.signInInvocation",
         ),
-        // ABSOLUTENESS IS DELIBERATELY NOT SPELLED HERE, on the standing
-        // `RepoAttachRequest.localPath` precedent: a `startsWith("/")` test
-        // refuses every Windows path (`C:\Users\...\.claude`), and Windows is a
-        // V1 tier. What this layer enforces is what it can enforce everywhere —
-        // non-empty, not whitespace-only, NUL-free, and bounded. The
-        // home-path rules that need a filesystem (absolute, daemon-owned,
-        // outside any repo working tree, unique across accounts) belong to the
-        // daemon's credential-home service, which owns the only context in
-        // which they are decidable.
+        // Absoluteness is not checked here: a `startsWith("/")` test would refuse Windows
+        // paths (`C:\Users\...\.claude`). The daemon checks the rules that need a filesystem.
         credentialHomePath: wireFreeFormString(
           FILE_PATH_MAX_LEN,
           "ProviderSignInRemedy.credentialHomePath",
@@ -560,42 +432,30 @@ export const ProviderRemedySchema: z.ZodType<ProviderRemedy, ProviderRemedy> = z
   ],
 );
 
+/** One provider's readiness to start a run, with the remedy when it is not ready. */
 export interface ProviderReadiness {
   provider: ProviderName;
   state: ProviderReadinessState;
   /** Present iff resolution reached exactly one account. */
   resolvedAccountId?: ProviderAccountId | undefined;
   /**
-   * RFC 3339 UTC of the STORED observation this entry's state was read from.
-   * Absent in exactly two cases, both about THIS resolution rather than about
-   * the node's probe history: resolution reached no account, or it reached an
-   * account whose observation pair is still unset. Absence therefore never
-   * means "no probe has ever been taken on this node".
+   * RFC 3339 UTC of the stored observation `state` was read from. Absent when resolution
+   * reached no account or an account with no observation yet; it says nothing about whether
+   * a probe ever ran on this node.
    */
   observedAt?: string | undefined;
   /**
-   * Schema-optional, PRODUCER-OBLIGATED: the daemon populates it on every
-   * non-authenticated arm and omits it on `authenticated`. Optional at parse
-   * because the state alone does not make REQUIREDNESS expressible to a strict
-   * parser without splitting this interface per arm; the obligation to supply
-   * one is the producer's and is tested per arm.
-   *
-   * What the parser does enforce is the other half: a remedy that IS present
-   * must be the one its state calls for, per `REMEDY_KIND_FOR_READINESS_STATE`
-   * below. Absence stays parseable; a WRONG remedy does not.
+   * The daemon sends it on every state except `authenticated`. It is optional here because a
+   * strict parser cannot require it per state without splitting this interface; the parser
+   * does reject a present remedy that is the wrong kind for the state.
    */
   remedy?: ProviderRemedy | undefined;
 }
 
 /**
- * The state -> remedy-kind mapping states in prose: "three different actions,
- * not one" — with nothing registered, register; with accounts registered and
- * none default, choose a default; with exactly one account resolved but not
- * authenticated, the provider's own first-party sign-in against THAT account's
- * home.
- *
- * A TOTAL record rather than a switch: adding a readiness arm without deciding
- * its remedy is then a compile error here rather than a hole that parses.
+ * The remedy kind each readiness state calls for: register with nothing registered, choose a
+ * default when none is set, and the provider's own sign-in for the resolved account's home.
+ * A total record, so a new state without a remedy fails to compile.
  */
 const REMEDY_KIND_FOR_READINESS_STATE: Readonly<
   Record<ProviderReadinessState, ProviderRemedy["kind"] | null>
@@ -608,6 +468,7 @@ const REMEDY_KIND_FOR_READINESS_STATE: Readonly<
   no_default: "choose_default",
 };
 
+/** Parses a {@link ProviderReadiness}; the remedy kind and its account must match the state. */
 export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadiness> = z
   .object({
     provider: ProviderNameSchema,
@@ -620,7 +481,6 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
   .superRefine((entry, ctx) => {
     const { remedy } = entry;
     if (remedy === undefined) {
-      // Requiredness stays the producer's obligation — see the member comment.
       return;
     }
     const expectedKind = REMEDY_KIND_FOR_READINESS_STATE[entry.state];
@@ -635,12 +495,8 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
       });
       return;
     }
-    // If that id disagreed with the entry's own `resolvedAccountId` the operator
-    // would be pointed at one account's credential home to fix another's —
-    // exactly the arbitrary cross-account election exists to prevent, arriving
-    // as guidance instead of as a binding. Checked in both directions: a
-    // `sign_in` remedy on an entry that resolved NO account has a home path that
-    // belongs to no entry at all.
+    // A `sign_in` remedy must name the entry's own resolved account; otherwise the operator
+    // is pointed at one account's home to fix another's, or at a home no entry owns.
     if (remedy.kind === "sign_in" && remedy.accountId !== entry.resolvedAccountId) {
       ctx.addIssue({
         code: "custom",
@@ -653,64 +509,48 @@ export const ProviderReadinessSchema: z.ZodType<ProviderReadiness, ProviderReadi
     }
   });
 
-// --------------------------------------------------------------------------
-// ProviderAccountUsageWindow — the per-limit quota reading
-// --------------------------------------------------------------------------
-//
-// `limitId` IS THE KEY and `windowMins` is an ATTRIBUTE of the reading. The
-// pinned Claude surface publishes five limit identifiers of which THREE share a
-// 10080-minute window, so an `(account, windowMins)` key silently collapses them
-// and the survivor depends on arrival order.
-
+/**
+ * One quota reading for one limit of one account. `limitId` is the key and `windowMins` is an
+ * attribute: a provider can publish several limits that share a window length, so keying on
+ * window length would collapse them.
+ */
 export interface ProviderAccountUsageWindow {
-  /**
-   * REQUIRED and not inferable from position: the read returns one flat array
-   * across every registered account, and two accounts of one provider can
-   * publish the same `limitId`.
-   */
+  /** Required because the list reply is one flat array over all accounts. */
   accountId: ProviderAccountId;
   /**
-   * The provider's own limit identifier, carried verbatim as an untrusted
-   * provider-adjacent string. NOT a closed union — the limit vocabulary is open
-   * and versioned, and a closed union would refuse a reading the moment a
-   * vendor adds a window. A reading that names no limit takes the reserved
-   * value `PROVIDER_QUOTA_DEFAULT_LIMIT_ID`.
+   * The provider's own limit id, verbatim and untrusted. Not a closed union, because the
+   * provider's limit set is open. A reading that names no limit takes
+   * `PROVIDER_QUOTA_DEFAULT_LIMIT_ID`.
    */
   limitId: string;
   windowMins: number;
   /** The provider's own display label where it publishes one; never parsed, never a key. */
   label?: string | undefined;
   /**
-   * Utilization at `observedAt`. NOT clamped to 100 on the wire: a provider may
-   * report over-consumption against a soft limit, and clamping would silently
-   * misreport it. Renderers clamp for display.
+   * Utilization at `observedAt`. Not clamped to 100, because a provider may report
+   * over-consumption; renderers clamp for display.
    */
   usedPercent: number;
-  /** RFC 3339 UTC where the provider supplies it; absent = unknown, never "now" and never "never". */
+  /** RFC 3339 UTC where the provider supplies it; absent means unknown. */
   resetsAt?: string | undefined;
   /**
-   * RFC 3339 UTC. THE ORDERING KEY: newest `observedAt` wins per
-   * `(accountId, limitId)`, and `source` breaks ONLY exact ties.
+   * RFC 3339 UTC. The ordering key: the newest per `(accountId, limitId)` wins, and `source`
+   * breaks exact ties.
    */
   observedAt: string;
   /**
-   * The account's `credentialGeneration` when this reading was taken. A
-   * credential-home rebuild does NOT clear stored readings — the provider-side
-   * allowance keeps running while the home is empty — so a renderer compares
-   * this against the account's current generation and renders a behind-
-   * generation reading as STALE rather than current.
+   * The account's `credentialGeneration` when this was read. A home rebuild keeps stored
+   * readings (the provider-side allowance keeps running), so a renderer marks a reading from
+   * an earlier generation stale.
    */
   observedCredentialGeneration: CredentialGeneration;
   source: ProviderAccountUsageWindowSource;
 }
 
-/**
- * The reserved identifier a reading that names no limit takes, so a provider
- * publishing a single window needs no special case and the pre-amendment
- * single-window shape stays valid as the degenerate case.
- */
+/** The limit id a reading takes when it names none. */
 export const PROVIDER_QUOTA_DEFAULT_LIMIT_ID = "default";
 
+/** Parses a {@link ProviderAccountUsageWindow}. */
 export const ProviderAccountUsageWindowSchema: z.ZodType<
   ProviderAccountUsageWindow,
   ProviderAccountUsageWindow
@@ -721,16 +561,13 @@ export const ProviderAccountUsageWindowSchema: z.ZodType<
       PROVIDER_QUOTA_LIMIT_ID_MAX_LEN,
       "ProviderAccountUsageWindow.limitId",
     ),
-    // `.positive()` beyond `.int()`: a zero-length window has no reset horizon
-    // and a negative one is not a duration. The DDL constrains neither, so this
-    // is the wire's own guard rather than a mirror of one.
+    // Positive: a zero-length window has no reset horizon. The database does not check this.
     windowMins: z.number().int().positive(),
     label: wireFreeFormString(
       PROVIDER_QUOTA_LABEL_MAX_LEN,
       "ProviderAccountUsageWindow.label",
     ).optional(),
-    // Floor only, mirroring the `CHECK(used_percent >= 0)` the column carries.
-    // No ceiling, deliberately — see the member comment.
+    // Floor only, like the column's CHECK; no ceiling because over-consumption is reported.
     usedPercent: z.number().min(0),
     resetsAt: z.iso.datetime({ offset: true }).optional(),
     observedAt: z.iso.datetime({ offset: true }),
@@ -739,26 +576,19 @@ export const ProviderAccountUsageWindowSchema: z.ZodType<
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// providerAccount.list
-// --------------------------------------------------------------------------
-
+/** Request of `providerAccount.list`. */
 export interface ProviderAccountListRequest {
   provider?: ProviderName | undefined;
   /**
-   * Scopes the readiness derivation to ONE account instead of the provider's
-   * default. It exists for a single caller: a run refused on the account plane
-   * while bound to a per-run account override. Without it the post-refusal
-   * remedy would necessarily describe the provider DEFAULT — a different
-   * account from the one that failed, whose home may be entirely healthy — and
-   * the operator would be handed a remedy for something that is not broken.
-   *
-   * A SELECTOR, never an assertion: an unknown or removed id refuses rather
-   * than silently falling back to the default, and it mints nothing.
+   * Scopes readiness to one account instead of the provider's default. It exists for a run
+   * refused while bound to a per-run account override: without it the remedy would describe
+   * the default account, whose home may be healthy. A selector only: an unknown or removed id
+   * is refused, never replaced by the default.
    */
   accountId?: ProviderAccountId | undefined;
 }
 
+/** Parses a {@link ProviderAccountListRequest}. */
 export const ProviderAccountListRequestSchema: z.ZodType<
   ProviderAccountListRequest,
   ProviderAccountListRequest
@@ -769,26 +599,20 @@ export const ProviderAccountListRequestSchema: z.ZodType<
   })
   .strict();
 
+/** Response of `providerAccount.list`. */
 export interface ProviderAccountListResponse {
   accounts: ProviderAccount[];
   /**
-   * The durable quota rows, delivered on the READ because the subscription is a
-   * live tail and not a snapshot replay — without this a client opened after a
-   * reading, or after a daemon restart, could not reach the stored windows until
-   * another probe or run happened to produce an update. Entries carry the
-   * provenance they were OBSERVED under, so a stored window may legitimately
-   * carry `source: "run"`.
+   * The stored quota rows, sent on the read because the subscription is a live tail, not a
+   * replay; a client opened later would otherwise miss them until the next reading. Each
+   * keeps the `source` it was observed under, so a stored window may carry `"run"`.
    */
   usageWindows: ProviderAccountUsageWindow[];
-  /**
-   * REQUIRED, not additive-optional: a reply that could omit readiness would
-   * push every client back into deriving it locally, which is the defect this
-   * member exists to remove. Exactly one entry per provider the request selects
-   * — never zero, never two.
-   */
+  /** Exactly one entry per selected provider, so no client derives readiness itself. */
   readiness: ProviderReadiness[];
 }
 
+/** Parses a {@link ProviderAccountListResponse}. */
 export const ProviderAccountListResponseSchema: z.ZodType<ProviderAccountListResponse> = z
   .object({
     accounts: z.array(ProviderAccountSchema),
@@ -797,30 +621,17 @@ export const ProviderAccountListResponseSchema: z.ZodType<ProviderAccountListRes
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// providerAccount.subscribe
-// --------------------------------------------------------------------------
-//
-// A read-shaped live tail of registry changes for this node. It carries a
-// WIRE-ONLY notification and NEVER an `EventEnvelope`: the provider-account
-// registry is un-evented by design, because a node-local operator act on a
-// node-local registry has no session to belong to and minting a session event
-// type for it would put node administration into a session's audit timeline.
-//
-// Ordering: a client opens the subscription BEFORE calling
-// `providerAccount.login`, so registration is live before the flow starts and a
-// completion concurrent with the call arrives on the stream rather than falling
-// between them. Re-observation is harmless — every notification is a re-entrant
-// state update, not a delta.
+// `providerAccount.subscribe` is a live tail of registry changes on this node. It sends a
+// wire-only notification, never an `EventEnvelope`: a node-local registry act has no session,
+// and a session event would put node administration in a session's timeline. A client opens
+// the subscription before calling `providerAccount.login`, so a completion that races the call
+// still arrives. Every notification is a full state update, so seeing one twice is harmless.
 
-/**
- * The subscribe verb takes no parameters — the subscription is node-scoped and
- * a filter member would be a second place the node's own registry scope is
- * decided. Spelled as an empty interface to match the canonical wire shape.
- */
+/** Request of `providerAccount.subscribe`; empty because the subscription is node-scoped. */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type
 export interface ProviderAccountSubscribeRequest {}
 
+/** Parses a {@link ProviderAccountSubscribeRequest}. */
 export const ProviderAccountSubscribeRequestSchema: z.ZodType<
   ProviderAccountSubscribeRequest,
   ProviderAccountSubscribeRequest
@@ -828,31 +639,29 @@ export const ProviderAccountSubscribeRequestSchema: z.ZodType<
 
 const PROVIDER_LOGIN_OUTCOME_VALUES = ["succeeded", "failed", "canceled"] as const;
 
+/** How a brokered sign-in attempt ended. */
 export type ProviderLoginOutcome = (typeof PROVIDER_LOGIN_OUTCOME_VALUES)[number];
+/** Every `ProviderLoginOutcome`, in declaration order. */
 export const PROVIDER_LOGIN_OUTCOMES: readonly ProviderLoginOutcome[] =
   PROVIDER_LOGIN_OUTCOME_VALUES;
 
+/** A change to the node's provider-account registry, sent by `providerAccount.subscribe`. */
 export type ProviderAccountNotification =
-  /** Registered, corrected, default moved, or a stored reading rewritten by any of its writers. */
+  /** Registered, corrected, default moved, or a stored reading rewritten. */
   | { kind: "account_changed"; account: ProviderAccount }
   | { kind: "account_removed"; accountId: ProviderAccountId }
   /**
-   * Correlated on `attemptId`. `succeeded` is a report FROM THE PROVIDER that
-   * its flow finished — it is NOT itself a reading that the account is
-   * authenticated. The daemon takes an ordinary health observation next and
-   * publishes the result as `account_changed`; a client that treats this
-   * notification as the authentication verdict will render an account as ready
-   * that a spawn would refuse.
+   * Correlated on `attemptId`. `succeeded` only means the provider's flow finished, not that
+   * the account is authenticated: the daemon then takes a health observation and sends it as
+   * `account_changed`. A client that treats this as the verdict would show as ready an
+   * account a spawn would refuse.
    */
   | {
       kind: "login_completed";
       attemptId: string;
       accountId: ProviderAccountId;
       outcome: ProviderLoginOutcome;
-      /**
-       * Operator-facing message text. Carries NO credential material, no
-       * provider error body verbatim, and no home path.
-       */
+      /** Operator-facing text with no credential material, provider error body or home path. */
       failureReason?: string | undefined;
     }
   | {
@@ -861,6 +670,7 @@ export type ProviderAccountNotification =
       window: ProviderAccountUsageWindow;
     };
 
+/** Parses a {@link ProviderAccountNotification}, discriminated on `kind`. */
 export const ProviderAccountNotificationSchema: z.ZodType<ProviderAccountNotification> =
   z.discriminatedUnion("kind", [
     z.object({ kind: z.literal("account_changed"), account: ProviderAccountSchema }).strict(),
@@ -887,16 +697,9 @@ export const ProviderAccountNotificationSchema: z.ZodType<ProviderAccountNotific
         window: ProviderAccountUsageWindowSchema,
       })
       .strict()
-      // The outer `accountId` is the ROUTING key; `window.accountId` is part of
-      // the reading. Both are carried deliberately — the list reply's
-      // `usageWindows` entries carry the same member, so a live update and a
-      // snapshot row key alike — and a notification whose reading names a
-      // different account than its envelope is not routable in either
-      // direction: a consumer keying off the outer member files the reading
-      // under an account it does not describe, and one keying off the inner
-      // member ignores the routing the daemon performed. Refused against
-      // `window.accountId`, the half that contradicts the envelope it arrived
-      // in.
+      // The outer `accountId` routes; `window.accountId` is part of the reading, so a live
+      // update and a list row key alike. If they differ, a consumer would file the reading
+      // under the wrong account, so the notification is refused.
       .superRefine((notification, ctx) => {
         if (notification.window.accountId !== notification.accountId) {
           ctx.addIssue({

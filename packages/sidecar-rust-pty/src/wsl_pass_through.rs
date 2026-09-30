@@ -1,70 +1,19 @@
-//! Negative-invariant scope guard for WSL2 path
-//! translation.
+//! Guard that the sidecar does not translate paths.
 //!
-//! `SpawnRequest.cwd` and `SpawnRequest.env` paths to `portable-pty`
-//! verbatim and MUST NOT invoke `wslpath` or any Windows ↔ WSL2 path
-//! conversion. WSL path translation is a daemon-layer step
-//! (`spawn-cwd-translator`) that runs BEFORE the `SpawnRequest` reaches
-//! the sidecar.
-//!
-//! ## Why a module rather than a comment in `pty_session.rs`?
-//!
-//! A module with a pure pass-through function and a property test that
-//! asserts byte-for-byte identity provides:
-//!
-//!   1. A single point of truth that future contributors find when
-//!      they grep for "wsl" in the crate.
-//!   2. An executable assertion: the test FAILS if some future refactor
-//!      adds path translation.
-//!   3. A reviewer-readable scope-boundary declaration: the diff for
-//!      the wire-through PR (follow-up) routes `cwd` through
-//!      `pass_through` and the lint catches a regression.
-//!
-//! ## Lint complement
-//!
-//! `clippy::ban_path_translation` lint as a complementary defense.
-//! That lint is a separate follow-up; this module ships the executable
-//! test.
-//!
+//! `SpawnRequest.cwd` and `SpawnRequest.env` paths go to `portable-pty` verbatim; the sidecar never
+//! runs `wslpath` or any Windows/WSL2 path conversion. WSL path translation is a daemon step
+//! (`spawn-cwd-translator`) that runs before the request reaches the sidecar. [`pass_through`] is
+//! the identity function and its tests assert byte-for-byte identity, so a change that adds
+//! translation fails a test. The dispatcher does not call it yet.
 
 #![cfg(target_os = "windows")]
 
-/// Pass a path through verbatim — byte-identical input == output.
-///
-/// The dispatcher routes `SpawnRequest.cwd` (and any other
-/// path-carrying field) through this function before forwarding to
-/// `portable-pty`. The function is intentionally trivial — it
-/// returns its input unchanged — so that the unit tests can assert
-/// byte-for-byte identity over a representative WSL path corpus and
-/// catch any future refactor that introduces path translation.
-///
-/// # Why borrow + return owned?
-///
-/// `String` round-trip avoids requiring the caller to thread a
-/// lifetime through the dispatcher's `SpawnRequest` (which is owned
-/// after deserialization). The `to_string()` call is a single
-/// allocation per spawn (cold path); the cost is dominated by the
-/// PTY-spawn syscall that follows.
-///
-/// Alternative considered: `&str → &str` zero-copy. Rejected because
-/// it would force `pass_through`'s lifetime into the dispatcher's
-/// signature, complicating the eventual wire-through diff for no
-/// runtime savings.
+/// Returns `path` unchanged, byte for byte. It returns an owned `String` so the caller need not
+/// carry a lifetime through the owned `SpawnRequest`.
 #[must_use]
 pub fn pass_through(path: &str) -> String {
-    // INTENTIONALLY trivial — see module rustdoc. Adding logic here
-    // (normalization, slash-flipping, wslpath invocation, etc.) is
-    // a violation. The unit tests below assert byte-identity over a
-    // WSL2 path corpus; any deviation from identity will trip those
-    // tests.
-    //
-    // If a future requirement DEMANDS path normalization at the
-    // sidecar layer (it should not — the daemon owns this), the
-    // change must:
-    //   2. Update the unit tests below to assert the new contract
-    //   3. Update the dispatcher's caller to opt in
-    // Doing it silently is the failure mode this module exists to
-    // prevent.
+    // Deliberately the identity: normalization, slash-flipping or `wslpath` here would break the
+    // forward-verbatim contract, and the daemon owns translation.
     path.to_string()
 }
 
@@ -72,118 +21,75 @@ pub fn pass_through(path: &str) -> String {
 mod tests {
     use super::*;
 
-    // Verification — feeding the sidecar WSL2 paths in their various
-    // canonical shapes MUST result in byte-identical output. The
-    // test corpus covers:
-    //   - `\\wsl.localhost\Ubuntu\home\foo` (modern WSL2 UNC path,
-    //     post Windows 11 22H2 — primary case test description
-    //     names verbatim)
-    //   - `\\wsl$\Ubuntu\home\foo` (legacy WSL2 UNC path, still
-    //     functional on older Windows builds)
-    //   - `/mnt/c/Users/foo` (POSIX path style as seen from inside
-    //     WSL — the sidecar must NOT translate to `C:\Users\foo`)
-    //   - `C:\Users\foo` (Windows-native; the sidecar must not
-    //     re-encode as a WSL path)
-    //   - Empty string (degenerate input — pass-through MUST be
-    //     total)
-    //   - Path with embedded NUL bytes (security relevant — pass
-    //     through verbatim; the daemon's wire-validation layer is
-    //     responsible for rejecting NULs at the trust boundary)
+    // WSL2 path shapes must come out byte-identical: modern and older UNC forms, `/mnt/c/...`,
+    // Windows-native, empty, and embedded NUL (the daemon's wire validation is responsible for
+    // rejecting NULs).
 
     #[test]
     fn passes_through_modern_wsl_localhost_unc() {
-        // Names this exact path shape verbatim: "feeds the sidecar
-        // a `\\wsl.localhost\Ubuntu\home\foo` path and asserts the
-        // path is forwarded to `portable-pty` byte-identical".
         let input = r"\\wsl.localhost\Ubuntu\home\foo";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_legacy_wsl_dollar_unc() {
-        // The pre-Windows-11-22H2 WSL UNC shape. Some users still
-        // run older Windows builds; pass-through must not depend on
-        // the prefix variant.
+        // Older WSL UNC prefix.
         let input = r"\\wsl$\Ubuntu\home\foo";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_posix_mnt_path() {
-        // `/mnt/c/Users/foo` is the POSIX-style path WSL exposes for
-        // mounted Windows drives. The sidecar MUST NOT translate
-        // this to `C:\Users\foo` — that translation is a daemon-
-        // layer step (cwd-translator). If the sidecar translated, a
-        // child running INSIDE WSL would receive a Windows path it
-        // cannot stat.
+        // The sidecar must not translate this to `C:\Users\foo`; a child inside WSL could not stat
+        // a Windows path.
         let input = "/mnt/c/Users/foo";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_windows_native_path() {
-        // Windows-native path. The sidecar MUST NOT re-encode as a
-        // WSL path. (Even if the daemon mistakenly forwarded a
-        // Windows path destined for a WSL child, the sidecar's job
-        // is to forward verbatim; the failure mode is the daemon's
-        // to fix.)
+        // The sidecar must not re-encode a Windows path as a WSL path.
         let input = r"C:\Users\foo";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_unix_root_style_path() {
-        // `/home/foo` is the WSL-from-inside path shape. Same
-        // verbatim contract.
         let input = "/home/foo";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_empty_string() {
-        // Degenerate input — pass-through MUST be total. The daemon
-        // MAY reject empty cwd at its wire-validation layer; the
-        // sidecar's contract is "forward whatever arrived".
+        // The sidecar forwards whatever arrived, even an empty string.
         assert_eq!(pass_through(""), "");
     }
 
     #[test]
     fn passes_through_path_with_embedded_special_chars() {
-        // Spaces, dots, percent signs — all common in real Windows
-        // path corpora. The sidecar MUST NOT URL-decode, normalize
-        // dots, or strip trailing slashes.
+        // The sidecar must not URL-decode, normalize dots, or strip trailing slashes.
         let input = r"C:\Program Files\My App\..\sub.dir\";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_mixed_separator_path() {
-        // Mixed `/` and `\` separators occur in real-world spawn
-        // requests (e.g., a Cygwin-style mingw path). The sidecar
-        // MUST NOT canonicalize separators.
+        // The sidecar must not canonicalize mixed separators.
         let input = r"C:\Users\foo/bin\bash";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_unicode_path() {
-        // WSL paths with non-ASCII characters (e.g., user names
-        // with diacritics) MUST round-trip byte-identically. The
-        // pass_through return is `String`, so a UTF-8 round-trip
-        // is implicit; a future refactor that lossy-converts to
-        // ASCII would trip this assertion.
+        // Non-ASCII paths must round-trip byte for byte.
         let input = "/home/josé/résumé";
         assert_eq!(pass_through(input), input);
     }
 
     #[test]
     fn passes_through_path_with_embedded_nul() {
-        // The sidecar's contract is "forward verbatim" — the daemon's
-        // wire-validation layer (cwd-translator + boundary schema) is
-        // responsible for rejecting NULs at the trust boundary. This
-        // test pins the pass-through behavior so a future "let's strip
-        // NULs in the sidecar" change has to explicitly update the
-        // contract.
+        // The daemon's wire validation rejects NULs; the sidecar forwards them, so a change to
+        // strip them must update this test.
         let input = "\0before\0after";
         assert_eq!(pass_through(input), input);
         assert_eq!(pass_through(input).as_bytes(), input.as_bytes());
@@ -191,11 +97,7 @@ mod tests {
 
     #[test]
     fn output_byte_length_matches_input() {
-        // Stronger than equality: assert the bytes themselves,
-        // not just the `==` impl. A future refactor that returns
-        // a `Cow::Borrowed` or a `&str` slice MUST preserve the
-        // byte representation; this test catches a hypothetical
-        // refactor that swaps to a path-normalizing return type.
+        // Compares the bytes, not just the `==` impl.
         let input = r"\\wsl.localhost\Ubuntu\home\foo";
         let output = pass_through(input);
         assert_eq!(output.as_bytes(), input.as_bytes());

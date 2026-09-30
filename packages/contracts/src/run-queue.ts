@@ -1,38 +1,28 @@
-// The message queue: every message the person sends waits here until the agent
-// takes it at its next step. The lead has one queue and each child its own; every
-// queue verb but the send takes `childHandle` to reach a child's queue, whose
-// messages arrive through `run.childSteer` (`run-children.ts`).
-//
-// This module owns the branded `QueueItemId` and the closed `QueueItemState`,
-// which every other module imports from here. The `run.*` method table that
-// serves these shapes is in `run-control.ts`.
-//
-// Request schemas use the double-T `z.ZodType<T, T>` form and response schemas the
-// single-T `z.ZodType<T>` form, matching `session.ts`.
+// The message queue: every message the person sends waits here until the agent takes it at its
+// next step. The lead has one queue and each child its own; every queue verb but the send takes
+// `childHandle` to reach a child's queue, whose messages arrive through `run.childSteer`.
 import { z } from "zod";
 
 import { ChildHandleSchema, type ChildHandle } from "./agent.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import {
-  ArtifactIdSchema,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  type ArtifactId,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
+/** Identifies one queued message. */
 export type QueueItemId = string & { readonly __brand: "QueueItemId" };
+/** Parses a {@link QueueItemId}. */
 export const QueueItemIdSchema: z.ZodType<QueueItemId, QueueItemId> =
   brandedUuidIdSchema<QueueItemId>("QueueItemId");
 
 /** Where a queued message stands: waiting, sent to the run, replaced, canceled, or never sent. */
 export type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
-/**
- * Validates a {@link QueueItemState}. Double-T, because it composes into
- * `QueueItemListRequest`, a request schema.
- */
+/** Parses a {@link QueueItemState}. */
 export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z.enum([
   "queued",
   "admitted",
@@ -41,19 +31,16 @@ export const QueueItemStateSchema: z.ZodType<QueueItemState, QueueItemState> = z
   "not_delivered",
 ]);
 
-// The words and the files of a message the person sends. The files are artifact
-// ids in the order the person staged them; the operator's per-message file limit
-// is the daemon's check when it accepts the message, and the count ceiling here
-// is only the wire's frame-abuse guard.
+// The words and files of a message the person sends. The files are artifact ids in staging order;
+// the count ceiling here only guards the wire frame, and the per-message file limit is checked by
+// the daemon when it accepts the message.
 const messageContentSchema = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(DRIVER_WIRE_STEER_CONTENT_MAX_LEN, fieldLabel);
 const messageAttachmentsSchema: z.ZodType<ArtifactId[], ArtifactId[]> = z
   .array(ArtifactIdSchema)
   .max(DRIVER_WIRE_STEER_ATTACHMENTS_MAX);
 
-// --------------------------------------------------------------------------
 // run.queueCreate
-// --------------------------------------------------------------------------
 
 /**
  * Sends one message to the lead, whether a turn is running or not. `to` addresses
@@ -77,6 +64,7 @@ export interface QueueItemCreateRequest {
   attachments?: ArtifactId[] | undefined;
   replacesQueueItemId?: QueueItemId | undefined;
 }
+/** Parses a {@link QueueItemCreateRequest}. */
 export const QueueItemCreateRequestSchema: z.ZodType<
   QueueItemCreateRequest,
   QueueItemCreateRequest
@@ -85,8 +73,7 @@ export const QueueItemCreateRequestSchema: z.ZodType<
     sessionId: SessionIdSchema,
     to: SessionIdSchema.optional(),
     workspaceId: WorkspaceIdSchema.optional(),
-    // Whole, because the stored column is an integer; a negative is a meaningful
-    // de-prioritization, so there is no floor.
+    // Whole, because the stored column is an integer; a negative de-prioritizes, so no floor.
     priority: z.number().int().optional(),
     clientIdempotencyKey: z.uuid(),
     content: messageContentSchema("QueueItemCreateRequest.content"),
@@ -101,6 +88,7 @@ export interface QueueItemCreateResponse {
   state: QueueItemState;
   createdAt: string;
 }
+/** Parses a {@link QueueItemCreateResponse}. */
 export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> = z
   .object({
     queueItemId: QueueItemIdSchema,
@@ -109,9 +97,7 @@ export const QueueItemCreateResponseSchema: z.ZodType<QueueItemCreateResponse> =
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // run.queueList and run.subscribeQueue
-// --------------------------------------------------------------------------
 
 /** Reads a queue, the lead's or, with `childHandle`, a child's, in the daemon's order. */
 export interface QueueItemListRequest {
@@ -119,6 +105,7 @@ export interface QueueItemListRequest {
   childHandle?: ChildHandle | undefined;
   state?: QueueItemState | undefined;
 }
+/** Parses a {@link QueueItemListRequest}. */
 export const QueueItemListRequestSchema: z.ZodType<QueueItemListRequest, QueueItemListRequest> = z
   .object({
     sessionId: SessionIdSchema,
@@ -143,6 +130,7 @@ export interface QueueItemSummary {
   createdAt: string;
   updatedAt: string;
 }
+/** Parses a {@link QueueItemSummary}; only a not-delivered item carries a reason. */
 export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
   .object({
     id: QueueItemIdSchema,
@@ -168,6 +156,7 @@ export const QueueItemSummarySchema: z.ZodType<QueueItemSummary> = z
 export interface QueueItemListResponse {
   items: QueueItemSummary[];
 }
+/** Parses a {@link QueueItemListResponse}. */
 export const QueueItemListResponseSchema: z.ZodType<QueueItemListResponse> = z
   .object({ items: z.array(QueueItemSummarySchema) })
   .strict();
@@ -180,20 +169,20 @@ export interface RunQueueSubscribeRequest {
   sessionId: SessionId;
   childHandle?: ChildHandle | undefined;
 }
+/** Parses a {@link RunQueueSubscribeRequest}. */
 export const RunQueueSubscribeRequestSchema: z.ZodType<
   RunQueueSubscribeRequest,
   RunQueueSubscribeRequest
 > = z.object({ sessionId: SessionIdSchema, childHandle: ChildHandleSchema.optional() }).strict();
 
-// --------------------------------------------------------------------------
 // run.queueCancel and run.queueReorder
-// --------------------------------------------------------------------------
 
 /** Removes a waiting message, from the lead's queue or, with `childHandle`, a child's. */
 export interface QueueItemCancelRequest {
   queueItemId: QueueItemId;
   childHandle?: ChildHandle | undefined;
 }
+/** Parses a {@link QueueItemCancelRequest}. */
 export const QueueItemCancelRequestSchema: z.ZodType<
   QueueItemCancelRequest,
   QueueItemCancelRequest
@@ -201,10 +190,12 @@ export const QueueItemCancelRequestSchema: z.ZodType<
   .object({ queueItemId: QueueItemIdSchema, childHandle: ChildHandleSchema.optional() })
   .strict();
 
+/** The canceled message. */
 export interface QueueItemCancelResponse {
   queueItemId: QueueItemId;
   state: "canceled";
 }
+/** Parses a {@link QueueItemCancelResponse}. */
 export const QueueItemCancelResponseSchema: z.ZodType<QueueItemCancelResponse> = z
   .object({
     queueItemId: QueueItemIdSchema,
@@ -222,6 +213,7 @@ export interface QueueReorderRequest {
   childHandle?: ChildHandle | undefined;
   queueItemIds: QueueItemId[];
 }
+/** Parses a {@link QueueReorderRequest}; each item is named once. */
 export const QueueReorderRequestSchema: z.ZodType<QueueReorderRequest, QueueReorderRequest> = z
   .object({
     sessionId: SessionIdSchema,

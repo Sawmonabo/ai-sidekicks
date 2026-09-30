@@ -1,20 +1,8 @@
-// Direct schema coverage for the SessionSubscribe payload family.
-//
-// Coverage shape:
-//   • Request:
-//       - `{sessionId}` alone parses (the replay cursor is optional)
-//       - `afterCursor` (IPC body convention) parses
-//       - sessionId is required and UUID-guarded
-//       - extra unknown keys are rejected (`.strict()` enforcement)
-//       - cursor bounds: empty rejects (min 1), oversized rejects
-//         (EVENT_CURSOR_MAX_LEN defense-in-depth cap), boundary accepts
-//   • Response (alias seam over the canonical SubscribeAckResponse):
-//       - `{subscriptionId}` parses; UUID-guarded; extra keys rejected
-//   • Frame (each notify's value):
-//       - a batch of changes, each with its cursor, parses, with or without the drop mark
-//       - the caught-up frame (no changes, the drop mark, the newest cursor) parses
-//       - refused: too many changes, an empty frame that is not the caught-up frame, a frame
-//         cursor beside changes, a change without a cursor, an unknown member
+// Direct schema coverage for the session subscribe payloads. The request is strict, needs a
+// UUID-guarded session id, and takes an optional replay cursor (`afterCursor`) that is non-empty
+// and capped at `EVENT_CURSOR_MAX_LEN`. The response is the subscription id, UUID-guarded. A
+// frame is a batch of changes, each with its own cursor, or the caught-up frame (no changes, the
+// drop mark, the newest cursor); every other combination is refused.
 import { describe, expect, it } from "vitest";
 
 import { SessionEventSchema } from "../event.js";

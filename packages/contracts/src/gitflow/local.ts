@@ -44,9 +44,7 @@ export const GitActIdSchema: z.ZodType<GitActId, GitActId> = z
   .min(1)
   .brand<"GitActId">() as unknown as z.ZodType<GitActId, GitActId>;
 
-// --------------------------------------------------------------------------
 // Closed sets
-// --------------------------------------------------------------------------
 
 /** The half-finished git operations that stop a commit until they are ended. */
 export const PENDING_GIT_OPERATION_KINDS = ["merge", "rebase", "bisect"] as const;
@@ -72,9 +70,7 @@ export const DIFF_FILE_UNREADABLE_REASONS = [
 /** One reason a file cannot be shown. */
 export type DiffFileUnreadableReason = (typeof DIFF_FILE_UNREADABLE_REASONS)[number];
 
-// --------------------------------------------------------------------------
 // Refusal codes
-// --------------------------------------------------------------------------
 
 /**
  * Generating a commit message or a change request's text failed. The provider's own
@@ -105,9 +101,7 @@ export const GITFLOW_READ_FAILED_CODE = "gitflow.read_failed" as const;
 /** The code string of {@link GITFLOW_READ_FAILED_CODE}. */
 export type GitflowReadFailedCode = typeof GITFLOW_READ_FAILED_CODE;
 
-// --------------------------------------------------------------------------
 // Branch facts
-// --------------------------------------------------------------------------
 
 /** A half-finished merge, rebase or bisect, with the command that ends it. */
 export interface PendingGitOperation {
@@ -166,9 +160,7 @@ export const GitflowBranchContextReadResponseSchema: z.ZodType<GitflowBranchCont
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // The diff
-// --------------------------------------------------------------------------
 
 /**
  * One of a workflow run's snapshot points: its start, an approval pause, or its end,
@@ -342,9 +334,7 @@ export const GitflowDiffReadResponseSchema: z.ZodType<GitflowDiffReadResponse> =
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Ship acts
-// --------------------------------------------------------------------------
 
 /**
  * The commit form. The subject has no length limit: its counter past 72 is a
@@ -512,9 +502,7 @@ export const GitActFrameSchema: z.ZodType<GitActFrame> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Generate
-// --------------------------------------------------------------------------
 
 /** The `gitflow.commitMessageGenerate` result. */
 export interface GitflowCommitMessageGenerateResponse {
@@ -534,9 +522,7 @@ export interface GitflowChangeRequestTextGenerateResponse {
 export const GitflowChangeRequestTextGenerateResponseSchema: z.ZodType<GitflowChangeRequestTextGenerateResponse> =
   z.object({ title: z.string().min(1), description: z.string() }).strict();
 
-// --------------------------------------------------------------------------
 // git.settled
-// --------------------------------------------------------------------------
 
 /**
  * The `git.settled` payload: one record per act that left or changed the session's

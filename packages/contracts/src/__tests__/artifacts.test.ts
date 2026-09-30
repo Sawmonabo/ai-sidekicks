@@ -2,8 +2,9 @@
 // or the payload with the encoding it is written in. Each refusal below hands the
 // reply schema a shape that is neither, or a version, picture size or page count that
 // cannot be. The accepting cases check that the real shapes still parse, so the
-// refusals cannot pass against a schema that refuses everything. The ingest chunk's cases hold it to the frame ceiling it rides under,
-// and the decoder's cases hold it to reading a payload by its encoding alone.
+// refusals cannot pass against a schema that refuses everything. The ingest chunk's
+// cases hold it to the frame ceiling it rides under, and the decoder's cases hold it
+// to reading a payload by its encoding alone.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -172,16 +173,14 @@ function base64Length(decodedByteLength: number): number {
 
 describe("ARTIFACT_CHUNK_MAX_BYTES", () => {
   it("keeps an encoded chunk inside the frame ceiling the wire declares", () => {
-    // The chunk size is fixed rather than tunable because THIS is what fixes it: the wire
-    // is JSON with no binary serialization, so a chunk rides as base64 and expands by 4/3,
-    // and the framer refuses a declared length over `MAX_MESSAGE_BYTES` before it buffers
-    // a body.
+    // The wire is JSON with no binary form, so a chunk rides as base64 and expands by 4/3;
+    // the framer refuses a declared length over `MAX_MESSAGE_BYTES` before it buffers a body.
     expect(base64Length(ARTIFACT_CHUNK_MAX_BYTES)).toBeLessThan(MAX_MESSAGE_BYTES);
   });
 
   it("negative control: the expansion is what the ceiling binds, not the raw length", () => {
-    // A raw chunk just under the ceiling fits by the wrong measure and overflows by the
-    // right one, which is the whole reason the cap is not simply the ceiling.
+    // A raw chunk just under the ceiling fits by the wrong measure and overflows by the right
+    // one, so the cap cannot simply equal the ceiling.
     const rawChunkAtTheCeiling = MAX_MESSAGE_BYTES - 1;
     expect(rawChunkAtTheCeiling).toBeLessThan(MAX_MESSAGE_BYTES);
     expect(base64Length(rawChunkAtTheCeiling)).toBeGreaterThan(MAX_MESSAGE_BYTES);

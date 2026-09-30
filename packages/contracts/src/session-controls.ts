@@ -1,23 +1,14 @@
-// A session's own controls and the reads behind its composer chips: the
-// permission level and the Build or Plan mode, the auto-compact bound, the tool
-// servers and their resources, the live `/` list, the side question, the review,
-// the definitions reload, the step bound, and the Codex sessions typed in a
-// terminal. It also holds the payloads of the flow rows these controls write: the
-// session notice, the reviewer's flag, the answered side question and the reached
-// step bound, and the live frame of Codex's safety hold on a turn.
+// A session's own controls and the reads behind its composer chips: the permission level and the
+// Build or Plan mode, the auto-compact bound, the tool servers and their resources, the live `/`
+// list, the side question, the review, the definitions reload, the step bound, and the Codex
+// sessions typed in a terminal. It also holds the payloads of the flow rows these controls write
+// and the live frame of Codex's safety hold on a turn.
 //
-// The session's directory and lifecycle live in `session.ts`; these per-session
-// controls sit beside it in their own module because one file would hold two
-// concepts. The inspector's reads (what fills the context, memory and hooks) are
-// `session-inspector.ts`, and a goal has its own module, `session-goal.ts`.
+// Every method here names the session it acts on, and every setting it changes belongs to that
+// session alone: Settings, other sessions and future sessions are untouched.
 //
-// Every method here names the session it acts on, and every setting it changes
-// belongs to that session alone: Settings, other sessions and future sessions are
-// untouched.
-//
-// This module imports nothing from `./event.js`. `event.ts` registers the payloads
-// below as event variants, so an import back would close an eager module-scope
-// cycle that throws at load time.
+// Must not import `./event.js`: it registers the payloads below as event variants, so an import
+// back closes a module-scope cycle that throws at load time.
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
@@ -29,20 +20,22 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+  RunIdSchema,
+  type McpServerStatus,
+  type RunId,
+} from "./provider-driver.js";
+import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
+} from "./provider-driver-wire.js";
+import {
   ProviderCommandEntrySchema,
-  RunIdSchema,
-  type McpServerStatus,
   type ProviderCommandEntry,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-transcript.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
-// An agent id is a UUID whose brand belongs to the live agent contract; members
-// carrying one take the unbranded UUID text form so that brand can narrow them
-// later with no change to what parses.
+// The unbranded UUID text form, since the `agentId` brand belongs to the live agent contract.
 const agentIdSchema = uuidTextFormSchema;
 
 /** The one input every session read takes: the session. */
@@ -64,17 +57,12 @@ export const SessionAcknowledgementSchema: z.ZodType<SessionAcknowledgement> = z
   .object({ sessionId: SessionIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
-// The permission level and the mode
-// --------------------------------------------------------------------------
-
 const EXECUTION_POSTURE_MODE_VALUES = ["readonly", "ask", "reviewed", "sandboxed", "yolo"] as const;
 
 /**
- * The five permission levels, most careful first, the same five words on every
- * provider. Only the first three ever ask the person; at `sandboxed` and `yolo`
- * the daemon answers every ask itself. Plan is not a level: it is the session's
- * mode.
+ * The five permission levels, most careful first, the same five words on every provider. Only
+ * the first three ever ask the person; at `sandboxed` and `yolo` the daemon answers every ask
+ * itself. Plan is not a level: it is the session's mode.
  */
 export type ExecutionPostureMode = (typeof EXECUTION_POSTURE_MODE_VALUES)[number];
 /** Every {@link ExecutionPostureMode}, most careful first. */
@@ -134,18 +122,14 @@ export const SessionModeUpdateResponseSchema: z.ZodType<SessionModeUpdateRespons
   .object({ sessionId: SessionIdSchema, mode: SessionModeSchema })
   .strict();
 
-// --------------------------------------------------------------------------
-// The auto-compact bound
-// --------------------------------------------------------------------------
-
 // A share of the context window, in percent; a bound of nothing is no bound.
 const autoCompactPercentSchema = z.number().gt(0).max(100);
 
 /**
- * Sets this session's own auto-compact bound from its next turn, as a percent of
- * the window; `null` returns the session to the Settings default. The range a
- * session accepts is derived from its provider's live figures, so the daemon
- * refuses a percent outside that range, and this schema bounds only a percent.
+ * Sets this session's own auto-compact bound from its next turn, as a percent of the window;
+ * `null` returns the session to the Settings default. The accepted range comes from the
+ * provider's live figures, so the daemon refuses a percent outside it; the schema bounds only a
+ * percent.
  */
 export interface SessionAutoCompactUpdateRequest {
   sessionId: SessionId;
@@ -172,15 +156,10 @@ export const SessionAutoCompactUpdateResponseSchema: z.ZodType<SessionAutoCompac
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Tool servers
-// --------------------------------------------------------------------------
-
 /**
- * One tool server this session was started with. `enabled` is the session's own
- * switch; `pendingUntilNextTurn` says a switch flipped mid-turn waits for the next
- * turn. `reason` is the failure or sign-in reason, carried for a server that is
- * not working.
+ * One tool server this session was started with. `enabled` is the session's own switch;
+ * `pendingUntilNextTurn` says a switch flipped mid-turn waits for the next turn. `reason` is the
+ * failure or sign-in reason, carried for a server that is not working.
  */
 export interface SessionMcpServer {
   serverName: string;
@@ -285,10 +264,6 @@ export const SessionMcpResourceListResponseSchema: z.ZodType<SessionMcpResourceL
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The live `/` list
-// --------------------------------------------------------------------------
-
 /** One prompt a working tool server publishes, listed under the server's name. */
 export interface SessionServerPrompt {
   serverName: string;
@@ -298,11 +273,10 @@ export interface SessionServerPrompt {
 }
 
 /**
- * The live `/` list's provider half: the running process's slash commands, as its
- * provider publishes them, and each working server's prompts. It is sent whole on
- * every change: a new process, the provider's own list-changed push, a server
- * coming up or going down. `complete` is false when the process published more
- * commands than one list carries.
+ * The live `/` list's provider half: the running process's slash commands, as its provider
+ * publishes them, and each working server's prompts. It is sent whole on every change: a new
+ * process, the provider's own list-changed push, a server coming up or going down. `complete` is
+ * false when the process published more commands than one list carries.
  */
 export interface SessionProviderCommandList {
   sessionId: SessionId;
@@ -331,18 +305,13 @@ export const SessionProviderCommandListSchema: z.ZodType<SessionProviderCommandL
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The side question, the review and the definitions reload
-// --------------------------------------------------------------------------
-
 /** The daemon-minted id of one side question, echoed on its answer. */
 export type SideQuestionId = string & { readonly __brand: "SideQuestionId" };
 /** Parses a {@link SideQuestionId}. */
 export const SideQuestionIdSchema: z.ZodType<SideQuestionId, SideQuestionId> =
   brandedUuidIdSchema<SideQuestionId>("SideQuestionId");
 
-// A side question is a message sent into a provider turn, bounded as the steer
-// content sent into a running turn is.
+// A side question is a message sent into a provider turn, bounded like steer content.
 const sideQuestionTextSchema = wireFreeFormString(
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   "SessionSideQuestionAskRequest.question",
@@ -370,10 +339,10 @@ export const SessionSideQuestionAskResponseSchema: z.ZodType<SessionSideQuestion
   .strict();
 
 /**
- * The stored `session.side_question_answered` payload: the half the personal-data
- * split leaves in the event. The question is the person's words and the answer the
- * provider's, so the emitter moves both into the row's personal-data partition, and
- * neither is a member here. The aside never enters the conversation.
+ * The stored `session.side_question_answered` payload: the half the personal-data split leaves
+ * in the event. The question is the person's words and the answer the provider's, so the emitter
+ * moves both into the row's personal-data partition and neither is a member here. The aside never
+ * enters the conversation.
  */
 export type SessionSideQuestionAnsweredPayload = {
   sessionId: SessionId;
@@ -387,7 +356,7 @@ const SESSION_REVIEW_TARGET_VALUES = ["workingTree", "staged", "branch"] as cons
 
 /** What a review covers: the working tree, the staged set, or the branch against its base. */
 export type SessionReviewTarget = (typeof SESSION_REVIEW_TARGET_VALUES)[number];
-/** Every {@link SessionReviewTarget}, in the order the console completes them. */
+/** Every {@link SessionReviewTarget}. */
 export const SESSION_REVIEW_TARGETS: readonly SessionReviewTarget[] = SESSION_REVIEW_TARGET_VALUES;
 /** Parses a {@link SessionReviewTarget}. */
 export const SessionReviewTargetSchema: z.ZodType<SessionReviewTarget, SessionReviewTarget> =
@@ -404,13 +373,9 @@ export const SessionReviewStartRequestSchema: z.ZodType<
   SessionReviewStartRequest
 > = z.object({ sessionId: SessionIdSchema, target: SessionReviewTargetSchema }).strict();
 
-// --------------------------------------------------------------------------
-// The step bound
-// --------------------------------------------------------------------------
-
 /**
- * Sets or clears this session's own bound on how many steps one turn may take,
- * from its next turn. `null` returns the session to the machine's own value.
+ * Sets or clears this session's own bound on how many steps one turn may take, from its next
+ * turn. `null` returns the session to the machine's own value.
  */
 export interface SessionMaxStepsUpdateRequest {
   sessionId: SessionId;
@@ -435,8 +400,8 @@ export const SessionMaxStepsUpdateResponseSchema: z.ZodType<SessionMaxStepsUpdat
   .strict();
 
 /**
- * The `run.step_limit_reached` payload: a turn reached the step bound and ended
- * there, the run going on. `count` is the bound reached, drawn beside `Continue`.
+ * The `run.step_limit_reached` payload: a turn reached the step bound and ended there, the run
+ * going on. `count` is the bound reached, drawn beside `Continue`.
  */
 export type RunStepLimitReachedPayload = {
   sessionId: SessionId;
@@ -449,10 +414,10 @@ export const RunStepLimitReachedPayloadSchema: z.ZodType<RunStepLimitReachedPayl
   .strict();
 
 /**
- * Codex's safety hold on a turn: Codex is holding the turn for a safety check
- * (`active`), or has released it. `fasterModel` is the model Codex names, as it
- * sent it. It is relayed live on the run's state stream and never kept in the
- * session's history, so a re-opened session does not replay it.
+ * Codex's safety hold on a turn: Codex is holding the turn for a safety check (`active`), or has
+ * released it. `fasterModel` is the model Codex names, as it sent it. It is relayed live on the
+ * run's state stream and never kept in the session's history, so a re-opened session does not
+ * replay it.
  */
 export type RunSafetyBufferingUpdatedPayload = {
   sessionId: SessionId;
@@ -478,10 +443,6 @@ export const RunSafetyBufferingUpdatedPayloadSchema: z.ZodType<RunSafetyBufferin
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Codex sessions typed in a terminal
-// --------------------------------------------------------------------------
-
 /** Takes nothing: the list is the machine's, read when a confirm opens. */
 export type SessionTerminalCodexListRequest = Record<string, never>;
 /** Parses a {@link SessionTerminalCodexListRequest}; any member is refused. */
@@ -498,9 +459,8 @@ export interface TerminalCodexSession {
 }
 
 /**
- * The Codex sessions typed in a terminal, read off the same directory entries the
- * agents' `ListSessions` names. Empty while `Reach Codex sessions started in a
- * terminal` is off.
+ * The Codex sessions typed in a terminal, read off the same directory entries the agents'
+ * `ListSessions` names. Empty while `Reach Codex sessions started in a terminal` is off.
  */
 export interface SessionTerminalCodexListResponse {
   sessions: TerminalCodexSession[];
@@ -520,26 +480,20 @@ export const SessionTerminalCodexListResponseSchema: z.ZodType<SessionTerminalCo
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The session notice and the reviewer's flag
-// --------------------------------------------------------------------------
-
 /**
- * The `session.notice` payload. Its kinds are a closed set, each drawn as one
- * plain sentence; a notice outside them is not representable.
+ * The `session.notice` payload. Its kinds are a closed set, each drawn as one plain sentence:
  *
- * - `settings_ignored`: the provider started without part of its settings. Codex
- *   names the file and the line; Claude Code's `doctor` names the file and, for
- *   one bad value, the key, and never a line.
+ * - `settings_ignored`: the provider started without part of its settings. Codex names the file
+ *   and the line; Claude Code's `doctor` names the file and, for one bad value, the key, and
+ *   never a line.
  * - `conversation_reloaded`: the conversation was reopened to take new definitions.
- * - `permission_level_lowered`: a saved posture the session cannot give runs at a
- *   more careful level, never a looser one.
+ * - `permission_level_lowered`: a saved posture the session cannot give runs at a more careful
+ *   level, never a looser one.
  * - `review_started` and `review_finished`: the two ends of a review.
- * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its
- *   cap on unmet checks, or a goal check ran past its limit; the goal stays active.
- * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own
- *   words. It draws no flow row: the working line counts the session's warnings and
- *   lists them from that count.
+ * - `goal_not_met` and `goal_check_unfinished`: Claude Code ended the turn at its cap on unmet
+ *   checks, or a goal check ran past its limit; the goal stays active.
+ * - `provider_warning`: a warning or a deprecation notice from Codex, in Codex's own words. It
+ *   draws no flow row: the working line counts the session's warnings and lists them.
  */
 export type SessionNoticePayload =
   | {
@@ -671,9 +625,9 @@ const MODERATION_REVIEW_SIGNAL_VALUES = ["review_warning", "review_required"] as
 export type ModerationReviewSignal = (typeof MODERATION_REVIEW_SIGNAL_VALUES)[number];
 
 /**
- * The `moderation.review_flagged` payload: a warning or a required review from
- * Codex's own reviewer, drawn as one row in Codex's words. `eventId` names the
- * item the flag is about; `text` is the words the row shows.
+ * The `moderation.review_flagged` payload: a warning or a required review from Codex's own
+ * reviewer, drawn as one row in Codex's words. `eventId` names the item the flag is about;
+ * `text` is the words the row shows.
  */
 export type ModerationReviewFlaggedPayload = {
   sessionId: SessionId;
@@ -694,10 +648,6 @@ export const ModerationReviewFlaggedPayloadSchema: z.ZodType<ModerationReviewFla
     text: wireFreeFormString(DRIVER_FAILURE_DETAIL_MAX_LEN, "ModerationReviewFlaggedPayload.text"),
   })
   .strict();
-
-// --------------------------------------------------------------------------
-// The methods
-// --------------------------------------------------------------------------
 
 /** The session-control methods, keyed by method name. */
 export interface SessionControlMethodDescriptors {

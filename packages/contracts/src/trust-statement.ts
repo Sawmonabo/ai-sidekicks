@@ -22,9 +22,7 @@ export const PASSKEY_ID_MAX_LEN = 1364;
 /** The longest encoded signature, WebAuthn assertion part or linking proof. */
 const SIGNATURE_PART_MAX_LEN = 4096;
 
-// --------------------------------------------------------------------------
 // Ids
-// --------------------------------------------------------------------------
 
 /** The longest device id any wire member carries. */
 export const DEVICE_ID_MAX_LEN = 256;
@@ -53,9 +51,7 @@ export const TrustStatementHashSchema: z.ZodType<string, string> = z
   .string()
   .regex(/^[0-9a-f]{64}$/u, "a statement hash is 64 lowercase hex characters");
 
-// --------------------------------------------------------------------------
 // Keys
-// --------------------------------------------------------------------------
 
 /**
  * The algorithms an identity key may use. A phone's Secure Enclave holds only
@@ -126,9 +122,7 @@ export const ChannelPublicKeySchema: z.ZodType<ChannelPublicKey, ChannelPublicKe
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Who signed
-// --------------------------------------------------------------------------
 
 /** The key behind a statement or an entry: a device's, a machine's or a passkey's. */
 export type TrustSigner =
@@ -192,9 +186,7 @@ export const TrustStatementSignatureSchema: z.ZodType<
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
 // The statement chain
-// --------------------------------------------------------------------------
 
 /**
  * The kinds of statement in the account's chain. Each records a fact, named subject

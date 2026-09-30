@@ -1,11 +1,7 @@
-// The channel's opening frames: the profile offer a connecting device sends before
-// any handshake message, the machine's answer, and the code the machine closes the
-// connection with when it runs none of the offered profiles.
-//
-// A profile is one full Noise protocol name. Both ends put the offer and the answer,
-// byte for byte, into the handshake's prologue, so a relay that dropped or reordered
-// a profile makes the handshake fail on both ends rather than settle on another one.
-// Nothing weaker is ever offered, so there is nothing to fall back to.
+// The channel's opening frames: the device's profile offer, the machine's answer, and the
+// code for no common profile. A profile is one full Noise protocol name. Both ends put the
+// offer and answer, byte for byte, into the handshake prologue, so a relay that dropped or
+// reordered a profile makes the handshake fail on both ends rather than settle on another.
 import { z } from "zod";
 
 /** The channel frame format this build speaks. */

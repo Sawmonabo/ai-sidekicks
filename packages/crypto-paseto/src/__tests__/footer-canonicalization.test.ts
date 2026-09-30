@@ -10,8 +10,7 @@ const empty = new Uint8Array(0);
 describe("footer / implicit-assertion canonicalization (undefined ≡ Uint8Array(0))", () => {
   describe("v4.public", () => {
     it("signing with `undefined` footer matches signing with empty Uint8Array footer", () => {
-      // `publicKey` is destructured for symmetry with sibling tests / future-
-      // proofing; the `_` prefix matches `eslint.config.mjs` `varsIgnorePattern`.
+      // The `_` prefix matches `varsIgnorePattern` in `eslint.config.mjs`.
       const { publicKey: _publicKey, secretKey } = generateV4PublicKeyPair();
       const payload = encoder.encode("payload");
 
@@ -61,7 +60,7 @@ describe("footer / implicit-assertion canonicalization (undefined ≡ Uint8Array
       const key = randomBytes(32);
       const payload = encoder.encode("payload");
       const t1 = encryptV4Local(payload, key, undefined, undefined);
-      // Same token can be decrypted with either undefined or empty IA.
+      // The same token decrypts with an undefined or an empty implicit assertion.
       expect(() => decryptV4Local(t1, key, undefined, undefined)).not.toThrow();
       expect(() => decryptV4Local(t1, key, undefined, empty)).not.toThrow();
     });

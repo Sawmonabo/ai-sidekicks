@@ -1,26 +1,21 @@
 import { InvalidKeyError } from "./errors.js";
 
+/** One key in a {@link KeyRing}: a 32-byte key, active while `retiredAt` is undefined. */
 export interface KeyRingEntry {
   readonly id: string; // e.g., "k_2026_05"
   readonly key: Uint8Array; // 32 bytes
   readonly createdAt: Date;
-  // `Date | undefined` (not bare `Date`) is required by tsconfig.base's
-  // `exactOptionalPropertyTypes: true`. The constructor reads this property
-  // by value (`e.retiredAt === undefined`) to classify active vs retired —
-  // every entry must carry the property, present-and-undefined for actives.
+  // `| undefined` is needed under `exactOptionalPropertyTypes`, so an active entry can carry the
+  // property explicitly.
   readonly retiredAt?: Date | undefined; // undefined when active
 }
 
 /**
- * In-memory key ring with rotation semantics.
+ * In-memory key ring with rotation; it does no persistence or I/O.
  *
- * Phase 1 scope: no persistence, no I/O. A later phase will load entries from its
- * storage backend and hand them to the constructor.
- *
- * Constructor invariants (design spec):
- *   1. At least one entry with `retiredAt: undefined` (active).
- *   2. At most one entry with `retiredAt: undefined`.
- *   Together: exactly one active entry per instance.
+ * The constructor throws `InvalidKeyError` unless there is exactly one active entry, every key is
+ * 32 bytes, and ids are unique. Entries are copied on the way in and out, so a caller cannot
+ * change the ring's keys or dates.
  */
 export class KeyRing {
   readonly #entries: readonly KeyRingEntry[];
@@ -33,17 +28,9 @@ export class KeyRing {
     if (active.length > 1) {
       throw new InvalidKeyError("KeyRing requires at most one active entry");
     }
-    // Reject duplicate ids — `byId()` returns the first match, so duplicates
-    // would make lookup order-dependent and could return a retired entry
-    // when an active one with the same id exists (or vice versa). `rotate()`
-    // already enforces this for the next-entry path; mirror the invariant
-    // here so KeyRing instances are never constructable with id collisions.
-    //
-    // Also enforce the v4.local 32-byte key invariant at intake. Without
-    // this, a malformed entry (e.g., 31 bytes) would survive construction
-    // and only blow up later in `encryptV4Local` / `decryptV4Local` —
-    // failing far from the cause. Mirrors `assertSecretKey` / `assertPublicKey`
-    // in the v4-public / v4-local modules.
+    // Duplicate ids would make `byId()` order-dependent, possibly returning a retired entry for
+    // an active id. A key of the wrong length is refused here so it does not fail later, far from
+    // the cause, inside `encryptV4Local` / `decryptV4Local`.
     const seenIds = new Set<string>();
     for (const e of entries) {
       if (e.key.length !== 32) {
@@ -56,14 +43,8 @@ export class KeyRing {
       }
       seenIds.add(e.id);
     }
-    // Deep clone each entry on intake so callers can't mutate our backing
-    // array OR the entry objects (and their mutable `Uint8Array` / `Date`
-    // fields) after construction. The `readonly` annotations on
-    // `KeyRingEntry` only restrict reassignment at the type level — they
-    // do not stop a caller from writing to `entry.key[0]` or
-    // `entry.createdAt.setTime()`. Accessors (`active()` / `byId()`) clone
-    // again on the way out so the immutability contract holds symmetrically
-    // for both inbound construction and outbound reads.
+    // `readonly` does not stop a caller writing to `entry.key[0]` or `entry.createdAt.setTime()`,
+    // so entries are deep-cloned here and again in `active()` / `byId()`.
     this.#entries = entries.map((e) => KeyRing.#cloneEntry(e));
   }
 
@@ -76,11 +57,13 @@ export class KeyRing {
     };
   }
 
+  /** Returns a copy of the one active entry. */
   active(): KeyRingEntry {
-    // Invariant guarantees exactly one match.
+    // The constructor guarantees exactly one match.
     return KeyRing.#cloneEntry(this.#entries.find((e) => e.retiredAt === undefined)!);
   }
 
+  /** Returns a copy of the entry with this id, active or retired, or undefined if there is none. */
   byId(id: string): KeyRingEntry | undefined {
     const e = this.#entries.find((entry) => entry.id === id);
     return e === undefined ? undefined : KeyRing.#cloneEntry(e);
@@ -93,7 +76,8 @@ export class KeyRing {
    *
    * Callers must reassign the variable holding the `KeyRing` after rotation —
    * `keyRing = keyRing.rotate(next)`. Calling `rotate()` and discarding the
-   * return value silently keeps the old key active.
+   * return value silently keeps the old key active. Throws `InvalidKeyError` if `next` is
+   * already retired or its id is already in the ring.
    */
   rotate(next: KeyRingEntry): KeyRing {
     if (next.retiredAt !== undefined) {

@@ -1,8 +1,5 @@
-//! sidecar-rust-pty library crate.
-//!
-//! Internal modules are exposed here so integration tests in `tests/` can
-//! access them. The binary entry point is `src/main.rs`.
-//!
+//! Library crate exposing the sidecar's modules so the integration tests in `tests/` can use them.
+//! The binary entry point is `src/main.rs`.
 
 pub mod framing;
 pub mod protocol;

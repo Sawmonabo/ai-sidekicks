@@ -1,8 +1,7 @@
-// Worktree setup contracts — the setup card's live status and its retry.
+// Worktree setup contracts: the setup card's live status and its retry.
 //
-// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js`
-// and nothing whose import closure reaches it (the transitive rule repo.ts's
-// header documents). Every module imported below is closure-clean.
+// IMPORT DIRECTION IS ONE-WAY: this module imports nothing from `./event.js` and nothing whose
+// import closure reaches it (see the header of `repo.ts`).
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -11,15 +10,10 @@ import { wireFreeFormString } from "./session.js";
 import { WORKSPACE_LAST_ERROR_MAX_LEN } from "./workspace.js";
 import { WorktreeIdSchema, type WorktreeId } from "./worktree.js";
 
-// ==========================================================================
-// The setup card — `repo.worktreeSetupSubscribe`, `repo.worktreeSetupRetry`.
-// ==========================================================================
-//
-// Setting a new tree up runs three stages in the composer card: making the tree,
-// the project's own setup steps, and warming what the session reads first. The
-// steps are kept, so leaving the session and coming back shows the card exactly
-// as it stood; a failed step stops the run there and the card stays until it is
-// retried from that step.
+// Setting a new tree up runs three stages in the composer card: making the tree, the project's own
+// setup steps, and warming what the session reads first. The steps are kept, so the card reads the
+// same after leaving the session and coming back; a failed step stops the run and the card stays
+// until it is retried from that step.
 
 /**
  * The longest step output the card carries. A setup command's captured output,

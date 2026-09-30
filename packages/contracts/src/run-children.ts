@@ -1,12 +1,7 @@
-// A child's own controls. A child here is a provider's own helper inside a run,
-// named by `childHandle` from the daemon's parent-to-child index; a child the
-// daemon bridges runs as its own run and takes that run's verbs. Each control but
-// the subtree stop carries the parent run's comparand and a requester key, as the
-// lead's interventions do. The `run.*` method table that serves these shapes is in
-// `run-control.ts`.
-//
-// Request schemas use the double-T `z.ZodType<T, T>` form and response schemas the
-// single-T `z.ZodType<T>` form, matching `session.ts`.
+// A child's own controls. A child here is a provider's own helper inside a run, named by
+// `childHandle` from the daemon's parent-to-child index; a child the daemon bridges runs as its
+// own run and takes that run's verbs. Each control but the subtree stop carries the parent run's
+// version comparand and an idempotency key.
 import { z } from "zod";
 
 import {
@@ -19,9 +14,8 @@ import { countSchema } from "./internal/wire-scalars.js";
 import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  RunIdSchema,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
+import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
 import { wireFreeFormString } from "./session.js";
 
@@ -37,6 +31,7 @@ export interface ChildSteerRequest {
   expectedRunVersion: number;
   clientIdempotencyKey: string;
 }
+/** Parses a {@link ChildSteerRequest}. */
 export const ChildSteerRequestSchema: z.ZodType<ChildSteerRequest, ChildSteerRequest> = z
   .object({
     targetRunId: RunIdSchema,
@@ -54,6 +49,7 @@ export interface ChildInterruptRequest {
   expectedRunVersion: number;
   clientIdempotencyKey: string;
 }
+/** Parses a {@link ChildInterruptRequest}. */
 export const ChildInterruptRequestSchema: z.ZodType<ChildInterruptRequest, ChildInterruptRequest> =
   z
     .object({
@@ -72,11 +68,12 @@ export interface ChildInterruptResponse {
   childHandle: ChildHandle;
   state: RunState;
 }
+/** Parses a {@link ChildInterruptResponse}. */
 export const ChildInterruptResponseSchema: z.ZodType<ChildInterruptResponse> = z
   .object({ childHandle: ChildHandleSchema, state: RunStateSchema })
   .strict();
 
-/** Pauses one child (`paused: true`) or continues it (`paused: false`): the toggle's two presses. */
+/** Pauses one child (`paused: true`) or continues it (`paused: false`). */
 export interface ChildPauseSetRequest {
   targetRunId: RunId;
   childHandle: ChildHandle;
@@ -84,6 +81,7 @@ export interface ChildPauseSetRequest {
   expectedRunVersion: number;
   clientIdempotencyKey: string;
 }
+/** Parses a {@link ChildPauseSetRequest}. */
 export const ChildPauseSetRequestSchema: z.ZodType<ChildPauseSetRequest, ChildPauseSetRequest> = z
   .object({
     targetRunId: RunIdSchema,
@@ -104,6 +102,7 @@ export interface ChildPauseSetResponse {
   paused: boolean;
   holdLost?: true | undefined;
 }
+/** Parses a {@link ChildPauseSetResponse}; a lost hold never comes with `paused: true`. */
 export const ChildPauseSetResponseSchema: z.ZodType<ChildPauseSetResponse> = z
   .object({
     childHandle: ChildHandleSchema,
@@ -123,6 +122,7 @@ export const ChildPauseSetResponseSchema: z.ZodType<ChildPauseSetResponse> = z
 export interface ChildrenStopRequest {
   runId: RunId;
 }
+/** Parses a {@link ChildrenStopRequest}. */
 export const ChildrenStopRequestSchema: z.ZodType<ChildrenStopRequest, ChildrenStopRequest> = z
   .object({ runId: RunIdSchema })
   .strict();
@@ -137,6 +137,7 @@ export interface ChildStopOutcome {
 export interface ChildrenStopResponse {
   children: ChildStopOutcome[];
 }
+/** Parses a {@link ChildrenStopResponse}; only a failed stop carries a reason. */
 export const ChildrenStopResponseSchema: z.ZodType<ChildrenStopResponse> = z
   .object({
     children: z.array(

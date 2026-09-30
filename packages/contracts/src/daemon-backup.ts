@@ -1,18 +1,11 @@
-// Backups of what the person would lose with the disk: reading where they stand,
-// starting one now, the events a run records, and the manifest each backup
-// carries.
+// Backups of what the person would lose with the disk: reading where they stand, starting
+// one now, the events a run records, and each backup's manifest.
 //
-// The service writes each backup into the folder the person chose. Settings ›
-// Runtime reads them through `daemon.backupRead`. A restore replaces the
-// service's own store, so it runs with the service stopped: the desktop app's
-// main process or `sidekicks db restore` reads each backup's manifest straight
-// from the folder, which is why the manifest's shape is a contract and not the
-// service's alone.
-//
-// A backup is sealed with the master key named in its manifest. On the machine
-// that wrote it, that key is in custody. Elsewhere it is found in the person's
-// iCloud Keychain on a Mac, or opened with the recovery passphrase from a key
-// envelope in the folder; a backup neither way reaches cannot be restored here.
+// A restore replaces the service's own store, so it runs with the service stopped and reads
+// each manifest straight from the folder; that is why the manifest's shape is a contract.
+// A backup is sealed with the master key its manifest names: in custody on the machine that
+// wrote it, elsewhere found in iCloud Keychain on a Mac or opened with the recovery
+// passphrase from a key envelope in the folder. Otherwise it cannot be restored here.
 //
 // This file imports nothing from the event registry, which imports it.
 import { z } from "zod";
@@ -45,9 +38,7 @@ export const BackupIdSchema: z.ZodType<BackupId, BackupId> = wireFreeFormString(
   "BackupId",
 ).brand<"BackupId">() as unknown as z.ZodType<BackupId, BackupId>;
 
-// --------------------------------------------------------------------------
 // The manifest
-// --------------------------------------------------------------------------
 
 /**
  * What a backup records about itself: when it was taken, the app and service
@@ -80,9 +71,7 @@ export const BackupManifestSchema: z.ZodType<BackupManifest> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // daemon.backupRead
-// --------------------------------------------------------------------------
 
 /**
  * Whether this computer can restore a backup: `ready` when the key it was sealed
@@ -166,9 +155,7 @@ export const BackupReadResponseSchema: z.ZodType<BackupReadResponse> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Events, recorded on the service's own session
-// --------------------------------------------------------------------------
 
 /** `backup.completed`: a run wrote a backup. */
 export interface BackupCompletedPayload {
@@ -198,9 +185,7 @@ export const BackupRestoredPayloadSchema: z.ZodType<BackupRestoredPayload> = z
   .object({ backupId: BackupIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // The methods
-// --------------------------------------------------------------------------
 
 /** The backup methods, keyed by method name. */
 export interface DaemonBackupMethodDescriptors {

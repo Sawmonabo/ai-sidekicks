@@ -1,18 +1,12 @@
-// The shell commands an agent started, as the screen watches and acts on them.
+// The shell commands an agent started: one live list, and the acts stop, background, write
+// and end input. The provider decides how a command runs.
 //
-// The provider decides how a command runs; the console sets no time limit, never
-// chooses foreground or background, and reports no processor or memory use. What
-// it adds is one live list with four acts: stop a command, move a waited-on one to
-// the background, type into one that is waiting on its input, and end that input.
+// Every list frame carries the whole running set, because a subscriber composing deltas
+// could hold a command the provider has already dropped. Output arrives on the same
+// subscription as it prints and is never stored; the stored `command.ended` event settles a
+// row after a reload.
 //
-// The running set is the daemon's own, rebuilt from what each provider pushes, and
-// every list frame carries the whole set: a subscriber composing deltas could hold
-// a command the provider has already dropped. A command's output arrives on the
-// same subscription as it prints and is never stored; its ending is the stored
-// `command.ended` event, which settles its row after a reload.
-//
-// This file imports nothing from `event.ts`: the event's payload lives here and the
-// event union imports it.
+// This file imports nothing from `event.ts`, which imports the event payload from here.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -33,17 +27,12 @@ export const CommandIdSchema: z.ZodType<CommandId, CommandId> = z
   .max(COMMAND_ID_MAX_LEN)
   .brand<"CommandId">() as unknown as z.ZodType<CommandId, CommandId>;
 
-// --------------------------------------------------------------------------
 // command.list — the running set, and each command's output as it prints
-// --------------------------------------------------------------------------
 
 /**
- * One running command. `name` is the command as the agent ran it, which is also
- * what its transcript row shows; `startedAt` is what the live timer counts from.
- * `waitingInForeground` is true only while the provider holds the agent's turn on
- * this command, the one state `command.background` applies to. `waitingForInput`
- * is true while the command is blocked reading its input, which is when its row
- * grows an input line on every device.
+ * One running command. `name` is the command as the agent ran it. `waitingInForeground` is
+ * true only while the provider holds the agent's turn on this command, the one state
+ * `command.background` applies to; `waitingForInput` is true while it is blocked reading input.
  */
 export interface RunningCommand {
   commandId: CommandId;
@@ -106,9 +95,7 @@ export const CommandListFrameSchema: z.ZodType<CommandListFrame> = z.discriminat
     .strict(),
 ]);
 
-// --------------------------------------------------------------------------
 // command.stop, command.background, command.write
-// --------------------------------------------------------------------------
 
 /**
  * Stop one running command. The agent receives one short message naming it, never
@@ -187,9 +174,7 @@ export const CommandWriteRequestSchema: z.ZodType<CommandWriteRequest, CommandWr
 export type CommandWriteResponse = null;
 const CommandWriteResponseSchema: z.ZodType<CommandWriteResponse> = z.null();
 
-// --------------------------------------------------------------------------
 // command.ended — the stored ending of one command
-// --------------------------------------------------------------------------
 
 /** The event a command's ending is stored as. */
 export const COMMAND_ENDED_EVENT = "command.ended" as const;
@@ -221,9 +206,7 @@ export const CommandEndedPayloadSchema: z.ZodType<CommandEndedPayload> = z
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // Method descriptors
-// --------------------------------------------------------------------------
 
 /** The `command.*` methods, keyed by name. */
 export interface CommandMethodDescriptors {
@@ -249,6 +232,8 @@ export interface CommandMethodDescriptors {
     CommandWriteResponse
   >;
 }
+
+/** The `command.*` methods' names, procedure types and shapes. */
 export const COMMAND_METHOD_DESCRIPTORS: CommandMethodDescriptors = defineMethodDescriptors({
   "command.list": {
     method: "command.list",

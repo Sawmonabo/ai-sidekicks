@@ -43,14 +43,12 @@ const workflowStepKeyFields = {
   nodeId: WorkflowNodeIdSchema,
   executionIndex: executionIndexSchema,
 };
-/** Wire schema for {@link WorkflowStepKey}, the whole input of a step read that takes nothing else. */
+/** Wire schema for {@link WorkflowStepKey}, the whole input of a step read. */
 export const WorkflowStepKeySchema: z.ZodType<WorkflowStepKey, WorkflowStepKey> = z
   .object(workflowStepKeyFields)
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.stepRead
-// --------------------------------------------------------------------------
 
 /** Which of a step's three payloads a read returns. */
 export type WorkflowStepPayloadKind = "input" | "output" | "log";
@@ -100,9 +98,7 @@ export const WorkflowStepReadResponseSchema: z.ZodType<WorkflowStepReadResponse>
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.stepOutputList
-// --------------------------------------------------------------------------
 
 /** The `workflow.stepOutputList` input: the run whose agent and human steps' outputs are listed. */
 export interface WorkflowStepOutputListRequest {
@@ -178,9 +174,7 @@ export const WorkflowStepOutputListResponseSchema: z.ZodType<WorkflowStepOutputL
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.gateResolve
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.gateResolve` input: the person's answer to an approval step, named by
@@ -220,9 +214,7 @@ export const WorkflowGateResolveResponseSchema: z.ZodType<WorkflowGateResolveRes
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.humanFormRead, workflow.humanFormDraftSave, workflow.humanFormSubmit
-// --------------------------------------------------------------------------
 
 /**
  * What the person has typed into a waiting form so far, held by the daemon so a reload
@@ -328,9 +320,7 @@ export const WorkflowHumanFormSubmitResponseSchema: z.ZodType<WorkflowHumanFormS
   .object({ submittedAt: z.iso.datetime({ offset: true }) })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.fixSessionCreate
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.fixSessionCreate` result: the fix session. The input is the failed
@@ -346,9 +336,7 @@ export const WorkflowFixSessionCreateResponseSchema: z.ZodType<WorkflowFixSessio
   .object({ sessionId: SessionIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /**
  * An approval answered, a form read or a form submitted on a step that is no longer
@@ -365,9 +353,7 @@ export type WorkflowRevisionStaleCode = "workflow.revision_stale";
 /** The code of a stale form revision. */
 export const WORKFLOW_REVISION_STALE_CODE: WorkflowRevisionStaleCode = "workflow.revision_stale";
 
-// --------------------------------------------------------------------------
 // Step events
-// --------------------------------------------------------------------------
 
 /**
  * The step a step event names, by the same members a step record is keyed by, so an
@@ -397,7 +383,7 @@ export const WorkflowStepStartedPayloadSchema: z.ZodType<WorkflowStepStartedPayl
   .object({ ...workflowStepEventFields, inputRef: WorkflowPayloadRefSchema })
   .strict();
 
-/** `workflow.step_finished`: the output and log the step produced, and its cost where one was billed. */
+/** `workflow.step_finished`: the output and log the step produced, and its cost if billed. */
 export interface WorkflowStepFinishedPayload extends WorkflowStepEventPayload {
   outputRef: WorkflowPayloadRef;
   logRef: WorkflowPayloadRef;
@@ -413,7 +399,7 @@ export const WorkflowStepFinishedPayloadSchema: z.ZodType<WorkflowStepFinishedPa
   })
   .strict();
 
-/** `workflow.step_failed`: the error, with its failure code where one names it, and the item that failed. */
+/** `workflow.step_failed`: the error, with its failure code if one names it, and the failed item. */
 export interface WorkflowStepFailedPayload extends WorkflowStepEventPayload {
   error: WorkflowStepError;
   failedItemIndex?: number | undefined;
@@ -466,9 +452,7 @@ export const WorkflowGateResolvedPayloadSchema: z.ZodType<WorkflowGateResolvedPa
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // The workflow step method table
-// --------------------------------------------------------------------------
 
 /** The `workflow.*` methods on one step, keyed by name. */
 export interface WorkflowStepMethodDescriptors {

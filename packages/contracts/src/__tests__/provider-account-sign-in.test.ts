@@ -1,7 +1,6 @@
 // `providerAccount.*` sign-in coverage: the register, credential-home reset,
 // login and login-cancel pairs, the re-supply selector on the register
 // request, and the keychain refusal's cause.
-//
 import { describe, expect, it } from "vitest";
 
 import {
@@ -18,10 +17,7 @@ import {
 
 const ACCOUNT_ID = "acct_01J8XYZ";
 const TIMESTAMP = "2026-08-31T00:00:00.000Z";
-/**
- * The one credential value this plane accepts, named once so the error-envelope
- * census below can scan for it BY VALUE and not only by member name.
- */
+/** The one credential value this plane accepts. */
 const TOKEN_FIXTURE = "sk-example-token";
 
 function validAccount(overrides: Record<string, unknown> = {}): Record<string, unknown> {
@@ -81,8 +77,7 @@ describe("registering, rebuilding a credential home, and signing in", () => {
         expiresAt: TIMESTAMP,
       }).success,
     ).toBe(true);
-    // The authorization-URL arm carries no code: the shape mirrors the
-    // provider's own, and one pinned leg emits a URL alone.
+    // The authorization-URL arm carries no code, as one provider emits a URL alone.
     expect(
       ProviderAccountLoginResponseSchema.safeParse({
         attemptId: "attempt_2",
@@ -102,20 +97,17 @@ describe("registering, rebuilding a credential home, and signing in", () => {
     for (const status of ["canceled", "notFound"]) {
       expect(ProviderAccountLoginCancelResponseSchema.safeParse({ status }).success).toBe(true);
     }
-    // `notFound` is an outcome, not an error, so there is no third arm standing
-    // in for "the attempt failed".
+    // `notFound` is an outcome, not an error, so there is no arm for "the attempt failed".
     expect(ProviderAccountLoginCancelResponseSchema.safeParse({ status: "failed" }).success).toBe(
       false,
     );
   });
 
   it("admits `accountId` on the register request only as the re-supply selector", () => {
-    // A SELECTOR, not an identity assertion: supplied, it means "replace the
-    // sealed token on THIS account", and a supplied id naming no registered
-    // account is refused by the daemon rather than created. The alternative —
-    // deregister and re-register — would daemon-mint a NEW immutable identity
-    // and discard the spend, quota, and attention history keyed to the account
-    // the operator is trying to repair.
+    // A selector, not an identity assertion: it means "replace the sealed token on this
+    // account", and an id naming no registered account is refused rather than created.
+    // Deregistering and re-registering would mint a new identity and discard the spend, quota
+    // and attention history of the account being repaired.
     expect(
       ProviderAccountRegisterRequestSchema.safeParse({
         provider: "claude",
@@ -134,10 +126,8 @@ describe("registering, rebuilding a credential home, and signing in", () => {
       }).success,
     ).toBe(false);
 
-    // NEITHER member is required on its own: an ordinary registration carries
-    // no token, and a token with no `accountId` is the ordinary token-mode
-    // registration of a NEW account. Only the combination is constrained, so
-    // both of these stay admissible.
+    // Neither member is required alone: a registration without a token is ordinary, and a token
+    // without `accountId` registers a new account. Only `accountId` without a token is refused.
     expect(
       ProviderAccountRegisterRequestSchema.safeParse({
         provider: "claude",
@@ -154,10 +144,8 @@ describe("registering, rebuilding a credential home, and signing in", () => {
       }).success,
     ).toBe(true);
 
-    // ...but the selector alone is REFUSED. A re-supply with nothing to supply
-    // is neither a registration nor a replacement, and admitting it would leave
-    // the intent to be guessed by a handler — the cheap guess being a silent
-    // no-op reported as a successful registration.
+    // The selector alone is refused: a re-supply with nothing to supply would leave a handler
+    // guessing, and the cheap guess is a silent no-op reported as a registration.
     const selectorAlone = ProviderAccountRegisterRequestSchema.safeParse({
       provider: "claude",
       displayLabel: "Personal",
@@ -168,8 +156,7 @@ describe("registering, rebuilding a credential home, and signing in", () => {
     if (selectorAlone.success) {
       throw new Error("unreachable — the selector-alone request must not parse");
     }
-    // Refused against the member the caller must ADD, not against the id, which
-    // is not the mistake.
+    // The issue points at the member the caller must add, not at the id.
     expect(selectorAlone.error.issues.map((issue) => issue.path.join("."))).toContain(
       "nonInteractiveToken",
     );

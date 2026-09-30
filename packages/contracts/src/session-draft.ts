@@ -1,19 +1,15 @@
-// The composer's daemon-held store for one session: the unsent draft, the staged
-// files, covering part of a staged picture, and the refusals staging can answer with.
+// The composer's daemon-held store for one session: the unsent draft, the staged files, covering
+// part of a staged picture, and the refusals staging can answer with.
 //
-// The daemon holds all of it, scoped to the session, so a half-typed message and its
-// staged files reach the person's other devices and Send needs no upload step. Typed
-// unsent text is never written to window storage. A staged file is copied to the
-// daemon when it is staged and kept outside the checkout, so it survives a move of the
-// working folder and never shows in a diff; from then on it is addressed by its
-// artifact id and its original path is never read again.
+// The daemon holds all of it, scoped to the session, so a half-typed message and its staged files
+// reach the person's other devices and Send needs no upload step. Typed unsent text is never
+// written to window storage. A staged file is copied to the daemon when it is staged and kept
+// outside the checkout, so it survives a move of the working folder and never shows in a diff;
+// from then on it is addressed by its artifact id and its original path is never read again.
 //
-// Every picture from outside the daemon is rewritten once when it is staged, and the
-// rewritten copy is the only one kept, shown and sent. A picture that cannot be read
-// safely is refused before anything else reads it.
-//
-// Request schemas are double-T (`z.ZodType<T, T>`) and result schemas single-T,
-// matching `session.ts`.
+// Every picture from outside the daemon is rewritten once when it is staged, and the rewritten
+// copy is the only one kept, shown and sent. A picture that cannot be read safely is refused
+// before anything else reads it.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -21,25 +17,21 @@ import { McpServerNameSchema } from "./mcp.js";
 import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 
-// --------------------------------------------------------------------------
-// Staging limits
-// --------------------------------------------------------------------------
-//
-// The daemon enforces these; a client reads them to explain a limit before the
-// refusal rather than after it. Each is the shipped default, and an operator may
-// change the first two, so a surface that shows one says it is the default until the
-// daemon reports the value in force.
+// The daemon enforces the staging limits; a client reads them to explain a limit before the
+// refusal rather than after it. Each is the shipped default, and an operator may change the first
+// two, so a surface that shows one says it is the default until the daemon reports the value in
+// force.
 
 /**
- * The largest file one staged attachment may be, in bytes, by default. Equal to the
- * largest artifact the relay carries, so every staged file can reach another device.
- * An operator may set it between one megabyte and one gigabyte.
+ * The largest file one staged attachment may be, in bytes, by default. Equal to the largest
+ * artifact the relay carries, so every staged file can reach another device. An operator may set
+ * it between one megabyte and one gigabyte.
  */
 export const SESSION_ATTACHMENT_BYTES_DEFAULT_LIMIT: number = 100 * 1024 * 1024;
 
 /**
- * How many files one message may carry, by default. One message at this count fills
- * the session's relay budget exactly. An operator may set it between 1 and 50.
+ * How many files one message may carry, by default. One message at this count fills the
+ * session's relay budget exactly. An operator may set it between 1 and 50.
  */
 export const SESSION_ATTACHMENTS_PER_MESSAGE_DEFAULT_LIMIT = 10;
 
@@ -66,9 +58,9 @@ export const SESSION_ATTACHMENT_SIGNED_MEDIA_TYPES: readonly string[] = [
 ];
 
 /**
- * The media types staging admits by default. An operator's list replaces this one
- * whole rather than editing it. `image/svg+xml` is left out on purpose: it is a
- * picture that is also a document that can run script.
+ * The media types staging admits by default. An operator's list replaces this one whole.
+ * `image/svg+xml` is left out on purpose: it is a picture that is also a document that can run
+ * script.
  */
 export const SESSION_ATTACHMENT_DEFAULT_MEDIA_TYPES: readonly string[] = [
   ...SESSION_ATTACHMENT_TEXT_MEDIA_TYPES,
@@ -76,8 +68,8 @@ export const SESSION_ATTACHMENT_DEFAULT_MEDIA_TYPES: readonly string[] = [
 ];
 
 /**
- * Why a file on a sent message can no longer be read where it sits. The message still
- * goes, and the mark stands in the file's own place on it.
+ * Why a file on a sent message can no longer be read where it sits. The message still goes, and
+ * the mark stands in the file's own place on it.
  */
 export const SESSION_ATTACHMENT_UNRESOLVED_CAUSES = [
   "deleted",
@@ -91,17 +83,10 @@ export const SESSION_ATTACHMENT_UNRESOLVED_CAUSES = [
 export type SessionAttachmentUnresolvedCause =
   (typeof SESSION_ATTACHMENT_UNRESOLVED_CAUSES)[number];
 
-// --------------------------------------------------------------------------
-// The draft
-// --------------------------------------------------------------------------
-
 /**
- * Saves a session's draft. `text` is the whole draft and replaces the one held; an
- * empty string clears it, which is what Send does.
- *
- * The text has no length limit of its own: the draft becomes the message, and a
- * message's limit is the send's to state, so a draft the send would take is never
- * refused here.
+ * Saves a session's draft. `text` is the whole draft and replaces the one held; an empty string
+ * clears it, which is what Send does. The text has no length limit of its own: a message's limit
+ * is the send's to state, so a draft the send would take is never refused here.
  */
 export interface SessionDraftUpdateRequest {
   sessionId: SessionId;
@@ -123,14 +108,10 @@ export const SessionDraftUpdateResponseSchema: z.ZodType<SessionDraftUpdateRespo
   .object({ sessionId: SessionIdSchema, updatedAt: z.iso.datetime({ offset: true }) })
   .strict();
 
-// --------------------------------------------------------------------------
-// Staged files
-// --------------------------------------------------------------------------
-
 /**
- * One staged file as the daemon holds it. Every member is what the daemon found in
- * the bytes it copied, never what the caller declared: the name it stored the file
- * under, the media type it read from the bytes, and the size it measured.
+ * One staged file as the daemon holds it. Every member is what the daemon found in the bytes it
+ * copied, never what the caller declared: the name it stored the file under, the media type it
+ * read from the bytes, and the size it measured.
  */
 export interface SessionAttachmentSummary {
   artifactId: ArtifactId;
@@ -149,10 +130,9 @@ export const SessionAttachmentSummarySchema: z.ZodType<SessionAttachmentSummary>
   .strict();
 
 /**
- * A file picked, dropped or pasted, by its path. The desktop hands the renderer only
- * an opaque token for a path, and the main process turns that token into this path on
- * its way to the daemon, so a path reaches the daemon only from the main process or
- * the command line.
+ * A file picked, dropped or pasted, by its path. The renderer only holds an opaque token for a
+ * path, and the main process turns it into this path on its way to the daemon, so a path reaches
+ * the daemon only from the main process or the command line.
  */
 export interface SessionAttachmentFileItem {
   kind: "file";
@@ -162,9 +142,8 @@ export interface SessionAttachmentFileItem {
 }
 
 /**
- * A resource a tool server publishes, by the session's name for the server and the
- * resource's own address. The address names the resource on that server and is never
- * read as a path.
+ * A resource a tool server publishes, by the session's name for the server and the resource's
+ * own address. The address names the resource on that server and is never read as a path.
  */
 export interface SessionAttachmentMcpResourceItem {
   kind: "mcpResource";
@@ -177,9 +156,9 @@ export interface SessionAttachmentMcpResourceItem {
 export type SessionAttachmentItem = SessionAttachmentFileItem | SessionAttachmentMcpResourceItem;
 
 /**
- * Stages files for the next message. The count is not limited here: a pick over the
- * message's limit stages as many as fit and refuses each of the rest by name, so no
- * file is dropped in silence.
+ * Stages files for the next message. The count is not limited here: a pick over the message's
+ * limit stages as many as fit and refuses each of the rest by name, so no file is dropped
+ * silently.
  */
 export interface SessionAttachmentAddRequest {
   sessionId: SessionId;
@@ -215,10 +194,6 @@ export const SessionAttachmentAddRequestSchema: z.ZodType<
       .min(1),
   })
   .strict();
-
-// --------------------------------------------------------------------------
-// Refusals
-// --------------------------------------------------------------------------
 
 /** The code for a file the session cannot stage. */
 export const SESSION_ATTACHMENT_REFUSED_CODE = "session.attachment_refused" as const;
@@ -296,8 +271,8 @@ const SessionAttachmentRefusalSchema: z.ZodType<SessionAttachmentRefusal> = z
   .strict();
 
 /**
- * The whole staged set after the add, so a client draws what the daemon holds rather
- * than merging its own add, and each item it did not stage with the cause.
+ * The whole staged set after the add, so a client draws what the daemon holds rather than
+ * merging its own add, and each item it did not stage with the cause.
  */
 export interface SessionAttachmentAddResponse {
   sessionId: SessionId;
@@ -313,14 +288,9 @@ export const SessionAttachmentAddResponseSchema: z.ZodType<SessionAttachmentAddR
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// Unstaging and covering
-// --------------------------------------------------------------------------
-
 /**
- * Unstages one file. The artifact itself keeps its own life; only its place in the
- * staged set goes. Removing a file that is no longer staged answers with the set as
- * it is.
+ * Unstages one file. The artifact itself keeps its own life; only its place in the staged set
+ * goes. Removing a file that is no longer staged answers with the set as it is.
  */
 export interface SessionAttachmentRemoveRequest {
   sessionId: SessionId;
@@ -351,10 +321,10 @@ export interface SessionAttachmentCoverBox {
 }
 
 /**
- * Covers parts of a staged picture before Send. The daemon draws the boxes into the
- * pixels, stores the covered copy as a new artifact that takes the old one's place in
- * the staged set, and deletes the uncovered copy, so the provider only ever receives
- * the covered picture. A picture already sent cannot be covered.
+ * Covers parts of a staged picture before Send. The daemon draws the boxes into the pixels,
+ * stores the covered copy as a new artifact that takes the old one's place in the staged set, and
+ * deletes the uncovered copy, so the provider only ever receives the covered picture. A picture
+ * already sent cannot be covered.
  */
 export interface SessionAttachmentCoverRequest {
   attachmentId: ArtifactId;
@@ -391,11 +361,7 @@ export const SessionAttachmentCoverResponseSchema: z.ZodType<SessionAttachmentCo
   .object({ attachment: SessionAttachmentSummarySchema })
   .strict();
 
-// --------------------------------------------------------------------------
-// Methods
-// --------------------------------------------------------------------------
-
-/** The composer store's methods. */
+/** The composer store's methods, keyed by method name. */
 export interface SessionDraftMethodDescriptors {
   readonly "session.draftUpdate": MethodDescriptor<
     "session.draftUpdate",

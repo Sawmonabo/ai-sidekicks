@@ -1,76 +1,28 @@
-// Contract-conformance tests for the internal provider-driver
-// contract (`provider-driver.ts`).
-//
-// Phase-1 scope is TYPE-SYSTEM CONFORMANCE + CONTRACT-VALIDATION UNITS only:
-// the nominal-TypeScript surfaces are proven by COMPILATION (a fully-typed mock
-// driver that must typecheck, plus `@ts-expect-error` negatives), and the three
-// Zod result/ingress schemas are proven by `.parse()` / `.safeParse()` units.
-// There are NO behavioral round-trips here — the daemon-side hydration seam and
-// the persistence/event projections that exercise these shapes at runtime ship
-// in Phase 2-3 (T2.x / T3.x). This file ratifies the CONTRACT, not its
-// consumers.
-//
-// Coverage map:
-//   • A mock fully implementing `ProviderDriver` (all 16 ops, correctly-typed params + returns)
-//     compiles with no session-domain change. The compile is the assertion; a runtime smoke
-//     confirms the mock is constructable and a method returns the expected shape.
-//   • A capability flag outside the 16-flag `DriverCapabilityFlag` union is a TS
-//     error (`@ts-expect-error`, self- verifying via TS2578 if the invalid flag
-//     ever became valid).
-//   • Flag currency — `DRIVER_CAPABILITY_FLAGS` carries exactly the sixteen
-//     canonical flags in canonical `transcript_replay` INSERTED at its canonical
-//     position rather than appended, and DELIBERATELY excludes `pause`, whose
-//     exclusion is permanent.
-//   • Parity ops — the four parity operations (`forkConversation`, `setSessionGoal`,
-//     `clearSessionGoal`, `probeAuth`); the two result envelopes among them
-//     (`ForkConversationResultSchema`, `DriverAuthProbeResultSchema`) plus the
-//     two driver-normalized seam schemas (`CallbackToolInvocationSchema`,
-//     `McpServerStatusEmissionSchema`) parse valid shapes, reject invalid ones,
-//     and reject unknown keys (`.strict()` on all four). The goal operations
-//     return nothing.
-//   • `InterventionType` — the union's three members are exactly
-//     `ApplyInterventionParams`' three arms; a `rollback` dispatch arm is a
-//     compile error.
-//   • `RecoveryCondition` re-type — the `failed` resume variant now accepts BOTH
-//     conditions where accepted only the `recovery-needed` literal.
-//   • `GetCapabilitiesResult.cliVersion` — REQUIRED, so a capability report
-//     omitting it is a compile error (fail-closed by construction).
-//   • Narrowing a `DriverResumeResult` to `status: "failed"` makes `.bindingId`
-//     AND `.sessionPosition` type errors; the `failed` variant structurally
-//     carries `recoveryCondition` + `recoverySpanClassification` +
-//     `providerFailureDetail`, and the `resumed` variant carries neither failure
-//     axis. Silent replacement (a binding alongside a failure signal) is
-//     inexpressible.
-//   • Resume-result currency — the `resumed` arm's REQUIRED `sessionPosition`
-//     (the position the daemon compares against its recorded one, which is what
-//     catches a provider silently answering with a FRESH session) and the
-//     `failed` arm's REQUIRED `recoverySpanClassification` (four-valued, with
-//     `unclassifiable` as the fail-closed member a driver emits rather than
-//     omitting — omission is a schema failure).
-//   • `ApplyInterventionParams.clientIdempotencyKey` — MANDATORY on all three
-//     dispatch arms (the requester-generated UUID the daemon dedupes on), so an
-//     absent key is a compile error rather than a non-deduped intervention.
-//   • `ProviderToolMetadataSchema` defaults an omitted `idempotency_class` to
-//     `manual_reconcile_only` at parse time, and passes an explicit value
-//     through unchanged.
-//   • Result-envelope schemas (the provider→daemon trust boundary) —
-//     `DriverInterventionResultSchema`, `DriverResumeResultSchema`, and the leaf
-//     `IdempotencyClassSchema` parse valid shapes and reject invalid ones (including
-//     `.strict()` extra-key rejection on the result-envelope schemas;
-//     `ProviderToolMetadataSchema`, by contrast, STRIPS unknown keys forward-compat).
-//     Every untrusted free-form string these schemas parse is length / non-whitespace /
-//     NUL-bounded via `wireFreeFormString` — exercised per field below.
-//
-// Idiom: matches the sibling unit tests in this directory — typed-variable
-// assignment as the compile-time proof (session-id.test.ts), `.parse()` /
-// `.safeParse(...).success` for schema units (session-event.test.ts), relative `../provider-driver.js` import. The package
-// uses no `expectTypeOf` / `assertType` helper, so the compile-time assertions
-// here are typed-binding + `@ts-expect-error`, exactly as the siblings do.
-//
+// Contract conformance for the provider-driver interface (`provider-driver.ts`). The nominal
+// TypeScript surfaces are proven by compilation (a fully typed mock driver plus
+// `@ts-expect-error` negatives) and the Zod result and ingress schemas by `.parse()` and
+// `.safeParse()`. No driver runs end to end here.
 import { describe, expect, it } from "vitest";
 
 import {
   DECLARED_LOSS_KINDS,
+  DriverCompactionResultSchema,
+  DriverTranscriptExportResultSchema,
+  DriverTranscriptReplayResultSchema,
+  ProviderCommandEntrySchema,
+  type CompactContextParams,
+  type DriverCompactionResult,
+  type DriverTranscriptExportResult,
+  type DriverTranscriptReplayResult,
+  type ExportTranscriptParams,
+  type ListProviderCommandsParams,
+  type ProviderCommandBindingGroup,
+  type ProviderCommandListResult,
+  type ReplayTranscriptParams,
+} from "../provider-driver-transcript.js";
+import {
+  ArtifactIdSchema,
+  CallbackToolInvocationSchema,
   DRIVER_AUTH_DETAIL_MAX_LEN,
   DRIVER_BINDING_ID_MAX_LEN,
   DRIVER_CAPABILITY_FLAGS,
@@ -82,127 +34,99 @@ import {
   DRIVER_TOOL_CALL_ID_MAX_LEN,
   DRIVER_TOOL_DESCRIPTION_MAX_LEN,
   DRIVER_TOOL_NAME_MAX_LEN,
+  DriverInterventionResultSchema,
+  IdempotencyClassSchema,
+  InterventionTypeSchema,
+  McpServerStatusEmissionSchema,
+  ProviderToolMetadataSchema,
+  RunIdSchema,
+  type ApplyInterventionParams,
+  type CallbackToolResult,
+  type CapabilityDetectionSource,
+  type CloseSessionParams,
+  type CreateSessionParams,
+  type DriverCapabilities,
+  type DriverCapabilityFlag,
+  type DriverInterventionResult,
+  type DriverTransportConfig,
+  type ExecutionPosture,
+  type GetCapabilitiesResult,
+  type InterruptRunParams,
+  type InterventionType,
+  type McpServerStatusUpdate,
+  type NormalizedProviderToolMetadata,
+  type ProviderDriver,
+  type ProviderMode,
+  type ProviderModel,
+  type ProviderSessionHandle,
+  type RespondToRequestParams,
+  type ResumeSessionParams,
+  type RunId,
+  type SessionCallbackTool,
+  type StartRunParams,
+  type SubagentPolicy,
+} from "../provider-driver.js";
+import {
+  ApplyInterventionParamsSchema,
+  CompactContextRequestSchema,
   DRIVER_WIRE_CATALOG_ENTRIES_MAX,
   DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN,
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
-  RECOVERY_CONDITIONS,
-  RECOVERY_SPAN_CLASSIFICATIONS,
-  ApplyInterventionParamsSchema,
-  ArtifactIdSchema,
-  CallbackToolInvocationSchema,
   DriverAckResultSchema,
   DriverCapabilitiesSchema,
   DriverCapabilityReportSchema,
   DriverReadParamsSchema,
   DriverSubscribeEventsParamsSchema,
   InterruptRunParamsSchema,
-  InterventionTypeSchema,
   ListCapabilitiesResultSchema,
   ListModelsRequestSchema,
   ListModelsResultSchema,
   ListModesResultSchema,
-  ProviderModelSchema,
-  ProviderModeSchema,
-  RecoveryConditionSchema,
-  RecoverySpanClassificationSchema,
-  RunIdSchema,
-  DriverAuthProbeResultSchema,
-  DriverInterventionResultSchema,
-  DriverResumeResultSchema,
-  ForkConversationResultSchema,
-  CompactContextRequestSchema,
-  DriverCompactionResultSchema,
   ListProviderCommandsRequestSchema,
   ProviderCommandBindingGroupSchema,
   ProviderCommandListResultSchema,
-  DriverTranscriptExportResultSchema,
-  DriverTranscriptReplayResultSchema,
-  IdempotencyClassSchema,
-  McpServerStatusEmissionSchema,
-  ProviderCommandEntrySchema,
-  ProviderToolMetadataSchema,
-  type ApplyInterventionParams,
-  type CallbackToolResult,
-  type CapabilityDetectionSource,
+  ProviderModeSchema,
+  ProviderModelSchema,
+} from "../provider-driver-wire.js";
+import {
+  DriverAuthProbeResultSchema,
+  DriverResumeResultSchema,
+  ForkConversationResultSchema,
+  RECOVERY_CONDITIONS,
+  RECOVERY_SPAN_CLASSIFICATIONS,
+  RecoveryConditionSchema,
+  RecoverySpanClassificationSchema,
   type ClearSessionGoalParams,
-  type CloseSessionParams,
-  type CompactContextParams,
-  type CreateSessionParams,
   type DriverAuthProbeResult,
-  type DriverCapabilities,
-  type DriverCapabilityFlag,
-  type DriverCompactionResult,
-  type DriverInterventionResult,
   type DriverResumeResult,
+  type ForkConversationParams,
   type ForkConversationResult,
-  type DriverTranscriptExportResult,
-  type DriverTranscriptReplayResult,
-  type DriverTransportConfig,
-  type ExecutionPosture,
-  type ExportTranscriptParams,
-  type GetCapabilitiesResult,
-  type InterruptRunParams,
-  type InterventionType,
-  type ListProviderCommandsParams,
-  type McpServerStatusUpdate,
-  type NormalizedProviderToolMetadata,
-  type ProviderDriver,
-  type ProviderCommandBindingGroup,
-  type ProviderCommandListResult,
-  type ProviderModel,
-  type ProviderMode,
-  type ProviderSessionHandle,
   type ProviderUsageLimitCause,
   type ProviderUsageLimitResetBoundary,
   type ProviderUsageLimitResetProvenance,
   type ProviderUsageLimitSignal,
   type RecoveryCondition,
   type RecoverySpanClassification,
-  type ReplayTranscriptParams,
-  type RespondToRequestParams,
-  type ResumeSessionParams,
-  type ForkConversationParams,
-  type RunId,
-  type SessionCallbackTool,
   type SetSessionGoalParams,
-  type StartRunParams,
-  type SubagentPolicy,
-} from "../provider-driver.js";
+} from "../provider-driver-recovery.js";
 import { type SessionId } from "../session.js";
 import * as contracts from "../index.js";
 
-// Real RFC 9562 UUIDs reused as branded-id runtime values (the brands are
-// TS-only; the runtime is a plain UUID string). Cast at the brand boundary the
-// same way the sibling fixtures feed wire strings into branded slots.
+// Real RFC 9562 UUIDs; the brands are type-only, so the runtime value is a plain string.
 const SESSION_UUID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_UUID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 
 const SESSION_ID = SESSION_UUID as SessionId;
 const RUN_ID = RUN_UUID as RunId;
 
-// The requester-generated intervention idempotency key. A real UUID rather than
-// a label token: the contract types it as a plain `string`, but the value the
-// daemon dedupes on is a caller-minted UUID, and a fixture that looked like a
-// slug would quietly normalize the reader's expectation of what callers send.
+// The requester-generated key the daemon dedupes on is a UUID, so the fixture is one.
 const CLIENT_IDEMPOTENCY_KEY = "6f9619ff-8b86-4011-b42d-00cf4fc964ff";
 
-// ===========================================================================
-// A mock fully implementing `ProviderDriver` compiles.
-// ===========================================================================
-//
-// The class below implements ALL 18 operations with correctly-typed params and
-// return shapes. The fact that it typechecks under `implements ProviderDriver`
-// (with `exactOptionalPropertyTypes` + `isolatedDeclarations` on) IS the
-// acceptance assertion: a provider integration can satisfy this contract with
-// zero changes to the session domain (`SessionId` is consumed,
-// not redefined). The runtime `it` block adds a smoke assertion so the compile
-// proof is anchored to an executing test.
-//
-// `isolatedDeclarations` requires explicit return annotations only on EXPORTED
-// declarations; this class is test-local (never exported), so the method
-// bodies need no extra annotation beyond the interface they satisfy.
+// A mock implementing every `ProviderDriver` operation must typecheck under `implements` (with
+// `exactOptionalPropertyTypes` and `isolatedDeclarations` on); the runtime tests anchor that
+// compile proof to an executing test.
 
 class MockProviderDriver implements ProviderDriver {
   public createSession(params: CreateSessionParams): Promise<ProviderSessionHandle> {
@@ -213,10 +137,8 @@ class MockProviderDriver implements ProviderDriver {
   }
 
   public resumeSession(params: ResumeSessionParams): Promise<DriverResumeResult> {
-    // A successful resume returns the `resumed` variant — carries a binding AND
-    // the confirmed position, never a failure signal (the discriminated union
-    // forbids both at once). `sessionPosition` is REQUIRED, so a mock that
-    // reported a resume the daemon could not position-compare would not compile.
+    // `resumed` carries a binding and the confirmed position, never a failure signal;
+    // `sessionPosition` is required.
     return Promise.resolve({
       status: "resumed",
       bindingId: `binding-for-${params.resumeHandle}`,
@@ -236,10 +158,8 @@ class MockProviderDriver implements ProviderDriver {
     return Promise.resolve({ status: "applied" });
   }
 
-  // Parity ops, in the interface's own order. `forkConversation` echoes the requested
-  // position back as the confirmed floor: the REQUIRED `sessionPosition` on the
-  // `applied` arm is what makes "succeeded without a confirmed floor"
-  // unrepresentable, so a mock that omitted it would not compile.
+  // `forkConversation` echoes the requested position as the confirmed floor; `sessionPosition`
+  // is required on the `applied` arm.
   public forkConversation(params: ForkConversationParams): Promise<ForkConversationResult> {
     return Promise.resolve({ status: "applied", sessionPosition: params.position });
   }
@@ -272,7 +192,7 @@ class MockProviderDriver implements ProviderDriver {
 
   public getCapabilities(): Promise<GetCapabilitiesResult> {
     const capabilities: DriverCapabilities = {
-      // Omitting one is a type error, exercised below.
+      // The flag record is total: omitting one is a type error.
       flags: {
         resume: true,
         steer: true,
@@ -295,12 +215,10 @@ class MockProviderDriver implements ProviderDriver {
     };
     return Promise.resolve({
       capabilities,
-      // `tools` is the INGRESS shape — a driver MAY omit `idempotency_class`;
-      // normalization happens at the daemon hydration seam, not here.
+      // `tools` is the ingress shape: `idempotency_class` may be omitted.
       tools: [{ name: "read_file" }, { name: "write_file", idempotency_class: "compensable" }],
-      // A capability report whose provider version did not parse never reaches
-      // the daemon, so the mock must supply the pair — omitting it is a compile
-      // error, asserted directly block below.
+      // `cliVersion` is required: a report whose provider version did not parse never reaches
+      // the daemon.
       cliVersion: { raw: "mock-provider-cli 1.4.2 (build 9)", semver: "1.4.2" },
     });
   }
@@ -311,9 +229,7 @@ class MockProviderDriver implements ProviderDriver {
 
   public exportTranscript(params: ExportTranscriptParams): Promise<DriverTranscriptExportResult> {
     return Promise.resolve({
-      // The reconciliation rule a conformant driver applies, in the one place a
-      // reader looks to learn what one does: the bound is inclusive, and the
-      // turns already in hand are the only thing it is applied to.
+      // A conformant driver keeps the turns up to and including the boundary.
       frames: params.transcript.turns
         .filter((turn) => turn.position <= params.boundary)
         .map((turn) => ({ position: turn.position })),
@@ -322,9 +238,8 @@ class MockProviderDriver implements ProviderDriver {
   }
 
   public replayTranscript(params: ReplayTranscriptParams): Promise<DriverTranscriptReplayResult> {
-    // The degraded arm is the memo floor standing in, and a memo settlement that
-    // named no loss would be rejected by the envelope's own schema — so the mock
-    // declares it rather than modeling a driver the contract refuses.
+    // A memo settlement that names no loss is rejected by the envelope schema, so the degraded
+    // arm declares one.
     return params.frames.length === 0
       ? Promise.resolve({
           status: "degraded",
@@ -334,9 +249,7 @@ class MockProviderDriver implements ProviderDriver {
   }
 
   public compactContext(params: CompactContextParams): Promise<DriverCompactionResult> {
-    // `boundaryPosition` is REQUIRED on the applied arm, so a conformant driver
-    // cannot report a compaction it has no boundary for — the mock states one
-    // rather than reaching for a member the discriminated union does not admit.
+    // `boundaryPosition` is required on the applied arm.
     return params.bindingId === ""
       ? Promise.resolve({ status: "refused", reason: "command_absent" })
       : Promise.resolve({ status: "applied", boundaryPosition: 7 });
@@ -345,14 +258,9 @@ class MockProviderDriver implements ProviderDriver {
   public listProviderCommands(
     _params: ListProviderCommandsParams,
   ): Promise<ProviderCommandListResult> {
-    // ONE group: the params name one binding, and one binding has one
-    // enumeration. `enabled` is absent rather than synthesized `true`, which is
-    // what a provider publishing no enabled/disabled distinction looks like.
-    //
-    // `runId` is the SOLE-LIVE-RUN arm here. The mock states a run because the
-    // conformance surface needs the non-null arm exercised; the two `null` arms
-    // — zero live runs and two live runs — are resolved by each driver against
-    // its own session record and asserted there.
+    // One group: the params name one binding. `enabled` is absent, as for a provider that
+    // publishes no enabled/disabled distinction. `runId` is the sole-live-run arm; the `null`
+    // arms (zero or two live runs) are resolved by each driver.
     return Promise.resolve({
       bindings: [
         {
@@ -373,15 +281,12 @@ class MockProviderDriver implements ProviderDriver {
 }
 
 describe("ProviderDriver contract: a mock implements all 18 operations", () => {
-  // Type-level proof that the mock satisfies the contract interface: assigning
-  // it to a `ProviderDriver`-typed binding will fail to compile if any of the
-  // 18 method signatures drifts from the contract. This is assertion; the
-  // runtime checks below merely anchor it to an executing test.
+  // Assigning the mock to a `ProviderDriver` binding fails to compile if any method signature
+  // drifts; the runtime checks below anchor it.
   const driver: ProviderDriver = new MockProviderDriver();
 
   it("is constructable and surfaces all 18 contract operations as callable methods", () => {
-    // Interface order, so a drift in the declaration order shows up as a diff
-    // here rather than silently reordering.
+    // Interface order, so a change in declaration order shows up as a diff.
     const operationNames = [
       "createSession",
       "resumeSession",
@@ -418,13 +323,9 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("resumeSession resolves the `resumed` arm carrying BOTH the binding and the confirmed position (runtime smoke)", async () => {
-    // Sits beside the `forkConversation` smoke below for the same reason: the `resumed`
-    // arm's REQUIRED `sessionPosition` is what the daemon compares against its
-    // RECORDED position, so without one a provider that silently answered with a
-    // fresh session would be indistinguishable from a genuine resume. Asserting
-    // the whole object (not just `status`) keeps both required members exercised
-    // rather than merely compiled — the mock derives `bindingId` from the handle
-    // it was handed, so this also shows the param reaching the driver.
+    // The daemon compares the `resumed` arm's required `sessionPosition` with its recorded one;
+    // without it a provider answering with a fresh session would look like a real resume. The
+    // whole object is asserted so both required members are exercised.
     const resumed = await driver.resumeSession({
       sessionId: SESSION_ID,
       resumeHandle: "resume-handle-opaque",
@@ -438,11 +339,8 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
 
   it("getCapabilities answers every one of the 16 flags and returns ingress tools", async () => {
     const result = await driver.getCapabilities();
-    // The canonical 16-flag `DriverCapabilityFlag` set, written alphabetically
-    // and SPELLED OUT rather than derived from `DRIVER_CAPABILITY_FLAGS`: a
-    // derived literal would agree with the const by construction and could never
-    // catch a flag silently added or removed there. Keeping it hand-written is
-    // what makes this an independent lockstep check.
+    // Hand-written, not derived from `DRIVER_CAPABILITY_FLAGS`, so a flag added or removed
+    // there is caught.
     const canonicalCapabilityFlags = [
       "callback_tools",
       "context_compaction",
@@ -461,8 +359,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
       "tool_calls",
       "transcript_replay",
     ];
-    // Structural check: the flag record is total — exactly the 16
-    // canonical flags, every one answered with a boolean.
+    // The flag record is total: every canonical flag, each answered with a boolean.
     expect(Object.keys(result.capabilities.flags).sort()).toEqual(canonicalCapabilityFlags);
     expect(result.tools).toHaveLength(2);
   });
@@ -476,8 +373,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("probeAuth resolves a DriverAuthProbeResult (runtime smoke; NOT capability-gated)", async () => {
-    // `probeAuth` is required of every driver and declares no capability flag,
-    // so there is no flag to consult before calling it.
+    // `probeAuth` is required of every driver and has no capability flag.
     const probe = await driver.probeAuth();
     expect(probe.status).toBe("authenticated");
   });
@@ -517,9 +413,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("rejects a steer intervention with an empty payload at compile time", () => {
-    // @ts-expect-error — `steer` is coupled to SteerPayload; `content` is
-    // mandatory, so the empty `payload: {}` below makes this assignment a type
-    // error (an empty payload is structurally unrepresentable for `steer`).
+    // @ts-expect-error — `steer` requires non-empty `content`, so an empty payload is a type error.
     const malformed: ApplyInterventionParams = {
       type: "steer",
       targetRunId: RUN_ID,
@@ -531,9 +425,7 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("consumes session-domain branded ids without redefining them (no session-domain change)", () => {
-    // The contract imports `SessionId` from session.ts. Binding
-    // the same brands here proves the driver reuses the session domain rather
-    // than forking it — the structural form of "no session-domain change".
+    // Binding the session-domain brands here shows the driver reuses them rather than forking.
     const startParams: StartRunParams = {
       runId: RUN_ID,
       agentConfig: {},
@@ -542,9 +434,8 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 
   it("carries the native-cap admitted cap on both the start and resume seams", () => {
-    // The omitting fixtures above prove the field is optional; these prove the
-    // typed presence form on both seams — recovery must be able to re-thread
-    // the run.queued server-stamped cap (campaign B6).
+    // The omitting fixtures above show the field is optional; recovery must be able to
+    // re-thread the admitted cap, so the typed presence form is checked on each seam.
     const cappedStart: StartRunParams = {
       runId: RUN_ID,
       agentConfig: {},
@@ -566,19 +457,10 @@ describe("ProviderDriver contract: a mock implements all 18 operations", () => {
   });
 });
 
-// ===========================================================================
-// A capability flag outside the 14-flag union is a TS error.
-// ===========================================================================
-//
-// `DriverCapabilities.flags` is `Record<DriverCapabilityFlag, boolean>`. The
-// `@ts-expect-error` directives below assert the type system REJECTS:
-//   (a) an extra flag key not in the 14-member union, and
-//   (b) an incomplete record that omits a required flag.
-// Self-verifying: an UNUSED `@ts-expect-error` is itself a TS2578 error, so if
-// the off-union flag ever became valid (e.g. the union gained `pause`,
-// excluded) the full `tsc -p tsconfig.test.json` pass would fail. No `as any`
-// / `as never` escape hatch is used — that would silence the very error this
-// case exists to surface.
+// An off-union capability flag is a type error. `DriverCapabilities.flags` is
+// `Record<DriverCapabilityFlag, boolean>`, so the `@ts-expect-error` directives below assert that
+// an extra key and an incomplete record are both rejected. An unused directive is itself a TS2578
+// error, so the check fails if the invalid flag ever became valid.
 
 describe("ProviderDriver contract: off-union capability flag is a type error", () => {
   it("rejects a capability flag outside the 14-flag DriverCapabilityFlag union at compile time", () => {
@@ -596,25 +478,18 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
       callback_tools: false,
       subagents: false,
       transcript_replay: false,
-      // `pause` is intentionally NOT in the union (models pause as an orchestration-layer construct
-      // — interrupt run, persist state, queue resume — not a driver capability and not an
-      // `InterventionType` value (`InterventionType = "steer" | "interrupt" | "cancel" |
-      // "rollback"`)). An excess key on a `Record<Union, …>` literal is a type error — the
-      // directive below MUST consume it.
-      // @ts-expect-error pause is not a DriverCapabilityFlag (pause is an orchestration-layer construct — interrupt + persist + queue-resume — not a driver capability)
+      // `pause` is deliberately not a driver capability (it is an orchestration-layer construct)
+      // and not an intervention type. An excess key on a `Record<Union, …>` literal is a type error.
+      // @ts-expect-error pause is not a DriverCapabilityFlag
       pause: true,
     };
-    // Runtime read keeps the binding "used" for lint and anchors the type
-    // proof to an executing assertion; the load-bearing check is the compile.
+    // The runtime read keeps the binding used; the compile is the check.
     expect(flagsWithExtra.resume).toBe(true);
   });
 
   it("rejects an incomplete flag record that omits a required capability (totality)", () => {
-    // `Record<DriverCapabilityFlag, boolean>` is total: omitting the three console-parity flags
-    // is a type error, so a driver cannot silently leave a capability unanswered (capabilities
-    // are explicit, never inferred from absence). Omitting ADDITIONS (rather than an original
-    // seven flag) is the load-bearing choice here: it proves the totality requirement actually
-    // extended to the widened union rather than lagging behind it.
+    // The flag record is total, so a driver cannot leave a capability unanswered. Omitting the
+    // three newest flags shows totality covers the whole union, not only the original flags.
     // @ts-expect-error the flag record is total and must answer every flag
     const incompleteFlags: DriverCapabilities["flags"] = {
       resume: true,
@@ -635,26 +510,16 @@ describe("ProviderDriver contract: off-union capability flag is a type error", (
   });
 });
 
-// ===========================================================================
-// Silent provider-session replacement is structurally inexpressible.
-// ===========================================================================
-//
-// `DriverResumeResult` is a `status`-discriminated union. The `failed` variant carries a
-// `RecoveryCondition` + a `RecoverySpanClassification` + `providerFailureDetail` and has NO
-// `bindingId` and NO `sessionPosition`; the `resumed` variant carries `bindingId` +
-// `sessionPosition` and neither failure axis. So a resume CANNOT return a binding while
-// signaling failure — the type system forbids conflating a failed resume with a successful one
-// (resume failure must surface provider-failure detail + a visible recovery-needed condition, and
-// must NOT silently create a replacement session under the same canonical run).
+// Silent provider-session replacement is inexpressible: `DriverResumeResult` is a
+// `status`-discriminated union. `failed` carries the recovery condition, span classification
+// and failure detail but no `bindingId` or `sessionPosition`; `resumed` carries those two and
+// neither failure axis. A failed resume must surface the failure, never quietly create a
+// replacement session under the same run.
 
 describe("ProviderDriver contract: failed resume cannot carry a binding", () => {
   it("forbids accessing `.bindingId` after narrowing to status:'failed' (compile-time)", () => {
-    // Parse through the schema so the static type is the genuine
-    // `DriverResumeResult` UNION (not a narrow object literal) — this is the
-    // sibling idiom (session-event.test.ts narrows a `.parse()` result). It
-    // makes the discriminator guard a REAL narrowing: the `@ts-expect-error`
-    // below is then checked against the narrowed `failed` variant, where
-    // `.bindingId` genuinely does not exist.
+    // Parse through the schema so the static type is the full `DriverResumeResult` union; the
+    // `@ts-expect-error` below is then checked against the narrowed `failed` variant.
     const resume: DriverResumeResult = DriverResumeResultSchema.parse({
       status: "failed",
       recoveryCondition: "recovery-needed",
@@ -663,24 +528,17 @@ describe("ProviderDriver contract: failed resume cannot carry a binding", () => 
     });
 
     if (resume.status === "failed") {
-      // The `failed` variant structurally carries BOTH recovery axes.
       expect(resume.recoveryCondition).toBe("recovery-needed");
       expect(resume.recoverySpanClassification).toBe("irreversible");
       expect(resume.providerFailureDetail).toBe("provider endpoint returned 410 Gone");
 
-      // …and CANNOT carry a binding. Accessing `.bindingId` on the narrowed `failed` variant is a
-      // type error — the structural proof that silent replacement (a binding alongside a failure)
-      // is inexpressible.
-      // @ts-expect-error `bindingId` does not exist on the `failed` variant (no binding alongside a failure)
+      // A binding on the `failed` variant is a type error: silent replacement is inexpressible.
+      // @ts-expect-error bindingId does not exist on the failed variant
       const leakedBinding = resume.bindingId;
-      // Nor a position. A failed resume confirms NO position, so there is
-      // nothing for the daemon to compare against its recorded one — the same
-      // structural argument as the binding, applied to the second success-only
-      // member.
-      // @ts-expect-error `sessionPosition` does not exist on the `failed` variant (a failure confirms no position to compare)
+      // Nor a position: a failed resume confirms none for the daemon to compare.
+      // @ts-expect-error sessionPosition does not exist on the failed variant
       const leakedPosition = resume.sessionPosition;
-      // Both read `undefined` at runtime (the properties are absent); the
-      // load-bearing assertions are the compile errors consumed above.
+      // Both are undefined at runtime; the compile errors above are the check.
       expect(leakedBinding).toBeUndefined();
       expect(leakedPosition).toBeUndefined();
     } else {
@@ -698,10 +556,10 @@ describe("ProviderDriver contract: failed resume cannot carry a binding", () => 
     if (success.status === "resumed") {
       expect(success.bindingId).toBe("binding-xyz");
       expect(success.sessionPosition).toBe(4);
-      // Symmetric proof: the `resumed` variant has NEITHER failure axis.
-      // @ts-expect-error `recoveryCondition` does not exist on the `resumed` variant (success carries no failure signal)
+      // The `resumed` variant has neither failure axis.
+      // @ts-expect-error recoveryCondition does not exist on the resumed variant
       const leakedRecovery = success.recoveryCondition;
-      // @ts-expect-error `recoverySpanClassification` does not exist on the `resumed` variant (the span classification is a FAILURE axis)
+      // @ts-expect-error recoverySpanClassification is a failure axis, absent on resumed
       const leakedClassification = success.recoverySpanClassification;
       expect(leakedRecovery).toBeUndefined();
       expect(leakedClassification).toBeUndefined();
@@ -711,14 +569,9 @@ describe("ProviderDriver contract: failed resume cannot carry a binding", () => 
   });
 });
 
-// ===========================================================================
-// `ProviderToolMetadataSchema` parse-time idempotency normalization.
-// ===========================================================================
-//
-// This package's first TRANSFORMING schema (Input ≠ Output): an OMITTED `idempotency_class`
-// defaults to `manual_reconcile_only` on the OUTPUT (a driver may omit it at ingress; the
-// daemon-side normalized shape requires it). — an undeclared class is NOT a contract
-// violation; the safe default applies at the normalization seam.
+// `ProviderToolMetadataSchema` is a transforming schema (input differs from output): an
+// omitted `idempotency_class` defaults to `manual_reconcile_only` in the output. A driver may
+// omit it at ingress; an undeclared class is not a contract violation.
 
 describe("ProviderToolMetadataSchema: ingress→normalized idempotency default", () => {
   it("defaults an omitted idempotency_class to 'manual_reconcile_only' at parse time", () => {
@@ -746,7 +599,6 @@ describe("ProviderToolMetadataSchema: ingress→normalized idempotency default",
       description: "Reads a file from the workspace.",
     });
     expect(normalized.description).toBe("Reads a file from the workspace.");
-    // The default still fires for the omitted class alongside a present description.
     expect(normalized.idempotency_class).toBe("manual_reconcile_only");
   });
 
@@ -766,11 +618,8 @@ describe("ProviderToolMetadataSchema: ingress→normalized idempotency default",
   });
 
   it("strips an unknown extra key (forward-compat — unknown fields ignored)", () => {
-    // The extensible tool-metadata DECLARATION surface must IGNORE unknown keys, in deliberate
-    // contrast to the `.strict()` result envelopes. The load-bearing assertion is ABSENCE of the
-    // unknown key from the normalized output (`toEqual`, not a `success`-only check) — a
-    // passthrough schema would also `success`, so only checking the exact output shape
-    // discriminates "stripped" from "leaked".
+    // Tool metadata declarations ignore unknown keys, unlike the `.strict()` result envelopes.
+    // `toEqual` on the output shows the key was stripped, not passed through.
     const result = ProviderToolMetadataSchema.safeParse({ name: "read_file", future_field: "x" });
     expect(result.success).toBe(true);
     if (result.success) {
@@ -782,14 +631,9 @@ describe("ProviderToolMetadataSchema: ingress→normalized idempotency default",
   });
 });
 
-// ===========================================================================
-// ProviderToolMetadataSchema — trust-boundary string bounds (wireFreeFormString).
-// ===========================================================================
-//
-// `name` and `description` parse UNTRUSTED provider output. Both are bounded via
-// `wireFreeFormString`: empty, whitespace-only, NUL-containing, and over-max
-// strings are REJECTED (no truncation). Over-max fixtures are built from the
-// EXPORTED `*_MAX_LEN` constant so the test tracks the contract value.
+// `name` and `description` parse untrusted provider output through `wireFreeFormString`: empty,
+// whitespace-only, NUL-containing and over-max strings are rejected, not truncated. Over-max
+// fixtures use the exported `*_MAX_LEN` constants.
 
 describe("ProviderToolMetadataSchema — untrusted free-form string bounds", () => {
   it("accepts an in-bounds name + description", () => {
@@ -821,9 +665,7 @@ describe("ProviderToolMetadataSchema — untrusted free-form string bounds", () 
     ).toBe(false);
   });
 
-  // `wireFreeFormString`'s `.max()` is INCLUSIVE — an exactly-MAX_LEN string must
-  // be ACCEPTED. Asserting only `MAX_LEN + 1` rejects would let an off-by-one
-  // regression (exclusive bound) pass silently; pin the inclusive boundary.
+  // `.max()` is inclusive; asserting only `MAX_LEN + 1` would let an off-by-one bound pass.
   it("accepts a `name` at exactly DRIVER_TOOL_NAME_MAX_LEN (inclusive boundary)", () => {
     expect(
       ProviderToolMetadataSchema.safeParse({ name: "a".repeat(DRIVER_TOOL_NAME_MAX_LEN) }).success,
@@ -839,10 +681,6 @@ describe("ProviderToolMetadataSchema — untrusted free-form string bounds", () 
     ).toBe(true);
   });
 });
-
-// ===========================================================================
-// IdempotencyClassSchema — the leaf enum guard.
-// ===========================================================================
 
 describe("IdempotencyClassSchema — the idempotency-class enum", () => {
   it.each(["idempotent", "compensable", "manual_reconcile_only"] as const)(
@@ -865,14 +703,8 @@ describe("IdempotencyClassSchema — the idempotency-class enum", () => {
   });
 });
 
-// ===========================================================================
-// DriverInterventionResultSchema — the applyIntervention result envelope.
-// ===========================================================================
-//
-// Zod-validated because it parses UNTRUSTED provider output (the provider→daemon
-// trust boundary). Flat object (not discriminated): `applied` and `degraded`
-// differ only by the optional `fallbackAction` hint and the optional
-// `refusalCode`. `.strict()` rejects any unknown key.
+// Parses untrusted provider output. A flat object, not a union: `applied` and `degraded` differ
+// only by the optional `fallbackAction` hint and `refusalCode`; `.strict()` rejects unknown keys.
 
 describe("DriverInterventionResultSchema — intervention result envelope (trust boundary)", () => {
   it("parses an `applied` result with no fallbackAction", () => {
@@ -940,11 +772,9 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
     ).toBe(false);
   });
 
-  // `refusalCode` is a CLOSED LITERAL, not a free-form string, and these two
-  // cases are what that choice buys. Its consumers key on identity — a client
-  // render and a driver-side settlement both branch on the one value — so a
-  // string-typed member would let a provider-facing surface report an arbitrary
-  // refusal that every reader would have to treat as unrecognized.
+  // `refusalCode` is a closed literal because its consumers (a client render, a driver-side
+  // settlement) branch on the one value; a free string would let a provider report refusals no
+  // reader recognizes.
   it("parses a `degraded` result carrying the text-neutralization refusal code", () => {
     const parsed: DriverInterventionResult = DriverInterventionResultSchema.parse({
       status: "degraded",
@@ -965,10 +795,8 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
   });
 
   it("rejects the refusal code beside status 'applied' (cross-field contradiction)", () => {
-    // The code IS the classification that the user's text was swallowed,
-    // and a swallowed text is precisely what `applied` denies — accepted, the
-    // pair hands callers a result whose two readers disagree (success by
-    // `status`, failure by `refusalCode`).
+    // The code says the user's text was swallowed, which `applied` denies; accepted, the two
+    // fields would disagree.
     const result = DriverInterventionResultSchema.safeParse({
       status: "applied",
       refusalCode: "driver.text_neutralization_failed",
@@ -995,8 +823,7 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
     ).toBe(false);
   });
 
-  // Inclusive `.max()`: an exactly-MAX_LEN fallbackAction must be ACCEPTED
-  // (guards against an off-by-one exclusive-bound regression).
+  // Inclusive `.max()`: an exactly-MAX_LEN value is accepted.
   it("accepts a `fallbackAction` at exactly DRIVER_FALLBACK_ACTION_MAX_LEN (inclusive boundary)", () => {
     expect(
       DriverInterventionResultSchema.safeParse({
@@ -1007,23 +834,11 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
   });
 });
 
-// ===========================================================================
-// DriverResumeResultSchema — the resumeSession result envelope.
-// ===========================================================================
-//
-// Discriminated over `status`: the `resumed` arm requires `bindingId` +
-// `sessionPosition`; the `failed` arm requires `recoveryCondition` (either of the
-// two conditions), `recoverySpanClassification` (one of the four span classes),
-// and `providerFailureDetail`. Each arm is `.strict()`, so neither a binding nor a
-// position can ride along on a failure (the runtime mirror of) and neither failure
-// axis can ride along on a success.
-//
-// FIXTURE DISCIPLINE, load-bearing now that each arm carries more than one
-// required member: every negative case below supplies a VALID value for every
-// member it is NOT testing, so each fixture's sole defect is the one its title
-// names. Otherwise a fixture keeps "failing to parse" because of a missing
-// sibling and quietly stops exercising the bound it claims to guard — an
-// off-by-one regression in `wireFreeFormString` would sail through a red test.
+// `DriverResumeResultSchema`, the resumeSession result envelope. Discriminated over `status`;
+// each arm is `.strict()`, so neither a binding nor a position can ride along on a failure and
+// neither failure axis on a success. Every negative fixture below is valid except for the one
+// defect its title names; otherwise it could keep failing on a missing sibling and stop
+// exercising the bound it guards.
 
 describe("DriverResumeResultSchema — resume result envelope (trust boundary)", () => {
   it("parses the `resumed` arm with a bindingId and a confirmed sessionPosition", () => {
@@ -1054,7 +869,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     }
   });
 
-  // --- omitted required members (exactly one defect per fixture) ------------
+  // Omitted required members.
 
   it("rejects a `resumed` object missing bindingId (field surfaced in the issue path)", () => {
     const result = DriverResumeResultSchema.safeParse({ status: "resumed", sessionPosition: 7 });
@@ -1066,10 +881,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
   });
 
   it("rejects a `resumed` object missing sessionPosition (a resume the daemon could not position-compare)", () => {
-    // The mirror of the rollback envelope's "no confirmed floor" case: with no
-    // reported position there is nothing to compare against the RECORDED one, so
-    // a provider that silently answered with a FRESH session would be
-    // indistinguishable from one that genuinely resumed.
+    // With no reported position there is nothing to compare against the recorded one, so a
+    // provider answering with a fresh session would look like a genuine resume.
     const result = DriverResumeResultSchema.safeParse({
       status: "resumed",
       bindingId: "binding-abc",
@@ -1108,10 +921,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
   });
 
   it("rejects a `failed` object missing recoverySpanClassification (omission is a schema failure, not a silent unknown)", () => {
-    // REQUIRED on this live driver return precisely so a driver that cannot
-    // classify the halted span must SAY so — by emitting `unclassifiable`, which
-    // the consumer handles exactly as `irreversible` — rather than by omitting
-    // the axis and leaving the blast radius unrecorded.
+    // Required so a driver that cannot classify the halted span says `unclassifiable` (handled
+    // as `irreversible`) instead of omitting the axis and leaving the blast radius unrecorded.
     const result = DriverResumeResultSchema.safeParse({
       status: "failed",
       recoveryCondition: "recovery-needed",
@@ -1124,7 +935,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     }
   });
 
-  // --- off-union values on the two failed-arm enums -------------------------
+  // Off-union values on the two failed-arm enums.
 
   it("rejects a `failed` object whose recoveryCondition is not a RecoveryCondition member (cause surfaced on recoveryCondition)", () => {
     const result = DriverResumeResultSchema.safeParse({
@@ -1135,18 +946,14 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      // The defect is an off-union value on `recoveryCondition`, not a missing
-      // field — assert the issue is attributed to that exact path. `all-good` is
-      // outside BOTH `RecoveryCondition` members after re-type, so this case
-      // still tests rejection rather than having silently become valid.
+      // The defect is an off-union value, not a missing field, so assert the issue's path.
       const paths = result.error.issues.map((issue) => issue.path.join("."));
       expect(paths).toContain("recoveryCondition");
     }
   });
 
   it("rejects a `failed` object whose recoverySpanClassification is off-union (cause surfaced on that path)", () => {
-    // The negative control for the four-valued axis: admitting `unclassifiable`
-    // as a legitimate driver answer did NOT make the classification open.
+    // Admitting `unclassifiable` as an answer must not make the classification open.
     const result = DriverResumeResultSchema.safeParse({
       status: "failed",
       recoveryCondition: "recovery-needed",
@@ -1160,13 +967,11 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     }
   });
 
-  // --- arm-crossing members (.strict() on each arm) -------------------------
+  // Arm-crossing members (`.strict()` on each arm).
 
   it("rejects silent replacement — a `failed` object carrying a bindingId (.strict() arm guard; unrecognized key surfaced)", () => {
-    // The runtime mirror of compile proof above: a failed resume that
-    // smuggles a `bindingId` is rejected because the `failed` arm is
-    // `.strict()` and `bindingId` is not one of its keys. So neither the type
-    // system NOR the runtime schema lets a failure carry a binding.
+    // The `failed` arm is `.strict()`, so a smuggled `bindingId` is rejected at runtime as well
+    // as by the type.
     const result = DriverResumeResultSchema.safeParse({
       status: "failed",
       recoveryCondition: "recovery-needed",
@@ -1176,12 +981,9 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     });
     expect(result.success).toBe(false);
     if (!result.success) {
-      // The rejection cause is specifically the smuggled `bindingId` key. A
-      // `.strict()` rejection raises an `unrecognized_keys` issue whose path is
-      // the object root (`[]`) and whose offending key names live on
-      // `issue.keys` — so assert against `keys`, not `path`. This pins the
-      // cause: a future fixture that grew a DIFFERENT defect cannot pass while
-      // silently no longer exercising the binding-smuggle it claims to guard.
+      // A `.strict()` rejection is an `unrecognized_keys` issue at the object root with the
+      // offending names on `issue.keys`, so assert on `keys`; that pins the cause to the
+      // smuggled `bindingId`.
       const unrecognizedKeyIssue = result.error.issues.find(
         (issue) => issue.code === "unrecognized_keys",
       );
@@ -1227,7 +1029,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     }
   });
 
-  // --- wrong types + unknown discriminator ----------------------------------
+  // Wrong types and an unknown discriminator.
 
   it("rejects a `resumed` object whose bindingId is a non-string (wrong-type at the trust boundary)", () => {
     expect(
@@ -1254,7 +1056,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     expect(DriverResumeResultSchema.safeParse({ status: "pending" }).success).toBe(false);
   });
 
-  // --- sessionPosition SHAPE bound (the recorded-position compare lives elsewhere)
+  // `sessionPosition` shape bound; comparing it with the recorded position is the daemon's job.
 
   it.each([
     ["negative", -1],
@@ -1274,9 +1076,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
   );
 
   it("accepts a resumed `sessionPosition` of 0 (the inclusive floor — a session resumed at its first position)", () => {
-    // `.min(0)` is INCLUSIVE: rejecting 0 would make a legitimately-at-the-start
-    // session unreportable, and whether 0 is the position the daemon RECORDED is
-    // the daemon's question, not this layer's.
+    // `.min(0)` is inclusive: rejecting 0 would make a session at its first position
+    // unreportable. Whether 0 is the recorded position is the daemon's question.
     expect(
       DriverResumeResultSchema.safeParse({
         status: "resumed",
@@ -1286,11 +1087,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     ).toBe(true);
   });
 
-  // wireFreeFormString bounds on the two untrusted free-form strings this
-  // envelope persists / surfaces. `bindingId` carries `/\S/` + NUL guards as
-  // defense-in-depth because it lands in `runtime_bindings` and on events — a
-  // different rationale from the human-field guards, not a "stronger is better"
-  // claim (see the schema comment in provider-driver.ts).
+  // `bindingId` carries whitespace and NUL guards as defense in depth because it lands in
+  // `runtime_bindings` and on events.
 
   it("accepts an in-bounds bindingId on the resumed arm", () => {
     expect(
@@ -1347,8 +1145,7 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
     },
   );
 
-  // Inclusive `.max()` on both envelope strings: an exactly-MAX_LEN value must be
-  // ACCEPTED (guards the inclusive boundary against an off-by-one regression).
+  // Inclusive `.max()` on both strings: an exactly-MAX_LEN value is accepted.
   it("accepts a `bindingId` at exactly DRIVER_BINDING_ID_MAX_LEN (inclusive boundary)", () => {
     expect(
       DriverResumeResultSchema.safeParse({
@@ -1371,16 +1168,8 @@ describe("DriverResumeResultSchema — resume result envelope (trust boundary)",
   });
 });
 
-// ===========================================================================
-// Capability-flag currency: sixteen flags, canonical order, one
-//        permanent exclusion.
-// ===========================================================================
-//
-// `DRIVER_CAPABILITY_FLAGS` is the single source the union, the schema's CHECK
-// list, the write-seam cardinality guard, and the driver fixtures all derive
-// from — so drift here is drift everywhere. These checks are written against
-// HAND-SPELLED expectations rather than against the const itself: a check
-// derived from the thing it checks is vacuous.
+// `DRIVER_CAPABILITY_FLAGS` is the single source the flag union derives from, so these checks use
+// hand-spelled expectations; a check derived from the const would be vacuous.
 
 describe("DRIVER_CAPABILITY_FLAGS — sixteen-flag currency", () => {
   it("carries exactly sixteen flags, in canonical", () => {
@@ -1410,55 +1199,40 @@ describe("DRIVER_CAPABILITY_FLAGS — sixteen-flag currency", () => {
   });
 
   it("places `transcript_replay` at its canonical position rather than at the end", () => {
-    // The array order IS the canonical enum order, so a flag appended for
-    // convenience would disagree with the enumeration every other surface
-    // derives from. Asserted by INDEX so an append cannot pass.
+    // The array order is the canonical enum order; asserting by index means a flag appended
+    // for convenience cannot pass.
     expect(DRIVER_CAPABILITY_FLAGS.indexOf("transcript_replay")).toBe(12);
     expect(DRIVER_CAPABILITY_FLAGS.at(-1)).toBe("output_speed");
   });
 
   it("APPENDS the three console-parity flags last, where the canonical order puts them", () => {
-    // The counterpart to the insertion above, and the reason the two rules
-    // coexist rather than contradict: position is canonical, and canonical
-    // position for these three IS the end. Asserted by INDEX for the same reason
-    // — a re-ordering that kept membership would pass a `toContain` and break
-    // every surface that reads position.
+    // Position is canonical, and for these three it is the end. Asserted by index: a reordering
+    // that kept membership would pass `toContain` and break every reader of position.
     expect(DRIVER_CAPABILITY_FLAGS.indexOf("context_compaction")).toBe(13);
     expect(DRIVER_CAPABILITY_FLAGS.indexOf("provider_commands")).toBe(14);
     expect(DRIVER_CAPABILITY_FLAGS.indexOf("output_speed")).toBe(15);
   });
 
   it("EXCLUDES `pause` — a permanent exclusion, not a pending one", () => {
-    // Models pause as an orchestration-layer construct (interrupt run, persist
-    // state, queue resume), never a driver capability. Pinned by name so the
-    // exclusion cannot be mistaken for an oversight.
+    // Pause is an orchestration-layer construct (interrupt run, persist state, queue resume),
+    // never a driver capability. Pinned by name so the exclusion is not read as an oversight.
     expect(DRIVER_CAPABILITY_FLAGS as readonly string[]).not.toContain("pause");
   });
 
   it("re-derives the DriverCapabilityFlag union from the runtime const (single source)", () => {
-    // The binding below is a COMPILE-time assertion, and it catches exactly ONE
-    // drift direction: a hand-written union that DROPPED a member would fail to
-    // accept the const, because the const's element type would then carry a
-    // literal the union lacks. It compiles today BECAUSE the union is `(typeof
-    // DRIVER_CAPABILITY_FLAGS)[number]` rather than a second listing.
+    // This compile-time binding catches one drift direction: a hand-written union that dropped a
+    // member could not accept the const. It compiles because the union is
+    // `(typeof DRIVER_CAPABILITY_FLAGS)[number]`, not a second listing.
     const flags: readonly DriverCapabilityFlag[] = DRIVER_CAPABILITY_FLAGS;
-    // A DELIBERATE runtime anchor, not a redundant identity check: the
-    // assertion this test makes is the compile above, so the executing
-    // expectation restates the cardinality the union is derived from rather
-    // than `toBe`-ing the const against itself, which would hold for any value.
+    // The runtime expectation anchors the compile check; comparing the const to itself would
+    // hold for any value.
     expect(flags).toHaveLength(16);
   });
 });
 
-// ===========================================================================
-// `ForkConversationResultSchema` (the `rollback`-gated parity envelope).
-// ===========================================================================
-//
-// Same structural guarantee as `DriverResumeResult`, applied to a second
-// operation: `sessionPosition` is REQUIRED on `applied`, so a rollback that
-// "succeeded" without a confirmed floor cannot be expressed. `bindingId` stays
-// optional (reserved for a future in-place mechanism, not for either shipped V1
-// leg), and both arms are `.strict()`.
+// The `rollback`-gated envelope. As with `DriverResumeResult`, `sessionPosition` is required on
+// `applied`, so a rollback that succeeded without a confirmed floor cannot be expressed. When
+// present, `bindingId` is the binding the fork minted. Both arms are `.strict()`.
 
 describe("ForkConversationResultSchema — rollback envelope", () => {
   it("parses an applied rollback carrying the confirmed floor", () => {
@@ -1509,7 +1283,7 @@ describe("ForkConversationResultSchema — rollback envelope", () => {
     });
     if (degraded.status === "degraded") {
       expect(degraded.fallbackAction).toBe("manual_rewind");
-      // @ts-expect-error `sessionPosition` does not exist on the `degraded` variant (a degrade confirms no floor)
+      // @ts-expect-error sessionPosition does not exist on the degraded variant
       const leakedPosition = degraded.sessionPosition;
       expect(leakedPosition).toBeUndefined();
     } else {
@@ -1576,13 +1350,9 @@ describe("ForkConversationResultSchema — rollback envelope", () => {
   );
 });
 
-// ===========================================================================
-// `DriverAuthProbeResultSchema` (the flagless zero-turn probe).
-// ===========================================================================
-//
-// Three values, not a boolean: `indeterminate` is fail-closed for admission but
-// stays DISTINGUISHABLE from `unauthenticated`, so probe health and credential
-// state never collapse into one another.
+// `DriverAuthProbeResultSchema`, the flagless zero-turn probe. Three values, not a boolean:
+// `indeterminate` fails closed for admission but stays distinguishable from `unauthenticated`,
+// so probe health and credential state never merge.
 
 describe("DriverAuthProbeResultSchema — auth-probe envelope", () => {
   it.each(["authenticated", "unauthenticated", "indeterminate"] as const)(
@@ -1651,15 +1421,10 @@ describe("DriverAuthProbeResultSchema — auth-probe envelope", () => {
   });
 });
 
-// ===========================================================================
-// The two driver-normalized SEAM schemas.
-// ===========================================================================
-//
-// `CallbackToolInvocation` and `McpServerStatusEmission` are built by the driver
-// from untrusted provider wire output, and these parses are the last point
-// before the values reach daemon-owned code. Both are `.strict()` — unlike the
-// tolerant-reader `ProviderToolMetadataSchema` — because they are fixed-field
-// DRIVER constructions, not extensible PROVIDER declarations.
+// `CallbackToolInvocation` and `McpServerStatusEmission` are built by the driver from untrusted
+// provider wire output; these parses are the last check before daemon-owned code. Both are
+// `.strict()`, unlike the tolerant `ProviderToolMetadataSchema`, because they are fixed-field
+// driver constructions, not extensible provider declarations.
 
 describe("CallbackToolInvocationSchema — callback-tool dispatch seam", () => {
   const validInvocation = {
@@ -1672,8 +1437,8 @@ describe("CallbackToolInvocationSchema — callback-tool dispatch seam", () => {
 
   it("parses a well-formed invocation and preserves the correlation id verbatim", () => {
     const parsed = CallbackToolInvocationSchema.parse(validInvocation);
-    // Verbatim, because tool-event pairing is exact-string match — a normalized
-    // id would silently break the pairing rather than fail loudly.
+    // Verbatim: tool events pair by exact string match, so a normalized id would break the
+    // pairing silently.
     expect(parsed.toolCallId).toBe("call_01H8XYZ");
     expect(parsed.arguments).toEqual({ path: "/workspace/src/index.ts" });
   });
@@ -1771,9 +1536,8 @@ describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
   });
 
   it("rejects a driver-supplied leg identity (.strict() — the daemon stamps it, never the driver)", () => {
-    // The security property this schema enforces: a driver that tried to
-    // attribute its emission to another leg is rejected outright rather than
-    // having the field quietly stripped.
+    // The daemon stamps leg identity; a driver that attributes its emission to another leg is
+    // rejected outright, not stripped.
     const result = McpServerStatusEmissionSchema.safeParse({
       serverName: "filesystem",
       status: "connected",
@@ -1820,19 +1584,13 @@ describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
   });
 });
 
-// ===========================================================================
-// `InterventionType` and the three-armed DISPATCH surface.
-// ===========================================================================
-//
-// The union is the intervention VOCABULARY; `ApplyInterventionParams`' arm set is
-// the DISPATCH surface, one arm per intervention a driver applies.
+// `InterventionType` is the intervention vocabulary; the arms of `ApplyInterventionParams` are
+// the dispatch surface, one per intervention a driver applies.
 
 describe("InterventionType — the vocabulary and the three dispatch arms", () => {
   it("accepts every member of the type", () => {
-    // `Record<InterventionType, true>` fails to compile if a type member is
-    // missing or extra, and the schema's `z.ZodType<InterventionType>`
-    // annotation refuses an extra schema member, so accepting every key here
-    // binds the runtime spelling to the type.
+    // `Record<InterventionType, true>` fails to compile on a missing or extra member, so
+    // accepting every key binds the runtime spelling to the type.
     const interventionTypeMembers: Record<InterventionType, true> = {
       steer: true,
       interrupt: true,
@@ -1845,8 +1603,7 @@ describe("InterventionType — the vocabulary and the three dispatch arms", () =
   });
 
   it("rejects `pause` as an InterventionType", () => {
-    // @ts-expect-error `pause` is not an InterventionType — models pause as an orchestration-layer
-    // construct
+    // @ts-expect-error pause is not an InterventionType
     const notAnInterventionType: InterventionType = "pause";
     expect(notAnInterventionType).toBe("pause");
   });
@@ -1864,18 +1621,11 @@ describe("InterventionType — the vocabulary and the three dispatch arms", () =
   });
 });
 
-// ===========================================================================
-// B3 — `clientIdempotencyKey` is MANDATORY on every dispatch arm.
-// ===========================================================================
-//
-// The requester-generated UUID the daemon dedupes on against the `interventions`
-// UNIQUE guard — what converts an AT-LEAST-ONCE delivery into EXACTLY-ONCE
-// application, so a retried steer re-applies nothing. Non-optional on all three
-// arms for the same reason `expectedRunVersion` is: an absent key must be a type
-// error, never a silently non-deduped intervention. Each arm declares the member
-// SEPARATELY, so all three omissions are proven rather than one standing in for
-// the set. Proven by COMPILATION; each `@ts-expect-error` is self-verifying
-// under TS2578 (an unused directive is itself an error).
+// `clientIdempotencyKey` is mandatory on every dispatch arm: the requester-generated UUID the
+// daemon dedupes on turns at-least-once delivery into exactly-once application. Like
+// `expectedRunVersion` it is non-optional, so an absent key is a type error. Each arm declares
+// it separately, so all three omissions are proven; each `@ts-expect-error` fails as unused
+// (TS2578) if the requirement is dropped.
 
 describe("ApplyInterventionParams — B3 mandatory clientIdempotencyKey", () => {
   it("carries the key on all three dispatch arms", () => {
@@ -1900,16 +1650,15 @@ describe("ApplyInterventionParams — B3 mandatory clientIdempotencyKey", () => 
       clientIdempotencyKey: CLIENT_IDEMPOTENCY_KEY,
       payload: { reason: "superseded" },
     };
-    // The key is carried VERBATIM — the daemon dedupes on exact match, so a
-    // contract that normalized it would silently break the dedupe rather than
-    // fail loudly (the same verbatim discipline as `toolCallId` below).
+    // Carried verbatim: the daemon dedupes on exact match, so normalizing would break dedupe
+    // silently.
     expect(steer.clientIdempotencyKey).toBe(CLIENT_IDEMPOTENCY_KEY);
     expect(interrupt.clientIdempotencyKey).toBe(CLIENT_IDEMPOTENCY_KEY);
     expect(cancel.clientIdempotencyKey).toBe(CLIENT_IDEMPOTENCY_KEY);
   });
 
   it("forbids omitting clientIdempotencyKey on the steer arm (compile-time)", () => {
-    // @ts-expect-error `clientIdempotencyKey` is REQUIRED — an absent key would be a non-deduped steer, not a type-checked one
+    // @ts-expect-error clientIdempotencyKey is required
     const steerWithoutKey: ApplyInterventionParams = {
       type: "steer",
       targetRunId: RUN_ID,
@@ -1920,7 +1669,7 @@ describe("ApplyInterventionParams — B3 mandatory clientIdempotencyKey", () => 
   });
 
   it("forbids omitting clientIdempotencyKey on the interrupt arm (compile-time)", () => {
-    // @ts-expect-error `clientIdempotencyKey` is REQUIRED on the interrupt arm too — each arm declares it separately
+    // @ts-expect-error clientIdempotencyKey is required on the interrupt arm too
     const interruptWithoutKey: ApplyInterventionParams = {
       type: "interrupt",
       targetRunId: RUN_ID,
@@ -1931,7 +1680,7 @@ describe("ApplyInterventionParams — B3 mandatory clientIdempotencyKey", () => 
   });
 
   it("forbids omitting clientIdempotencyKey on the cancel arm (compile-time)", () => {
-    // @ts-expect-error `clientIdempotencyKey` is REQUIRED on the cancel arm too — each arm declares it separately
+    // @ts-expect-error clientIdempotencyKey is required on the cancel arm too
     const cancelWithoutKey: ApplyInterventionParams = {
       type: "cancel",
       targetRunId: RUN_ID,
@@ -1941,10 +1690,6 @@ describe("ApplyInterventionParams — B3 mandatory clientIdempotencyKey", () => 
     void cancelWithoutKey;
   });
 });
-
-// ===========================================================================
-// `RecoveryCondition` re-type on the resume `failed` variant.
-// ===========================================================================
 
 describe("DriverResumeResultSchema — RecoveryCondition re-type", () => {
   it.each(["recovery-needed", "reauth-required"] as const)(
@@ -1965,9 +1710,8 @@ describe("DriverResumeResultSchema — RecoveryCondition re-type", () => {
   );
 
   it("still rejects a third condition (the union is two-valued, not open)", () => {
-    // The negative control for the widening: `reauth-required` now parses, but
-    // the schema did not become permissive in the process. Every other member is
-    // valid here, so the sole defect is the off-union condition.
+    // `reauth-required` parses, but the schema is not open. Every other member is valid, so the
+    // sole defect is the off-union condition.
     expect(
       DriverResumeResultSchema.safeParse({
         status: "failed",
@@ -1979,28 +1723,16 @@ describe("DriverResumeResultSchema — RecoveryCondition re-type", () => {
   });
 });
 
-// ===========================================================================
-// `RecoverySpanClassification` — the SECOND recovery axis on the failed variant.
-// ===========================================================================
-//
-// Not a widening of `RecoveryCondition` but a sibling of it: that axis names WHY
-// the run needs an operator, this one names WHAT the halted span contains, so
-// policy can tier on blast radius. V1 consumes it as AUDIT METADATA only (every
-// divergence still halts for a human), which is exactly why recording it now
-// makes tiered auto-resolution a future POLICY flip rather than a schema change.
-//
-// REQUIRED on this LIVE driver return — the optional form the replay-visible
-// carriers take exists only to admit pre-amendment history, and a resume failure
-// is produced fresh at resume time and never replayed. A driver that cannot
-// classify emits `unclassifiable`, which the consumer must handle exactly as
-// `irreversible` (the fail-closed default), rather than omitting the axis.
+// `RecoverySpanClassification` is the second recovery axis on the failed variant, a sibling of
+// `RecoveryCondition`: that one names why the run needs an operator, this one what the halted
+// span contains, so policy can tier on blast radius. It is required on this live return (a
+// resume failure is produced fresh, never replayed); a driver that cannot classify emits
+// `unclassifiable`, which the consumer handles as `irreversible`, instead of omitting the axis.
 
 describe("DriverResumeResultSchema — RecoverySpanClassification on the failed variant", () => {
   it("carries exactly the four canonical members", () => {
-    // Hand-spelled rather than derived from the type: a list derived from the
-    // thing it checks would agree by construction and could never catch a member
-    // silently added or removed. The typed binding is the lockstep proof — an
-    // off-union entry here would not compile.
+    // Hand-spelled, not derived from the type; the typed binding fails to compile on an
+    // off-union entry.
     const allSpanClassifications: RecoverySpanClassification[] = [
       "read_only",
       "idempotent_write",
@@ -2029,10 +1761,8 @@ describe("DriverResumeResultSchema — RecoverySpanClassification on the failed 
   );
 
   it("accepts `unclassifiable` — the fail-closed answer a driver gives instead of omitting the axis", () => {
-    // Called out on its own rather than left to the `it.each` above because it
-    // is the member that makes the REQUIRED-ness workable: a driver with no way
-    // to classify the span has a legitimate value to send, so omission is
-    // unambiguously a protocol defect rather than an honest silence.
+    // Its own test because it makes required-ness workable: a driver with no way to classify
+    // the span has a legitimate value to send, so omission is a protocol defect.
     const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
       status: "failed",
       recoveryCondition: "reauth-required",
@@ -2047,9 +1777,8 @@ describe("DriverResumeResultSchema — RecoverySpanClassification on the failed 
   });
 
   it("keeps the two axes independent — both conditions pair with any classification", () => {
-    // The structural claim behind NOT folding this into `RecoveryCondition`: the
-    // cross product is legal, so a `reauth-required` failure over a `read_only`
-    // span is expressible and routes on remediation and blast radius separately.
+    // The axes are independent: a `reauth-required` failure over a `read_only` span is
+    // expressible and routes on remediation and blast radius separately.
     expect(
       DriverResumeResultSchema.safeParse({
         status: "failed",
@@ -2061,26 +1790,16 @@ describe("DriverResumeResultSchema — RecoverySpanClassification on the failed 
   });
 });
 
-// ===========================================================================
-// The hoisted recovery vocabularies: REFERENCED, never re-inlined.
-// ===========================================================================
-//
-// The hoisted `RecoveryCondition` must be referenced, never re-inlined, at every
-// carrying surface. These tests are written to go red if a carrier drifts back to restating the
-// values, which is the one shape of drift the type system does NOT catch: `z.ZodType` is COVARIANT
-// in its output, so a re-inlined `z.enum` narrower than the union still satisfies a
-// `z.ZodType<RecoveryCondition>` annotation. Measured on this workspace before the hoist — widening
-// the union by a third member left `tsc -b --force` at zero errors, while narrowing it produced two
-// TS2375s — so the compile-time guard fired only in the direction the corpus never takes. Widening
-// is the direction it DID take (`recovery-needed` -> `+ reauth-required`), and its failure mode is
-// a new condition dead-lettering at parse at whichever carrier nobody updated.
+// Each recovery vocabulary is referenced at every carrying surface, never re-inlined. The type
+// system does not catch a re-inlined `z.enum` narrower than the union, because `z.ZodType` is
+// covariant in its output and it still satisfies a `z.ZodType<RecoveryCondition>` annotation.
+// The cost of that drift is a new condition dead-lettering at parse in whichever carrier nobody
+// updated, so these tests go red on it.
 
 describe("Recovery vocabularies — hoist", () => {
   it("carries exactly the two canonical conditions", () => {
-    // Hand-spelled rather than read off the array under test: a list derived
-    // from the thing it checks would agree by construction and could never
-    // catch a member silently added. Removal is caught by the other half — an
-    // entry here that left the union would not compile.
+    // Hand-spelled, not read off the array under test; an entry that left the union fails to
+    // compile.
     const canonicalConditions: RecoveryCondition[] = ["recovery-needed", "reauth-required"];
     expect([...RECOVERY_CONDITIONS]).toEqual(canonicalConditions);
   });
@@ -2105,9 +1824,8 @@ describe("Recovery vocabularies — hoist", () => {
   });
 
   it("keeps each parser closed — against the sibling vocabulary and against free strings", () => {
-    // The negative control for the hoist: single-sourcing the values did not
-    // make either parser permissive, and the two axes stayed disjoint, so a
-    // consumer switching on one can never fall into the other's arm.
+    // Single-sourcing the values must not make either parser permissive, and the two axes stay
+    // disjoint so a consumer switching on one never falls into the other's arm.
     for (const spanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
       expect(RecoveryConditionSchema.safeParse(spanClassification).success).toBe(false);
     }
@@ -2119,10 +1837,9 @@ describe("Recovery vocabularies — hoist", () => {
   });
 
   it("reaches the live resume carrier for the FULL cross product of both arrays", () => {
-    // The drift tripwire, and the reason it is driven from the arrays instead
-    // of from a written-out list: a member added upstream must reach this
-    // carrier, so a re-inlined `z.enum` here would reject it and turn this red
-    // rather than dead-lettering the new member at parse in production.
+    // The drift tripwire, driven from the arrays rather than a written-out list: a member added
+    // upstream must reach this carrier, or a re-inlined `z.enum` here rejects it and turns this
+    // red instead of dead-lettering the member at parse in production.
     for (const recoveryCondition of RECOVERY_CONDITIONS) {
       for (const recoverySpanClassification of RECOVERY_SPAN_CLASSIFICATIONS) {
         const parsed: DriverResumeResult = DriverResumeResultSchema.parse({
@@ -2141,8 +1858,8 @@ describe("Recovery vocabularies — hoist", () => {
   });
 
   it("still rejects an off-union member at the resume carrier, one axis at a time", () => {
-    // Both axes, each with the other held valid, so the sole defect is the one
-    // under test and the refusal cannot be attributed to the wrong field.
+    // Each axis is tested with the other held valid, so the refusal cannot be attributed to the
+    // wrong field.
     expect(
       DriverResumeResultSchema.safeParse({
         status: "failed",
@@ -2162,9 +1879,7 @@ describe("Recovery vocabularies — hoist", () => {
   });
 
   it("keeps both axes REQUIRED on the live resume return", () => {
-    // The hoist changed which parser validates the field, never whether the
-    // field must be there: a resume failure is produced fresh and never
-    // replayed, so there is no pre-amendment history for optionality to admit.
+    // A resume failure is produced fresh and never replayed, so neither axis is ever optional.
     for (const omitted of ["recoveryCondition", "recoverySpanClassification"] as const) {
       const failedResult: Record<string, unknown> = {
         status: "failed",
@@ -2178,12 +1893,10 @@ describe("Recovery vocabularies — hoist", () => {
   });
 
   it("reaches consumers through the `index.ts` barrel as the same instances", () => {
-    // All four symbols are newly public with this task. `index.ts` re-exports
-    // this module with `export *`, so a consumer outside the package sees them
-    // only through that line — importing via `../index.js` rather than
-    // `../provider-driver.js` is what exercises it. Identity is the
-    // load-bearing half: a shadow copy would satisfy a mere defined-ness check
-    // while drifting from the parser the daemon actually validates against.
+    // `index.ts` re-exports this module with `export *`, so consumers outside the package see
+    // these symbols only through that line; importing via `../index.js` exercises it. Identity
+    // matters: a shadow copy would pass a defined-ness check while drifting from the parser the
+    // daemon validates against.
     expect(contracts.RecoveryConditionSchema).toBe(RecoveryConditionSchema);
     expect(contracts.RecoverySpanClassificationSchema).toBe(RecoverySpanClassificationSchema);
     expect(contracts.RECOVERY_CONDITIONS).toBe(RECOVERY_CONDITIONS);
@@ -2191,13 +1904,8 @@ describe("Recovery vocabularies — hoist", () => {
   });
 });
 
-// ===========================================================================
-// Spawn/turn parity surfaces: structural invariants, not runtime checks.
-// ===========================================================================
-//
-// Everything in this block is proven by COMPILATION. Each `@ts-expect-error` is
-// self-verifying: if the shape ever loosened, the unused directive would itself
-// become a TS2578 error under `tsc -p tsconfig.test.json`.
+// Structural invariants proven by compilation. Each `@ts-expect-error` fails as unused (TS2578)
+// under `tsc -p tsconfig.test.json` if the shape loosens.
 
 describe("spawn/turn parity surfaces — structural invariants", () => {
   const allFlagsDenied: DriverCapabilities["flags"] = {
@@ -2220,7 +1928,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   };
 
   it("requires `cliVersion` on GetCapabilitiesResult (fail-closed by construction)", () => {
-    // @ts-expect-error `cliVersion` is REQUIRED — a report without a parseable provider version never reaches the daemon
+    // @ts-expect-error cliVersion is required
     const reportWithoutVersion: GetCapabilitiesResult = {
       capabilities: { flags: allFlagsDenied, contractVersion: "1.0" },
       tools: [],
@@ -2228,14 +1936,12 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
     void reportWithoutVersion;
   });
 
-  // ---- — `detectionSource`, additive-optional and live-scoped ----
+  // `detectionSource`: optional and live-scoped.
 
   it("accepts a report WITHOUT `detectionSource` — the hydrate arm", () => {
-    // ADDITIVE-OPTIONAL by contract, and the optionality is load-bearing rather
-    // than lenient: `DriverCapabilitiesWriter.hydrate()` reconstructs this
-    // wrapper from a cache that persists flag VALUES and not provenance, so a
-    // REQUIRED member would be unsatisfiable there and would have forced a
-    // durable column whose only content is a fact about a reading that is over.
+    // Optional by contract: `DriverCapabilitiesWriter.hydrate()` rebuilds this wrapper from a
+    // cache that stores flag values, not provenance, so a required member would be
+    // unsatisfiable there.
     const hydrated: GetCapabilitiesResult = {
       capabilities: { flags: allFlagsDenied, contractVersion: "1.0" },
       tools: [],
@@ -2263,10 +1969,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
         callback_tools: "static",
         subagents: "static",
         transcript_replay: "static",
-        // The three console-parity flags. `output_speed` is `static` on BOTH
-        // shipped drivers and the other two split, so a fixture that made them
-        // uniform would stop exercising the mixed-provenance shape this member
-        // exists to carry.
+        // A mix of `static` and `probed` keeps the fixture exercising mixed provenance.
         context_compaction: "probed",
         provider_commands: "probed",
         output_speed: "static",
@@ -2278,7 +1981,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
       capabilities: { flags: allFlagsDenied, contractVersion: "1.0" },
       tools: [],
       cliVersion: { raw: "2.1.251", semver: "2.1.251" },
-      // @ts-expect-error `Record<DriverCapabilityFlag, …>` is TOTAL — a partial provenance map would leave a flag's origin unstated
+      // @ts-expect-error a partial provenance map is a type error; the record is total
       detectionSource: { resume: "static" },
     };
     void partial;
@@ -2289,7 +1992,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
     const read: CapabilityDetectionSource = "probed";
     expect([declared, read]).toStrictEqual(["static", "probed"]);
 
-    // @ts-expect-error the union is closed — a third provenance would need a spec amendment, not a free string
+    // @ts-expect-error the union is closed
     const invented: CapabilityDetectionSource = "assumed";
     void invented;
   });
@@ -2330,9 +2033,8 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   });
 
   it("re-declares the same spawn-bound class on ResumeSessionParams (resume is a fresh spawn)", () => {
-    // The security property: a resume that could not re-realize posture would
-    // relaunch UNSANDBOXED. Binding the full set on the resume seam is the
-    // compile-time proof that it is not narrower than the create seam.
+    // A resume that could not re-realize the posture would relaunch unsandboxed. Binding the
+    // full set here proves the resume seam is no narrower than the create seam.
     const posture: ExecutionPosture = {
       networkAccess: "none",
       writableRoots: ["/workspace"],
@@ -2363,11 +2065,9 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   });
 
   it("forbids `allowedDomains` outside the allowed-domains network mode (compile-time)", () => {
-    // The tuple annotation is load-bearing: a bare `["api.example.test"]` widens
-    // to `string[]`, and TS then reports an ARITY mismatch on the property line
-    // rather than the EXCLUSION on the declaration — testing the wrong thing.
-    // Annotated as the tuple, the only remaining defect is the exclusion itself.
-    // @ts-expect-error `allowedDomains` is structurally absent unless networkAccess is "allowed-domains"
+    // The tuple annotation matters: a bare array literal widens to `string[]`, and TS would
+    // report an arity mismatch on the property instead of the exclusion.
+    // @ts-expect-error allowedDomains is absent unless networkAccess is "allowed-domains"
     const posture: ExecutionPosture = {
       networkAccess: "none",
       allowedDomains: ["api.example.test"] as [string, ...string[]],
@@ -2380,7 +2080,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   it("forbids an EMPTY allowedDomains list (non-empty by construction, so no fail-open reading)", () => {
     const posture: ExecutionPosture = {
       networkAccess: "allowed-domains",
-      // @ts-expect-error `[string, ...string[]]` rejects `[]` — an allow-list mode with nothing allowed is unrepresentable
+      // @ts-expect-error allowedDomains must be non-empty
       allowedDomains: [],
       writableRoots: [],
       mode: "trusted",
@@ -2389,7 +2089,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   });
 
   it("requires credentialPolicyRef on a sandboxed mode (compile-time)", () => {
-    // @ts-expect-error `credentialPolicyRef` is REQUIRED on both sandboxed modes
+    // @ts-expect-error credentialPolicyRef is required on both sandboxed modes
     const posture: ExecutionPosture = {
       networkAccess: "full",
       writableRoots: ["/workspace"],
@@ -2432,7 +2132,7 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   it("forbids an unauthenticated websocket DriverTransportConfig", () => {
     const stdio: DriverTransportConfig = { transport: "stdio" };
     expect(stdio.transport).toBe("stdio");
-    // @ts-expect-error the websocket arm REQUIRES a bearerTokenRef — an unauthenticated ws listener is unrepresentable
+    // @ts-expect-error the websocket arm requires a bearerTokenRef
     const unauthenticated: DriverTransportConfig = {
       transport: "websocket",
       endpoint: "ws://127.0.0.1:7000",
@@ -2441,29 +2141,18 @@ describe("spawn/turn parity surfaces — structural invariants", () => {
   });
 });
 
-// ===========================================================================
-// The canonical transcript export/replay envelopes.
-// ===========================================================================
-//
-// Both envelopes parse UNTRUSTED driver output, so the units below assert what
-// `.strict()` rejects as well as what the schemas accept. The frame array gets a
-// dedicated round-trip case: `frames` is typed `z.array(z.unknown())`, and an
-// `unknown` element inside a Zod object has surprising optionality semantics —
-// so "the frames come back byte-for-byte" is asserted rather than assumed.
+// Both envelopes parse untrusted driver output, so the tests assert what `.strict()` rejects as
+// well as what is accepted. `frames` is `z.array(z.unknown())` and an `unknown` element inside a
+// Zod object has surprising optionality, so a round-trip test asserts the frames come back
+// unchanged.
 
 describe("DECLARED_LOSS_KINDS — the closed declared-loss vocabulary", () => {
   it("is exactly the canonical member list, in canonical order", () => {
-    // A LITERAL pin, deliberately not derived from the const it is checking.
-    // Every other assertion over this vocabulary in the workspace compares
-    // against `DECLARED_LOSS_KINDS` itself and therefore passes whatever the
-    // const happens to say — which is precisely the drift this one exists to
-    // catch. The canonical contract owns the set and a member joins it by
-    // amendment; a build whose enum lags then reports an "upper bound" that
-    // bounds nothing and refuses, as unreadable, a marker a peer wrote correctly.
-    //
-    // ORDER is pinned with membership because two callers normalize a loss list
-    // by filtering this array, so it is the reported ordering of every
-    // declared-loss list and not merely a set.
+    // A literal list, not derived from `DECLARED_LOSS_KINDS`: an assertion against the const
+    // passes whatever it says, which is the drift this test exists to catch. A member joins the
+    // set deliberately; a build whose enum lags would report an upper bound that bounds nothing
+    // and refuse a marker a peer wrote correctly. Order is pinned too, because callers
+    // normalize a loss list by filtering this array, so it fixes the reported ordering.
     expect(DECLARED_LOSS_KINDS).toStrictEqual([
       "provider_private_reasoning",
       "context_truncated",
@@ -2475,10 +2164,8 @@ describe("DECLARED_LOSS_KINDS — the closed declared-loss vocabulary", () => {
   });
 
   it("admits every member through the validator, so the enum and the schema cannot diverge", () => {
-    // The pin above fixes the list; this one fixes the list's relationship to
-    // the boundary. A member added to the array but not reachable through the
-    // schema would be a vocabulary the daemon can name and the trust boundary
-    // rejects.
+    // The list pin above fixes membership; this ties it to the boundary. A member the schema
+    // rejects would be a vocabulary the daemon can name and the trust boundary refuses.
     for (const kind of DECLARED_LOSS_KINDS) {
       const parsed = DriverTranscriptExportResultSchema.parse({
         frames: [],
@@ -2574,8 +2261,8 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
   });
 
   it("rejects a degraded settlement whose declared-loss list is empty", () => {
-    // An empty list is the positive claim that nothing was dropped, so this
-    // value would tell a caller the memo summary IS the verbatim conversation.
+    // An empty list claims nothing was dropped, which would tell a caller the memo summary is
+    // the verbatim conversation.
     const result = DriverTranscriptReplayResultSchema.safeParse({
       status: "degraded",
       declaredLosses: [],
@@ -2584,8 +2271,8 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
   });
 
   it("rejects a degraded settlement that declares other losses but not the summarization", () => {
-    // The case a mere non-empty rule would let through: losses are named, the
-    // one that says the conversation was summarized is not.
+    // A merely non-empty rule would let this through: losses are named but not the
+    // summarization.
     const result = DriverTranscriptReplayResultSchema.safeParse({
       status: "degraded",
       declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
@@ -2594,9 +2281,8 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
   });
 
   it("accepts an applied replay with an empty declared-loss list", () => {
-    // The negative control for the rule above: requiredness is scoped to the
-    // degraded arm, so a replay that carried everything across still gets to say
-    // so with an empty list.
+    // Requiredness is scoped to the degraded arm; a replay that carried everything across may
+    // still say so with an empty list.
     const parsed: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
       status: "applied",
       declaredLosses: [],
@@ -2605,12 +2291,9 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
   });
 
   it("rejects an applied replay that declares the summarization", () => {
-    // The inverse of the degraded rule, and the reason the pair exists. The
-    // summarization kind names the memo floor standing in for the conversation,
-    // which IS the degraded settlement — so a result claiming both that native
-    // replay landed the conversation and that a summary replaced it states no
-    // reachable outcome. A one-way rule leaves it parseable, and a consumer
-    // reading `status` then publishes native-replay continuity for a session
+    // The summarization kind names the memo floor standing in for the conversation, which is the
+    // degraded settlement. A result claiming both native replay and a summary is contradictory,
+    // and a consumer reading `status` would publish native-replay continuity for a session
     // holding only a bounded summary.
     const result = DriverTranscriptReplayResultSchema.safeParse({
       status: "applied",
@@ -2620,9 +2303,8 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
   });
 
   it("rejects it even beside losses an applied replay may legitimately declare", () => {
-    // The kind is refused on its own terms rather than as a proxy for "the list
-    // is suspicious": stripping private reasoning is an ordinary applied-arm
-    // loss, and carrying it alongside does not launder the contradiction.
+    // The kind is refused on its own terms: stripping private reasoning is an ordinary applied
+    // loss, and listing it alongside does not launder the contradiction.
     const result = DriverTranscriptReplayResultSchema.safeParse({
       status: "applied",
       declaredLosses: ["provider_private_reasoning", "conversation_history_summarized"],
@@ -2631,10 +2313,7 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
   });
 
   it("keeps every OTHER kind admissible on the applied arm", () => {
-    // The negative control for the inverse rule: it is scoped to exactly one
-    // kind, so the applied arm keeps its full latitude over the rest. A rule
-    // that had over-reached to "applied declares nothing structural" would fail
-    // here.
+    // The rule is scoped to one kind; the applied arm keeps its latitude over the rest.
     const parsed: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
       status: "applied",
       declaredLosses: [
@@ -2645,10 +2324,8 @@ describe("DriverTranscriptReplayResultSchema — the canonical transcript replay
         "turn_content_truncated",
       ],
     });
-    // Every member of the vocabulary except the one the inverse rule forbids
-    // here, so the count is a quantifier over the enum rather than a tally: a
-    // member admitted to `DECLARED_LOSS_KINDS` without being listed here would
-    // leave "every OTHER kind" claiming more than the case drives.
+    // Every kind except the forbidden one, counted against the enum so a member added to
+    // `DECLARED_LOSS_KINDS` but not listed here fails this test.
     expect(parsed.declaredLosses).toHaveLength(DECLARED_LOSS_KINDS.length - 1);
   });
 });
@@ -2668,8 +2345,8 @@ describe("transcript operation params — nominal shapes", () => {
             segments: [{ kind: "text", position: 7, text: "go" }],
           },
           {
-            // Two consecutive same-role events folded into ONE turn: it opened at
-            // 12 and took more content at 30, which is past the bound below.
+            // Two same-role events folded into one turn: opened at 12, more content at 30, past
+            // the bound below.
             position: 12,
             role: "assistant",
             segments: [
@@ -2687,12 +2364,10 @@ describe("transcript operation params — nominal shapes", () => {
       boundary: 12,
     };
     expect([...Object.keys(params)].sort()).toStrictEqual(["boundary", "sessionId", "transcript"]);
-    // `boundary` and `CanonicalTranscriptSegment.position` speak one vocabulary,
-    // so "export up to and including the bound" is a filter over the segments
-    // already in hand — the driver needs no access to anything else to apply it,
-    // and the bound is inclusive, so the segment AT it comes along. Applied per
-    // SEGMENT: the middle turn's own position is inside the bound while half its
-    // content is not, so a turn-level filter would carry position 30 across.
+    // `boundary` and `CanonicalTranscriptSegment.position` share one vocabulary, so "export up
+    // to and including the bound" is a filter over the segments already in hand. It applies per
+    // segment: the middle turn's position is inside the bound while half its content is not, so
+    // a turn-level filter would carry position 30 across.
     const exported = params.transcript.turns
       .map((turn) => ({
         ...turn,
@@ -2706,7 +2381,7 @@ describe("transcript operation params — nominal shapes", () => {
   });
 
   it("requires the bound on an export request rather than leaving it to be inferred", () => {
-    // @ts-expect-error `boundary` is REQUIRED — an export with no stated bound would leave a driver to decide for itself where the transcript ends
+    // @ts-expect-error boundary is required
     const unbounded: ExportTranscriptParams = {
       sessionId: "session-transcript-2" as SessionId,
       transcript: {
@@ -2736,17 +2411,14 @@ describe("transcript operation params — nominal shapes", () => {
 });
 
 describe("DriverCompactionResultSchema — the two structural rules, made checkable", () => {
-  // This schema is NOT a wire guard and no dispatch path parses through it: the
-  // compaction result is composed daemon-side from the wait's own settlement.
-  // What it exists for is exactly what this suite asserts — the two structural
-  // rules the canonical doc states are enforced by the type rather than narrated
-  // in prose beside it, so a later widening that broke either one fails here.
+  // Not a wire guard, and no dispatch path parses through it: the compaction result is
+  // composed daemon-side from the wait's own settlement. It exists so the two structural rules
+  // are enforced by the type; a later widening that broke either fails here.
 
   it("REQUIRES `boundaryPosition` on the applied arm", () => {
-    // A driver reporting a compaction it has no boundary for is reporting a
-    // compaction it cannot prove: the boundary row IS the typed evidence, and an
-    // applied arm without one would let the operation settle on the request
-    // having been accepted, which is the exact failure both mechanisms invite.
+    // A compaction with no boundary is one the driver cannot prove: the boundary row is the
+    // typed evidence, and without it the operation could settle on the request merely having
+    // been accepted.
     const withoutPosition = { status: "applied" };
     expect(DriverCompactionResultSchema.safeParse(withoutPosition).success).toBe(false);
     expect(
@@ -2755,9 +2427,8 @@ describe("DriverCompactionResultSchema — the two structural rules, made checka
   });
 
   it("accepts a NULL position as the positive statement that the frame named none", () => {
-    // `.nullable()` and not `.optional()` — see the shape's own doctrine. This is
-    // the one case where "no number" is a fact about the provider's frame rather
-    // than a gap in the driver's reporting.
+    // Nullable, not optional: this is the one case where "no number" is a fact about the
+    // provider's frame rather than a gap in the driver's reporting.
     const parsed = DriverCompactionResultSchema.safeParse({
       status: "applied",
       boundaryPosition: null,
@@ -2766,10 +2437,9 @@ describe("DriverCompactionResultSchema — the two structural rules, made checka
   });
 
   it("admits `capability_undeclared` as NO arm's reason", () => {
-    // Dropped deliberately: the static capability gate refuses an undeclared
-    // compaction BEFORE the driver is called, so an arm for it would be a second
-    // and contradictory encoding of one refusal. Both refusal-shaped arms are
-    // probed, so this cannot pass by the reason landing on the other one.
+    // The static capability gate refuses an undeclared compaction before the driver is called,
+    // so an arm for it would be a second, contradictory encoding of one refusal. Both
+    // refusal-shaped arms are probed so the reason cannot pass by landing on the other.
     expect(
       DriverCompactionResultSchema.safeParse({
         status: "refused",
@@ -2785,9 +2455,8 @@ describe("DriverCompactionResultSchema — the two structural rules, made checka
   });
 
   it("keeps the three failure reasons and the two refusal reasons on their own arms", () => {
-    // The split is not cosmetic: a refusal is a decision (the command is absent,
-    // the caller was denied) and a failure is an outcome (the evidence never
-    // arrived). Crossing them would let a denied caller read as a wedged
+    // A refusal is a decision (command absent, caller denied) and a failure is an outcome (the
+    // evidence never arrived); crossing them would make a denied caller read as a wedged
     // provider.
     for (const reason of ["wait_expired", "binding_lost", "provider_error"]) {
       expect(DriverCompactionResultSchema.safeParse({ status: "failed", reason }).success).toBe(
@@ -2826,11 +2495,9 @@ describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose
   } as const;
 
   it("carries a NULL account rather than synthesizing a placeholder", () => {
-    // A session need not have bound a provider account at all. `null` states that
-    // positively; `""` or `"unknown"` would make the routing invariant
-    // unenforceable while looking enforced, since two accountless bindings on
-    // different providers would then compare equal on the half of the pair that
-    // is supposed to separate them.
+    // A session need not have bound a provider account. `null` states that; `""` or
+    // `"unknown"` would make the routing pair look enforced while accountless bindings on
+    // different providers compared equal on the half meant to separate them.
     expect(
       ProviderCommandEntrySchema.safeParse({
         ...wellFormedEntry,
@@ -2846,8 +2513,8 @@ describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose
   });
 
   it("REQUIRES the binding pair — an absent account key does not parse", () => {
-    // The difference `null` is carrying: absence would be indistinguishable from
-    // a driver that forgot to report one, and the pair is the routing key.
+    // Absence would look like a driver that forgot to report one, and the pair is the routing
+    // key.
     expect(
       ProviderCommandEntrySchema.safeParse({
         ...wellFormedEntry,
@@ -2859,8 +2526,8 @@ describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose
   });
 
   it("keeps `enabled` optional so an absent flag is not synthesized `true`", () => {
-    // A provider publishing no enabled/disabled distinction reports no flag; a
-    // synthesized `true` would claim an offerability the provider never stated.
+    // A provider with no enabled/disabled distinction reports no flag; a synthesized `true`
+    // would claim an offerability it never stated.
     const parsed = ProviderCommandEntrySchema.parse(wellFormedEntry);
     expect(Object.hasOwn(parsed, "enabled")).toBe(false);
     expect(
@@ -2869,12 +2536,9 @@ describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose
   });
 
   it('refuses an EMPTY description, so a driver must omit rather than forward `""`', () => {
-    // Not hypothetical: the Codex skills surface types its description as
-    // REQUIRED, so a skill whose front matter declares none arrives as `""`. A
-    // driver that forwarded it verbatim would fail its own enumeration on an
-    // honest provider reading. Omission is also the truthful encoding — absence
-    // says the provider published no description, where `""` would say it
-    // published one and it was blank.
+    // The Codex skills surface types its description as required, so a skill whose front matter
+    // declares none arrives as `""`. Forwarding it verbatim would fail the driver's own
+    // enumeration on an honest reading; omission also says truthfully that none was published.
     expect(
       ProviderCommandEntrySchema.safeParse({ ...wellFormedEntry, description: "" }).success,
     ).toBe(false);
@@ -2885,9 +2549,8 @@ describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose
   });
 
   it("bounds both provider-authored strings and refuses an unknown key", () => {
-    // A local skill file's front matter is operator-writable and the assembled
-    // list travels to a client, so the description is bounded like every other
-    // untrusted free-form string in this module.
+    // A local skill file's front matter is operator-writable and the list travels to a client,
+    // so the description is bounded like every other untrusted string here.
     expect(
       ProviderCommandEntrySchema.safeParse({
         ...wellFormedEntry,
@@ -2902,37 +2565,31 @@ describe("ProviderCommandEntrySchema — the routing pair a consumer cannot lose
 });
 
 describe("ProviderCommandBindingGroup — provenance that is stated, never synthesized", () => {
-  // The group's `runId` and `binding` pair is PROVENANCE a client reads, not an
-  // addressing handle, and both halves are nullable for the same reason: a
-  // binding outlives any one of its runs and need not have bound an account at
-  // all, so the shape must be able to say "none" without saying it by omission.
-  //
-  // The RESOLUTION of which arm applies is each driver's, against its own session
-  // record; what is asserted here is that the contract admits all three answers
-  // and that no arm is reachable only by dropping a key.
+  // The group's `runId` and `binding` are provenance a client reads, not an addressing handle.
+  // Both are nullable because a binding outlives any one of its runs and need not have bound an
+  // account; the shape must say "none" without omitting the key. Each driver resolves which arm
+  // applies; this asserts the contract admits all three answers.
 
   const bindingPair = { driverName: "codex", providerAccountId: "account-1" } as const;
   const entry = { name: "compact", kind: "command", binding: bindingPair } as const;
 
   it("admits the sole-live-run arm, the zero-run arm, and the two-live-runs arm", () => {
-    // Arm 1 — exactly one live run: that run answers.
+    // Exactly one live run: that run answers.
     const soleLiveRun: ProviderCommandBindingGroup = {
       runId: RUN_ID,
       binding: bindingPair,
       entries: [entry],
       complete: true,
     };
-    // Arm 2 — the ordinary pre-first-turn palette read. It SUCCEEDS with null
-    // rather than refusing: a binding that has not run anything yet is not an
-    // error, and the entries it enumerates are perfectly real.
+    // Zero live runs (the ordinary pre-first-turn palette read) succeeds with null; a binding
+    // that has not run anything yet is not an error.
     const zeroLiveRuns: ProviderCommandBindingGroup = {
       runId: null,
       binding: bindingPair,
       entries: [entry],
       complete: true,
     };
-    // Arm 3 — two live turns on one binding. No single run is attributable, and
-    // picking either would be a coin flip presented as provenance.
+    // Two live turns on one binding: no single run is attributable.
     const noSingleAttributableRun: ProviderCommandBindingGroup = {
       runId: null,
       binding: bindingPair,
@@ -2946,9 +2603,7 @@ describe("ProviderCommandBindingGroup — provenance that is stated, never synth
   });
 
   it("keeps the key PRESENT on every arm, so absence is never the encoding", () => {
-    // The distinction the nullable buys: an omitted key would be
-    // indistinguishable from a producer that forgot to report one, which is the
-    // exact ambiguity the pair exists to remove.
+    // An omitted key would look like a producer that forgot to report one.
     const zeroLiveRuns: ProviderCommandBindingGroup = {
       runId: null,
       binding: { driverName: "codex", providerAccountId: null },
@@ -2970,20 +2625,11 @@ describe("ProviderCommandBindingGroup — provenance that is stated, never synth
   });
 });
 
-// --------------------------------------------------------------------------
-// Client-facing SDK-seam wire schemas
-// --------------------------------------------------------------------------
-//
-// A DIFFERENT boundary from everything above: these schemas guard CLIENT input
-// crossing into the daemon over JSON-RPC and the daemon's own replies going back
-// out. The blocks below assert the three things that boundary is for — that a
-// caller cannot send a shape the daemon would have to guess at, that a reply
-// carries exactly the members the spec routes to a client and no more, and that
-// the two structural refusals this seam owns (a `rollback` dispatch arm, a
-// missing answer) are refusals rather than conventions.
-
+// Client-facing wire schemas: client input crossing into the daemon over JSON-RPC and the
+// daemon's replies going back. They refuse shapes the daemon would have to guess at, and each
+// reply carries exactly the members meant for a client.
 const A_RUN_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3301";
-/** An id into ``'s manifest space — the steer carrier's element. */
+/** An artifact id, the element of the steer payload's attachments. */
 const AN_ARTIFACT_ID = "3f2504e0-4f89-41d3-9a0c-0305e82c3302";
 const ANOTHER_UUID = "0b1c2d3e-4f50-4162-8374-859607a8b9c0";
 
@@ -2998,9 +2644,8 @@ describe("RunIdSchema — the brand's validator, co-located with the brand", () 
   });
 
   it("REFUSES a non-UUID run id", () => {
-    // The whole point of validating rather than casting: a run id crossing the
-    // client boundary is untrusted, and a path fragment or SQL fragment reaching
-    // a store lookup keyed on this value is exactly what shape-rejection stops.
+    // A run id crossing the client boundary is untrusted; a path or SQL fragment reaching a
+    // store lookup keyed on it is what shape rejection stops.
     expect(RunIdSchema.safeParse("../../etc/passwd").success).toBe(false);
     expect(RunIdSchema.safeParse("run-1").success).toBe(false);
     expect(RunIdSchema.safeParse("").success).toBe(false);
@@ -3013,19 +2658,16 @@ describe("ArtifactIdSchema — the attachment element brand, homed by the same r
   });
 
   it("REFUSES a non-UUID artifact id", () => {
-    // Same reason as `RunIdSchema` above: the value reaches a manifest lookup in
-    // the artifact space, so a path or store-key fragment must not arrive as
-    // one.
+    // Same reason as `RunIdSchema`: the value reaches an artifact manifest lookup, so a path or
+    // store-key fragment must not arrive as one.
     expect(ArtifactIdSchema.safeParse("../../etc/passwd").success).toBe(false);
     expect(ArtifactIdSchema.safeParse("artifact-1").success).toBe(false);
     expect(ArtifactIdSchema.safeParse("").success).toBe(false);
   });
 
   it("is re-exported from the package barrel under its own name", () => {
-    // The one home rule this brand has to keep: every consumer — the
-    // `run-control.ts` today, the `artifacts/` module — imports THIS symbol
-    // rather than declaring a sibling, so a second source of truth for what
-    // an artifact id is cannot appear.
+    // Every consumer imports this symbol rather than declaring a sibling, so there is one
+    // source of truth for what an artifact id is.
     expect(contracts.ArtifactIdSchema).toBe(ArtifactIdSchema);
   });
 
@@ -3038,11 +2680,9 @@ describe("ArtifactIdSchema — the attachment element brand, homed by the same r
   ])(
     "accepts %s — the ratified accept set is any RFC 9562 form, case-insensitively",
     (_label, value) => {
-      // ratifies "any RFC 9562 form", and RFC 9562 section 4 admits "uppercase
-      // or lowercase" hex. An id that parsed in one spelling and refused in the
-      // other would make the ratified accept set untrue of the shipped schema
-      // for exactly one value — the Max UUID, which is also the daemon-scope
-      // anchoring sentinel.
+      // RFC 9562 section 4 admits upper- or lowercase hex, so the accept set is
+      // case-insensitive; an id that parsed in one spelling and not the other would be wrong for
+      // the Max UUID.
       expect(ArtifactIdSchema.parse(value)).toBe(value);
     },
   );
@@ -3064,9 +2704,8 @@ describe("DriverReadParams / DriverAckResult — the two empty envelopes", () =>
   });
 
   it("REFUSES a driver selector on the read request — every reply answers for every driver", () => {
-    // `.strict()` is what makes a `{ driverName }` request a refusal instead of
-    // a silently ignored key that a caller would then believe had filtered the
-    // reply.
+    // `.strict()` makes a `{ driverName }` request a refusal, not a silently ignored key the
+    // caller would believe had filtered the reply.
     expect(DriverReadParamsSchema.safeParse({ driverName: "claude" }).success).toBe(false);
     expect(DriverAckResultSchema.safeParse({ status: "ok" }).success).toBe(false);
   });
@@ -3097,10 +2736,9 @@ describe("DriverCapabilitiesSchema — flag totality is derived, never hand-list
   });
 
   it("REFUSES a flags object that omits a declared flag", () => {
-    // The runtime half of the structural claim. `Record<DriverCapability Flag,
-    // boolean>` makes omission a compile error inside the daemon; over the wire
-    // there is no compiler, so the schema has to carry it — otherwise a client
-    // would read "undeclared" for a capability the driver declared true.
+    // `Record<DriverCapabilityFlag, boolean>` makes omission a compile error inside the daemon;
+    // over the wire the schema must carry it, or a client would read "undeclared" for a
+    // capability the driver declared true.
     const flags = allFlagsFalse();
     delete flags["steer"];
     expect(DriverCapabilitiesSchema.safeParse({ flags, contractVersion: "1.0.0" }).success).toBe(
@@ -3118,9 +2756,8 @@ describe("DriverCapabilitiesSchema — flag totality is derived, never hand-list
   });
 
   it("bounds contractVersion at the same value the capability snapshot uses", () => {
-    // Deliberately the same 64 as `CAPABILITY_CONTRACT_VERSION_MAX_LEN`: a
-    // version string that survives this reply must also survive the
-    // `CapabilityDetails` snapshot, or the two disagree about one value.
+    // The same 64 as `CAPABILITY_CONTRACT_VERSION_MAX_LEN`: a version string that survives this
+    // reply must survive the `CapabilityDetails` snapshot too.
     expect(DRIVER_WIRE_CONTRACT_VERSION_MAX_LEN).toBe(64);
     expect(
       DriverCapabilitiesSchema.safeParse({
@@ -3149,10 +2786,9 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
   });
 
   it("REFUSES detectionSource, cliVersion, and tools — the three members that stop at the driver", () => {
-    // scopes this reply to the flags, and `cliVersion` alike do not reach it.
-    // `.strict()` is what turns those sentences into something a test can fail
-    // on: without it a daemon that composed the whole `GetCapabilitiesResult`
-    // would ship provenance to every client and nothing would notice.
+    // This reply is scoped to the flags. `.strict()` makes that testable: a daemon that
+    // composed the whole `GetCapabilitiesResult` would otherwise ship provenance to every
+    // client unnoticed.
     for (const forbidden of [
       { detectionSource: { steer: "static" } },
       { cliVersion: { raw: "2.1.251", semver: "2.1.251" } },
@@ -3165,9 +2801,8 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
   });
 
   it("keeps outputSpeedLevels ABSENT rather than defaulting it to an empty list", () => {
-    // Absent and empty are different readings — an empty vocabulary asserts an
-    // axis with nothing settable on it. A `.default([])` here would erase the
-    // distinction at the parse meant to preserve it.
+    // Absent and empty differ: an empty vocabulary asserts an axis with nothing settable on it,
+    // and `.default([])` would erase that.
     const { outputSpeedLevels: _levels, ...withoutLevels } = report;
     const parsed = DriverCapabilityReportSchema.parse(withoutLevels);
     expect(Object.hasOwn(parsed, "outputSpeedLevels")).toBe(false);
@@ -3189,8 +2824,8 @@ describe("ListCapabilitiesResultSchema — what crosses to a client, and what st
   });
 
   it("carries each driver's built-in tools, and refuses a report without them", () => {
-    // Every driver has tools of its own, so a report without the list is a
-    // composition fault rather than a driver with none.
+    // Every driver has tools of its own, so a report without the list is a composition fault,
+    // not a driver with none.
     expect(DriverCapabilityReportSchema.parse(report).builtInTools).toEqual([
       "Read",
       "Edit",
@@ -3231,9 +2866,9 @@ describe("ListModelsResultSchema / ListModesResultSchema — provenance survives
         },
       ],
     });
-    // The grouping IS the provenance: model ids collide across providers and
-    // carry no vendor marker, so a flat array would hand a caller one driver's
-    // catalog with no way to tell which.
+    // The grouping is the provenance: model ids collide across providers and carry no vendor
+    // marker, so a flat array would hand a caller one driver's catalog with no way to tell
+    // which.
     expect(parsed.drivers.map((entry) => entry.driverName)).toEqual(["claude", "codex"]);
   });
 
@@ -3310,10 +2945,9 @@ describe("InterruptRunParamsSchema — the run-addressed wire shape, RunIdSchema
   });
 
   it("REFUSES a session selector beside the run id", () => {
-    // A run id is globally unique, so a `sessionId` here would be a second
-    // addressing key with no honest answer when the two disagree. the
-    // console-parity verbs are the deliberate contrast — their targets are only
-    // identified within a session.
+    // A run id is globally unique, so a `sessionId` would be a second addressing key with no
+    // honest answer when the two disagree. The parity verbs contrast: their targets are
+    // identified only within a session.
     expect(
       InterruptRunParamsSchema.safeParse({ runId: A_RUN_ID, sessionId: ANOTHER_UUID }).success,
     ).toBe(false);
@@ -3358,17 +2992,11 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
   });
 
   it("REFUSES a rollback arm at the discriminator, not merely at its payload", () => {
-    // `rollback` is not an `InterventionType`, so a `rollback` request must
-    // fail PARSE rather than reach a handler that would have to invent a
-    // refusal for it.
-    //
-    // The payload here is `{}` — VALID for the interrupt and cancel arms —
-    // deliberately, so the refusal can only be coming from the discriminator. A
-    // rollback-shaped payload would refuse under any of the three arms' own
-    // `.strict()` and would therefore prove nothing about the arm set. The
-    // second assertion adds the rollback-shaped case for completeness, and the
-    // third pins the issue path to the discriminant so a future arm rename
-    // cannot make this test pass for the wrong reason.
+    // `rollback` is not an `InterventionType`, so it must fail parse rather than reach a handler
+    // that has to invent a refusal. The payload is `{}`, valid for the interrupt and cancel arms,
+    // so only the discriminator can refuse it; a rollback-shaped payload would fail any arm's
+    // `.strict()` and prove nothing about the arm set. The issue path is pinned to `type` so an
+    // arm rename cannot make this pass for the wrong reason.
     expect(
       ApplyInterventionParamsSchema.safeParse({ ...base, type: "rollback", payload: {} }).success,
     ).toBe(false);
@@ -3389,8 +3017,8 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
   });
 
   it("REFUSES a non-UUID idempotency key — this is the seam that validates it", () => {
-    // A caller-chosen free string would land in a durable receipt and make
-    // replay keying depend on client discipline.
+    // A caller-chosen free string would land in a durable receipt and make replay keying depend
+    // on client discipline.
     expect(
       ApplyInterventionParamsSchema.safeParse({
         ...base,
@@ -3402,9 +3030,8 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
   });
 
   it("REFUSES a fractional or negative expectedRunVersion", () => {
-    // Optimistic-concurrency state: either would compare unequal to every stored
-    // version and turn the check into an unconditional refusal that reads as a
-    // conflict.
+    // Optimistic-concurrency state: either value would compare unequal to every stored version,
+    // making the check an unconditional refusal that reads as a conflict.
     for (const version of [1.5, -1]) {
       expect(
         ApplyInterventionParamsSchema.safeParse({
@@ -3452,22 +3079,15 @@ describe("DriverSubscribeEventsParamsSchema — run-scoped, and answered by the 
   });
 });
 
-// --------------------------------------------------------------------------
-// The typed provider usage-limit signal, as a SIBLING axis
-// --------------------------------------------------------------------------
+// Provider usage-limit signal, a sibling axis.
 
 describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition member", () => {
   it("keeps the two cause vocabularies mutually unassignable in BOTH directions", () => {
-    // The row's rule — "the signal is never emitted as a `RecoveryCondition`
-    // member" — is a claim about the TYPES, so it is asserted where it can
-    // actually fail. A runtime check could only ever sample the values a test
-    // happened to write down; these two lines fail the build the moment either
-    // union grows into the other, which is the drift that would let a
-    // self-clearing pause be routed into the operator-remediation queue.
-    //
-    // BOTH directions, deliberately. A one-way check would still pass if
-    // `RecoveryCondition` were widened to contain the usage-limit cause, which
-    // is precisely the widening this axis exists to prevent.
+    // A `RecoveryCondition` must never carry the usage-limit cause; that is a claim about types,
+    // so it is asserted where it can fail. These lines break the build if either union grows
+    // into the other, which would route a self-clearing pause into the operator-remediation
+    // queue. Both directions are checked: a one-way check would pass if `RecoveryCondition`
+    // were widened to contain the cause.
     // @ts-expect-error — a usage-limit cause is not a recovery condition.
     const conditionFromCause: RecoveryCondition = "plan-allowance-exhausted";
     // @ts-expect-error — a recovery condition is not a usage-limit cause.
@@ -3485,9 +3105,9 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
   });
 
   it("restates the V1 capability matrix UNWIDENED — recognition is a uniform obligation", () => {
-    // Adds NO capability flag, on the `probeAuth` precedent: a flag would let a
-    // driver declare the obligation away, and a run refused for spend would
-    // then sit in the generic failure path with nothing saying why.
+    // No capability flag is added (as with `probeAuth`): a flag would let a driver declare the
+    // obligation away, leaving a run refused for spend in the generic failure path with nothing
+    // saying why.
     expect(DRIVER_CAPABILITY_FLAGS).toHaveLength(16);
     for (const flag of DRIVER_CAPABILITY_FLAGS) {
       expect(flag).not.toMatch(/usage|limit|rate/);
@@ -3495,8 +3115,8 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
   });
 
   it("makes a bare instant and a bare provenance stamp both inexpressible", () => {
-    // The boundary is ONE object rather than two sibling optionals, which is
-    // what stops a consumer holding an instant it cannot weigh.
+    // The boundary is one object, not two optionals, so a consumer never holds an instant it
+    // cannot weigh.
     const boundary: ProviderUsageLimitResetBoundary = {
       resetsAt: "2026-09-01T00:00:00.000Z",
       provenance: "provider-stated",
@@ -3537,15 +3157,12 @@ describe("ProviderUsageLimitSignal — a sibling axis, never a RecoveryCondition
   });
 });
 
-// --------------------------------------------------------------------------
-// Additive-optional provider-account identity on the spawn carriers
-// --------------------------------------------------------------------------
+// Optional provider-account identity on the spawn carriers.
 
 describe("provider-account identity on CreateSessionParams / ResumeSessionParams", () => {
   it("leaves a no-identifier create structurally identical to the pre-amendment shape", () => {
-    // ADDITIVE-OPTIONAL means the unchanged path stays unchanged: a create that
-    // names no account carries no member for one, so nothing downstream can read
-    // an absent account as a present-but-empty one.
+    // Optional means the unchanged path stays unchanged: a create that names no account carries
+    // no member for one, so nothing can read an absent account as present-but-empty.
     const preAmendmentCreate: CreateSessionParams = {
       sessionId: SESSION_ID,
       config: { cwd: "/tmp/session" },
@@ -3573,15 +3190,14 @@ describe("provider-account identity on CreateSessionParams / ResumeSessionParams
       resumeHandle: "provider-handle-1",
       providerAccountId: "acct-01J8ZK",
     };
-    // The SAME identity on both, which is the property: a resume that re-realized
-    // whichever account is default now would move a live run's spend onto an
-    // account it was never admitted against.
+    // The same identity on both: a resume that re-realized whichever account is default now
+    // would move a live run's spend onto an account it was never admitted against.
     expect(resume.providerAccountId).toBe(create.providerAccountId);
   });
 
   it("keeps the identifier OPAQUE — a structured value is not admitted", () => {
-    // The driver may not parse it, so the contract does not hand it anything
-    // parseable: it is a string, not a record naming a home or a credential.
+    // The driver may not parse the id, so it is a string, not a record naming a home or a
+    // credential.
     const structured: CreateSessionParams = {
       sessionId: SESSION_ID,
       config: {},
@@ -3592,9 +3208,7 @@ describe("provider-account identity on CreateSessionParams / ResumeSessionParams
   });
 });
 
-// --------------------------------------------------------------------------
-// The two console-parity wire requests + the group-list reply schemas
-// --------------------------------------------------------------------------
+// Console-parity wire requests and the group-list reply schemas.
 
 describe("CompactContextRequestSchema / ListProviderCommandsRequestSchema — session-addressed, and no binding member exists", () => {
   const AGENT_UUID = "770e8400-e29b-41d4-a716-446655440002";
@@ -3607,11 +3221,9 @@ describe("CompactContextRequestSchema / ListProviderCommandsRequestSchema — se
   });
 
   it("REFUSES a bindingId beside either pair — the wire admits NO binding member", () => {
-    // The canonical contract publishes no `bindingId` anywhere on the client
-    // surface, and `.strict()` is what turns that sentence into a refusal: a
-    // caller naming a binding believes it holds an addressing key the daemon
-    // deliberately never handed out, and a silently ignored key would leave it
-    // believing the dispatch was binding-routed.
+    // The client surface publishes no `bindingId`, and `.strict()` makes that a refusal: a
+    // caller naming a binding believes it holds an addressing key the daemon never handed out,
+    // and an ignored key would leave it believing the dispatch was binding-routed.
     expect(
       CompactContextRequestSchema.safeParse({ ...compactRequest, bindingId: "binding-1" }).success,
     ).toBe(false);
@@ -3622,9 +3234,8 @@ describe("CompactContextRequestSchema / ListProviderCommandsRequestSchema — se
   });
 
   it("REFUSES a non-UUID value in every addressing slot", () => {
-    // All three are untrusted caller-supplied strings; UUID-shape rejection is
-    // what stops a path or SQL fragment from reaching a store lookup (the
-    // `RunIdSchema` doctrine, applied to the whole address).
+    // All three are untrusted caller-supplied strings; UUID-shape rejection stops a path or SQL
+    // fragment from reaching a store lookup.
     expect(
       CompactContextRequestSchema.safeParse({ ...compactRequest, sessionId: "../../etc" }).success,
     ).toBe(false);
@@ -3661,7 +3272,7 @@ describe("ProviderCommandBindingGroupSchema / ProviderCommandListResultSchema �
   });
 
   it("REFUSES an absent runId key — `.nullable()` is not `.optional()`", () => {
-    // Which is the exact ambiguity the nullable member exists to remove.
+    // An omitted key would look like a producer that forgot to report one.
     const { runId: _runId, ...withoutRunId } = group;
     expect(ProviderCommandBindingGroupSchema.safeParse(withoutRunId).success).toBe(false);
   });
@@ -3688,9 +3299,8 @@ describe("ProviderCommandBindingGroupSchema / ProviderCommandListResultSchema �
   });
 
   it("bounds entries at the SAME 512 the provider boundary admits, not this seam's 256", () => {
-    // A smaller reply-side cap would turn a legitimate 300-command enumeration
-    // that the shared constant is what keeps the two boundaries from
-    // disagreeing about one list.
+    // A smaller reply-side cap would reject a legitimate 300-command enumeration; sharing the
+    // constant keeps the two boundaries from disagreeing about one list.
     const atCap = {
       ...group,
       entries: Array.from({ length: DRIVER_PROVIDER_COMMAND_ENTRIES_MAX }, () => entry),
@@ -3713,9 +3323,9 @@ describe("ProviderCommandBindingGroupSchema / ProviderCommandListResultSchema �
   });
 
   it("REFUSES the empty group list — a success reply is never empty", () => {
-    // The handler refuses an agent with no live binding as `driver.unavailable`
-    // BEFORE any dispatch, so zero groups on a resolved reply is a composition
-    // bug and `.min(1)` makes it parse as one.
+    // The handler refuses an agent with no live binding as `driver.unavailable` before any
+    // dispatch, so zero groups on a resolved reply is a composition bug, and `.min(1)` makes it
+    // parse as one.
     expect(ProviderCommandListResultSchema.safeParse({ bindings: [] }).success).toBe(false);
     expect(ProviderCommandListResultSchema.safeParse({ bindings: [group] }).success).toBe(true);
     expect(

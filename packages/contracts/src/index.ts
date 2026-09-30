@@ -1,15 +1,5 @@
-// @ai-sidekicks/contracts — public API surface.
-//
-// The session core:
-//   • session.ts — branded ID schemas, shared enums + projection types,
-//     SessionRead / SessionSubscribe payloads
-//   • event.ts   — the SessionEvent discriminated union, seeded with the
-//                 session creation event; the live roster is
-//                 whatever `SESSION_EVENT_TYPES` enumerates, grown additively
-//                 (no count is pinned in this header)
-//   • error.ts   — the error envelopes and their codes
-//
-// Anything re-exported here is a stable cross-package contract.
+// @ai-sidekicks/contracts public surface: everything re-exported here is a cross-package
+// contract.
 export * from "./account.js";
 export * from "./agent-definition.js";
 export * from "./agent-provider-binding.js";
@@ -33,6 +23,10 @@ export * from "./daemon-status.js";
 export * from "./device.js";
 export * from "./driver-event.js";
 export * from "./error.js";
+export * from "./event-declared-variants.js";
+export * from "./event-envelope.js";
+export * from "./event-registry.js";
+export * from "./event-variant-types.js";
 export * from "./event.js";
 export * from "./gitflow/index.js";
 export * from "./highlight.js";
@@ -58,6 +52,9 @@ export * from "./provider-account-methods.js";
 export * from "./provider-account-sign-in.js";
 export * from "./provider-account.js";
 export * from "./provider-driver.js";
+export * from "./provider-driver-recovery.js";
+export * from "./provider-driver-transcript.js";
+export * from "./provider-driver-wire.js";
 export * from "./provider-import.js";
 export * from "./provider.js";
 export * from "./pty-host-protocol.js";

@@ -44,9 +44,7 @@ import {
 /** The statuses of a run that is still going: new, running or waiting. */
 const GOING_RUN_STATUSES: readonly WorkflowRunStatus[] = ["new", "running", "waiting"];
 
-// --------------------------------------------------------------------------
 // workflow.runRead
-// --------------------------------------------------------------------------
 
 /** The `workflow.runRead` input. */
 export interface WorkflowRunReadRequest {
@@ -126,9 +124,7 @@ export const WorkflowRunReadResponseSchema: z.ZodType<WorkflowRunReadResponse> =
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.runList
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.runList` input: the runs table's four filters (workflow, status,
@@ -256,10 +252,7 @@ export const WorkflowRunListResponseSchema: z.ZodType<WorkflowRunListResponse> =
     message: "A page holds no more runs than the total.",
   });
 
-// --------------------------------------------------------------------------
-// workflow.runDelete, workflow.runsDeletePreview, workflow.runsDelete,
-// workflow.runKeepSet
-// --------------------------------------------------------------------------
+// workflow.runDelete, workflow.runsDeletePreview, workflow.runsDelete, workflow.runKeepSet
 
 /**
  * The `workflow.runDelete` input. Deleting a run removes its record, its steps and its
@@ -329,7 +322,7 @@ export const WorkflowRunsDeleteResponseSchema: z.ZodType<WorkflowRunsDeleteRespo
   .object({ deletedCount: z.number().int().nonnegative() })
   .strict();
 
-/** The `workflow.runKeepSet` input and result: whether the run's step data outlives the time bound. */
+/** The `workflow.runKeepSet` input and result: whether the run's step data outlives its bound. */
 export interface WorkflowRunKeepSet {
   workflowRunId: WorkflowRunId;
   keep: boolean;
@@ -339,9 +332,7 @@ export const WorkflowRunKeepSetSchema: z.ZodType<WorkflowRunKeepSet, WorkflowRun
   .object({ workflowRunId: WorkflowRunIdSchema, keep: z.boolean() })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.runAttentionList
-// --------------------------------------------------------------------------
 
 /** `workflow.runAttentionList` takes no members: the runs table's filters never narrow it. */
 export type WorkflowRunAttentionListRequest = Record<string, never>;
@@ -427,9 +418,7 @@ export const WorkflowRunAttentionListResponseSchema: z.ZodType<WorkflowRunAttent
     { path: ["waitingOnPersonCount"], message: "The count is of the runs waiting on a person." },
   );
 
-// --------------------------------------------------------------------------
 // workflow.runsPauseSet
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.runsPauseSet` input: the hold on starting new runs, one per daemon over
@@ -455,9 +444,7 @@ export const WorkflowRunsPauseStateSchema: z.ZodType<WorkflowRunsPauseState> = z
   .object({ paused: z.boolean(), waitingStartCount: z.number().int().nonnegative() })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.keptVarsClear
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.keptVarsClear` input: clear every value `Keep for later runs` kept for
@@ -482,9 +469,7 @@ export const WorkflowKeptVarsClearResponseSchema: z.ZodType<WorkflowKeptVarsClea
   .object({ workflowId: WorkflowDefinitionIdSchema, clearedCount: z.number().int().nonnegative() })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.subscribe
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.subscribe` input: one subscription for the whole runs surface and the
@@ -569,19 +554,15 @@ export const WorkflowSubscribeNotificationSchema: z.ZodType<WorkflowSubscribeNot
       .strict(),
   ]);
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
-/** `Delete run` on a new, running or waiting run, which reads `Cancel it first.`; nothing is deleted. */
+/** `Delete run` on a new, running or waiting run; nothing is deleted (`Cancel it first.`). */
 export type WorkflowRunNotDeletableCode = "workflow.run_not_deletable";
 /** The code of a delete on a run that is still going. */
 export const WORKFLOW_RUN_NOT_DELETABLE_CODE: WorkflowRunNotDeletableCode =
   "workflow.run_not_deletable";
 
-// --------------------------------------------------------------------------
 // The workflow run records method table
-// --------------------------------------------------------------------------
 
 /** The `workflow.*` methods that read, list and keep run records, keyed by name. */
 export interface WorkflowRunRecordMethodDescriptors {

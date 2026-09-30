@@ -1,15 +1,9 @@
-// The service's acts on everything it keeps for the person, and on the keys that
-// read it: export it all as a readable folder, erase it all, unlock a service
-// whose master key opens only with a passphrase, rotate the keys, set the
-// recovery passphrase the backups' key envelope is wrapped under, and keep the
-// backups' key in the person's iCloud Keychain on a Mac.
+// The service's acts on everything it keeps for the person and on the keys that read it:
+// export, erase, unlock, key rotation, the recovery passphrase, and iCloud Keychain key sync.
+// Settings › Runtime and the command line send the same verbs.
 //
-// Settings › Runtime and the command line send the same verbs over the daemon's
-// socket. How each key is held (the keychain entry, the security chip, the
-// passphrase file) is the service's own business and is not described here.
-//
-// Every passphrase member is write-only: it is on no response, event or log,
-// and the service keeps none of them.
+// Every passphrase member is write-only: it is on no response, event or log, and the service
+// keeps none of them.
 import { z } from "zod";
 
 import { ERROR_MESSAGE_MAX_LEN } from "./error.js";
@@ -46,9 +40,7 @@ export const DaemonEmptyPayloadSchema: z.ZodType<DaemonEmptyPayload, DaemonEmpty
   .object({})
   .strict();
 
-// --------------------------------------------------------------------------
 // Export all data
-// --------------------------------------------------------------------------
 
 /** The id of one export job, minted by the service. */
 export type DataExportJobId = string & { readonly __brand: "DataExportJobId" };
@@ -129,9 +121,7 @@ export const DataExportProgressSchema: z.ZodType<DataExportProgress> = z.discrim
   ],
 );
 
-// --------------------------------------------------------------------------
 // Keys
-// --------------------------------------------------------------------------
 
 /** The passphrase that opens the master key on a machine with no security chip and no keychain. */
 export interface DaemonUnlockRequest {
@@ -203,9 +193,7 @@ export const BackupKeySyncStateSchema: z.ZodType<BackupKeySyncState> = z.discrim
   ],
 );
 
-// --------------------------------------------------------------------------
 // The methods
-// --------------------------------------------------------------------------
 
 /** The data and key methods, keyed by method name. */
 export interface DaemonDataMethodDescriptors {

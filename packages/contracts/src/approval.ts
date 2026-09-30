@@ -1,20 +1,17 @@
-// The approval surface: the calls that answer an agent's ask, list the pending
-// asks, list and revoke the remembered rules, and allow once an action the
-// provider's own reviewer blocked, with the payloads of the `approval.*` events
-// the daemon records for each.
+// The approval surface: the calls that answer an agent's ask, list the pending asks, list and
+// revoke the remembered rules, and allow once an action the provider's own reviewer blocked,
+// with the payloads of the `approval.*` events the daemon records for each.
 //
-// The daemon raises every ask itself from a provider's callback, so no client
-// creates one: the create request is the daemon's own shape and is not here. An
-// ask is held with no timer until it is answered or its run ends, so no state or
-// member here names an expiry.
+// The daemon raises every ask itself from a provider's callback, so no client creates one. An
+// ask is held with no timer until it is answered or its run ends, so nothing here names an
+// expiry.
 //
-// A remembered rule is the daemon's, kept in its own store and evaluated before
-// the permission level's default. It is never written into a provider's own rule
-// files, so its scope is this session or this project and nothing narrower or
-// wider.
+// A remembered rule is the daemon's, kept in its own store and evaluated before the permission
+// level's default. It is never written into a provider's own rule files, so its scope is this
+// session or this project and nothing narrower or wider.
 //
-// This file imports nothing from `event.ts`: that module imports the payload
-// schemas below, and an import back would close an eager module cycle.
+// This file imports nothing from `event.ts`: that module imports the payload schemas below, and
+// an import back would close an eager module cycle.
 import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
@@ -25,9 +22,7 @@ import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 
-// --------------------------------------------------------------------------
 // Ids
-// --------------------------------------------------------------------------
 
 /** The daemon-minted id of one ask. */
 export type ApprovalRequestId = string & { readonly __brand: "ApprovalRequestId" };
@@ -47,9 +42,7 @@ export type ReviewerDenialId = string & { readonly __brand: "ReviewerDenialId" }
 export const ReviewerDenialIdSchema: z.ZodType<ReviewerDenialId, ReviewerDenialId> =
   brandedUuidIdSchema<ReviewerDenialId>("ReviewerDenialId");
 
-// --------------------------------------------------------------------------
 // Closed vocabularies
-// --------------------------------------------------------------------------
 
 const APPROVAL_CATEGORY_VALUES = [
   "tool_execution",
@@ -174,9 +167,7 @@ const SENSE_BY_DECISION: Readonly<Record<ApprovalDecision, RememberedRuleSense>>
   rejected: "block",
 };
 
-// --------------------------------------------------------------------------
 // approval.resolve
-// --------------------------------------------------------------------------
 
 /**
  * One answer to an ask.
@@ -272,9 +263,7 @@ export const ApprovalResolveResponseSchema: z.ZodType<ApprovalResolveResponse> =
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // approval.projectionRead
-// --------------------------------------------------------------------------
 
 /** The session's asks, optionally narrowed by state or category. */
 export interface ApprovalProjectionReadRequest {
@@ -389,9 +378,7 @@ export const ApprovalProjectionReadResponseSchema: z.ZodType<ApprovalProjectionR
   .object({ approvals: z.array(ApprovalProjectionRowSchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // approval.ruleList and approval.ruleRevoke
-// --------------------------------------------------------------------------
 
 /** The rules in force on one session: its own and its project's. */
 export interface RememberedRuleListRequest {
@@ -459,9 +446,7 @@ export const RememberedRuleRevokeResponseSchema: z.ZodType<RememberedRuleRevokeR
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // approval.denialOverride
-// --------------------------------------------------------------------------
 
 /**
  * Allows once an action the provider's own reviewer blocked. The daemon tells the
@@ -492,17 +477,9 @@ export const ApprovalDenialOverrideResponseSchema: z.ZodType<ApprovalDenialOverr
   })
   .strict();
 
-// --------------------------------------------------------------------------
-// The `approval.*` event payloads
-// --------------------------------------------------------------------------
-//
-// One payload per event type, so each type carries exactly its own members: the
-// request carries who asked and for what, a resolution who answered and what
-// took effect, the rule a remembered event minted, a revocation which rule ended
-// and why. The rule rebuilds from these payloads alone.
-//
-// Type aliases rather than interfaces: an event payload narrows the envelope's
-// `Record<string, unknown>`, which an interface cannot satisfy.
+// The `approval.*` event payloads: one per event type, and a remembered rule rebuilds from
+// them alone. Type aliases rather than interfaces, because an event payload narrows the
+// envelope's `Record<string, unknown>`, which an interface cannot satisfy.
 
 /**
  * `approval.requested`. `askId` is present when the request is a provider's
@@ -676,9 +653,7 @@ export const ApprovalDenialOverriddenPayloadSchema: z.ZodType<ApprovalDenialOver
   .object({ sessionId: SessionIdSchema, denialId: ReviewerDenialIdSchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // Methods
-// --------------------------------------------------------------------------
 
 /** The `approval.*` methods a client calls. */
 export interface ApprovalMethodDescriptors {

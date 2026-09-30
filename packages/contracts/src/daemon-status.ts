@@ -1,10 +1,6 @@
-// `daemon.status.read`: the service's own facts, in one reply that Settings ›
-// Runtime and `sidekicks daemon status` both render; and `daemon.crashList`,
-// the crash reports this machine keeps.
-//
-// The processor and memory figures are read when this is called and stamped
-// with the time each was taken; nothing samples them on a timer, so `Check
-// again` is simply another call.
+// `daemon.status.read`: the service's own facts in one reply, and `daemon.crashList`: the
+// crash reports this machine keeps. Processor and memory figures are read when called and
+// stamped with the time taken; nothing samples them on a timer.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -13,6 +9,7 @@ import { FILE_PATH_MAX_LEN } from "./session.js";
 
 /** Where the service is in its own life. */
 export type DaemonProcessState = "running" | "starting" | "stopping" | "degraded";
+/** Every {@link DaemonProcessState}. */
 export const DAEMON_PROCESS_STATES: readonly DaemonProcessState[] = Object.freeze([
   "running",
   "starting",
@@ -43,6 +40,7 @@ export interface DaemonMemoryReading {
 
 /** Where the approval rules the service evaluates with came from. */
 export type ApprovalRulesSource = "built_in" | "update";
+/** Every {@link ApprovalRulesSource}. */
 export const APPROVAL_RULES_SOURCES: readonly ApprovalRulesSource[] = Object.freeze([
   "built_in",
   "update",
@@ -56,8 +54,9 @@ export interface DaemonApprovalRules {
   source: ApprovalRulesSource;
 }
 
-/** What scans an incoming file on this machine: the machine's antivirus through AMSI, or nothing. */
+/** What scans an incoming file on this machine: the antivirus through AMSI, or nothing. */
 export type DaemonFileScanning = "amsi" | "none";
+/** Every {@link DaemonFileScanning}. */
 export const DAEMON_FILE_SCANNING_KINDS: readonly DaemonFileScanning[] = Object.freeze([
   "amsi",
   "none",
@@ -258,6 +257,8 @@ export interface DaemonStatusMethodDescriptors {
     DaemonCrashListResponse
   > & { readonly procedureType: "query" };
 }
+
+/** The status and crash-list methods' names, procedure types and shapes. */
 export const DAEMON_STATUS_METHOD_DESCRIPTORS: DaemonStatusMethodDescriptors =
   defineMethodDescriptors({
     "daemon.status.read": {

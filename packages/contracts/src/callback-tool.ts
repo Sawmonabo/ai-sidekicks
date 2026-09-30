@@ -1,10 +1,6 @@
-// The daemon's callback tools as the allowlist picker reads them, and the
-// `callbackTool.*` method table.
-//
-// The catalog is one of the picker's three sources, beside the tool servers and each
-// provider's own built-in tools. It is node-wide, because the editor has no session,
-// and static: the registrations in the daemon's own code, whose names the daemon
-// curates and never takes from provider output.
+// The daemon's callback tools as the allowlist picker reads them. The catalog is node-wide
+// (the editor has no session) and static: names come from the daemon's own registrations,
+// never from provider output.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";

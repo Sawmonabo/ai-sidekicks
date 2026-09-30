@@ -1,98 +1,33 @@
-// PTY-host wire protocol — TS mirror of the Rust serde structs in
-// `packages/sidecar-rust-pty/src/protocol.rs`.
+// TypeScript mirror of the Rust serde structs in `packages/sidecar-rust-pty/src/protocol.rs`: the
+// messages that cross the Content-Length framing layer between the daemon and the PTY sidecar.
+// Each `Envelope` variant matches one `#[serde(tag = "kind")]` variant in Rust, and `kind` is the
+// on-wire discriminant. There is no code generation, so an edit to one side is made to the other
+// in the same commit. No Zod schemas live here; the daemon's framer validates the wire.
 //
-// This module declares the wire-level discriminated union that crosses
-// the Content-Length framing layer between the daemon and the Rust PTY
-// sidecar. Every variant of `Envelope` corresponds to one `#[serde(tag
-// = "kind")]` variant in the Rust enum; the `kind` literal is the
-// on-wire discriminant.
-//
-// No code-gen in V1 — "two-sided hand edit vs adding a schema compiler;
-// single schema compiler deferred to post-V1." When you edit one side,
-// edit the other in the same commit.
-//
-// ## Field-shape decisions (mirror of Rust module docs)
-//
-//   • `SpawnRequest.env` is `Array<[string, string]>`, NOT
-//     `Record<string, string>`. POSIX `execve` and Windows
-//     `CreateProcess` preserve order and accept duplicate keys; a
-//     record/map representation would silently dedupe and reorder.
-//
-//   • `WriteRequest.bytes` and `DataFrame.bytes` are `string` carrying
-//     base64-encoded payloads. Decoding (e.g., via `Buffer.from(b,
-//     "base64")`) is the consumer's responsibility — this module is a
-//     pure wire-shape contract.
-//
-//   • `PingRequest` / `PingResponse` carry only the `kind` discriminant.
-//     The plan does not pin a correlation field at this layer.
-//
-//   • `SpawnResponse` / `ResizeResponse` / `WriteResponse` /
-//     `KillResponse` carry an optional `error?: string` field. Absent
-//     on the success path (the common case); present when the sidecar's
-//     per-request handler returned an error (e.g., `UnknownSession`
-//     for a `kill_request` against a session whose child exited
-//     milliseconds before the request arrived; or a `portable-pty`
-//     failure for a `spawn_request` against a nonexistent command).
-//     The Rust mirror uses
-//     `#[serde(default, skip_serializing_if = "Option::is_none")]` so
-//     the field is genuinely absent on the wire when `None`. This is
-//     INTENTIONALLY ASYMMETRIC with `ExitCodeNotification.signal_code`
-//     (which serializes as JSON `null` when absent because both states
-//     are meaningful semantically — see `signal_code` field comment);
-//     `error` is exception-only and the absent-vs-present distinction
-//     IS the discrimination, so `null`-as-absent would be redundant
-//     wire weight on every successful response.
-//
-//     `SpawnResponse` is the symmetric extension of the
-//     resize/write/kill error path: prior to the contract bump, a
-//     sidecar `spawn` failure logged to stderr and DROPPED the
-//     request, so the daemon's awaiting Promise hung indefinitely
-//     (the daemon-side `sendRequest` has no timeout — only sync-throw
-//     on stdin.write or eventual rejection on child-exit). Symmetric
-//     wire-side error response converts the otherwise-indefinite hang
-//     into a prompt rejection. On the failure path `session_id` is
-//     an empty string — no session was minted, so the daemon
-//     supervisor MUST NOT register tracking on it.
-//
-// No Zod schemas live in this module: wire validation happens at the
-// daemon's framer layer (`packages/runtime-daemon/src/ipc/...`); the
-// contracts package declares the shape only.
-//
+// Field-shape rules:
+// - `SpawnRequest.env` is an array of pairs, not a record: process spawn preserves order and
+//   accepts duplicate keys, which a record would silently dedupe and reorder.
+// - `bytes` fields are base64 strings; decoding is the consumer's job.
+// - `SpawnResponse`, `ResizeResponse`, `WriteResponse` and `KillResponse` carry `error?: string`,
+//   absent on the wire when the handler succeeded. `ExitCodeNotification.signal_code` differs: it
+//   is `null` on the wire when absent, because there absent is a meaningful value. Without a typed
+//   error response the daemon's awaiting request would hang, since `sendRequest` has no timeout.
 
-// --------------------------------------------------------------------------
-// Shared discriminants
-// --------------------------------------------------------------------------
-
-/**
- * POSIX signal names accepted by `KillRequest.signal`. On Windows the
- * sidecar translates these to console-control events and `taskkill`
- * invocations this type is the on-wire shape only.
- */
+/** POSIX signal names accepted by `KillRequest.signal`; the on-wire shape only. */
 export type PtySignal = "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP";
 
 /** Which standard stream a `DataFrame` carries. */
 export type DataStream = "stdout" | "stderr";
 
-// --------------------------------------------------------------------------
-// Request / response payloads
-// --------------------------------------------------------------------------
-
 /**
- * Spawn a new PTY session.
- *
- * The daemon-layer `spawn-cwd-translator` (P5) rewrites `cwd` to a
- * stable parent directory before this payload reaches the sidecar;
- * the sidecar forwards `cwd` verbatim to `portable-pty`.
+ * Spawn a new PTY session. The daemon's `spawn-cwd-translator` rewrites `cwd` before this reaches
+ * the sidecar, which forwards it verbatim to `portable-pty`.
  */
 export interface SpawnRequest {
   kind: "spawn_request";
   command: string;
   args: string[];
-  /**
-   * Ordered key/value pairs. Process-spawn surfaces on every supported
-   * platform preserve order and accept duplicate keys; a `Record`
-   * representation would silently dedupe and reorder.
-   */
+  /** Ordered key/value pairs; a `Record` would dedupe and reorder them. */
   env: Array<[string, string]>;
   cwd: string;
   rows: number;
@@ -100,26 +35,14 @@ export interface SpawnRequest {
 }
 
 /**
- * Reply to a `SpawnRequest` — carries the sidecar-minted session id
- * on the success path, or a typed `error` payload on the failure path.
- *
- * `error` is set when the sidecar's spawn handler failed — typically a
- * `portable-pty` `openpty`/`spawn_command` failure (nonexistent
- * command, exec permission denied, etc). Without the typed error path
- * the daemon's awaiting Promise hangs indefinitely (no per-request
- * timeout in `sendRequest`); the symmetric wire-side error rejects the
- * Promise promptly. Absent on the success path. See module-level
- * field-shape decisions for the asymmetry with
- * `ExitCodeNotification.signal_code`.
- *
- * On the failure path `session_id` is an empty string — no session
- * was minted, so the daemon supervisor MUST NOT register tracking on
- * it.
+ * Reply to a `SpawnRequest`: the sidecar-minted session id, or `error` when the spawn failed
+ * (nonexistent command, exec permission denied). On failure `session_id` is an empty string, no
+ * session was minted, and the daemon must not track it.
  */
 export interface SpawnResponse {
   kind: "spawn_response";
   session_id: string;
-  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
   error?: string;
 }
 
@@ -132,58 +55,39 @@ export interface ResizeRequest {
 }
 
 /**
- * Explicit response so request-correlation is symmetric across every
- * control-message kind.
- *
- * `error` is set when the sidecar's resize handler failed — most
- * commonly `UnknownSession` when the target session has already exited
- * (and been removed from the registry) between the daemon issuing the
- * request and the sidecar dispatching it. Absent on the success path.
- * See module-level field-shape decisions for the asymmetry with
- * `ExitCodeNotification.signal_code`.
+ * Reply to a `ResizeRequest`. `error` is set when the handler failed, most often `UnknownSession`
+ * because the session exited before the sidecar dispatched the request.
  */
 export interface ResizeResponse {
   kind: "resize_response";
   session_id: string;
-  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
   error?: string;
 }
 
-/**
- * Write payload to a session's stdin.
- *
- * `bytes` is base64-encoded on the wire. Decode with
- * `Buffer.from(bytes, "base64")` or equivalent.
- */
+/** Write payload to a session's stdin; `bytes` is base64-encoded on the wire. */
 export interface WriteRequest {
   kind: "write_request";
   session_id: string;
-  /** Base64-encoded raw bytes — decoder is the consumer's responsibility. */
+  /** Base64-encoded raw bytes. */
   bytes: string;
 }
 
 /**
- *
- * `error` is set when the sidecar's write handler failed — typically
- * `UnknownSession` (target session has exited) or `WriterUnavailable`
- * (the per-session writer was already taken). Absent on the success
- * path. See module-level field-shape decisions for the asymmetry with
- * `ExitCodeNotification.signal_code`.
+ * Reply to a `WriteRequest`. `error` is set when the handler failed: `UnknownSession` (the session
+ * exited) or `WriterUnavailable` (the per-session writer was already taken).
  */
 export interface WriteResponse {
   kind: "write_response";
   session_id: string;
-  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
   error?: string;
 }
 
 /**
- * Signal a session's child process.
- *
- * On Windows the sidecar translates `SIGINT` → `CTRL_C_EVENT`,
- * `SIGTERM` → `CTRL_BREAK_EVENT` then `taskkill /T /F` on bounded
- * timeout, `SIGKILL` → `taskkill /T /F` directly, `SIGHUP` →
- * ditto-treat-as-hard-stop.
+ * Signal a session's child process. On Windows the sidecar's kill currently returns an error; the
+ * intended mapping is `SIGINT` to `CTRL_C_EVENT`, `SIGTERM` to `CTRL_BREAK_EVENT` then
+ * `taskkill /T /F` on timeout, and `SIGKILL` or `SIGHUP` to `taskkill /T /F` directly.
  */
 export interface KillRequest {
   kind: "kill_request";
@@ -192,49 +96,34 @@ export interface KillRequest {
 }
 
 /**
- * Explicit response the sidecar acks once it has begun the kill
- * cascade, NOT when the child has actually exited —
- * `ExitCodeNotification` carries the terminal status.
- *
- * `error` is set when the sidecar's kill handler failed — most often
- * `UnknownSession` for a request against a session that exited (and
- * was removed from the registry) milliseconds before the request
- * arrived. The race is unavoidable on the daemon side (the
- * `ExitCodeNotification` sits in the daemon's input pipe + parser
- * buffer between the sidecar emitting it and the daemon observing it);
- * a typed error response converts the otherwise-indefinite Promise
- * hang into a prompt rejection. Absent on the success path. See
- * module-level field-shape decisions for the asymmetry with
- * `ExitCodeNotification.signal_code`.
+ * Reply to a `KillRequest`, sent once the kill has begun, not when the child has exited:
+ * `ExitCodeNotification` carries the final status. `error` is set when the handler failed, most
+ * often `UnknownSession` because the session exited while the daemon's request was in flight,
+ * a race the daemon cannot avoid.
  */
 export interface KillResponse {
   kind: "kill_response";
   session_id: string;
-  /** Present only when the sidecar's handler failed. Daemon rejects the awaiting Promise. */
+  /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
   error?: string;
 }
 
 /**
- * Terminal notification — emitted exactly once per session lifetime,
- * when the child process exits or is reaped. After this is sent the
- * sidecar drops the PTY pair and the session id is no longer valid.
+ * Sent exactly once per session when the child exits or is reaped. After it the sidecar drops the
+ * PTY pair and the session id is no longer valid.
  */
 export interface ExitCodeNotification {
   kind: "exit_code_notification";
   session_id: string;
   exit_code: number;
   /**
-   * Signal number for signal-terminated children on POSIX; absent (or
-   * `null` on the wire — `Option::None` in Rust) for children that
-   * exited normally. Windows always reports absent here.
+   * Signal number of a signal-terminated child, or `null`. The sidecar currently sends `null` for
+   * every exit because `portable-pty` discards the signal number.
    */
   signal_code: number | null;
 }
 
-/**
- * Liveness probe. No correlation field at this layer — the dispatcher
- * orders responses against requests on the single duplex stream.
- */
+/** Liveness probe. It has no correlation field; a response matches the oldest pending ping. */
 export interface PingRequest {
   kind: "ping_request";
 }
@@ -244,47 +133,23 @@ export interface PingResponse {
   kind: "ping_response";
 }
 
-/**
- * Asynchronous stdout/stderr chunk emitted by the sidecar.
- *
- * `seq` is monotonically increasing per `(session_id, stream)`
- * pair; consumers reassemble a stream in `seq` order. `bytes` is
- * base64-encoded on the wire.
- */
+/** Asynchronous stdout or stderr chunk from the sidecar; `bytes` is base64-encoded on the wire. */
 export interface DataFrame {
   kind: "data_frame";
   session_id: string;
   stream: DataStream;
   /**
-   * Monotonically increasing per `(session_id, stream)` pair. The wire
-   * type is `u64` in Rust; TS `number` is safe up to `2^53 - 1` which
-   * is multiple lifetimes of PTY chunks at realistic rates. If the
-   * sequence ever exceeds that, switch to a string-encoded bigint
-   * before round-tripping through `JSON.parse`.
+   * Increases per `(session_id, stream)` pair; consumers reassemble in `seq` order. Rust sends a
+   * `u64`; a TS `number` is exact only up to `2^53 - 1`, far beyond realistic chunk counts.
    */
   seq: number;
-  /** Base64-encoded raw bytes — decoder is the consumer's responsibility. */
+  /** Base64-encoded raw bytes. */
   bytes: string;
 }
 
-// --------------------------------------------------------------------------
-// Wire envelope — discriminated on the `kind` field.
-// --------------------------------------------------------------------------
-
 /**
- * The complete set of messages that cross the framing layer.
- *
- * On the wire each variant serializes as a flat JSON object with `kind`
- * at the top level and the payload fields at the same depth. Use
- * narrowing on `envelope.kind` to discriminate:
- *
- * ```ts
- * switch (envelope.kind) {
- *   case "spawn_request": handleSpawn(envelope); break;
- *   case "data_frame":    handleData(envelope);  break;
- *   // ...
- * }
- * ```
+ * The complete set of messages that cross the framing layer. Each variant is a flat JSON object
+ * with `kind` beside its payload fields; narrow on `envelope.kind`.
  */
 export type Envelope =
   | SpawnRequest

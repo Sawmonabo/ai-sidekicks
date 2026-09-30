@@ -1,17 +1,12 @@
-// `applyMigrations()` on a fresh database and on one that already has the
-// schema.
-//
-// A re-call on an existing database must be a no-op that leaves stored rows
-// untouched; a re-run of the DDL would fail with `42P07 relation already exists`.
+// A second `applyMigrations()` call must be a no-op that leaves stored rows untouched; re-running
+// the DDL would fail with `42P07 relation already exists`.
 
 import { PGlite, type Transaction } from "@electric-sql/pglite";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyMigrations, type Querier } from "../migration-runner.js";
 
-// ----------------------------------------------------------------------------
 // PGlite -> Querier adapter
-// ----------------------------------------------------------------------------
 
 function adaptPGlite(pg: PGlite): Querier {
   return wrap(pg);
@@ -23,9 +18,7 @@ function wrap(handle: PGlite | Transaction): Querier {
       sql: string,
       params?: ReadonlyArray<unknown>,
     ): Promise<{ rows: ReadonlyArray<T> }> => {
-      // PGlite's `query` requires `params` as mutable `any[]`, not
-      // `ReadonlyArray<unknown>`. The spread decouples the mutability claim
-      // without copying parameter values themselves.
+      // PGlite's `query` takes a mutable `any[]`, not `ReadonlyArray<unknown>`.
       const mutableParams: unknown[] = params === undefined ? [] : [...params];
       const result = await handle.query<T>(sql, mutableParams);
       return { rows: result.rows };
@@ -35,11 +28,7 @@ function wrap(handle: PGlite | Transaction): Querier {
     },
     transaction: async <T>(fn: (tx: Querier) => Promise<T>): Promise<T> => {
       if (!isPGlite(handle)) {
-        // Already inside a `pg.transaction(fn)` callback. PGlite's
-        // `Transaction` does not expose `transaction(...)` (no nested
-        // transactions). Throwing here matches what production `pg.Pool`
-        // adapters will do — Postgres semantics, not a test substrate
-        // limitation.
+        // PGlite's `Transaction` has no nested `transaction(...)`, and Postgres has none either.
         throw new Error(
           "Querier.transaction(): nested transactions are not supported on this substrate.",
         );
@@ -55,12 +44,7 @@ function isPGlite(handle: PGlite | Transaction): handle is PGlite {
   return typeof (handle as { transaction?: unknown }).transaction === "function";
 }
 
-// ----------------------------------------------------------------------------
-// Per-test database lifecycle
-// ----------------------------------------------------------------------------
-//
-// Each test gets a fresh, empty in-memory PGlite instance and calls
-// `applyMigrations` itself.
+// Each test gets a fresh, empty in-memory PGlite instance and calls `applyMigrations` itself.
 
 interface TestContext {
   pg: PGlite;
@@ -76,8 +60,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // PGlite's `close()` releases the WASM heap. Awaited under vitest's
-  // parallel-file isolation so heap state cannot leak across tests.
+  // `close()` releases the WASM heap.
   await ctx.pg.close();
 });
 

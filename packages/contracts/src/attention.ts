@@ -1,15 +1,6 @@
-// The attention projection's shape: what the attention read streams, with the trigger
-// and severity vocabularies its items carry.
-//
-// The projection is machine-wide: every session's attention and every workflow run's,
-// in one list, whole on every emission. The daemon, main and the renderer all read
-// it: the bell draws its count and its list from it, and main posts and withdraws the
-// operating-system banner from the same entries.
-//
-// The file also holds the `attention.*` methods beside the read: main recording
-// what became of an entry's operating-system banner, opening a session marking it
-// seen, and the two ways a moment leaves the machine, a web address and an email
-// digest, whose secrets the daemon seals and never sends back.
+// The attention projection (machine-wide, whole on every emission) and the `attention.*`
+// methods: banner settling, seen marking, and delivery by web address or email digest,
+// whose secrets the daemon seals and never sends back.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -23,8 +14,7 @@ import { WorkflowNodeIdSchema, type WorkflowNodeId } from "./workflow-definition
 
 /**
  * Every attention trigger: pending approval or user input, run completion, run failure,
- * and a workflow's Notify step. Closed and declared once: another trigger is an
- * amendment to the owning document, never a string a client invents.
+ * and a workflow's Notify step. The set is closed; a client never invents a trigger.
  */
 export const ATTENTION_TRIGGERS = [
   "pending_approval",
@@ -38,12 +28,8 @@ export const ATTENTION_TRIGGERS = [
 export type AttentionTrigger = (typeof ATTENTION_TRIGGERS)[number];
 
 /**
- * The two severities, and the distinction the product turns on.
- *
- * A person has to be able to distinguish passive informational notifications
- * from actionable blocking attention. A client that rendered
- * one badge for both would be shipping against a wire whose whole point is that they are
- * different.
+ * The two severities: `actionable` attention blocks on the person, `informational` does not.
+ * A client must render the two differently.
  */
 export const ATTENTION_SEVERITIES = ["actionable", "informational"] as const;
 
@@ -58,7 +44,7 @@ const ATTENTION_BANNER_STATE_VALUES = ["pending", "posted", "withheld", "withdra
  * otherwise; main settles a `pending` entry once, so no banner is posted twice.
  */
 export type AttentionBannerState = (typeof ATTENTION_BANNER_STATE_VALUES)[number];
-/** Every {@link AttentionBannerState}, in the order above. */
+/** Every {@link AttentionBannerState}. */
 export const ATTENTION_BANNER_STATES: readonly AttentionBannerState[] =
   ATTENTION_BANNER_STATE_VALUES;
 
@@ -72,28 +58,17 @@ const attentionIdSchema = (fieldLabel: string): z.ZodString =>
   wireFreeFormString(ATTENTION_ID_MAX_LEN, fieldLabel);
 
 /**
- * One attention item — run-scoped, or the session-scoped aggregate.
+ * One attention item, run-scoped or the session-scoped aggregate. Scope is read off
+ * `runId`: present means run-scoped, absent means the session aggregate.
  *
- * `runId` is the scope discriminator and there is no second type: an item carrying
- * one is run-scoped, an item omitting one is the session aggregate that
- * the read requires alongside run scope. A client therefore reads scope off
- * the presence of `runId` and never off a field that says which kind this is.
- *
- * `momentId` is the stable id of the moment the item speaks for, the session or run
- * and the state it is in: a `Waiting on you` item and the `Finished` one that follows
- * it share it, so a later state replaces the operating-system banner in place. A
- * workflow's Notify step takes its moment from the run, the node and which execution
- * of the node it was.
- *
- * `displayName` is the session's name, or the run's on a run's item. `stateWord` is
- * what the line reads after it: `Waiting on you`, `Finished` or `Failed`, or on a
- * Notify step's item the step's own notice text, which the workflow's author wrote.
- * `summary` is the projection's own line about the moment and is never a banner's
- * body: a banner says the name and the state and never what was said.
- *
- * `stepId` names the Notify node on a `workflow_notify` item and is absent on every
- * other. `seen` is the one seen-or-unseen fact the daemon keeps, which the session's
- * row reads too.
+ * `momentId` is the stable id of the session or run and the state it is in, so a later
+ * state (`Finished` after `Waiting on you`) replaces the operating-system banner in place.
+ * A Notify step's moment comes from the run, the node and which execution of the node it
+ * was. `stateWord` is what the line reads after `displayName` (`Waiting on you`, `Finished`,
+ * `Failed`, or a Notify step's own notice text). `summary` is never a banner's body: a
+ * banner says the name and the state, not what was said. `stepId` names the Notify node
+ * on a `workflow_notify` item and is absent on every other; `seen` is the one seen-or-unseen
+ * fact the daemon keeps, which the session's row reads too.
  */
 export interface AttentionItem {
   readonly id: string;
@@ -111,13 +86,7 @@ export interface AttentionItem {
   /** The canonical event that triggered this item. */
   readonly sourceEventId: string;
   readonly createdAt: string;
-  /**
-   * Set once the state that produced the item resolves.
-   *
-   * Optional because an unresolved item is the interesting one, and actionable
-   * attention stays durable until it resolves — so absence means outstanding, not
-   * unknown.
-   */
+  /** Set once the state that produced the item resolves; absent means outstanding. */
   readonly resolvedAt?: string | undefined;
   readonly bannerState: AttentionBannerState;
   readonly seen: boolean;
@@ -163,12 +132,7 @@ export const AttentionItemSchema: z.ZodType<AttentionItem> = z
     },
   );
 
-/**
- * The whole projection, as every emission of the attention read carries it.
- *
- * A wrapper object rather than a bare array: a reply that can grow a sibling member
- * without breaking every caller.
- */
+/** The whole projection, as every emission of the attention read carries it. */
 export interface AttentionProjection {
   readonly items: readonly AttentionItem[];
 }
@@ -177,9 +141,7 @@ export const AttentionProjectionSchema: z.ZodType<AttentionProjection> = z
   .object({ items: z.array(AttentionItemSchema) })
   .strict();
 
-// ---------------------------------------------------------------------------
 // The banner and the seen fact
-// ---------------------------------------------------------------------------
 
 /**
  * Main's record of what became of a `pending` entry's banner. Only main sends it,
@@ -214,9 +176,7 @@ export const AttentionSeenUpdateRequestSchema: z.ZodType<
   AttentionSeenUpdateRequest
 > = z.object({ sessionId: SessionIdSchema }).strict();
 
-// ---------------------------------------------------------------------------
 // Delivery beyond this machine: the web address and the email digest
-// ---------------------------------------------------------------------------
 
 /** A request or a reply that carries nothing. */
 export type AttentionEmptyMessage = Record<string, never>;
@@ -279,7 +239,7 @@ export interface AttentionDeliveryReadResponse {
     lastOutcome: AttentionDeliveryOutcome | null;
   };
 }
-/** Parses an {@link AttentionDeliveryReadResponse}; a host is present exactly when an address is saved. */
+/** Parses an {@link AttentionDeliveryReadResponse}; `host` is set when an address is saved. */
 export const AttentionDeliveryReadResponseSchema: z.ZodType<AttentionDeliveryReadResponse> = z
   .object({
     webAddress: z
@@ -383,12 +343,11 @@ export interface AttentionWebAddressSecretRotateResponse {
 export const AttentionWebAddressSecretRotateResponseSchema: z.ZodType<AttentionWebAddressSecretRotateResponse> =
   z.object({ signingSecret: z.string().min(1) }).strict();
 
-// ---------------------------------------------------------------------------
 // Refusal codes
-// ---------------------------------------------------------------------------
 
 /** The web address cannot be sent to. */
 export type AttentionWebAddressInvalidCode = "attention.web_address_invalid";
+/** Error code for a web address the daemon cannot send to. */
 export const ATTENTION_WEB_ADDRESS_INVALID_CODE: AttentionWebAddressInvalidCode =
   "attention.web_address_invalid";
 
@@ -418,6 +377,7 @@ export const AttentionWebAddressInvalidDetailsSchema: z.ZodType<AttentionWebAddr
 
 /** The keychain holding the delivery secrets could not be used. */
 export type AttentionDeliveryStoreUnavailableCode = "attention.delivery_store_unavailable";
+/** Error code for a keychain that could not be used for the delivery secrets. */
 export const ATTENTION_DELIVERY_STORE_UNAVAILABLE_CODE: AttentionDeliveryStoreUnavailableCode =
   "attention.delivery_store_unavailable";
 
@@ -436,6 +396,7 @@ export const AttentionDeliveryStoreUnavailableDetailsSchema: z.ZodType<Attention
 
 /** A test was asked of a channel that is not set up. */
 export type AttentionDeliveryNotConfiguredCode = "attention.delivery_not_configured";
+/** Error code for a delivery test asked of a channel that is not set up. */
 export const ATTENTION_DELIVERY_NOT_CONFIGURED_CODE: AttentionDeliveryNotConfiguredCode =
   "attention.delivery_not_configured";
 
@@ -452,9 +413,7 @@ export interface AttentionDeliveryNotConfiguredDetails {
 export const AttentionDeliveryNotConfiguredDetailsSchema: z.ZodType<AttentionDeliveryNotConfiguredDetails> =
   z.object({ missing: z.enum(ATTENTION_DELIVERY_MISSING_VALUES) }).strict();
 
-// ---------------------------------------------------------------------------
 // The method table
-// ---------------------------------------------------------------------------
 
 /** The `attention.*` methods the daemon serves. */
 export interface AttentionMethodDescriptors {

@@ -1,5 +1,4 @@
-// Held review notes: each request accepts the shape Review sends, and refuses the
-// cases the design names.
+// Held review notes: each request accepts the shape Review sends and refuses invalid ones.
 import { describe, expect, it } from "vitest";
 
 import {

@@ -1,12 +1,8 @@
-// One daemon method's wire contract, stated once: its name, its procedure type,
-// whether it changes state, and the schemas the registry validates its request,
-// its result and (for a subscription) each emission against.
-//
-// Every namespace declares its methods as a table of descriptors keyed by method
-// name, and the daemon's method map is composed from those tables, so a method's
-// name and its shapes live in one place. A descriptor registers nothing: a method
-// reaches the wire only when the daemon service that answers it registers a
-// handler against its descriptor.
+// One daemon method's wire contract, stated once: its name, procedure type, whether it changes
+// state, and the schemas its request, result and (for a subscription) emissions are validated
+// against. Each namespace declares a table of descriptors keyed by method name, and the daemon's
+// method map is composed from those tables. A descriptor registers nothing; a method reaches the
+// wire only when a daemon service registers a handler against it.
 import type { ZodType, output } from "zod";
 
 /**

@@ -20,9 +20,7 @@ import {
 
 const isoInstant = z.iso.datetime({ offset: true });
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /** A workflow turned on with a trigger that cannot be armed; nothing turns on. */
 export const WORKFLOW_TRIGGER_UNARMABLE_CODE = "workflow.trigger_unarmable" as const;
@@ -42,9 +40,7 @@ export const WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE = "workflow.webhook_token_mism
 /** The type of {@link WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE}. */
 export type WorkflowWebhookTokenMismatchCode = typeof WORKFLOW_WEBHOOK_TOKEN_MISMATCH_CODE;
 
-// --------------------------------------------------------------------------
 // Settings kept beside a version: enabled, layout, pinned data
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.enabledSet` input: arm or disarm every trigger of one workflow. A
@@ -135,11 +131,9 @@ export const WorkflowPinDataSetResponseSchema: z.ZodType<WorkflowPinDataSetRespo
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // The builder's draft
-// --------------------------------------------------------------------------
 
-/** The builder's draft id. The daemon mints it on the first save; the builder's address carries it. */
+/** The builder's draft id, minted by the daemon on the first save and carried in the address. */
 export type WorkflowDraftId = string & { readonly __brand: "WorkflowDraftId" };
 /** Wire schema for {@link WorkflowDraftId}. */
 export const WorkflowDraftIdSchema: z.ZodType<WorkflowDraftId, WorkflowDraftId> = z
@@ -227,9 +221,7 @@ export const WorkflowDraftReadResponseSchema: z.ZodType<WorkflowDraftReadRespons
   })
   .strict();
 
-// --------------------------------------------------------------------------
 // workflow.expressionPreview
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.expressionPreview` input: one expression of one node, of a saved
@@ -278,9 +270,7 @@ export const WorkflowExpressionPreviewResponseSchema: z.ZodType<WorkflowExpressi
     z.object({ ok: z.literal(false), reason: z.string().min(1) }).strict(),
   ]);
 
-// --------------------------------------------------------------------------
 // The webhook token and the listener
-// --------------------------------------------------------------------------
 
 /**
  * The `workflow.webhookTokenRotate` input: create the workflow's webhook token, or

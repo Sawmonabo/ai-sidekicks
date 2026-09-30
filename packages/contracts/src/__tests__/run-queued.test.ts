@@ -1,7 +1,7 @@
 // A run's creation row is the one record an agent started from a saved definition is
 // brought into the session by, and the one the agent index rebuilds a child's linkage
 // from. These cases hold that such an agent carries the configuration it was resolved
-// from, and that the retired linkage words are refused rather than carried.
+// from, and that a link kind or producing node is refused rather than carried.
 import { describe, expect, it } from "vitest";
 
 import { RunQueuedPayloadSchema } from "../run-queued.js";

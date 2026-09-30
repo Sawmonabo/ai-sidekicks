@@ -1,23 +1,8 @@
-// Skills: the one list of every skill folder on the machine, the folder saves and
-// file reads the Skills screen makes, availability per provider, the scan a
-// widening runs, and the refusals of those verbs.
-//
-// A skill is its whole folder: `SKILL.md` at its top carries the front matter and
-// the instructions, and every file beside it travels with it. The list reads every
-// folder from four origins (ours under `.ai-sidekicks/skills/`, Claude Code's own,
-// Codex's own, and a plugin's, which is read-only), and the daemon parses every
-// `SKILL.md` itself rather than trusting a provider's own load, because a provider
-// can load a broken one without a word. The same list feeds the Skills screen and
-// the composer's skills, so a provider's own skill enumeration is evidence of what
-// it loaded, never a second registry.
-//
-// Each skill has one record beside its folder, kept the way a saved agent's record
-// is: where the skill is available, and its icon, and nothing else. Every other
-// field on screen lives in the folder. A record whose folder was renamed or deleted
-// outside the app is orphaned and stays listed until it is reattached or discarded.
-//
-// Skills are node-local configuration, never session history: no verb here appends
-// an event.
+// Skills: the list of every skill folder, file reads and saves, availability per provider, the
+// scan a widening runs, and the refusals of those verbs. A skill is its whole folder. The daemon
+// parses every `SKILL.md` itself because a provider can load a broken one without a word, so a
+// provider's own skill enumeration is evidence of what it loaded, never a second registry.
+// Skills are node-local configuration: no verb here appends an event.
 import { z } from "zod";
 
 import {
@@ -46,9 +31,7 @@ import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
  */
 export const SKILL_NAME_MAX_LEN = 64;
 
-// --------------------------------------------------------------------------
 // The skill as the list serves it
-// --------------------------------------------------------------------------
 
 /**
  * A skill's daemon-minted id: the handle every verb takes. Never its folder path,
@@ -181,9 +164,7 @@ export const SkillListEntrySchema: z.ZodType<SkillListEntry> = z
     refineProjectScope(entry, context);
   });
 
-// --------------------------------------------------------------------------
 // skill.list and skill.subscribe
-// --------------------------------------------------------------------------
 
 /** `skill.list` and `skill.subscribe` take no members. */
 export type SkillListRequest = Record<string, never>;
@@ -204,9 +185,7 @@ export const SkillListResponseSchema: z.ZodType<SkillListResponse> = z
   .object({ skills: z.array(SkillListEntrySchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // skill.fileRead
-// --------------------------------------------------------------------------
 
 /** One file's body, loaded when the file opens in the editor. */
 export interface SkillFileReadRequest {
@@ -227,9 +206,7 @@ export const SkillFileReadResponseSchema: z.ZodType<SkillFileReadResponse> = z
   .object({ content: z.string() })
   .strict();
 
-// --------------------------------------------------------------------------
 // The folder a save writes
-// --------------------------------------------------------------------------
 
 /** A file written with this body: new to the folder, or changed. */
 export interface SkillFileWrite {
@@ -279,9 +256,7 @@ const descriptionSchema = z
 /** A new skill's name, before the daemon folds it into a folder name. */
 const newSkillNameSchema = wireFreeFormString(SKILL_NAME_MAX_LEN, "skill name");
 
-// --------------------------------------------------------------------------
 // skill.create
-// --------------------------------------------------------------------------
 
 /**
  * A new skill, written whole in one save, because nothing reaches disk until the
@@ -325,9 +300,7 @@ export const SkillCreateResponseSchema: z.ZodType<SkillCreateResponse> = z
   .object({ skill: SkillListEntrySchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // skill.update
-// --------------------------------------------------------------------------
 
 /**
  * The folder saved whole, applied together or not at all: a refused save leaves
@@ -371,9 +344,7 @@ export const SkillUpdateResponseSchema: z.ZodType<SkillUpdateResponse> = z
   .object({ skill: SkillListEntrySchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // skill.availabilityUpdate
-// --------------------------------------------------------------------------
 
 /**
  * Sets one provider on or off. Two holds are enforced when the request is handled,
@@ -402,9 +373,7 @@ export const SkillAvailabilityUpdateResponseSchema: z.ZodType<SkillAvailabilityU
   .object({ availability: SkillAvailabilitySchema })
   .strict();
 
-// --------------------------------------------------------------------------
 // skill.scan
-// --------------------------------------------------------------------------
 
 /** The scan a widening runs: the folder, and the provider it is widened onto. */
 export interface SkillScanRequest {
@@ -449,9 +418,7 @@ export const SkillScanResponseSchema: z.ZodType<SkillScanResponse> = z
   .object({ findings: z.array(SkillScanFindingSchema) })
   .strict();
 
-// --------------------------------------------------------------------------
 // skill.recordReattach and skill.recordDiscard
-// --------------------------------------------------------------------------
 
 /**
  * Reattaches an orphaned record (its availability and icon) to a folder, accepted
@@ -502,9 +469,7 @@ export const SkillRecordDiscardResponseSchema: z.ZodType<SkillRecordDiscardRespo
   .object({ discarded: z.literal(true) })
   .strict();
 
-// --------------------------------------------------------------------------
 // Refusals
-// --------------------------------------------------------------------------
 
 /** A save or a create that names a file path the folder cannot take; nothing is written. */
 export type SkillPathRefusedCode = "skill.path_refused";
@@ -561,9 +526,7 @@ export const SkillAvailabilityHeldDetailsSchema: z.ZodType<SkillAvailabilityHeld
   .object({ reason: z.enum(SKILL_AVAILABILITY_HELD_REASONS) })
   .strict();
 
-// --------------------------------------------------------------------------
 // The skill.* method table
-// --------------------------------------------------------------------------
 
 /**
  * The `skill.*` methods. `skill.subscribe` resends the whole `skill.list` reply

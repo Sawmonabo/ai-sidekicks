@@ -34,8 +34,8 @@ const SUITE = {
   retry: { maxTries: 2, waitMs: 1000 },
 };
 
-// Workflow B from the design: the schedule, the suite, the branch, the summary write
-// and the stop, with its layout and one pinned item.
+// A full document: the schedule, the suite, the branch, the summary write and the stop,
+// with its layout and one pinned item.
 const DESIGN_DOCUMENT = {
   schemaVersion: "2",
   name: "Nightly suite",

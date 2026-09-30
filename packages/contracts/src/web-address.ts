@@ -1,15 +1,7 @@
-// The two rules every web address the app opens is held to, wherever it is opened:
-// only `http:` and `https:`, and never a username or a password in the authority.
-//
-// Preview asserts them at both ends of its wire: the pane refuses a typed address
-// on its own line before sending it, and the daemon refuses it again where the
-// request arrives. The desktop's own window navigation holds links to the same two
-// rules before handing one to the system browser. Stating them once here keeps the
-// three from drifting.
-//
-// Only an already parsed `URL` is judged. Turning typed text into an address (a
-// bare port, a bare host, a path on the current page) is the address line's own
-// parsing, and text that parses to no address at all is that parser's refusal.
+// The two rules every web address the app opens is held to: only `http:` and `https:`, and never
+// a username or a password in the authority. Stated once so the preview pane, the daemon and the
+// desktop's window navigation cannot drift. Only an already parsed `URL` is judged; turning typed
+// text into an address is the caller's parsing.
 
 /**
  * The schemes a web address may carry, in `URL.protocol` form, which the WHATWG

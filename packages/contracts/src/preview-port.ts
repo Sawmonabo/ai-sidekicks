@@ -1,7 +1,6 @@
-// The ports a machine shares with the person's other devices: the shared list, the
-// forward to one port and the web address a browser tab opens it at, and the two
-// refusals that guard them. The machine forwards only listed ports, and only to its
-// own loopback; Preview's own page stays the live picture either way.
+// The ports a machine shares with the person's other devices: the shared list, the forward to
+// one port, the web address a browser tab opens it at, and the two refusals that guard them.
+// The machine forwards only listed ports, and only to its own loopback.
 import { z } from "zod";
 
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
@@ -11,14 +10,12 @@ import {
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
 
-/**
- * Parses a TCP port number. The same schema answers the shared-ports field, whose
- * `That is not a port number.` is this schema refusing the entry.
- */
+/** Parses a TCP port number: an integer from 1 to 65535. */
 export const PreviewPortSchema: z.ZodType<number, number> = z.number().int().min(1).max(65535);
 
 /** A port added to the shared list that is on it already; nothing changes. */
 export type PreviewPortAlreadySharedCode = "preview.port_already_shared";
+/** The value of {@link PreviewPortAlreadySharedCode}. */
 export const PREVIEW_PORT_ALREADY_SHARED_CODE: PreviewPortAlreadySharedCode =
   "preview.port_already_shared";
 
@@ -27,6 +24,7 @@ export const PREVIEW_PORT_ALREADY_SHARED_CODE: PreviewPortAlreadySharedCode =
  * machine forwards only listed ports, and only to its own loopback.
  */
 export type PreviewPortNotSharedCode = "preview.port_not_shared";
+/** The value of {@link PreviewPortNotSharedCode}. */
 export const PREVIEW_PORT_NOT_SHARED_CODE: PreviewPortNotSharedCode = "preview.port_not_shared";
 
 /** The details both port refusals carry: the port the request named. */

@@ -1,10 +1,6 @@
-// The machine-wide service settings on Settings › Runtime, and the two package
-// caches whose size limit is one of them.
-//
-// Each value is set in this one place. A value that is not a port or not a size
-// is refused by the request's shape, with nothing written. A port already taken
-// is saved all the same: the listener's own state says nothing is listening,
-// and the service never moves to another port.
+// The machine-wide service settings on Settings › Runtime, and the two package caches whose
+// size limit is one of them. A port already taken is saved all the same: the listener's own
+// state reports that nothing is listening, and the service never moves to another port.
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
@@ -12,12 +8,14 @@ import { FILE_PATH_MAX_LEN } from "./session.js";
 
 /** `Stop a run after`'s steps, in minutes; `null` is `No limit`. */
 export type RunTimeLimitMinutes = 30 | 60 | 240 | 720 | 1440;
+/** Every {@link RunTimeLimitMinutes} step. */
 export const RUN_TIME_LIMIT_MINUTES: readonly RunTimeLimitMinutes[] = Object.freeze([
   30, 60, 240, 720, 1440,
 ]);
 
 /** `Ask me after one start leads to`'s steps, in runs; `null` is `Never ask`. */
 export type WorkflowChainAskAfterRuns = 25 | 100 | 500 | 2000;
+/** Every {@link WorkflowChainAskAfterRuns} step. */
 export const WORKFLOW_CHAIN_ASK_AFTER_RUNS_STEPS: readonly WorkflowChainAskAfterRuns[] =
   Object.freeze([25, 100, 500, 2000]);
 
@@ -129,6 +127,7 @@ export const DaemonPackageCacheReadingSchema: z.ZodType<DaemonPackageCacheReadin
 
 /** Which cache a clear empties. */
 export type PackageCacheClearTarget = PackageCache | "all";
+/** Every {@link PackageCacheClearTarget}. */
 export const PACKAGE_CACHE_CLEAR_TARGETS: readonly PackageCacheClearTarget[] = Object.freeze([
   "bun",
   "uv",
@@ -171,6 +170,7 @@ export interface DaemonConfigMethodDescriptors {
     DaemonPackageCacheReading
   > & { readonly procedureType: "mutation" };
 }
+/** The config and package-cache methods' names, procedure types and shapes. */
 export const DAEMON_CONFIG_METHOD_DESCRIPTORS: DaemonConfigMethodDescriptors =
   defineMethodDescriptors({
     "daemon.configRead": {

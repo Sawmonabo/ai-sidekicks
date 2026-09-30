@@ -1,10 +1,5 @@
-// Tests for tools/run-node-tests.mjs — the fail-closed `node --test` wrapper.
-//
-// The guard is exercised through `spawnSync` against the real script rather than
-// by importing its internals. A unit test that imported the resolver would prove
-// the resolver works while leaving the ACTUAL property unverified: that running
-// the script with a zero-matching pattern exits non-zero. That property is the
-// entire point, and it only exists at the process boundary.
+// Tests for `tools/run-node-tests.mjs`. Most cases spawn the real script, because the property that
+// matters (a zero-matching pattern exits non-zero) exists only at the process boundary.
 
 import test from "node:test";
 import assert from "node:assert/strict";
@@ -24,8 +19,7 @@ const PASSING_TEST_SOURCE = 'import test from "node:test";\ntest("fixture passes
 function makeFixtureTree(count) {
   const root = mkdtempSync(join(tmpdir(), "run-node-tests-"));
   for (let index = 0; index < count; index += 1) {
-    // Nest the last file so the `**` segment is genuinely exercised rather than
-    // matching a flat directory that a simple `*` would also have caught.
+    // Nest the last file so `**` is exercised, not just a flat `*`.
     const isNested = index === count - 1 && count > 1;
     const directory = isNested ? join(root, "nested") : root;
     if (isNested) mkdirSync(directory, { recursive: true });
@@ -42,8 +36,7 @@ test("a glob matching nothing exits non-zero and names the pattern", () => {
   const result = runRunner(["no/such/directory/**/*.test.mjs"]);
   assert.equal(result.status, 1);
   assert.match(result.stderr, /no match: no\/such\/directory\/\*\*\/\*\.test\.mjs/);
-  // The rationale must travel with the failure — a bare non-zero exit leaves the
-  // next reader to rediscover why an empty match is fatal.
+  // The failure must say why an empty match is fatal.
   assert.match(result.stderr, /exit 0 having run no tests/);
 });
 
@@ -53,8 +46,7 @@ test("a real glob alongside a typo'd path still fails, naming the typo'd path", 
     const result = runRunner([join(root, "**/*.test.mjs"), join(root, "typo-not-here.test.mjs")]);
     assert.equal(result.status, 1);
     assert.match(result.stderr, /no match: .*typo-not-here\.test\.mjs/);
-    // Guards the per-pattern check specifically: a total-only check would have
-    // passed here on the strength of the working glob.
+    // A total-only check would have passed on the working glob.
     assert.doesNotMatch(result.stderr, /no match: .*\*\*/);
   } finally {
     rmSync(root, { recursive: true, force: true });
@@ -94,8 +86,8 @@ test("--min-files passes when the floor is met", () => {
 });
 
 test("a malformed --min-files is a usage error, not a silently-ignored flag", () => {
-  // `--min-files 3` (space form) would otherwise parse the bare flag as a node
-  // option and `3` as a pattern — a floor the caller believes is armed but isn't.
+  // In the space form the bare flag would parse as a node option and `3` as a pattern, leaving a
+  // floor the caller thinks is armed.
   const result = runRunner(["--min-files", "whatever/**/*.test.mjs"]);
   assert.equal(result.status, 2);
   assert.match(result.stderr, /--min-files requires a non-negative integer/);
@@ -107,10 +99,8 @@ test("no pattern at all is a usage error", () => {
   assert.match(result.stderr, /no test pattern supplied/);
 });
 
-// This suite runs UNDER `node --test`, so the wrapper spawned below is a nested
-// test run — the exact shape that inherits NODE_TEST_CONTEXT and stops
-// propagating its exit code. The test therefore pins the env-stripping fix as
-// much as the pass-through itself; it failed before that fix, returning 0.
+// This suite runs under `node --test`, so the wrapper spawned here is a nested run that would
+// inherit NODE_TEST_CONTEXT; the test pins that the marker is stripped and the exit code survives.
 test("a failing test propagates a non-zero exit through the wrapper", () => {
   const root = mkdtempSync(join(tmpdir(), "run-node-tests-fail-"));
   try {
@@ -135,8 +125,7 @@ test("parseArguments splits node options, patterns, and the floor", () => {
 test("`**` spans zero directories as well as many", () => {
   const root = makeFixtureTree(2);
   try {
-    // Fixture tree is one file at the root plus one under `nested/`; a `**` that
-    // required at least one intermediate segment would find only the nested one.
+    // One file at the root plus one under `nested/`: a `**` needing a segment would miss the first.
     const { files } = resolveTestFiles([join(root, "**/*.test.mjs")]);
     assert.equal(files.length, 2);
     assert.ok(files.some((file) => file.includes("nested")));
@@ -167,11 +156,8 @@ test("a directory argument resolves to the test files beneath it", () => {
 });
 
 test("the suite runs on the interpreter that resolved it, not whatever PATH calls `node`", () => {
-  // Plants a `node` earlier in PATH that would satisfy a `spawnSync("node", …)`
-  // call. Because the runner spawns `process.execPath`, the shim must never be
-  // reached — otherwise the file set is resolved by one interpreter and the
-  // tests execute on another, which is the "green locally, different Node in
-  // CI" class.
+  // A `node` shim earlier in PATH must never be reached: the runner spawns `process.execPath`, so
+  // the file set and the tests run on one interpreter.
   const root = makeFixtureTree(1);
   const shimDirectory = mkdtempSync(join(tmpdir(), "run-node-tests-shim-"));
   const markerPath = join(shimDirectory, "shim-was-invoked");

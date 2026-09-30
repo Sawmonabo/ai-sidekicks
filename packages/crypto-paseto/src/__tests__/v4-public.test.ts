@@ -23,7 +23,6 @@ describe("v4.public sign / verify", () => {
     const footer = encoder.encode("kid:k_2026_05");
 
     const token = signV4Public(payload, secretKey, footer);
-    // Footer present → token has a 4th dot-segment.
     expect(token.split(".").length).toBe(4);
 
     const verified = verifyV4Public(token, publicKey, footer);
@@ -45,10 +44,8 @@ describe("v4.public sign / verify", () => {
     const payload = encoder.encode("payload");
     const token = signV4Public(payload, secretKey);
 
-    // Flip a byte in the decoded signature region (after "v4.public.").
-    // A char-domain flip at the last base64url position can land on padding
-    // bits and be a no-op on the decoded bytes; byte-domain flip is
-    // deterministic.
+    // Flip a byte of the signature; a character flip at the last base64url position can land on
+    // padding bits and change nothing.
     const head = token.slice(0, "v4.public.".length);
     const body = token.slice("v4.public.".length);
     const bodyBytes = new Uint8Array(Buffer.from(body, "base64url"));
@@ -76,7 +73,6 @@ describe("v4.public sign / verify", () => {
     const { publicKey, secretKey } = generateV4PublicKeyPair();
     const payload = encoder.encode("payload");
     const expectedFooter = encoder.encode("kid:k_1");
-    // Sign without a footer; verify expects one.
     const token = signV4Public(payload, secretKey);
     expect(() => verifyV4Public(token, publicKey, expectedFooter)).toThrow(InvalidTokenError);
   });
@@ -90,13 +86,11 @@ describe("v4.public sign / verify", () => {
     );
   });
 
-  // Strict base64url canonicalization: non-canonical textual forms (padding,
-  // invalid chars) must be rejected even when Node's lenient decoder would
-  // otherwise produce bytes that pass the signature check.
+  // Non-canonical base64url (padding, invalid characters) must be rejected even when Node's
+  // lenient decoder yields bytes that pass the signature check.
   it("rejects a token whose body base64url carries `=` padding", () => {
     const { publicKey, secretKey } = generateV4PublicKeyPair();
     const token = signV4Public(encoder.encode("payload"), secretKey);
-    // PASETO requires unpadded base64url; Node tolerates trailing `=`.
     expect(() => verifyV4Public(`${token}=`, publicKey)).toThrow(InvalidTokenError);
   });
 
@@ -104,7 +98,7 @@ describe("v4.public sign / verify", () => {
     const { publicKey, secretKey } = generateV4PublicKeyPair();
     const footer = encoder.encode("kid:k_1");
     const token = signV4Public(encoder.encode("payload"), secretKey, footer);
-    // token shape: "v4.public.<body>.<footer>" → append `=` to footer.
+    // Token shape is "v4.public.<body>.<footer>", so `=` lands on the footer.
     expect(() => verifyV4Public(`${token}=`, publicKey, footer)).toThrow(InvalidTokenError);
   });
 
@@ -118,10 +112,8 @@ describe("v4.public sign / verify", () => {
     expect(() => verifyV4Public(tampered, publicKey)).toThrow(InvalidTokenError);
   });
 
-  // PASETO section 2 exact-string invariant: `header.payload.` (trailing dot, empty
-  // footer) is a third textual form that would otherwise verify against the
-  // same key as `header.payload`. Without this rejection, an attacker can
-  // bypass exact-string replay/revocation caches by appending `.`.
+  // `header.payload.` (trailing dot, empty footer) would otherwise verify like `header.payload`,
+  // letting an attacker bypass replay or revocation caches keyed by token text by appending `.`.
   it("rejects a token with a trailing dot and empty footer segment", () => {
     const { publicKey, secretKey } = generateV4PublicKeyPair();
     const token = signV4Public(encoder.encode("payload"), secretKey);
