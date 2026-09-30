@@ -7,11 +7,10 @@ import {
 } from "../mounted-transcript.js";
 
 /**
- * Make this feed the mounted transcript for as long as this component is mounted.
+ * Makes this feed the mounted transcript while the component is mounted.
  *
- * The acts are read at act time through a ref rather than adopted directly: a feed
- * rebuilds its callbacks on every render, and adopting the object itself would either
- * re-adopt the transcript on each pass or keep the first render's callbacks.
+ * Acts are read through a ref at act time: a feed rebuilds its callbacks every render, and
+ * adopting the object itself would re-adopt each pass or keep the first render's callbacks.
  */
 export function useMountedTranscript(
   acts: TranscriptActs,

@@ -1,5 +1,3 @@
-// Which window notices a transcript shows.
-
 import { describe, expect, it } from "vitest";
 
 import { buildWindowNoticeText, buildWindowNoticeTexts } from "./window-notices.js";

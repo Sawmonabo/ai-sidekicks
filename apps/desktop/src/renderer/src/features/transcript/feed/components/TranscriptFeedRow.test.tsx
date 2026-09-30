@@ -1,16 +1,7 @@
-// Which arm of the dispatch a key is, and what the memo behind the row renderer's arm holds.
-//
-// THE DISPATCH IS DRIVEN DIRECTLY rather than through a mounted feed, because the
-// question here is which BRANCH a key takes and the eight suites beside it already
-// mount the whole transcript. Driven through a feed, a dispatch case would pass or fail
-// on the viewport's cap, its reconcile, and whatever the fixture clock had reached.
-//
-// THE MEMO IS THE ONE CLAIM THAT NEEDS A RENDERER, and it is the reason this file
-// exists: the module's whole justification is that `renderRow`'s identity moves on
-// every admitted event — it closes over the window — so the viewport's own row memo
-// cannot hold across one, and the boundary is drawn one level lower where the four
-// values it compares are identity-stable. A case that only read the returned element
-// would prove the branch and say nothing about the work a frame does.
+// Which arm of the dispatch a key is, and what the memo behind the row renderer's arm holds. The
+// dispatch is driven directly, not through a mounted feed, so a case does not depend on the
+// viewport's cap and reconcile. The memo needs a renderer: `renderRow` moves on every admitted
+// event, so the boundary sits below it where the four compared values are identity-stable.
 
 import { render, renderHook } from "@testing-library/react";
 import { type ReactNode } from "react";
@@ -88,8 +79,8 @@ describe("the feed's row dispatch — which of the four a key is", () => {
     );
 
     expect(container.querySelector(".meridian-run-group-header")).not.toBeNull();
-    // The row renderer owns row BODIES and a run group header is not one — asking it would
-    // render a finished run as an ordinary receipt.
+    // The row renderer owns row bodies and a header is not one; asking it would render a
+    // finished run as an ordinary receipt.
     expect(rowRendererCalls).not.toHaveBeenCalled();
   });
 
@@ -111,8 +102,8 @@ describe("the feed's row dispatch — which of the four a key is", () => {
   });
 
   it("names a row the window no longer holds rather than drawing a blank band", () => {
-    // The window moved under the viewport between its reconcile and this paint. A
-    // blank would read as a row with nothing in it; this is a fact about the cap.
+    // The window moved under the viewport between its reconcile and this paint; a blank would
+    // read as an empty row, and this is a fact about the cap.
     const transcriptWindow = foldedRunGroupWindow();
     const vanished = viewportRowFor(transcriptWindow, TERMINAL_RUN_ID);
     const rowRendererCalls = vi.fn(() => <output data-rendered-row="yes" />);
@@ -154,12 +145,8 @@ describe("the feed's row dispatch — which of the four a key is", () => {
 
 describe("the memo behind the row renderer's arm — what a frame redraws", () => {
   /**
-   * One log, projected twice through ONE retention table.
-   *
-   * The retention is the whole instrument: it is what holds a row object across a
-   * projection, and the memo's four values are identity-stable only because it does.
-   * Two projections built without it hand the memo four fresh values and it can never
-   * hold.
+   * One log projected twice through one retention table. The retention holds a row object across
+   * a projection, so the memo's four values are identity-stable; without it the memo cannot hold.
    */
   function twoProjectionsOverOneLog(): {
     readonly before: TranscriptWindowModel;
@@ -179,12 +166,8 @@ describe("the memo behind the row renderer's arm — what a frame redraws", () =
   }
 
   /**
-   * Dispatch one key through two projections in ONE mounted tree.
-   *
-   * The same element position across both renders, because that is what gives React a
-   * memo cell to compare against — re-rendering into a fresh tree would mount a new
-   * component and the count would be two under any arrangement at all. The mock is
-   * the helper's, so a claim and its control cannot accidentally count two of them.
+   * Dispatch one key through two projections in one mounted tree: the same element position gives
+   * React a memo cell to compare against, and a fresh tree would count two under any arrangement.
    */
   function rowRendererCallsAcrossTwoProjections(
     secondOptions: (
@@ -210,9 +193,8 @@ describe("the memo behind the row renderer's arm — what a frame redraws", () =
   }
 
   it("does not redraw the card when the window moved and the row did not", () => {
-    // THE CLAIM THE MODULE EXISTS FOR. `renderRow` is a new callback — it closes over
-    // a new window object — so the lookups really run again; the card behind them does
-    // not, because the four values the row renderer is handed are the same four objects.
+    // `renderRow` is a new callback (it closes over a new window), so the lookups run again; the
+    // card behind them does not, because the four values are the same objects.
     expect(
       rowRendererCallsAcrossTwoProjections((nextWindow, renderTranscriptRow) =>
         rendererOptions(nextWindow, { renderTranscriptRow }),
@@ -221,8 +203,7 @@ describe("the memo behind the row renderer's arm — what a frame redraws", () =
   });
 
   it("negative control: a row whose density moved is redrawn", () => {
-    // Without this the case above would pass over a memo that never re-rendered at
-    // all — a card frozen at whatever it drew first, which is worse than redrawing it.
+    // Without this the case above would pass over a memo that never re-rendered.
     const openedLease = (): RetainedRowState => ({ density: "expanded", innerScrollTopPx: 0 });
     expect(
       rowRendererCallsAcrossTwoProjections((nextWindow, renderTranscriptRow) =>

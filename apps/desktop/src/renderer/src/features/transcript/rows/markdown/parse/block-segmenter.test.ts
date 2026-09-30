@@ -1,11 +1,6 @@
-// The committed-and-volatile split: where a block ends, and what is still moving.
-//
-// A BLOCK IS COMMITTED ONLY WHEN A LATER NON-BLANK LINE PROVES IT ENDED, which is the
-// rule most of these cases are really about. A blank run at the very end of a snapshot
-// is not evidence: the next character to arrive can be a lazy continuation, and a
-// segmenter that committed on the blank alone would settle a block the stream then
-// extended. So every fixture below that expects a commit has a further non-blank line
-// after the boundary.
+// A block is committed only when a later non-blank line proves it ended: a blank run at the end
+// of a snapshot is not evidence, since the next character can be a lazy continuation. So every
+// fixture expecting a commit has a further non-blank line after the boundary.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,8 +38,7 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
   });
 
   it("never settles a boundary inside a fence", () => {
-    // A blank line inside a code fence is content, not a block boundary. Settling there
-    // would hand the parser half a fence and render the rest of the message as code.
+    // A blank line inside a code fence is content, not a block boundary.
     const segmenter = new MarkdownBlockSegmenter();
     const fenced = "```ts\nconst a = 1;\n\nconst b = 2;\n```\n\nafter\n\ntail\n\nlast\n\nend";
     const segmentation = segmenter.segment(fenced);
@@ -68,10 +62,7 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
   });
 
   it("settles every block and empties the tail once the body is final", () => {
-    // Both reasons this class holds text back are reasons about a LATER character, and
-    // a final body has none. Held back, these blocks never reach the settled cache and
-    // stay on the `remend`ed path — a complete body's text rewritten as if it were a
-    // prefix.
+    // Both reasons this class holds text back concern a later character; a final body has none.
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment(FIVE_PARAGRAPHS, { isFinal: true });
     expect(segmentation.volatileTail).toBe("");
@@ -88,9 +79,8 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
   });
 
   it("keeps a final unclosed fence in one block rather than splitting its interior", () => {
-    // A complete body whose author left a fence open is still one block: the parser
-    // closes it at the end of the document, and splitting on the blank line inside it
-    // would render half the code as prose.
+    // The parser closes an open fence at the end of the document; splitting on the blank line
+    // inside it would render half the code as prose.
     const segmentation = new MarkdownBlockSegmenter().segment(
       "```ts\nconst a = 1;\n\nconst b = 2;",
       {
@@ -102,16 +92,12 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
   });
 
   it("negative control: the same snapshot still holds the lag while the body is in flight", () => {
-    // Without this, a segmenter that ignored the flag and settled everything would pass
-    // the three cases above and settle blocks the next character could still reopen.
     const segmentation = new MarkdownBlockSegmenter().segment(FIVE_PARAGRAPHS);
     expect(segmentation.settledBlocks).toHaveLength(3 - MARKDOWN_SETTLE_LAG_BLOCKS);
     expect(segmentation.volatileTail).toContain("five");
   });
 
   it("negative control: a blank run at the end of the snapshot commits nothing", () => {
-    // Without this, a segmenter that split on any blank run would pass every case above
-    // and settle a block the very next character could still extend.
     const segmenter = new MarkdownBlockSegmenter();
     const segmentation = segmenter.segment("one\n\ntwo\n\nthree");
     expect(segmenter.completeBlockCount).toBe(1);
@@ -121,10 +107,8 @@ describe("splitting a stream into settled blocks and a volatile tail", () => {
 });
 
 /**
- * Blocks whose interior blank line is content, not a boundary.
- *
- * Each source ends in a further paragraph so the container's own commit is proved: the
- * assertion is that the container is ONE block, not that the scan committed nothing.
+ * Blocks whose interior blank line is content. Each source ends in a further paragraph so the
+ * container's own commit is proved.
  */
 const CONTAINER_CASES: readonly {
   readonly what: string;
@@ -159,8 +143,6 @@ describe("a blank line inside a container", () => {
   });
 
   it("negative control: a paragraph still ends at its blank line", () => {
-    // Without this, a segmenter that never committed at all would pass every case above
-    // and hold the whole message volatile forever.
     const segmentation = new MarkdownBlockSegmenter().segment(
       "first paragraph\n\nsecond paragraph\n\nafter\n\ntail\n\nlast\n\nend",
     );
@@ -168,9 +150,7 @@ describe("a blank line inside a container", () => {
   });
 
   it("negative control: a list that opens after a paragraph is its own block", () => {
-    // And without this, a segmenter that read the container from the line AFTER the
-    // blank run rather than from the line the block opened on would pass the cases above
-    // and glue a paragraph onto the list that follows it.
+    // The container is read from the line the block opened on, not the one after the blank run.
     const segmentation = new MarkdownBlockSegmenter().segment(
       "a paragraph\n\n- an item\n\nafter\n\ntail\n\nlast\n\nend",
     );
@@ -178,8 +158,7 @@ describe("a blank line inside a container", () => {
   });
 
   it("negative control: a differently marked list is a different list", () => {
-    // Commonmark starts a new list when the bullet character changes, so these two are
-    // not siblings and the boundary between them is real.
+    // Commonmark starts a new list when the bullet character changes.
     const segmentation = new MarkdownBlockSegmenter().segment(
       "- a\n\n* b\n\nafter\n\ntail\n\nlast\n\nend",
     );
@@ -195,11 +174,8 @@ describe("a blank line inside a container", () => {
 });
 
 /**
- * What the tail keeps and what it drops, in the one place the two are confusable.
- *
- * The separator ahead of the tail is the previous block's, and dropping it is all the
- * tail owes. The first content line's own indentation is the AUTHOR's, and in
- * commonmark it is syntax rather than layout.
+ * What the tail keeps and drops: the separator ahead of it is the previous block's, but the first
+ * content line's indentation is the author's and is syntax in commonmark.
  */
 const LEADING_WHITESPACE_CASES: readonly {
   readonly what: string;
@@ -234,10 +210,8 @@ describe("what the volatile tail strips from its own head", () => {
   });
 
   it("negative control: the separator itself is still removed", () => {
-    // Without this, a segmenter that stripped NOTHING would pass every case above and
-    // hand the parser a tail opening on blank lines. The run of blanks here is longer
-    // than the one the commit consumed, so the lagged block the tail is joined from
-    // begins on one — which is the only way the tail ever does.
+    // The blank run here is longer than the one the commit consumed, so the lagged block the
+    // tail is joined from begins on one.
     const segmentation = new MarkdownBlockSegmenter().segment(
       "one\n\n\n\ntwo\n\nthree\n\nfour\n\nfive",
     );

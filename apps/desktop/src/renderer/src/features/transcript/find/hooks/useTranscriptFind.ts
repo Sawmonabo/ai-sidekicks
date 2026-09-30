@@ -1,16 +1,7 @@
-// The find field's state, and the walk over the window the viewport is showing.
-//
-// It searches the VISIBLE window and not the log, because the walk offers to jump
-// and a jump is performed by the viewport: a result counting rows the viewport does
-// not hold would step to one and land nowhere, reporting success. What lies outside
-// that window is counted beside the field instead — in TWO figures, one per stage that
-// removed rows, because each names a different state with a different exit.
-//
-// THE FOLD'S FIGURE IS THE COMMON ONE. Every finished run is folded by default, so on a
-// completed session most of the log sits behind a run group header, and a term in one of
-// those rows is a match the reader can reach by opening the group. A row the fold
-// removed is still a LOADED row, and a field that says it searched the loaded rows has
-// to account for it.
+// The find field's state and the walk over the window the viewport shows. It searches the
+// visible window, not the log, because the viewport performs the jump and a match outside
+// it would land nowhere. Matches outside are counted in two figures, one per stage that
+// removed rows (the cap and the run fold), since each has a different exit.
 
 import { useCallback, useMemo, useState } from "react";
 
@@ -32,42 +23,24 @@ export interface TranscriptFindState {
   readonly result: FindResult;
   /** Matches in rows the cap took out of this window. Named, never hidden. */
   readonly beyondWindowMatchCount: number;
-  /**
-   * Matches inside terminal run groups this transcript has folded.
-   *
-   * Finished runs fold by default, so this is the larger of the two on any session that
-   * has finished a run.
-   */
+  /** Matches inside folded terminal run groups; finished runs fold by default. */
   readonly foldedAwayMatchCount: number;
   /**
-   * Where the walk is in the CURRENT result, or `-1` with nothing selected.
+   * Where the walk is in the current result, or `-1` with nothing selected.
    *
-   * Derived from the selected ROW rather than held as an ordinal, because the
-   * result recomputes whenever the visible window moves — every prune, every appended
-   * row — while the query stays the same. A held
-   * ordinal survived into a shorter list, so the counter could read "10 of 2" and
-   * the next step wrapped over the new count from a position that meant nothing.
-   * A lookup answers `-1` exactly when the selected row has left the result, and
-   * `-1` is already the sentinel the stepper enters the list from.
+   * Derived from the selected row, not held as an ordinal: the result recomputes as the window
+   * moves, and a held ordinal could outlive a shorter list.
    */
   readonly currentMatchIndex: number;
   readonly setQuery: (query: string) => void;
   /**
-   * Reveal the field without touching the query or the walk.
-   *
-   * Separate from `setQuery`, which also opens: the palette's "Find in this session" row
-   * and the chord behind it open a field somebody is about to type into, and
-   * folding that into the query setter would have made the act pass an empty string
-   * and reset a walk the reader was already in the middle of.
+   * Reveals the field without touching the query or the walk. Separate from `setQuery` so the
+   * palette act cannot reset a walk in progress.
    */
   readonly open: () => void;
   /**
-   * How many times `open` has been pressed, monotonic for the mount's life.
-   *
-   * The field is conditionally mounted, so a mount IS one open — but the chord
-   * pressed while the field is already up has to put the caret back and select what
-   * is there, and a mount-only effect cannot see that press. One counter covers both
-   * entries and stays drivable by a unit test, which `autoFocus` is not.
+   * How many times `open` has been pressed. A counter rather than `autoFocus`, so a press while
+   * the field is up re-takes the caret and a test can drive it.
    */
   readonly openRequestCount: number;
   readonly close: () => void;
@@ -79,30 +52,18 @@ export interface TranscriptFindInputs {
   /** The rows the walk searches — the only ones a step can land on. */
   readonly visible: VisibleTranscriptWindow;
   /**
-   * The rows the terminal-run fold withheld, as the fold reported them.
-   *
-   * TAKEN FROM THE STAGE RATHER THAN DERIVED HERE, because the stage is the pass that
-   * already separated them: re-deriving it would walk the whole unfurled projection on
-   * every appended row for as long as a query sat in the field.
+   * The rows the run fold withheld, as that stage reported them. Re-deriving them would walk
+   * the whole projection on every appended row while a query is set.
    */
   readonly foldedAwayRows: readonly TimelineRow[];
 }
 
 /**
- * Search the window on screen, and count what lies outside it.
+ * Searches the window on screen and counts what lies outside it.
  *
- * Three passes over three DISJOINT sets rather than one pass over the log and a
- * partition afterwards, which costs the same and keeps the walkable result honest:
- * every match in `result` is a row `jumpToRow` can reach, and every match that is
- * not is in one of the two counts beside it, under the name of the stage holding it.
- *
- * THE STAGES ARE READ AS SETS, one difference per stage, so a row is counted once and
- * against the FIRST thing that removed it: a row the fold took never reaches the
- * viewport, so the two counts plus the walk partition the loaded log exactly.
- *
- * THE WALK IS HELD BY ROW, NOT BY ORDINAL. The result recomputes whenever the
- * window moves under a query somebody is still walking, and an ordinal into the
- * previous result is a position in a list that no longer exists.
+ * The three sets are disjoint (a row the fold took never reaches the viewport), so every match
+ * is in `result` or in exactly one count. The walk is held by row, not ordinal, because the
+ * result recomputes as the window moves.
  */
 export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindState {
   const { visible, foldedAwayRows } = inputs;
@@ -132,8 +93,7 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
     [foldedAwayRows, query],
   );
 
-  // Looked up rather than remembered, so a result that recomputed under the walk
-  // reports where the walk actually is — or that it is nowhere.
+  // Looked up, not remembered, so a recomputed result reports where the walk actually is.
   const currentMatchIndex = useMemo(
     () =>
       selectedMatchRowId === undefined
@@ -190,14 +150,8 @@ export function useTranscriptFind(inputs: TranscriptFindInputs): TranscriptFindS
 }
 
 /**
- * Matches in one stage's removals.
- *
- * The set arrives already separated, so this walks it and nothing else — and a stage
- * that removed nothing hands back the one shared empty set, which the memo above keys
- * on, so an appended row does not even reach this function.
- *
- * The counts stay a partition because the stages report DISJOINT removals: a row the
- * fold took never reaches the viewport, so it cannot be reported as beyond the window.
+ * Matches in one stage's removals. A stage that removed nothing hands back the shared empty
+ * set the memo keys on, so an appended row never reaches this.
  */
 function matchesAmong(rows: readonly TimelineRow[], query: string): number {
   if (rows.length === 0 || query.trim().length === 0) {

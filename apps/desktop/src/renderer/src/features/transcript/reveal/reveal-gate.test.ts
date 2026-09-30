@@ -1,8 +1,5 @@
-// The literal-safety predicate: the class, the predecessor rule, and the two
-// carve-outs.
-//
-// Every case names the sentence the gate is protecting, because the predicate is
-// only meaningful against what a parser would have done with the tail it withheld.
+// The literal-safety predicate: the character class, the predecessor rule and the two
+// carve-outs, each against what a parser would have done with the withheld tail.
 
 import { describe, expect, it } from "vitest";
 

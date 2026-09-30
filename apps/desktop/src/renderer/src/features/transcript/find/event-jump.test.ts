@@ -1,12 +1,6 @@
-// The act each absence offers, and the jump that outlives the render it was asked in.
-//
-// TWO CLAIMS, AND NEITHER IS ABOUT CLASSIFICATION. Which narrowing is hiding a row
-// is `row-jump.test.ts`'. What is only true here is that
-// every absence the pipeline names has a DECIDED act — the table is driven from the
-// exported tuple, so a narrowing added to the pipeline and not to the table is
-// a red test rather than a row silently offered the run group fold's button — and that
-// a deferred request is spent exactly once, by the row it named, and dies with the
-// question that asked for it.
+// The act each absence offers, and the jump that outlives the render it was asked in. Every
+// absence the pipeline names has a decided act, and a deferred request is spent once, by the
+// row it named, and dies with the question that asked for it.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -14,9 +8,8 @@ import { describe, expect, it, vi } from "vitest";
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type RowJumpAbsence, type RowJumpOutcome } from "./row-jump.js";
-// Deeply, and only here: the tuple's one consumer outside its own directory is this
-// suite's totality case, so exporting it from the feature's public entry would widen
-// that entry for testing.
+// Imported directly: the tuple's only consumer outside its directory is this test, so the
+// feature's public entry stays narrow.
 import { ROW_JUMP_ABSENCES } from "./row-jump.js";
 import { foldRunGroupHeaders } from "../feed/run-group-fold.js";
 import { TERMINAL_RUN_ID, projectedRowId } from "../transcript-logs.test-support.js";
@@ -40,7 +33,6 @@ function rowOf(rowId: string): TimelineRow {
   return row;
 }
 
-/** The two acts, each recording that it was performed and nothing else. */
 function recordingActs(): {
   readonly performed: string[];
   readonly openFoldsHoldingRow: (row: TimelineRow) => void;
@@ -54,7 +46,6 @@ function recordingActs(): {
   };
 }
 
-/** The reach for one outcome over a window whose run groups are shut unless named. */
 function reachFor(
   outcome: RowJumpOutcome | undefined,
   acts: ReturnType<typeof recordingActs>,
@@ -74,9 +65,8 @@ function reachFor(
 
 describe("the act an absence offers", () => {
   it("decides every absence the pipeline names", () => {
-    // Totality, driven from the tuple the classifier walks: a narrowing that fell
-    // through to "Open that run group and go to it" would offer an act that cannot reach
-    // the row.
+    // Totality over the tuple the classifier walks: a new narrowing must not fall through to an
+    // act that cannot reach the row.
     for (const absence of ROW_JUMP_ABSENCES) {
       const acts = recordingActs();
       const reach = reachFor({ status: absence, row: FOLDED_ROW }, acts);
@@ -95,8 +85,8 @@ describe("the act an absence offers", () => {
   });
 
   it("withholds the run group act while that run group is already open", () => {
-    // Toggling an OPEN run group closes it, taking the rest of the run off screen —
-    // so a row past the run group's own cap is reached by nothing this build has.
+    // Toggling an open run group closes it, taking the rest of the run off screen, so a row past
+    // the group's own cap is reached by nothing.
     const acts = recordingActs();
 
     expect(
@@ -109,16 +99,14 @@ describe("the act an absence offers", () => {
   });
 
   it("offers nothing for a row the cap took", () => {
-    // This console subscribes to the log and holds no read that fetches a range of
-    // it, so a button here would report a success it could not perform.
+    // Nothing here reaches a row the cap took, so a button would promise a jump it cannot make.
     expect(
       reachFor({ status: "outside-window", row: FOLDED_ROW }, recordingActs()),
     ).toBeUndefined();
   });
 
   it("negative control: an outcome that is not an absence offers nothing", () => {
-    // Without this the table could be answering for every outcome, which would put
-    // an act beside a row that is already on screen.
+    // Guards against a table that answers for every outcome, offering an act beside a visible row.
     const acts = recordingActs();
     expect(reachFor(undefined, acts)).toBeUndefined();
     expect(reachFor({ status: "found", row: FOLDED_ROW }, acts)).toBeUndefined();
@@ -136,7 +124,6 @@ describe("the act an absence offers", () => {
   });
 });
 
-/** What one rerender of the deferred jump moves — the window, and the question. */
 interface DeferredJumpProps {
   readonly visibleRows: readonly TimelineRow[];
   readonly questionRowId: string | undefined;
@@ -146,7 +133,6 @@ describe("the deferred jump", () => {
   const REQUESTED_ROW = FOLDED_ROW;
   const OTHER_ROW: TimelineRow = rowOf(projectedRowId(2));
 
-  /** The hook over a window a case widens by rerendering with more rows. */
   function mountDeferredJump(): {
     readonly jumps: string[];
     readonly rerenderWith: (props: DeferredJumpProps) => void;
@@ -192,8 +178,8 @@ describe("the deferred jump", () => {
     deferred.request(REQUESTED_ROW.id);
 
     deferred.rerenderWith({ visibleRows: [REQUESTED_ROW], questionRowId: REQUESTED_ROW.id });
-    // A second reconcile over the same window — a scroll republishing the snapshot —
-    // must not jump again.
+    // A second reconcile over the same window (a scroll republishing the snapshot) must not
+    // jump again.
     deferred.rerenderWith({
       visibleRows: [REQUESTED_ROW, OTHER_ROW],
       questionRowId: REQUESTED_ROW.id,
@@ -203,9 +189,8 @@ describe("the deferred jump", () => {
   });
 
   it("lets the second ask supersede the first", () => {
-    // A second ask is somebody having changed their mind — they typed another id
-    // and pressed its act — so the question moves with it. Queueing the first would
-    // scroll them somewhere they had already moved on from.
+    // A second ask is somebody changing their mind and the question moves with it; queueing the
+    // first would scroll them somewhere they had left.
     const deferred = mountDeferredJump();
     deferred.request(REQUESTED_ROW.id);
     deferred.rerenderWith({ visibleRows: [], questionRowId: OTHER_ROW.id });
@@ -217,11 +202,8 @@ describe("the deferred jump", () => {
   });
 
   it("abandons a request the transcript is no longer being asked about", () => {
-    // THE DEFECT: the request cleared only on a successful jump or a replacement,
-    // and closing the find field resets the query and nothing else — so a request
-    // whose act never widened the window outlived the field, and playback reaching
-    // that row minutes later scrolled the transcript away from what somebody was
-    // reading with nothing on screen explaining why.
+    // A request whose act never widened the window must not outlive the find field: closing the
+    // field resets the query only, and a later widening would scroll the reader away.
     const deferred = mountDeferredJump();
     deferred.request(REQUESTED_ROW.id);
 
@@ -232,8 +214,7 @@ describe("the deferred jump", () => {
   });
 
   it("negative control: a request the question still names survives the widening", () => {
-    // Without this the clearing could be unconditional, which would abandon every
-    // deferred jump on the render its own act caused.
+    // Guards against unconditional clearing, which would abandon every jump on its own render.
     const deferred = mountDeferredJump();
     deferred.request(REQUESTED_ROW.id);
 

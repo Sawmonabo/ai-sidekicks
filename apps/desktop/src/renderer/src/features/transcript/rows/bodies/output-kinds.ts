@@ -15,20 +15,14 @@ export const OUTPUT_KINDS = ["prose", "plain-text", "command-output"] as const;
 /** One body shape. */
 export type OutputKind = (typeof OUTPUT_KINDS)[number];
 
-/**
- * The declared media types rendered as markdown. `text/x-markdown` is what producers
- * predating the type's registration still emit.
- */
+/** Declared media types rendered as markdown; `text/x-markdown` is an older spelling. */
 const MARKDOWN_MEDIA_TYPES: readonly string[] = ["text/markdown", "text/x-markdown"];
 
 /**
- * Which renderer a body takes.
- *
- * A declaration wins: escape bytes inside a declared markdown body are residue the caller
- * strips, so the markdown structure is still drawn. An unrecognized declaration (for
- * example `application/json`) takes the plain arm rather than the byte reading. With no
- * declaration, which is every tool result, a body carrying an escape is command output
- * and any other body is prose.
+ * Which renderer a body takes. A declaration wins: escape bytes in a declared markdown body are
+ * residue the caller strips, and an unrecognized declaration (say `application/json`) takes the
+ * plain arm. With no declaration, as for every tool result, a body carrying an escape is
+ * command output and any other body is prose.
  */
 export function outputKindOf(body: string, declaredMediaType?: string | undefined): OutputKind {
   if (declaredMediaType !== undefined) {

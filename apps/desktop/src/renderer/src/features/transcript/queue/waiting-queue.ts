@@ -1,14 +1,6 @@
-// What the shelf's question is, asked of the session's one queue reading.
-//
-// The shelf answers "what have I got waiting"; the transcript's pending rows answer
-// "what is in the queue, including what has left it". The difference is one
-// predicate: a row the daemon has stopped calling `queued` is exactly the row the shelf
-// drops. So the read is shared and the question stays the shelf's own.
-//
-// `admitted`, `superseded`, `canceled`, and `not_delivered` are all the daemon saying the
-// item is not waiting, so all four leave the shelf by this one rule rather than by
-// four special cases, and none of them is deleted from the reading, which the transcript's
-// pending rows still render.
+// The shelf's view of the session's queue reading: only rows the daemon still calls `queued`.
+// `admitted`, `superseded`, `canceled` and `not_delivered` all mean not waiting and leave the
+// shelf by this one rule; the reading keeps them for the transcript's pending rows.
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 

@@ -1,27 +1,10 @@
-// What the React binding asks the controller for, beyond the reconcile.
-//
-// The controller's own cases drive it directly — `viewport-controller.test.ts` owns
-// the prune, the reading floor, and the refusals. What only THIS file can say is
-// that a mounted transcript ever re-asks: the reconcile effect keys on the row set and
-// the two activity flags, so a window the cap refused while somebody was reading
-// above the tail is re-asked only if something in the tree calls for it. Without the
-// second effect every case here passes the first half and fails the second, which is
-// the shape the defect had — a window over its cap for as long as the session stayed
-// quiet.
-//
-// ONE GROUP PER DEPENDENCY THAT EFFECT KEYS ON, because a dependency no case spends
-// is a dependency anybody may delete with the suite green. The reading mode is the
-// first group's; the last prune outcome is the veto group's, where the reader never
-// leaves the tail; the pin is the last group's, where the mode does not move either.
-// Each was checked by removal: drop its dependency and that group's first case fails
-// with the window still over its cap.
-//
-// The layout engine is stubbed the way `TranscriptViewport.test.tsx` stubs it and for
-// the same reason: `happy-dom` reports zero for `clientHeight` and `scrollHeight`,
-// and a viewport with no box is at its tail by construction, so the reading state
-// this file drives would never leave `following`. Every module in the assertion path
-// — the binding, the controller, the chokepoint, the window cap, and the real
-// virtualizer — is the shipped one.
+// What the React binding asks the controller for beyond the reconcile. The reconcile effect
+// keys on the row set and the two activity flags, so a window the cap refused while somebody
+// read above the tail is re-asked only if a second effect calls for it. One group per
+// dependency of that effect (reading mode, last prune outcome, pin), each checked by removal:
+// dropping a dependency fails that group's first case with the window still over its cap.
+// The layout engine is stubbed as in `TranscriptViewport.test.tsx`, since a viewport with no
+// box is at its tail by construction; every module in the assertion path is the shipped one.
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -38,10 +21,8 @@ const VIEWPORT_HEIGHT_PX = 400;
 const CONTENT_HEIGHT_PX = 10_000;
 const TAIL_OFFSET_PX = CONTENT_HEIGHT_PX - VIEWPORT_HEIGHT_PX;
 /**
- * Inside the tail tolerance, so the reader counts as AT the tail, and far enough
- * from it that a glide to the exact tail moves the offset — which is what makes the
- * glide publish a sample its subscribers are woken for rather than one the
- * chokepoint suppresses as unchanged.
+ * Inside the tail tolerance, so the reader counts as at the tail, yet far enough that a glide
+ * to the exact tail moves the offset and publishes a sample subscribers are woken for.
  */
 const NEAR_TAIL_OFFSET_PX = TAIL_OFFSET_PX - TRANSCRIPT_TAIL_TOLERANCE_PX / 2;
 const SETTLED_ROW_COUNT = 20;
@@ -56,7 +37,6 @@ function syntheticRows(count: number): readonly ViewportRow[] {
   }));
 }
 
-/** A box taller than nothing, so the reader can be somewhere other than the tail. */
 function withLaidOutViewport(): void {
   vi.spyOn(HTMLElement.prototype, "clientHeight", "get").mockReturnValue(VIEWPORT_HEIGHT_PX);
   vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockReturnValue(CONTENT_HEIGHT_PX);
@@ -64,14 +44,9 @@ function withLaidOutViewport(): void {
 
 /**
  * A mounted binding over a scroll container a case can scroll, and the controller it minted.
- *
- * THE CONTROLLER IS RECORDED, NOT REPLACED. `vi.spyOn` leaves the real `attach` in
- * place and remembers only its receiver, so every module in the assertion path is
- * still the shipped one. It has to be taken here because the hook mints the
- * controller itself and hands the tree a binding rather than the object — which is
- * deliberate, the virtualizer's two adapter-only options forcing the instance to be
- * born inside a hook — and one case below has to reach the scroll controller's own
- * geometry subscription to reconcile while a write is still in flight.
+ * The controller is recorded, not replaced: `vi.spyOn` keeps the real `attach` and remembers
+ * only its receiver, needed because the hook mints the controller itself and one case must
+ * reach its geometry subscription to reconcile while a write is in flight.
  */
 function mountBinding(
   rows: readonly ViewportRow[],
@@ -100,7 +75,6 @@ function mountBinding(
   return { binding, scrollContainer, controller };
 }
 
-/** Move the reader, the way a finger does: the offset, then the event. */
 function scrollTo(scrollContainer: HTMLElement, offsetPx: number): void {
   act(() => {
     scrollContainer.scrollTop = offsetPx;
@@ -126,8 +100,7 @@ describe("the transcript viewport binding — a prune the window refused", () =>
     expect(binding.result.current.snapshot.lastPrune?.deferredBecause).toBe("reading-floor");
     expect(binding.result.current.snapshot.rows).toHaveLength(OVER_CAP_ROW_COUNT);
 
-    // THE RETURN, and nothing else. No row arrives, no turn starts, no reveal drains
-    // — so the reconcile effect's own dependencies are all untouched.
+    // The return alone: no row arrives, no turn starts, no reveal drains.
     scrollTo(scrollContainer, TAIL_OFFSET_PX);
 
     expect(binding.result.current.snapshot.reading.mode).toBe("following");
@@ -135,8 +108,7 @@ describe("the transcript viewport binding — a prune the window refused", () =>
   });
 
   it("negative control: a re-render that changes nothing leaves the reader's window whole", () => {
-    // Without this the second effect could be re-asking on every render, which would
-    // take rows out from under somebody who is still reading them.
+    // Without this the second effect could re-ask on every render and take rows from a reader.
     withLaidOutViewport();
     const { binding, scrollContainer } = mountBinding(syntheticRows(SETTLED_ROW_COUNT));
     scrollTo(scrollContainer, 0);
@@ -157,16 +129,10 @@ describe("the transcript viewport binding — a prune the window refused", () =>
 
 describe("the transcript viewport binding — a prune the write itself refused", () => {
   it("takes the rows once the write that vetoed them has finished", () => {
-    // THE DEPENDENCY THIS CASE SPENDS. The retry effect keys on the reading mode,
-    // the pin, and the last prune outcome. Here the reader never leaves the tail and
-    // nothing is pinned, so the outcome's identity is the ONLY dependency that
-    // moves — and without it the window stays over its cap with no second reconcile
-    // ever arriving, because the row set and both activity flags are untouched too.
-    //
-    // The veto is raised and dropped inside ONE synchronous glide, so the only way
-    // to reconcile under it is from a subscriber the glide itself wakes, which is
-    // how `viewport-controller.test.ts` reaches the same refusal. Nothing observes
-    // the veto lifting; keying the retry on the refusal is what makes it reachable.
+    // The reader never leaves the tail and nothing is pinned, so the prune outcome's identity
+    // is the only dependency that moves. The veto is raised and dropped inside one synchronous
+    // glide, so reconciling under it needs a subscriber the glide wakes, as in
+    // `viewport-controller.test.ts`; keying the retry on the refusal makes it reachable.
     withLaidOutViewport();
     const { binding, controller } = mountBinding(
       syntheticRows(SETTLED_ROW_COUNT),
@@ -194,9 +160,7 @@ describe("the transcript viewport binding — a prune the write itself refused",
   });
 
   it("negative control: a glide that refuses nothing re-asks for no prune", () => {
-    // Without this the effect could be re-asking on every published outcome, which
-    // would make the case above pass over a binding that pruned on any notification
-    // at all rather than on a refusal it recorded.
+    // Without this the case above would pass for a binding that pruned on any notification.
     withLaidOutViewport();
     const { binding, controller } = mountBinding(
       syntheticRows(SETTLED_ROW_COUNT),
@@ -209,8 +173,7 @@ describe("the transcript viewport binding — a prune the write itself refused",
       binding.result.current.jumpToTail();
     });
 
-    // The glide moved the offset and published a sample; no reconcile ran under it,
-    // so the outcome the retry keys on is the same object it already held.
+    // The glide published a sample but no reconcile ran, so the outcome is the same object.
     expect(controller.scroll.writeCount("jump-to-tail")).toBe(1);
     expect(binding.result.current.snapshot.lastPrune).toBe(settledOutcome);
     expect(binding.result.current.snapshot.rows).toHaveLength(SETTLED_ROW_COUNT);
@@ -219,10 +182,8 @@ describe("the transcript viewport binding — a prune the write itself refused",
 
 describe("the transcript viewport binding — a prune a pin held back", () => {
   it("takes the rows when the pin lifts, with the reading mode unmoved", () => {
-    // THE SECOND DEPENDENCY, spent the same way. Pinning history suppresses prune
-    // and lifting it moves neither the row set, nor either activity flag, nor the
-    // reading mode — the anchor leaves the mode where the pin put it — so the pin
-    // itself is the only dependency the effect can be re-asked on.
+    // Lifting a pin moves neither the row set, the activity flags, nor the reading mode, so
+    // the pin is the only dependency the effect can be re-asked on.
     withLaidOutViewport();
     const { binding, controller } = mountBinding(
       syntheticRows(SETTLED_ROW_COUNT),
@@ -247,8 +208,7 @@ describe("the transcript viewport binding — a prune a pin held back", () => {
   });
 
   it("negative control: the window stays whole for as long as the pin is held", () => {
-    // Without this the retry could be ignoring the pin outright, which is the one
-    // promise pinned history makes.
+    // Without this the retry could be ignoring the pin outright.
     withLaidOutViewport();
     const { binding, controller } = mountBinding(
       syntheticRows(SETTLED_ROW_COUNT),

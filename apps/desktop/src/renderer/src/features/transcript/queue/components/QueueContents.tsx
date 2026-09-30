@@ -1,17 +1,7 @@
-// What is waiting, in the daemon's order, with a way to take one back.
-//
-// ONE LINE PER ITEM, with anything secondary one click away and never expanded by
-// default. Here there is nothing secondary to fold: the line carries what the wire
-// supplies — id, state, priority and the two timestamps — and nothing it does not.
-//
-// THE ORDER IS RENDERED, NEVER REORDERED. `queue-feed.ts` owns the fold that keeps
-// the snapshot's canonical FIFO order; this file maps over it. There is no sort
-// here, no drag handle, no priority stepper, and no "move to front" — V1 defers
-// queue priority overrides, so front-inserting is not an available remedy anywhere.
-//
-// A CANCELED ROW STAYS. A queue row is durable and never-evented — drained but
-// never deleted — so every one of the five states renders as a row rather than as
-// an absence. Cancel is offered on the one state that can still be taken back.
+// What is waiting, in the daemon's order, with a way to take one back. One line per item,
+// with only what the wire supplies. The order is rendered, never reordered (`queue-order.ts`
+// keeps it), and all five states render as rows because queue rows are durable and never
+// deleted; cancel is offered only on the state that can still be taken back.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -22,13 +12,9 @@ import { QueueRow } from "./QueueRow.js";
 import "./QueueContents.css";
 
 /**
- * Queue rows rendered before the remainder is folded into a count.
- *
- * The cap is spent by a `slice` and a withheld count, which is the whole mechanism: the
- * queue windows nothing and imports no windowing layer. Below the cap the list is a plain
- * block; above it the list says how many rows it is not drawing rather than drawing
- * them all. The queue is FIFO and the head is what matters, so the ceiling truncates the
- * tail and never the front.
+ * Queue rows rendered before the remainder is folded into a count. A `slice` and a withheld
+ * count, so the queue imports no windowing layer. The queue is FIFO and the head is delivered
+ * next, so the ceiling truncates the tail, never the front.
  */
 const QUEUE_ROWS_RENDERED_CAP = 50;
 

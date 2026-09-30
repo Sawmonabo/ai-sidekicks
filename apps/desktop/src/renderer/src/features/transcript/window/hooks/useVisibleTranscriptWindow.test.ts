@@ -1,10 +1,5 @@
-// The two windows, and what happens at the seam between them.
-//
-// Every case here drives the real fold and the real matcher over a log big enough
-// that the cap has something to take. The property under test is not "find works" —
-// `find-model.test.ts` owns that — it is that find is asked about the window the
-// VIEWPORT is showing, and that what falls outside it is counted rather than walked
-// into.
+// Find is asked about the window the viewport shows, and rows outside it are counted, not walked
+// into. Drives the real fold and matcher over a log big enough for the cap to take rows.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -26,13 +21,7 @@ import {
   type TranscriptWindowModel,
 } from "../transcript-window.js";
 
-/**
- * The find state over one visible window, with the upstream stages left unnarrowed.
- *
- * Every case in this file is about the cap, which is the stage BELOW the fold — so
- * the fold removed nothing, reports the shared empty set, and its count stays zero
- * throughout. `useTranscriptFind.test.ts` is where that count is driven.
- */
+/** Find over a visible window with nothing removed by the fold; these cases exercise the cap. */
 function findOverVisible(visible: VisibleTranscriptWindow): ReturnType<typeof useTranscriptFind> {
   return useTranscriptFind({
     visible,
@@ -47,8 +36,6 @@ describe("the visible transcript window", () => {
     const { result } = renderHook(() => useVisibleTranscriptWindow(transcriptWindow, retained));
     expect(result.current.rows).toHaveLength(RETAINED_ROW_COUNT);
     expect(result.current.prunedAwayRows).toHaveLength(LOG_EVENT_COUNT - RETAINED_ROW_COUNT);
-    // The partition is DECIDED by this set, and it is published rather than
-    // re-derived, so an id-to-absence classifier asks the same question this did.
     const retainedKeys = new Set(retained.map((row) => row.key));
     expect([...result.current.heldRowKeys].sort()).toStrictEqual([...retainedKeys].sort());
   });
@@ -77,10 +64,9 @@ describe("the visible transcript window", () => {
   });
 
   it("negative control: searching the whole log walks rows the viewport does not hold", () => {
-    // Without this the case above would pass over a find that simply had fewer rows
-    // to look at. Handed the log instead of the window — which is what the field was
-    // handed before — the same query counts every row and steps to the oldest one,
-    // which the viewport reconciled away and `jumpToRow` cannot reach.
+    // Guards the case above against a find that merely had fewer rows: handed the whole log, the
+    // same query counts every row and steps to the oldest, which the viewport dropped and
+    // `jumpToRow` cannot reach.
     const transcriptWindow = deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
     const retainedKeys = new Set(
       transcriptWindow.viewportRows.slice(-RETAINED_ROW_COUNT).map((row) => row.key),
@@ -103,7 +89,6 @@ describe("the visible transcript window", () => {
 });
 
 describe("the clip the window states", () => {
-  /** One loaded log, from which a case keeps the whole window or only its tail. */
   function loadedWindow(): TranscriptWindowModel {
     return deriveTranscriptWindow(syntheticEventLog(LOG_EVENT_COUNT));
   }
@@ -116,8 +101,8 @@ describe("the clip the window states", () => {
   });
 
   it("negative control: a window holding its whole log claims nothing before it", () => {
-    // Without this the case above would pass over a clip hard-coded the other
-    // way round, which would put a truncation notice on every complete session.
+    // Guards the case above against a hard-coded clip, which would put a truncation notice on every
+    // complete session.
     const transcriptWindow = loadedWindow();
     const { result } = renderHook(() =>
       useVisibleTranscriptWindow(transcriptWindow, transcriptWindow.viewportRows),

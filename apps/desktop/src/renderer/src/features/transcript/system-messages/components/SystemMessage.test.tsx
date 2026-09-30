@@ -1,11 +1,5 @@
-// The seam row, held to the members it claims to draw.
-//
-// Every case here reads the RENDERED line rather than the model behind it, because
-// the defect this component answers was exactly that the model was correct and
-// nothing drew it: `SystemMessageClassifier` derived the boundary, the continuity, the
-// losses and the reason on every pass, and the only consumer
-// was the replay dock's next-seam jump, itself since removed. A case asserting over
-// `classify()` would have passed throughout.
+// The seam row reads the rendered line, not the classifier's model: the model was correct
+// while nothing drew the boundary, continuity, losses and reason.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -92,8 +86,7 @@ describe("the seam row — one kind at a time, over its registered members", () 
   });
 
   it("negative control: an ordinary switch is not drawn as a caution", () => {
-    // Without this the caution assertion above would pass over a row that painted
-    // every seam amber, which is spent on attention alone.
+    // Without this the caution assertion above would pass over a row that painted every seam.
     const line = renderSeam(
       seamOf(
         runRow({
@@ -129,9 +122,7 @@ describe("the seam row — the loss clause", () => {
     );
     expect(line.textContent).toContain("brief");
     expect(line.textContent).toContain("turn_content_truncated");
-    // A value the closed wire vocabulary does not carry is still rendered as
-    // itself. Mapping it onto a fallback phrase would go quiet on exactly the
-    // newest kind of loss.
+    // A value outside the closed wire vocabulary is still rendered as itself.
     expect(line.textContent).toContain("a_loss_this_build_never_heard_of");
   });
 

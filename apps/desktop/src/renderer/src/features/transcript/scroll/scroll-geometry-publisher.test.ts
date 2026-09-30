@@ -1,12 +1,5 @@
-// What a geometry sample means, driven directly rather than through a scroll container.
-//
-// THE RULES HERE ARE THE PUBLISHER'S: the tail arithmetic, the replay, and the decision
-// about which sample is worth waking a subscriber for. Reaching them by attaching a
-// stand-in scroll container and scrolling it would make a case about the ARITHMETIC
-// arrange a listener, a batch and a clock first. The publisher takes three numbers, so a
-// case about three numbers hands it three numbers.
-//
-// The module under test is imported and driven; nothing here restates its rule.
+// The publisher driven directly with three numbers: the tail arithmetic, the replay, and
+// which sample wakes a subscriber, without a stand-in scroll container, batch or clock.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -29,7 +22,6 @@ beforeEach(() => {
   publisher = new ScrollGeometryPublisher({ clock });
 });
 
-/** A viewport-sized box in a taller log, at the offset a case names. */
 function readingAt(
   scrollTop: number,
   viewportHeight = 500,
@@ -55,16 +47,15 @@ describe("the transcript geometry publisher — the tail", () => {
   });
 
   it("negative control: a reader one pixel past the tolerance is not following", () => {
-    // Without this the two cases above would pass over a publisher that answered
-    // `isAtTail` for every offset in the log.
+    // Without this the two cases above would pass for a publisher that always says at-tail.
     const outside = publisher.publish(readingAt(4500 - TRANSCRIPT_TAIL_TOLERANCE_PX - 1), "scroll");
     expect(outside.distanceFromTailPx).toBe(TRANSCRIPT_TAIL_TOLERANCE_PX + 1);
     expect(outside.isAtTail).toBe(false);
   });
 
   it("floors the distance rather than reporting a negative one past the end", () => {
-    // A content height that shrank under a held offset — a prune between two frames —
-    // produces a negative difference, and a follower reading one would be past the tail.
+    // A prune between two frames shrinks the content under a held offset; the negative
+    // difference would put a follower past the tail.
     expect(publisher.publish(readingAt(9000), "resize").distanceFromTailPx).toBe(0);
   });
 });
@@ -79,8 +70,7 @@ describe("the transcript geometry publisher — who is woken", () => {
   });
 
   it("negative control: a publisher that published nothing replays nothing", () => {
-    // Without this the case above would pass over a subscription that replayed a
-    // fabricated zero sample rather than the one that was published.
+    // Without this the case above would pass over a replayed fabricated zero sample.
     const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
     expect(received).toStrictEqual([]);
@@ -97,7 +87,6 @@ describe("the transcript geometry publisher — who is woken", () => {
   });
 
   it("negative control: a move past the epsilon does wake them", () => {
-    // Which is what makes the suppression above a comparison rather than a mute.
     publisher.publish(readingAt(120), "scroll");
     const received: ScrollGeometry[] = [];
     publisher.subscribe((geometry) => received.push(geometry));
@@ -107,9 +96,7 @@ describe("the transcript geometry publisher — who is woken", () => {
   });
 
   it("records a suppressed sample and returns it, so no caller reads twice", () => {
-    // The suppression is about waking subscribers and not about holding the reading:
-    // a caller handed `undefined` here would go back to the scroll container for numbers the
-    // publisher already had.
+    // Suppression is about waking subscribers, not holding the reading: the caller must not reread.
     publisher.publish(readingAt(120), "scroll");
     const suppressed = publisher.publish(readingAt(120), "resize");
     expect(suppressed.cause).toBe("resize");

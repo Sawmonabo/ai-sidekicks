@@ -1,85 +1,57 @@
-// The transcript frame's named figures that are not ceilings.
-//
-// THE CEILINGS ARE NOT HERE. The window cap, the element ceiling, the reveal engine's
-// frame budget and its two walk caps, and the parked-lease cap are declared in
-// `../frame/frame-caps.ts`, beside the rest of the frame's bounds. What stays is the
-// estimate, the tolerance, the epsilon, the overscan, the witness count, the catch-up
-// multiplier, and the gate's tail window — measurements and factors rather than bounds
-// anything is checked against.
-//
-// Being light on the machine means every cap, window, and timeout is a named constant
-// with a one-line rationale. That rule is about the NAME and the rationale rather than
-// the file, which is why the ceilings can live in the caps file and still satisfy it —
-// each went with the paragraph it was written with.
-//
-// A number that appears inline in this subtree and is not a layout literal is a
-// review rejection: the rationale is the point, not the constant.
-//
-// `../rows/markdown/parse/segmentation-bounds.ts` is the transcript's only other file of
-// this kind, and it sits on the same split: every value here has a spender in
-// `reveal/`, `viewport/` or `scroll/`, and every value there has one in `rows/markdown/`.
+// The transcript frame's named figures that are not ceilings. The ceilings (window cap, reveal
+// budget, walk caps, parked-lease cap) live in `../frame/frame-caps.ts`, and
+// `../rows/markdown/parse/segmentation-bounds.ts` is the transcript's only other file of this
+// kind. Every value here is spent in `reveal/`, `viewport/` or `scroll/`.
 
 /**
  * Rows rendered beyond each edge of the viewport.
  *
- * Six is two rows more than the tallest burst a single frame's reveal drain can
- * push into view, so a fast scroll meets measured rows rather than a blank band,
- * and small enough that the rendered set stays a fraction of the window cap.
+ * Two more than the tallest burst one frame's reveal drain can push into view, so a fast scroll
+ * meets measured rows rather than a blank band, while the rendered set stays a fraction of the
+ * window cap.
  */
 export const TRANSCRIPT_OVERSCAN_ROWS = 6;
 
 /**
- * The height a row is assumed to have before it has been measured, in pixels.
- *
- * A transcript line with a gutter, a kind label, and two lines of body measures near
- * this; the estimate only has to be close enough that the first paint's scrollbar
- * is not visibly wrong, because every mounted row replaces it with a measurement.
+ * The height a row is assumed to have before it is measured, in pixels: near a line with a
+ * gutter, a kind label and two lines of body. It only has to keep the first paint's scrollbar
+ * from looking wrong, since every mounted row replaces it with a measurement.
  */
 export const TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX = 96;
 
 /**
  * Tolerance, in pixels, within which the viewport counts as sitting at the tail.
  *
- * Sub-pixel scroll positions and a fractional row height mean an exact equality
- * test flickers between following and reading on every frame of a stream. One
- * transcript line's leading is the smallest band that cannot be crossed by rounding.
+ * An exact test flickers between following and reading on every frame of a stream, because of
+ * sub-pixel scroll positions and fractional row heights. One line's leading is the smallest band
+ * rounding cannot cross.
  */
 export const TRANSCRIPT_TAIL_TOLERANCE_PX = 24;
 
 /**
- * The epsilon every geometry comparison uses, in pixels.
- *
- * This console never compares two measurements without one. Half a pixel is below
- * anything a display can show and above the error a device-pixel-ratio division
- * introduces.
+ * The epsilon every geometry comparison uses, in pixels: below anything a display can show and
+ * above the error a device-pixel-ratio division introduces.
  */
 export const TRANSCRIPT_GEOMETRY_EPSILON_PX = 0.5;
 
 /**
- * Agreeing witnesses before the controller believes this display quantizes
- * programmatic `scrollTop` writes to whole pixels.
- *
- * Two, because one is an observation and two is a rule: a single readback can be
- * explained by a concurrent user scroll landing between the write and the read,
- * and the only cost of waiting for the second is one unskipped no-op write.
+ * Agreeing witnesses before the controller believes this display quantizes programmatic
+ * `scrollTop` writes to whole pixels. Two, because a single readback can be explained by a
+ * concurrent user scroll landing between the write and the read.
  */
 export const SCROLL_QUANTIZATION_SAMPLE_COUNT = 2;
 
 /**
- * The largest multiple of its fair share a lane behind the others may take.
- *
- * `reveal-engine.ts`'s second decision: catch-up raises a lane's rate and never jumps
- * it. Three is a visible catch-up that still leaves two thirds of the
- * frame's budget for the lanes that are keeping pace.
+ * The largest multiple of its fair share a lane behind the others may take: catch-up raises a
+ * lane's rate and never jumps it. Three is visible and still leaves two thirds of the frame's
+ * budget for the lanes keeping pace.
  */
 export const REVEAL_CATCH_UP_MULTIPLIER = 3;
 
 /**
- * Characters of already-revealed text the gate is shown behind the cursor.
- *
- * Enough to see the start of the line the cursor is on for the digit-period
- * carve-out, and small enough that the window is rebuilt in constant time no
- * matter how long the message has grown.
+ * Characters of already-revealed text the gate is shown behind the cursor: enough to see the
+ * start of the cursor's line for the digit-period carve-out, small enough to rebuild in constant
+ * time however long the message grows.
  */
 export const REVEAL_GATE_TAIL_CHARACTERS = 64;
 
@@ -87,16 +59,9 @@ export const REVEAL_GATE_TAIL_CHARACTERS = 64;
  * How long the transcript must have been still for the next activity to trim first, in
  * milliseconds.
  *
- * MEASURED, NEVER ARMED. `viewport/cycle/idle-trim.ts` runs its pass on the first activity
- * after a gap this wide rather than on a timer, because no timer is allowed on the
- * console's steady state and `TranscriptViewport.test.tsx` holds this frame to it. So this
- * is a threshold a
- * subtraction is compared against, and a transcript nobody is touching arms nothing.
- *
- * Two minutes because it has to be longer than every pause inside ordinary reading —
- * a person scrolling back, reading a long tool result, switching to another window to
- * check something — and short enough that the pause after a working session returns
- * what that session accumulated. A row whose lease survives a two-minute pause is one
- * nobody is coming back to.
+ * Compared against the clock, never armed: `idle-trim.ts` runs on the first activity after the
+ * gap because an idle frame arms no timer. Two minutes is longer than every pause inside ordinary
+ * reading (scrolling back, a long tool result, checking another window) and short enough that
+ * the pause after a working session returns what it accumulated.
  */
 export const TRANSCRIPT_IDLE_TRIM_DWELL_MS = 120_000;

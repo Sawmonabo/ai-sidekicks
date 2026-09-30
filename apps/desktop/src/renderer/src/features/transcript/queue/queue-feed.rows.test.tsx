@@ -1,8 +1,4 @@
-// What the feed does with the rows themselves: one cancel, and the order the list is
-// kept in.
-//
-// These take an open feed as a premise and are about the ROWS that arrive on it, which
-// is why every case here reaches for `deliver` or `cancelItem`.
+// What the feed does with the rows themselves: one cancel, and the order the list is kept in.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -51,9 +47,8 @@ describe("a queued item is canceled once", () => {
   });
 
   it("negative control: two rows pressed once each are two mutations", async () => {
-    // Without this the case above would pass over a chokepoint that dispatched
-    // NOTHING, which is a different defect with the same count. The latch is per id,
-    // and this is the case that says so.
+    // Without this the case above would pass over a chokepoint that dispatched nothing. The
+    // latch is per id.
     const { bridge, clock, queueCalls, canceledItemIds } = queueFeedBridge();
     let held: QueueFeed | undefined;
     render(

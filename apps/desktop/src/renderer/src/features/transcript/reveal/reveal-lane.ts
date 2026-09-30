@@ -1,21 +1,6 @@
-// ONE LANE'S BOOKKEEPING — the rope, its checkpoints, and what the lane has published.
-//
-// Its own module beside `reveal-engine.ts` because the two answer different
-// questions. The engine arbitrates a FRAME: which lanes are behind, how the
-// character budget divides between them, when the next frame is armed. A lane knows
-// only its own text — how far the reveal cursor has walked, which authoritative
-// commits it can be re-anchored against, and whether a producer's rewrite still
-// agrees with what a reader has already seen.
-//
-// THE REBASE IS IN PLACE, and that is the one thing this class changes about the
-// arrangement it replaces. The engine used to build a whole new lane record and put
-// it back in the map, which meant a rebase and a fresh lane were the same act written
-// twice. Resetting in place says instead that this IS the same lane, still holding
-// the reader's agreed prefix, now carrying a different source behind it.
-//
-// The class reports its own diagnostics through a sink the caller passes rather than
-// holding an emitter: a lane that could reach the console's subscribers directly
-// would be a second publisher on a channel the engine owns.
+// One lane's bookkeeping: the rope, its checkpoints, and the text published so far. The engine
+// arbitrates a frame; a lane knows only its own text. Diagnostics go out through a sink the
+// caller passes, so a lane is never a second publisher on the engine's channel.
 
 import type { RevealDelta, RevealDiagnostic, RevealLaneState } from "./reveal-model.js";
 import { REVEAL_CHECKPOINT_TAIL_CAP } from "../frame/frame-caps.js";
@@ -24,13 +9,14 @@ import { RopeSmoother, type ProvenAppendToken } from "./rope-smoother.js";
 /** Where a lane's diagnostics go. The engine's emitter, in practice. */
 export type RevealDiagnosticSink = (diagnostic: RevealDiagnostic) => void;
 
+/** One reveal lane. A rebase resets it in place: same lane, the reader's agreed prefix. */
 export class RevealLane {
   #smoother: RopeSmoother;
   #checkpoints: RevealCheckpoint[] = [];
   #publishedText = "";
   #appendToken: ProvenAppendToken | undefined;
 
-  /** Whether THIS frame gave the lane a share above its fair one. */
+  /** Whether this frame gave the lane a share above its fair one. */
   public isCatchingUp = false;
 
   #isQuarantined = false;
@@ -54,20 +40,10 @@ export class RevealLane {
   }
 
   /**
-   * Stop this lane, and hand back the text it will now never reveal.
-   *
-   * QUARANTINE IS A RELEASE AND NOT ONLY A FLAG. The flag alone excluded the lane
-   * from every frame and left `appendSpeculative` open, so a producer streaming a
-   * long tool output or a multi-megabyte turn went on pushing parts into a rope no
-   * frame would ever walk: memory grew monotonically for the life of the run, with
-   * nothing on screen and no diagnostic after the one the quarantine itself emitted.
-   *
-   * So the unrevealed remainder goes here, and the rope is rebuilt around the
-   * prefix a reader has already seen — which the lane keeps, because a quarantine is
-   * the engine giving up on the REST of a lane and never a reason to take back what
-   * it already showed. The lane is settled afterwards by construction, so the
-   * pending count a consumer reads is the truth rather than a promise the engine has
-   * stopped keeping.
+   * Stop this lane and drop the text it will never reveal, keeping the prefix a reader already
+   * saw. A flag alone would leave `appendSpeculative` open, so a producer streaming a
+   * long output would grow a rope no frame walks, without bound. Afterwards the lane is
+   * settled, so its pending count is true.
    */
   public quarantine(): void {
     this.#isQuarantined = true;
@@ -86,12 +62,9 @@ export class RevealLane {
   }
 
   /**
-   * Take a speculative delta — text the producer may still revise.
-   *
-   * A quarantined lane takes none. The engine will not advance it again, so every
-   * character appended here is a character nothing will ever reveal, and the only
-   * way out of a quarantine is an AUTHORITATIVE commit — which brings its own whole
-   * source and does not need the speculative tail this would have accumulated.
+   * Take a speculative delta, text the producer may still revise. A quarantined lane takes none:
+   * nothing would ever reveal it, and only an authoritative commit, which brings its own whole
+   * source, lifts a quarantine.
    */
   public appendSpeculative(text: string): void {
     if (this.#isQuarantined) {
@@ -104,34 +77,13 @@ export class RevealLane {
   }
 
   /**
-   * Fold an authoritative commit.
-   *
-   * The prefix check is the whole point: a producer that re-wrote its own history
-   * — a retry, a rollback, a driver reconnect — must not have its new source glued
-   * onto the tail of the old one.
-   *
-   * When the check fails the lane is re-based on the LONGEST COMMON PREFIX of what
-   * it had published and what the producer now claims, and never on the published
-   * LENGTH. Clamping to the length preserved the cursor's position and not its
-   * text: a shorter rewrite truncated the visible prefix, and an equal-or-longer
-   * one replaced every character after the divergence in a single frame with no
-   * budget spent — which is the teleport this engine exists to prevent, arriving in
-   * exactly the retry case the branch was written for. Rebasing on the agreed
-   * prefix keeps the characters the two sources actually share, and the divergent
-   * remainder is revealed by the ordinary per-frame budget, so a rewrite streams.
-   *
-   * Both strings are already materialized here, so the comparison reads no growing
-   * source. The retraction is real — the producer withdrew text a reader had
-   * already seen — so the diagnostic states how many characters went, rather than
-   * claiming the revealed text held where it was.
-   *
-   * EITHER ARM LIFTS A QUARANTINE, which is what makes one recoverable at all. The
-   * quarantine says the engine could not walk the rope it had; an authoritative
-   * commit replaces what that rope was carrying with a source the producer vouches
-   * for, so the condition that stopped the lane is not the condition it now holds.
-   * A commit that arrives on a quarantined lane meets a rope trimmed to the
-   * published prefix, so the extending arm is the ordinary one and the rebase arm
-   * fires only on a genuine rewrite.
+   * Fold an authoritative commit. One that extends the lane's source is appended. Otherwise the
+   * producer rewrote its history (a retry, rollback or reconnect) and the lane rebases on the
+   * longest common prefix with its published text, never on the published length: clamping by
+   * length kept the cursor but not the text and could replace everything after the divergence in
+   * one frame with no budget spent. The divergent remainder streams under the ordinary budget,
+   * and the diagnostic states how many characters were retracted. Either arm lifts a
+   * quarantine, since the new source is one the producer vouches for.
    */
   public commitAuthoritative(delta: RevealDelta, report: RevealDiagnosticSink): void {
     if (this.#smoother.isPrefixOf(delta.text)) {
@@ -158,12 +110,9 @@ export class RevealLane {
   }
 
   /**
-   * Reveal up to `share` more characters, stopping where `gate` says a partial
-   * construct would be shown.
-   *
-   * Throws whatever the rope throws. The caller owns the quarantine, because a
-   * failed transition is a fact about the FRAME's remaining lanes as much as about
-   * this one.
+   * Reveal up to `share` more characters, stopping where `gate` would show a partial
+   * construct. Throws whatever the rope throws; the caller owns the quarantine because a failed
+   * transition also concerns the frame's other lanes.
    */
   public advance(
     share: number,
@@ -195,13 +144,9 @@ export class RevealLane {
   }
 
   /**
-   * Replace the rope with one carrying `source`, revealed as far as
-   * `revealedLength` — the whole of it by default.
-   *
-   * The one place a lane swaps its rope, so a rebase and a quarantine cannot drift
-   * into two answers to "what is this lane's source now". Published text is read
-   * back off the new rope rather than assumed, which keeps this module's named
-   * invariant — published text IS the reveal cursor — true through the swap.
+   * Replace the rope with one carrying `source`, revealed as far as `revealedLength`. The one
+   * place a lane swaps its rope; published text is read back off the new rope so it stays the
+   * reveal cursor.
    */
   #adoptAsWholeSource(source: string, revealedLength: number = source.length): void {
     const adopted = new RopeSmoother(this.laneId);
@@ -227,13 +172,9 @@ export class RevealLane {
   }
 
   /**
-   * The reveal engine's named invariant: published text is the smoother's reveal
-   * cursor.
-   *
-   * Asserted under DEV and test only, because it is a claim about this module's own
-   * bookkeeping rather than about anything a user did. `import.meta.env.DEV` is a
-   * compile-time substitution, so a release bundle contains neither the check nor
-   * the branch.
+   * The reveal engine's named invariant: published text is the smoother's reveal cursor.
+   * Asserted in dev and test only: it checks this module's own bookkeeping, and
+   * `import.meta.env.DEV` compiles away in a release bundle.
    */
   #assertPublishedTextIsRevealCursor(): void {
     if (!import.meta.env.DEV) {
@@ -254,12 +195,8 @@ interface RevealCheckpoint {
 }
 
 /**
- * How many leading characters two settled strings share.
- *
- * Both arguments are materialized strings the caller already holds — the text a
- * lane published and the whole source an authoritative commit carried — so this
- * inspects nothing that is still growing, which is the one thing the rope's
- * proven-append token exists to prevent.
+ * How many leading characters two settled strings share. Both are materialized, so nothing
+ * still growing is inspected.
  */
 function commonPrefixLength(first: string, second: string): number {
   const ceiling = Math.min(first.length, second.length);

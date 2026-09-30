@@ -1,30 +1,17 @@
-// The wire vocabulary a run group is folded against: which run-lifecycle types end a
-// run, which say it is not ended, which report a state at all, and where a run's
-// paying account is named.
-//
-// ITS OWN MODULE BESIDE THE FOLD, because the two answer different questions and grow
-// on different clocks. `run-groups.ts` decides how a window partitions into run groups and
-// what one carries; this decides what the DAEMON'S OWN WORDS mean, and every entry
-// here is a claim about the registered event census rather than about this console.
-// A type added to the census is an edit here and nowhere else.
-//
-// EVERY SET IS DECLARED AS A TUPLE AND EVERY PREDICATE IS DERIVED FROM ONE, so a
-// claim about the SET is countable at runtime and a membership test cannot drift from
-// the enumeration it is supposed to be about.
+// The wire vocabulary a run group is folded against: which run-lifecycle types end a run, which
+// say it is not ended, which report a state, and where the paying account is named. Each set is a
+// tuple with its predicate derived from it, so the two cannot drift; a type added to the event
+// census is an edit here and nowhere else.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 
 /**
- * The run-lifecycle event types that END a run, wire-verbatim.
+ * The run-lifecycle event types that end a run, wire-verbatim.
  *
- * Declared once as a tuple with the membership test derived from it. All three
- * are registered in the `@ai-sidekicks/contracts` event census; `run.rolled_back`
- * is deliberately absent, because a rewind is not a terminal — the run continues
- * from the boundary, which is exactly why the rollback has its own non-state event.
- * It appears in {@link RUN_REOPENING_EVENT_TYPES} instead,
- * where it CLEARS a terminal the run has come back from.
+ * `run.rolled_back` is absent because a rewind is not a terminal: the run continues from the
+ * boundary. It is in {@link RUN_REOPENING_EVENT_TYPES}, where it clears a terminal.
  */
 export const RUN_TERMINAL_EVENT_TYPES = ["run.completed", "run.failed", "run.interrupted"] as const;
 
@@ -32,24 +19,14 @@ export const RUN_TERMINAL_EVENT_TYPES = ["run.completed", "run.failed", "run.int
 export type RunTerminalEventType = (typeof RUN_TERMINAL_EVENT_TYPES)[number];
 
 /**
- * The run-lifecycle event types that say a run is NOT ended, wire-verbatim.
+ * The run-lifecycle event types that say a run is not ended, wire-verbatim.
  *
- * A terminal is not final. A rollback accepted from a finished run appends a pause and
- * a rewind for that same run before it can resume, so a run group that only ever
- * ACQUIRED a terminal would keep a completion the daemon had already undone: it would
- * stay folded, since finished run groups fold by default, its header would go on
- * reading the old ending, and every row appended after the rewind would sit behind a
- * receipt for something that did not happen.
- *
- * WHY THESE AND NOT EVERY RUN ROW. `@ai-sidekicks/contracts` registers one
- * `run_lifecycle` type per run state, the forward non-terminal rollback event, and
- * rows that report no state at all (`run.provider_initialized`, `run.turn_started`,
- * `run.worker_shutdown` and the rest). These are the non-terminal STATES plus the
- * rollback — every row that says the run is in a state other than ended, `pausing`
- * among them, because a run finishing its step before it pauses has not ended. The
- * non-state rows are deliberately absent: a worker shutting down after a completion
- * says nothing about the run, and reading it as a reopening would unfold every
- * finished run group in the session.
+ * A terminal is not final: a rollback accepted from a finished run appends a pause and a rewind
+ * before it resumes, so a run group that only acquired terminals would keep a completion the
+ * daemon had undone. These are the non-terminal states (`run.pausing` included, since a run
+ * finishing its step has not ended) plus the rollback. Rows that report no state
+ * (`run.worker_shutdown`, `run.turn_started` and the rest) are absent: a worker shutting down
+ * after a completion says nothing about the run and would unfold every finished run group.
  */
 export const RUN_REOPENING_EVENT_TYPES = [
   "run.queued",
@@ -68,36 +45,27 @@ export type RunReopeningEventType = (typeof RUN_REOPENING_EVENT_TYPES)[number];
 /**
  * The event type whose payload names the account a run is billed to, wire-verbatim.
  *
- * Read off the open projected payload rather than parsed: a timeline row carries its
- * originating event's payload through unre-validated, so asking for one member is the
- * honest read and an absent or wrongly-typed one is an absence. The row that carries
- * it is the run's admission, which is where the account is settled for the run's
- * lifetime — a later row naming a different one would be a run that changed who pays
- * mid-flight, which the account plane does not permit.
+ * Read off the open projected payload without parsing; an absent or wrongly typed member is an
+ * absence. It is carried by the run's admission, where the account is settled for the run.
  */
 const RUN_GROUP_PAYING_ACCOUNT_MEMBER = "admittedProviderAccountId";
 
 /**
- * The run-lifecycle types that report a STATE, wire-verbatim and derived rather than
- * restated: the three that end a run, and the reopening types minus the one that is
- * not a state at all.
- *
- * `run.rolled_back` is the exclusion and it is the whole reason this is a derivation
- * and not a third list. A rewind says the run came back; it does not say what state it
- * came back INTO. Reading it as one would leave a run group reporting `run.rolled_back`
- * as the run's state until the next transition, and treating it as a state that
- * PERSISTS would be worse — so it clears the state instead, and the header says
- * nothing until the daemon says something.
+ * The run-lifecycle types that report a state, derived: the terminals plus the reopening types
+ * minus `run.rolled_back`, which says the run came back but not what state it came back into.
+ * The fold clears the state on a rollback instead of reporting the rollback as one.
  */
 export const RUN_STATE_EVENT_TYPES: readonly string[] = [
   ...RUN_TERMINAL_EVENT_TYPES,
   ...RUN_REOPENING_EVENT_TYPES.filter((wireType) => wireType !== "run.rolled_back"),
 ];
 
+/** Whether this type ends a run. */
 export function isTerminalEventType(wireType: string): wireType is RunTerminalEventType {
   return RUN_TERMINAL_EVENT_TYPES.some((terminal) => terminal === wireType);
 }
 
+/** Whether this type says a run is not ended. */
 export function isReopeningEventType(wireType: string): wireType is RunReopeningEventType {
   return RUN_REOPENING_EVENT_TYPES.some((reopening) => reopening === wireType);
 }
@@ -110,9 +78,8 @@ export function isRunStateEventType(wireType: string): boolean {
 /**
  * The account a row names as the run's payer, or `undefined`.
  *
- * Narrowed on `kind` before the payload is indexed, because the `rollback_boundary`
- * arm carries a TYPED payload rather than an open record — so reading it as a bag
- * would be the cast this console does not take.
+ * Narrowed on `kind` first, since the `rollback_boundary` arm carries a typed payload rather
+ * than an open record.
  */
 export function payingAccountIdOf(row: TimelineRow): string | undefined {
   return row.kind === "run"

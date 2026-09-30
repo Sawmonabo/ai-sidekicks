@@ -1,5 +1,3 @@
-// Finding definitions without rendering them — the split that keeps the mapper pure.
-
 import { describe, expect, it } from "vitest";
 
 import { collectFootnoteDefinitions } from "./footnote-collection.js";
@@ -24,8 +22,7 @@ describe("collecting a message's footnote definitions", () => {
   });
 
   it("negative control: a REFERENCE is not a definition", () => {
-    // Without this, a walk that matched on the word "footnote" would report a message
-    // that only cites a note as one that defines it, and every marker would claim a body.
+    // A walk matching on the word "footnote" would report a citing message as defining.
     const { definitions, definedIdentifiers } = collectFootnoteDefinitions(
       parseSettledBlock("see the note[^1]\n").children,
     );

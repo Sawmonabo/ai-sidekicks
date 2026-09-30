@@ -1,13 +1,6 @@
-// The queue list is re-read when the session's stream comes back.
-//
-// WHAT THIS IS ABOUT. The tail keeps the rows current while it is up, and the snapshot
-// read is what says what the whole list is. A stream that dropped and was repaired must
-// take a fresh snapshot, or the pane shows the list as it stood before the drop with
-// every row the daemon queued or canceled in between missing.
-//
-// WHY THE CONTROL IS THE WHOLE CASE. A reading that had simply started polling would
-// pass the positive assertion, so the negative one — time passing, no repair, and the
-// wire staying quiet — is what makes the positive one mean "because it was repaired".
+// A repaired stream must take a fresh snapshot, or the pane shows the list as it stood before
+// the drop. The negative control (time passing, no repair) is what makes the positive case
+// mean "because it was repaired" and not "because it polls".
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

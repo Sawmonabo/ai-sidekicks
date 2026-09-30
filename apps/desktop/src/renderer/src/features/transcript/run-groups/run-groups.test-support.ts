@@ -1,16 +1,11 @@
-// The mixed window both run group suites fold.
-//
-// Two files fold the same rows — one about how the fold partitions them, one about
-// which of the resulting run groups is open — and both need the same window and the
-// same way of naming one run group out of it. Written twice they would drift, and the
-// collapse suite's claims would quietly stop being about the same run groups the fold
-// suite pinned.
+// The mixed window both run group suites fold, so their claims stay about the same run groups.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 
 import { type RunGroup } from "./run-groups.js";
 import { generalRow, runRow } from "../timeline-rows.test-support.js";
 
+/** Two interleaved runs and a session row: run A is live, run B has completed. */
 export function mixedWindow(): readonly TimelineRow[] {
   return [
     runRow({
@@ -35,6 +30,7 @@ export function mixedWindow(): readonly TimelineRow[] {
   ];
 }
 
+/** The run group for a run id in a fold, or throws when the window holds none. */
 export function findRunGroup(runGroups: readonly RunGroup[], runId: string): RunGroup {
   const runGroup = runGroups.find((candidate) => candidate.runId === runId);
   if (runGroup === undefined) {

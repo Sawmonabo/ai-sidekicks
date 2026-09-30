@@ -1,10 +1,6 @@
-// A user's message body — the row's own summary, and the sentence for none.
-//
-// Its own module for the one-component rule, and the honest limit it states is worth
-// its own file: `user.message` is a registered event type with no payload variant, so
-// a user's words are sealed in the per-user encrypted column and the
-// summary is the whole of what a `TimelineRow` carries. This renders what exists and
-// never captions the summary as if it were the message.
+// A user's message body: the row's own summary, or the named absence of one. `user.message` has
+// no payload variant yet, so the summary is all a `TimelineRow` carries; it is never captioned as
+// if it were the message.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { HydratedRowProps } from "../hydrated-row-props.js";
@@ -16,13 +12,8 @@ export interface UserBodyProps {
 }
 
 /**
- * The user's summary, or the named absence of one.
- *
- * The summary is rendered through the same markdown pipeline an assistant body takes,
- * for one reason: a user types markdown, and rendering their backticks as
- * backticks in one row and as code in the next would make the log inconsistent about
- * what a message IS. It is passed complete, because a projected summary is not a
- * stream — there is no tail to hold volatile.
+ * The user's summary through the same markdown pipeline as an assistant body, since a user types
+ * markdown. Passed complete: a projected summary is not a stream.
  */
 export function UserBody(props: UserBodyProps): React.JSX.Element {
   if (props.row.summary === "") {

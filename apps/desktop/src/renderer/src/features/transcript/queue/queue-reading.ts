@@ -1,22 +1,7 @@
-// One session's queue reading: the feed every view on it reads, the watchers it
-// publishes to, and the scheduler that decides when to ask again.
-//
-// `queue-feed.ts` is the window's registry of these readings and the React hook onto
-// one. This module never opens a stream or names a method: the list and the tail are
-// calls it is handed.
-//
-// The rows are a fold over what the daemon sends, kept by `QueueOrder`: this file has no
-// sort of its own and keeps the order the daemon gave, and a canceled row stays in the
-// feed. A view that shows only the waiting rows filters at the point it renders.
-//
-// THE SNAPSHOT IS TAKEN BEHIND THE TAIL AND ONLY BEHIND IT. A list read with no stream
-// up stops being true the moment it lands, so the tail is opened first and the open
-// takes its own read.
-//
-// CLIENT MEMORY IS NEVER THE QUEUE OF RECORD. A cancel confirms the request; the row
-// changes when the daemon says it did, on the snapshot or the tail. The cancel state is
-// composed onto the feed, and both halves publish through `#publish`, so a watcher is
-// never woken for one half of a frame the other has not reached.
+// One session's queue reading: the feed views read, its watchers, and the refresh scheduler.
+// The list, tail and cancel are calls it is handed. The tail opens first and the snapshot is
+// read behind it, since a list read with no stream up is stale on arrival. Rows change only
+// when the daemon says so (a cancel only confirms the request); canceled rows stay in the feed.
 
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";
 
@@ -56,10 +41,8 @@ export interface QueueCalls {
 }
 
 /**
- * What the pane reads off the queue: what the daemon said, and what this client asked.
- *
- * `phase` is `reading` until the first snapshot lands, so an empty list before it is
- * never mistaken for an empty queue.
+ * The queue as a view reads it. `phase` is `reading` until the first snapshot lands, so an
+ * empty list before it is never mistaken for an empty queue.
  */
 export interface QueueFeed extends QueueCancellationState {
   readonly phase: "reading" | "read";
@@ -68,19 +51,13 @@ export interface QueueFeed extends QueueCancellationState {
 }
 
 /**
- * One session's live queue reading, and everyone watching it.
- *
- * A class with private fields rather than a hook's state, because every view in
- * the window asks the same question of the same session: the first watcher opens the
- * tail and takes the snapshot once, and a later one is handed the reading in hand.
+ * One session's live queue reading and everyone watching it. The first watcher opens the tail
+ * and takes the snapshot once; a later one is handed the reading in hand.
  */
 export class SessionQueueReading implements ReadTriggerTarget {
   /**
-   * Nothing in the timeline says this list changed that its own tail did not.
-   *
-   * The tail carries every row change, so the empty set is a claim: this reading goes
-   * stale when the window has been away or the connection was repaired, not because a
-   * session event that describes a run was appended.
+   * Empty: the tail carries every row change, so no session event makes this list stale. Only
+   * the window returning or a repaired connection does.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #sessionId: string;
@@ -93,11 +70,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
   readonly #listeners = new Set<() => void>();
   readonly #onIdle: () => void;
   /**
-   * Whether this reading has been forgotten by the registry that held it.
-   *
-   * Terminal. A view that captured the reading during a render and subscribed after
-   * the last watcher left would otherwise revive it outside the registry, with a tail
-   * of its own, and the next view would mint a second reading for the same session.
+   * Whether the registry has forgotten this reading. Terminal: watching a retired reading would
+   * revive it outside the registry, and the next view would mint a second one for the session.
    */
   #isRetired = false;
   #closeTail: (() => void) | undefined = undefined;
@@ -123,16 +97,13 @@ export class SessionQueueReading implements ReadTriggerTarget {
   }
 
   /**
-   * Ask for a fresh snapshot.
-   *
-   * The tail keeps rows current while it is up; this is what answers for the time it
-   * was not. Coalesced by the scheduler, so the views that mount together on one
-   * session still cost one call.
+   * Ask for a fresh snapshot, coalesced by the scheduler so views that mount together on one
+   * session cost one call. The tail keeps rows current while it is up; this covers the time it
+   * was not.
    */
   public requestRead(reason: RefreshReason): void {
     if (reason === "subscribe" && this.#closeTail !== undefined) {
-      // The open took the first read and the tail has kept the rows current since, so a
-      // view joining an open reading asks for nothing.
+      // The open took the first read, so a view joining an open reading asks for nothing.
       return;
     }
     this.#refresh.request(reason);
@@ -153,9 +124,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
     return () => {
       this.#listeners.delete(listener);
       if (this.#listeners.size === 0) {
-        // The last view left. The stream closes and the reading is forgotten, so a
-        // view that mounts later reads afresh rather than being handed a list that
-        // stopped being updated when nobody was watching it.
+        // The last view left: close the stream and forget the reading, so a later view reads
+        // afresh instead of being handed a list nobody kept current.
         this.#isRetired = true;
         this.#refresh.dispose();
         this.#readLine.abandon();
@@ -166,7 +136,6 @@ export class SessionQueueReading implements ReadTriggerTarget {
     };
   }
 
-  /** Open the tail once, then take the snapshot that goes behind it. */
   #openTail(): void {
     if (this.#closeTail !== undefined) {
       return;
@@ -176,8 +145,8 @@ export class SessionQueueReading implements ReadTriggerTarget {
       this.#items = this.#order.items();
       this.#publish();
     });
-    // Taken now rather than behind the scheduler's window: the tail is already up, and
-    // the fold accounts for the rows it delivers before the snapshot lands.
+    // Taken now rather than behind the scheduler's window: the tail is already up, and the
+    // fold accounts for the rows it delivers before the snapshot lands.
     void this.#readSnapshot();
   }
 

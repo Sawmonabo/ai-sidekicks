@@ -1,18 +1,10 @@
-/* The markdown pipeline's styles: prose, code blocks, math, and footnote markers.
- *
- * One sheet for the components under `nodes/`, `footnotes/` and `highlight/`, imported
- * by the transcript's chunk root.
- */
+/* The markdown pipeline's styles: `nodes/`, `footnotes/` and `highlight/`. */
 
 /* --- Cards: the code palette -------------------------------------------- */
 
 /*
- * A code block paints the daemon's five span classes, each through the theme token
- * that colors it, so a theme or color-scheme switch repaints the same spans in place.
- * The token values live in `styles/palette.ts` and are emitted by
- * `styles/generate-css.ts`, fitted into the sRGB gamut and measured by
- * `styles/contrast.test.ts` against the well they are painted on. A comment is painted
- * in the faint text color, which `--meridian-code-comment` names.
+ * A code block paints the daemon's five span classes through theme tokens (`styles/palette.ts`),
+ * so a scheme switch repaints the same spans in place. A comment uses the faint text color.
  */
 
 .meridian-code__keyword {
@@ -43,9 +35,8 @@
 }
 
 /*
- * One measure. The transcript's reading column, applied where a body is prose rather than a
- * figure — a code block and a table opt out below, because both are structures whose
- * width is their own.
+ * One measure: the transcript's reading column, applied where a body is prose. A code block and
+ * a table opt out below, because their width is their own.
  */
 .meridian-markdown__paragraph {
   margin: 0 0 var(--meridian-space-2);
@@ -58,9 +49,8 @@
 }
 
 /*
- * A message's headings are not the page's. Every level renders as one element carrying
- * its depth, so a `#` inside a message cannot out-shout the transcript it sits in; the
- * weights below are the whole of the difference.
+ * Every heading level is one element carrying its depth, so a `#` inside a message cannot
+ * out-shout the transcript around it.
  */
 .meridian-markdown__heading {
   margin: var(--meridian-space-3) 0 var(--meridian-space-2);
@@ -122,9 +112,8 @@
 }
 
 /*
- * A link with no anchor. Underlined so the author's intent survives, and NOT tinted with
- * the accent, which in this console means "this is the one thing you can act on" — an
- * inert link is precisely not that.
+ * A link with no anchor: underlined to keep the author's intent, not tinted with the accent,
+ * which marks the one thing you can act on.
  */
 .meridian-markdown__link--inert {
   text-decoration: underline dotted;
@@ -141,7 +130,7 @@
   color: var(--meridian-accent-text);
 }
 
-/* A reference with no definition in its own message says so by weight, not by color. */
+/* A reference with no definition in its own message reads fainter. */
 .meridian-markdown__footnote[data-defined="false"] {
   color: var(--meridian-text-faint);
 }
@@ -157,9 +146,7 @@
   font-size: var(--meridian-text-sm);
 }
 
-/* Both kinds of cell, because the head is a row of this same grid: a `td`-only rule
-   would have left every column name unpadded and unruled the moment the mapper
-   started rendering one. */
+/* Both cell kinds, because the head is a row of this same grid. */
 .meridian-markdown__table th,
 .meridian-markdown__table td {
   padding: var(--meridian-space-1) var(--meridian-space-2);
@@ -167,17 +154,14 @@
   text-align: left;
 }
 
-/* The head reads as the head without a second ground behind it — weight and a rule
-   under the row, which is what the surrounding transcript already uses to separate a
-   label from what it labels. */
+/* The head reads as the head by weight and a rule under the row, not a second ground. */
 .meridian-markdown__table th {
   border-bottom-width: 2px;
   font-weight: 600;
 }
 
-/* The delimiter line's own alignment, on header and data cells alike. Both selectors
-   outrank the shared rule above, so a declared column overrides the default start
-   edge and an undeclared one keeps it. */
+/* The delimiter line's alignment, on header and data cells alike; both selectors outrank the
+   shared rule above. */
 .meridian-markdown__table [data-align="center"] {
   text-align: center;
 }

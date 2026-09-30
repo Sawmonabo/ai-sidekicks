@@ -63,12 +63,8 @@ describe("a jump by id names which narrowing is hiding the row", () => {
   const rows = twoRunWindow();
 
   /**
-   * The stages, each admitting whatever it is handed.
-   *
-   * Built from row lists rather than from a window model, because the classifier's
-   * whole claim is that it answers from the STAGES and not from either end of
-   * them — a case that had to build a feed to exercise one arm would be testing
-   * the feed.
+   * The stages, each admitting whatever it is handed. Built from row lists, not a window
+   * model, because the classifier answers from the stages alone.
    */
   function stagesOver(admissions: {
     fold?: readonly TimelineRow[];
@@ -87,8 +83,7 @@ describe("a jump by id names which narrowing is hiding the row", () => {
   });
 
   it("names the run group fold and the cap, each for its own stage", () => {
-    // Each stage is the only one narrowed in its case, so the answer can come from
-    // nowhere else.
+    // Each stage is the only one narrowed in its case, so the answer can come from nowhere else.
     const foldedAway = rows.filter((row) => row.id !== "b1");
     expect(jumpToEventId(rows, stagesOver({ fold: foldedAway }), "b1").status).toBe(
       "folded-into-run-group",
@@ -99,9 +94,8 @@ describe("a jump by id names which narrowing is hiding the row", () => {
   });
 
   it("names the earliest stage that dropped the row, not the last", () => {
-    // The stages nest, so a row the fold took is absent from every stage after it.
-    // Reading the last would report the cap for a row whose run group is folded, and
-    // offer no act where opening the group reaches it.
+    // The stages nest, so a row the fold took is absent from every later stage; reading the last
+    // would report the cap for a folded row and offer no act where opening the group reaches it.
     const withoutB1 = rows.filter((row) => row.id !== "b1");
     const outcome = jumpToEventId(rows, stagesOver({ fold: withoutB1, viewport: withoutB1 }), "b1");
     expect(outcome.status).toBe("folded-into-run-group");
@@ -114,8 +108,7 @@ describe("a jump by id names which narrowing is hiding the row", () => {
   });
 
   it("negative control: with every stage admitting everything nothing is ever absent", () => {
-    // Without this the cases above would pass over a classifier that reported an
-    // absence for every id, which would put a permanent notice on a whole transcript.
+    // Guards against a classifier that reports an absence for every id.
     for (const row of rows) {
       expect(jumpToEventId(rows, stagesOver({}), row.id).status).toBe("found");
     }

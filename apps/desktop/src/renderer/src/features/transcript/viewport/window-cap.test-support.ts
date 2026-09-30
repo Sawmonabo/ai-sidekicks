@@ -1,16 +1,7 @@
-// The synthetic logs both window-cap suites are driven over, and the conditions a
-// prune is asked under.
-//
-// SHARED RATHER THAN COPIED. `window-cap.test.ts` is about the cap, its refusals and
-// the reading floor; `window-cap.test.ts` is about the seam to the lease table
-// and the rules that decide what COUNTS as one row. Both need the same ten-thousand-row
-// log and the same all-clear conditions, and a second copy of either is a second
-// answer to what the window is being shown.
-//
-// Ten thousand rows because the properties that matter — that children never trip the
-// cap, that a closure never orphans, that a held row survives however old it is — are
-// all invisible at a hundred and all obvious at ten thousand. The logs are generated,
-// so a case states the shape it is testing rather than hiding it in a fixture.
+// The synthetic logs both window-cap suites run over, and the conditions a prune is asked
+// under. Shared so the two suites cannot drift on what the window is shown. Ten thousand rows
+// because the properties that matter (children never trip the cap, a closure never orphans, a
+// held row survives however old) are invisible at a hundred.
 
 import { TranscriptWindow, type PruneConditions } from "./window-cap.js";
 import type { WindowRow } from "./window-cap.js";
@@ -39,12 +30,9 @@ export function syntheticWindowRows(topLevelCount: number): readonly WindowRow[]
 }
 
 /**
- * A log of FOLDED run groups, as the transcript emits one: a header row keyed by the run,
- * and the terminal receipt hanging from it.
- *
- * The shape `foldRunGroupHeaders` produces. It is here rather than in the transcript's
- * own suite because what it exercises is the CAP's counting rule, and the rule only
- * became reachable when a row started existing for the key every run row names.
+ * A log of folded run groups as the transcript emits one: a header row keyed by the run, and the
+ * terminal receipt hanging from it, the shape `foldRunGroupHeaders` produces. It lives here
+ * because it exercises the cap's counting rule.
  */
 export function foldedRunGroupLog(runGroupCount: number): readonly WindowRow[] {
   const rows: WindowRow[] = [];

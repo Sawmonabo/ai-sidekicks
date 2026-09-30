@@ -1,56 +1,7 @@
-// The transcript, composed: the find field and the feed.
-//
-// WHAT THIS FILE ADDS TO THE PIECES IT MOUNTS: arrangement, and the callbacks that let
-// one of them act on another. Every derivation it renders is `useTranscriptFeedWindows`',
-// every scroll it performs is the viewport binding's, and every model it drives is the
-// feature's own. Nothing here folds a log, measures a row, or writes a `scrollTop`.
-//
-// WHY THE FEED IS A COMPONENT OF ITS OWN RATHER THAN THE PANE'S BODY. The pane owns
-// chrome — a header, a heading id, and the two absences before a feed exists — and can render
-// every one of those with no session store at all. The feed cannot exist without
-// one: it subscribes to a log. Splitting them is what lets the pane hold the
-// `undefined` arm as an ordinary render instead of as a conditional hook, which
-// React does not allow and which a single component would have forced.
-//
-// AND WHY THE WINDOW CHAIN IS A MODULE OF ITS OWN RATHER THAN THE TOP OF THIS ONE.
-// The stages between the store and the screen are only truthful in one order, and
-// `useTranscriptFeedWindows` is where that order lives, so the ordering has one home and
-// this file has none of it. What is left here is the arrangement and the seams.
-//
-// THE THREE SEAMS BETWEEN THE PIECES:
-//
-//   • Find's walk JUMPS, and it jumps through the viewport's `jumpToRow` — the
-//     transcript's one scroll writer. Nothing here touches an element. There is exactly
-//     ONE binding, minted by the chain and handed to `<TranscriptViewport>`: a second one
-//     would leave the find walk reading a virtualizer with no element under it, which
-//     is a jump that reports success and scrolls nothing.
-//   • Find's result is derived from the same window the feed renders — the viewport's
-//     own reconciled snapshot, after the cap — so the boundary find states is the
-//     boundary that is actually true of what is on screen. Matches outside that window
-//     are counted beside the field rather than walked into and lost — in TWO counts,
-//     because a match the cap took and one a folded run group holds are two states with
-//     two different exits.
-//   • A row body is the registered row renderer's, handed down whole. This file supplies
-//     only the three decisions `TranscriptRowProps` says the list makes.
-//
-// AND WHAT THIS FILE RENDERS IS A FEW CHILDREN, NOT TWENTY ELEMENTS. What the transcript
-// says ABOVE its rows is `TranscriptFeedHeader.tsx`' — the find field and the counts a
-// person can still act on, one subject. It DERIVES NOTHING: every value it takes is a
-// reading already held here, so it cannot become a second answer to a question the
-// derivations in `useTranscriptFeedWindows` already answer.
-//
-// AND THIS MOUNT ADOPTS THE MOUNTED TRANSCRIPT, for a caller composed before it existed:
-// the palette, so a transcript chord acts on the feed that is up when it fires. Its five
-// acts are built in `transcript-structure-acts.ts`.
-//
-// THE STRUCTURAL CONTROL OFFERS NO LOAD-EARLIER ACT, and the reason is that it is
-// about a different absence. `useVisibleTranscriptWindow` sets `hasEarlierRows` exactly
-// when the window CAP took rows — rows this store still HOLDS — so an offer behind that
-// clip would re-admit rows already in memory, which is a decision about the cap and the
-// reading pin in `viewport/` and not a fetch. Wiring the backward read to it would send
-// the daemon after rows the window is already holding. The backward read is `history/`'s,
-// offered off the viewport this mount already composes, over the producer's verdict
-// about the LOG rather than over the cap's fact about the window.
+// The transcript, composed: the find field and the feed. Derivations belong to
+// `useTranscriptFeedWindows` and every scroll to the viewport binding; this file arranges the
+// pieces and wires their callbacks. There is one viewport binding: a second would leave the find
+// walk reading a virtualizer with no element under it, a jump that scrolls nothing.
 
 import { useCallback, useMemo } from "react";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
@@ -80,13 +31,16 @@ export interface TranscriptFeedProps {
   readonly readEarlierPage?: EarlierPageRead | undefined;
 }
 
-/** The session's log: the find field, the rows, and what the window does not hold. */
+/**
+ * The session's log: the find field, the rows, and what the window does not hold. A component of
+ * its own because it cannot exist without a session store, so the pane holds the no-session arm
+ * as an ordinary render instead of a conditional hook.
+ */
 export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const clock = useClock();
   const windows = useTranscriptFeedWindows({ sessionStore: props.sessionStore, clock });
   const { runGroupDisclosure, transcriptWindow, viewport, visible } = windows;
   const jumpToRow = viewport.jumpToRow;
-  // THE FIELD AND ITS WALK — one seam, wired in `useTranscriptFindAndJump`.
   const findAndJump = useTranscriptFindAndJump({
     foldedAwayRows: windows.runGroupFold.removedRows,
     visible,
@@ -95,12 +49,9 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   });
   const find = findAndJump.find;
 
-  // The STORE's wheel, which is the one the session header reads, handed to the rows so one
-  // person wears one color everywhere. Every view asks the session who somebody is
-  // rather than deciding it again from the order this window happened to meet them in.
-  // `assignmentFor` never allocates, so an actor the wheel has never admitted
-  // answers `undefined`: the row renders its unattributed shape rather than being
-  // handed a color nobody else would agree with.
+  // The store's wheel, which the session header also reads, so one person wears one color
+  // everywhere. `assignmentFor` never allocates: an actor the wheel has never admitted gets
+  // `undefined` and the row renders unattributed.
   const hueForActor = useCallback(
     (userId: string) => props.sessionStore.hueAllocator.assignmentFor(userId),
     [props.sessionStore],
@@ -110,11 +61,9 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
   const openedTerminalRunIds = runGroupDisclosure.openedTerminalRunIds;
   const rowLease = viewport.rowLease;
   const setRowLease = viewport.setRowLease;
-  // Named off the props object rather than read through it, because the callback
-  // below keys on this and `props` is a fresh object on every render. Depending on
-  // the whole object rebuilt `renderRow` on every render of this feed — a find
-  // keystroke, a lease write — and `VirtualRow`'s memo compares it, so every
-  // mounted row re-rendered for a change none of them could see.
+  // Named off the props object because the callback below keys on it and `props` is a fresh
+  // object every render; depending on the whole object rebuilt `renderRow` on every render and
+  // re-rendered every mounted row.
   const renderTranscriptRow = props.renderTranscriptRow;
   const rowLeaseChannel = useMemo(() => ({ setLease: setRowLease }), [setRowLease]);
   const renderRow = useTranscriptRowRenderer({
@@ -126,9 +75,8 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     renderTranscriptRow,
   });
 
-  // The palette's chords act on whichever transcript is mounted when they fire, and cannot
-  // import this component, so the feed adopts the mounted transcript for its lifetime;
-  // what each act does is its own module's.
+  // The palette's chords cannot import this component, so the feed adopts the mounted transcript
+  // for its lifetime; what each act does is its own module's.
   const collapseAllTerminal = runGroupDisclosure.collapseAllTerminal;
   const collapseAllTerminalRunGroups = useCallback(() => {
     collapseAllTerminal([...transcriptWindow.runGroupByHeaderKey.values()]);
@@ -140,6 +88,9 @@ export function TranscriptFeed(props: TranscriptFeedProps): React.JSX.Element {
     collapseAllTerminalRunGroups,
   });
 
+  // `Load earlier` comes from `history/`, over the producer's verdict about the log. The find box
+  // offers none: `hasEarlierRows` reports rows the store still holds, so a backward read there
+  // would fetch rows the window already has.
   return (
     <div className="meridian-transcript-feed">
       <div className="meridian-transcript-feed__head">

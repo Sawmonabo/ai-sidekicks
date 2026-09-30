@@ -10,22 +10,17 @@ import {
 import { foldRunGroupHeaders } from "../run-group-fold.js";
 
 /**
- * Fold the run groups of the window a narrowing left.
- *
- * Its own hook rather than a second half of the projection, so a disclosure toggle
- * re-folds over a projection and a narrowing it did not have to redo — and so the
- * narrowing has somewhere to sit between the two.
+ * Fold the finished run groups of the projected window. Its own hook so a disclosure toggle
+ * re-folds without re-deriving the projection.
  */
 export function useFoldedRunGroups(
   model: TranscriptWindowModel,
   openedTerminalRunIds: ReadonlySet<string>,
   sessionId: string,
 ): TranscriptPipelineStage {
-  // One table per SESSION rather than per mount — the projection hook's own idiom,
-  // for its reason, and a second INSTANCE rather than a second class. The session is
-  // the subject because this pane follows a navigation that changes which log it is
-  // of without unmounting, and a table carried across that holds the rows of a
-  // session nobody is reading.
+  // One retention table per session, not per mount, as the projection hook does: this pane
+  // follows a navigation to another log without unmounting, and a table carried across would
+  // hold the rows of a session nobody is reading.
   const bridge = usePlatformBridge();
   const retention = useSessionScopedState(bridge, sessionId, () => new TranscriptRowRetention());
   const heldRetention = retention.value;

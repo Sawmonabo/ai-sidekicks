@@ -1,9 +1,4 @@
-// The pipeline, mounted — and the one property the split exists for.
-//
-// What a FOOTNOTE does across that split is `StreamingMarkdown.footnotes.test.tsx`':
-// a definition is the one construct whose meaning depends on a block other than the
-// one it sits in, so it needs its own bodies, its own registry assertions, and the
-// popover the reference opens.
+// Footnotes across the settle split are covered in `StreamingMarkdown.footnotes.test.tsx`.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -12,11 +7,7 @@ import { duplicateKeyReports, reportsWhileReactRan } from "@test/helpers/react-r
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 
-/**
- * A body whose first two blocks are the same words, with two more behind them so the
- * settle lag clears and both reach the committed prefix. Repeating a line is the
- * ordinary case for a log or a command snippet, not a contrived one.
- */
+/** A body whose first two blocks repeat, with two more behind them so both settle. */
 const REPEATED_BLOCKS_SETTLED = "same\n\nsame\n\nc\n\nd\n\ne\n\nf";
 
 /** The same body one block earlier, while the second `same` is still in the tail. */
@@ -27,12 +18,7 @@ const REBASED_BLOCKS = "other\n\nwords\n\nx\n\ny\n\nz\n\nw";
 
 const PARAGRAPH_SELECTOR = ".meridian-markdown__paragraph";
 
-/**
- * A definition far enough behind the tail to have settled, with filler behind it.
- *
- * The settle lag is two blocks, so the definition has to be third from the end
- * before it is in the committed prefix at all — which is what these cases are about.
- */
+/** A definition far enough behind the tail to have settled (the settle lag is two blocks). */
 const SETTLED_FOOTNOTE_BODY =
   "[^1]: the first note\n\nfiller one\n\nfiller two\n\nfiller three\n\n";
 
@@ -63,9 +49,8 @@ describe("a streaming body", () => {
   });
 
   it("does not mount an incomplete construct as itself", () => {
-    // Half a fence is not a fence. `remend` closes the tail so the parser sees a
-    // complete block, which is why the text renders as code rather than as prose that
-    // reflows the moment the closing fence arrives.
+    // `remend` closes the tail, so half a fence renders as code rather than as prose that
+    // reflows when the closing fence arrives.
     const { container } = render(
       <StreamingMarkdown
         publishedText={"```ts\nconst answer = 1;"}
@@ -116,10 +101,8 @@ describe("a streaming body", () => {
   });
 
   it("gives two identical settled blocks two identities", async () => {
-    // React reports a duplicate key on `console.error` and then reuses one subtree for
-    // both siblings. The report is the assertion: keying a block by its text alone
-    // passes every other case in this file and fails here the moment a message repeats
-    // a line.
+    // React reports a duplicate key on `console.error`; keying by text alone fails here when a
+    // message repeats a line.
     const {
       value: { container },
       reported,
@@ -162,9 +145,7 @@ describe("a streaming body", () => {
       />,
     );
 
-    // The prefix is append-only, so block 0 stays block 0 and its key does not move
-    // when the block behind it settles — while the newly settled twin is a second
-    // element rather than the first one reused.
+    // The prefix is append-only, so block 0 keeps its key when a later block settles.
     const paragraphs = container.querySelectorAll(PARAGRAPH_SELECTOR);
     expect(paragraphs[0]).toBe(firstSettled);
     expect(paragraphs[1]).not.toBe(firstSettled);
@@ -172,9 +153,7 @@ describe("a streaming body", () => {
   });
 
   it("negative control: a rebase remounts rather than reusing the old message's element", () => {
-    // Without the block's own text in the key, the position alone would make every key
-    // unique and pass the two cases above — and then pour a different history's words
-    // into the elements this message left behind.
+    // Position alone would make every key unique; the text in the key is what remounts.
     const footnotes = new FootnoteRegistry();
     const { container, rerender } = render(
       <StreamingMarkdown
@@ -201,15 +180,11 @@ describe("a streaming body", () => {
   });
 
   it("registers nothing again when a re-render carries no new text", () => {
-    // The defect the settled-block memoization exists to prevent, reached through the
-    // registration effect instead of through rendering: the settled node lists were
-    // rebuilt by a `map` on every render, so an unrelated viewport, layout, or transcript
-    // update re-walked every settled block of every long completed message.
+    // Registration must not re-walk settled blocks on a re-render that carries no new text.
     const footnotes = new FootnoteRegistry();
     const register = vi.spyOn(footnotes, "register");
-    // A FRESH element each time, carrying the same values. Re-rendering the same
-    // element object is a React bail-out — the component would not run at all, and a
-    // case built on one would pass over any amount of per-render work.
+    // A fresh element each time: re-rendering the same element object is a React bail-out
+    // that would skip the component.
     const bodyWithNoNewText = (): React.JSX.Element => (
       <StreamingMarkdown
         publishedText={SETTLED_FOOTNOTE_BODY}
@@ -227,16 +202,12 @@ describe("a streaming body", () => {
     rerender(bodyWithNoNewText());
 
     expect(register).not.toHaveBeenCalled();
-    // And the render did happen — the settled block is the same element rather than a
-    // remount, which is the other half of what the memoization is for.
+    // And the settled block is the same element, not a remount.
     expect(container.querySelector(PARAGRAPH_SELECTOR)).toBe(settledBefore);
   });
 
   it("walks only what changed as the body grows behind a settled definition", () => {
-    // A settled block's parse is content-addressed, so a block whose nodes are the
-    // ones registered last time holds the definitions registered last time. Growth
-    // costs the growth rather than the whole prefix — the same claim the settled-block
-    // memo makes about rendering, made about registration.
+    // A settled block's nodes are referentially stable, so growth costs only the new blocks.
     const footnotes = new FootnoteRegistry();
     const register = vi.spyOn(footnotes, "register");
     const { rerender } = render(
@@ -258,14 +229,10 @@ describe("a streaming body", () => {
       />,
     );
 
-    // Nothing: the arriving blocks declare nothing, and the settled definition behind
-    // them is not walked again. On the old code the whole prefix was re-registered on
-    // every one of these frames.
+    // The arriving blocks declare nothing, and the settled definition is not walked again.
     expect(register).not.toHaveBeenCalled();
 
-    // And a block that DOES declare something still lands — restating the body's
-    // definitions ahead of every block is what makes a cross-block reference resolve,
-    // so a new definition changes the preamble and the prefix is re-read on purpose.
+    // A new definition changes the preamble, so the prefix is re-read on purpose.
     rerender(
       <StreamingMarkdown
         publishedText={SETTLED_FOOTNOTE_BODY + PLAIN_GROWTH_BLOCKS + GROWN_FOOTNOTE_BLOCK}
@@ -278,9 +245,7 @@ describe("a streaming body", () => {
   });
 
   it("negative control: a rebase re-registers the prefix it re-derived", () => {
-    // Without this, an effect that never re-walked a settled block would pass both
-    // cases above and leave the previous history's definitions answering this one's
-    // references.
+    // A settled block re-derived from a different history must register again.
     const footnotes = new FootnoteRegistry();
     const register = vi.spyOn(footnotes, "register");
     const { rerender } = render(
@@ -307,8 +272,6 @@ describe("a streaming body", () => {
   });
 
   it("negative control: it registers nothing for a body with no definitions", () => {
-    // Without this, an effect that registered on every render regardless of content
-    // would pass the case above and fill the popover host with empty entries.
     const footnotes = new FootnoteRegistry();
     render(
       <StreamingMarkdown
@@ -327,8 +290,7 @@ const UNCLOSED_EMPHASIS = "a settled paragraph\n\nthis is **bold";
 
 describe("a body the sender has finished", () => {
   it("keeps every block settled, so nothing complete is rewritten by the mender", () => {
-    // `remend` exists for a PREFIX. Run over a finished body it closes what the author
-    // deliberately left open, and the reader is shown emphasis nobody wrote.
+    // `remend` is for a prefix; on a finished body it would close emphasis the author left open.
     const { container } = render(
       <StreamingMarkdown
         publishedText={UNCLOSED_EMPHASIS}
@@ -342,8 +304,6 @@ describe("a body the sender has finished", () => {
   });
 
   it("negative control: the same text mid-stream is still mended", () => {
-    // Without this, a component that simply stopped mending would pass the case above
-    // and reflow every half-typed construct on the screen as it arrived.
     const { container } = render(
       <StreamingMarkdown
         publishedText={UNCLOSED_EMPHASIS}

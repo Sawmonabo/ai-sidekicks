@@ -1,30 +1,7 @@
-// The one classifier — which kind of card a row is, decided once.
-//
-// THIS CONSOLE'S OWN RULE, because no committed document states it: each message and tool activity
-// renders as a card whose kind is decided once, by one classifier feeding icon, label, and layout.
-// One function, one table, and the three things a card renders with come out of it together. A
-// second `if (row.type === …)` anywhere under `cards/` is the drift this module exists to prevent:
-// the glyph would agree with the layout until somebody added a kind to one of them.
-//
-// WHAT THE CLASSIFIER IS ALLOWED TO READ. The row's `type`, which is a registered
-// `SessionEventType`, and nothing else. Not the actor, not the summary, and above all
-// not the tool NAME — never inventing a tool kind is a rule about exactly
-// that temptation, and it is the fail-closed projection rule — an unknown enum member
-// renders as the explicit unrecognized row or badge, never as a guess — reached from the
-// other side. The tool kinds (command output, file edits, read folds,
-// MCP tool cards, web-search results, image results) are real distinctions and the
-// wire declares none of them: `ToolActivityPayload` carries `toolName`, `toolCallId`,
-// and `durationMs`, and no member says what KIND of tool ran. Reading the kind out
-// of the name would be the console asserting a fact the daemon never sent, which is
-// the failure the wire-truth rule names. So every tool row takes the tool layout, the
-// name renders wire-verbatim in mono, and the tool kind arrives when a wire member
-// declares it.
-//
-// THE INLINE CARDS ARE NOT A ROW KIND HERE. A diff, an attachment, and an artifact are
-// bodies other features register behind `InlineCardProps`, and a row carries one
-// where its own content says so — which is a question about a row's attachments, not
-// about which card it is. `MessageRow` renders them; this table does not know they
-// exist.
+// Which kind of card a row is, decided once. Icon, label and layout all come from this one
+// table, so they cannot drift apart. The classifier reads only the row's `type`, never the tool
+// name: the wire declares no tool kind, and inferring one would assert a fact the daemon never
+// sent. Inline cards (diff, attachment, artifact) are not row kinds; `MessageRow` renders them.
 
 import type { HydratedSessionEventContent, TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -33,10 +10,7 @@ import type { GlyphName } from "@renderer/styles/glyphs.js";
 /**
  * Every kind of card a transcript row can take. Closed.
  *
- * The tuple is the declaration and the union is derived from it, for the reason
- * `primitives/figures/Chip.tsx` gives about its own tone set: a fifth kind added to a
- * hand-written union while the table below stayed at four would render a row through
- * a descriptor that does not exist.
+ * The union derives from the tuple so a kind cannot be added to one without the other.
  */
 export const TRANSCRIPT_ROW_KINDS = [
   "user-message",
@@ -49,10 +23,8 @@ export const TRANSCRIPT_ROW_KINDS = [
 export type TranscriptRowKind = (typeof TRANSCRIPT_ROW_KINDS)[number];
 
 /**
- * How much of a row kind's card is open before anybody touches it.
- *
- * Tool rows render as one line until opened, and message bodies open: this app's own
- * reading of the density budget, stated here as a value.
+ * How much of a row kind's card is open before anybody touches it: tool rows render as one
+ * line until opened, and message bodies open.
  */
 export const ROW_LAYOUTS = ["body-open", "one-line"] as const;
 
@@ -62,32 +34,20 @@ export type RowLayout = (typeof ROW_LAYOUTS)[number];
 /** What one row kind supplies: the icon, the label, and the layout. */
 export interface RowKindDescriptor {
   readonly kind: TranscriptRowKind;
-  /**
-   * The row kind's icon, or `undefined` where the row carries no mark (the person's own
-   * message).
-   */
+  /** The row kind's icon, or `undefined` where the row carries no mark (the user's message). */
   readonly glyph: GlyphName | undefined;
-  /**
-   * The row kind's name in the console's own words, for the row's kind label when the
-   * row carries no wire-true label of its own. Sentence case, no exclamation.
-   */
+  /** The row kind's name, for the kind label when the row carries no wire-true label. */
   readonly label: string;
   readonly layout: RowLayout;
 }
 
-/**
- * One row kind's descriptor, with the icon typed present for every kind but the
- * person's own message, so a caller naming one of those reads it without a check.
- */
+/** A row kind's descriptor, with the icon typed present for every kind but the user's message. */
 type DescriptorOf<TKind extends TranscriptRowKind> = RowKindDescriptor & {
   readonly kind: TKind;
   readonly glyph: TKind extends "user-message" ? undefined : GlyphName;
 };
 
-/**
- * Total over `TranscriptRowKind` by construction — a fifth kind fails to compile here
- * before it can reach a card that renders it without an icon.
- */
+/** Total over `TranscriptRowKind` by construction: a new kind fails to compile until described. */
 const DESCRIPTORS_BY_ROW_KIND: { readonly [TKind in TranscriptRowKind]: DescriptorOf<TKind> } = {
   "user-message": {
     kind: "user-message",
@@ -118,9 +78,8 @@ const DESCRIPTORS_BY_ROW_KIND: { readonly [TKind in TranscriptRowKind]: Descript
 /**
  * Which row kind each body-bearing event type takes.
  *
- * Keyed by the registered `SessionEventType` literals rather than by a prefix match:
- * a prefix would silently absorb a later `tool.*` type nobody has looked at, and the
- * fall-through below is the honest answer for a type this table has not been taught.
+ * Keyed by exact type, not prefix: a prefix would silently absorb a later `tool.*` type nobody
+ * has looked at.
  */
 const ROW_KIND_BY_EVENT_TYPE: ReadonlyMap<string, TranscriptRowKind> = new Map([
   ["user.message", "user-message"],
@@ -134,10 +93,7 @@ const ROW_KIND_BY_EVENT_TYPE: ReadonlyMap<string, TranscriptRowKind> = new Map([
 /**
  * The kind this row belongs to, or `undefined` for a type this table does not name.
  *
- * `undefined` is deliberately not an error and deliberately not a guess: the taxonomy has
- * 159 types and six of them carry a body a transcript card draws, so "this row has no body
- * here" is the ordinary case, and the rows a person reads among the rest (the system
- * messages) are drawn before the classifier is asked.
+ * `undefined` is the ordinary case: only six event types carry a body a transcript card draws.
  */
 export function classifyTranscriptRow(row: TimelineRow): RowKindDescriptor | undefined {
   const kind = ROW_KIND_BY_EVENT_TYPE.get(row.type);
@@ -150,9 +106,8 @@ export function describeRowKind<TKind extends TranscriptRowKind>(kind: TKind): D
 }
 
 /**
- * The five states a tool row reports. Closed, and this console's own set: Running · Ok ·
- * Error (`tool.error`) · Truncated · Body unavailable. No committed document enumerates
- * them, so the enumeration lives here, beside the function that decides between them.
+ * The states a tool row reports. Closed; the enumeration lives beside the function that decides
+ * between them.
  */
 export const TOOL_RESULT_STATES = [
   "running",
@@ -168,13 +123,9 @@ export type ToolResultState = (typeof TOOL_RESULT_STATES)[number];
 /**
  * What a tool row's header reports, from its event type and its hydrated body.
  *
- * TWO SOURCES, RANKED, AND THE RANKING IS THE POLICY. `tool.error` outranks every
- * body condition: a collapsed row may not hide a tool error from the header, because
- * red is the console's one word for "something failed" and a failure a reader has to
- * open a row to find was never said. A truncated error is still an error. Below that the
- * body's own condition decides, because a result whose body could not be read is not the
- * same fact as a result that succeeded — there are five kinds of nothing, and a renderer
- * that collapses two of them into one is wrong.
+ * `tool.error` outranks every body condition: a collapsed row must not hide a failure, and a
+ * truncated error is still an error. Below that the body's condition decides, because a body
+ * that could not be read is not the same fact as a result that succeeded.
  */
 export function toolResultState(
   eventType: string,

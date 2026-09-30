@@ -11,27 +11,17 @@ import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
 import { SessionScreenContainer } from "../SessionScreenContainer.js";
 
 /**
- * What the composition root supplies this feature, because this file may not import it.
- *
- * The session screen's body belongs to another feature, and no feature imports
- * another, so the component arrives as a parameter named by the composition root, which
- * sits above every feature and is the one place allowed to name more than one.
- *
- * The COMPONENT rather than a built element: which component mounts is the root's
- * decision, and what it is handed is this file's — the screen context exists only when
- * the screen renders, which is long after the root registered it.
+ * What the composition root supplies this feature. The session screen's body belongs to another
+ * feature and no feature imports another, so it arrives as a component the root names; a
+ * component rather than an element because the screen context exists only when the screen renders.
  */
 export interface TranscriptComposition {
   readonly sessionScreen: ComponentType<SessionScreenMountProps>;
 }
 
 /**
- * Claim the session screen.
- *
- * Takes the registry rather than reaching for the module-scope singleton, so a test
- * composes into a registry it owns. The transcript's commands are registered by their
- * own contribution, `registerTranscriptCommands`, which the composition root calls
- * beside this.
+ * Claim the session screen. Takes the registry so a test composes into one it owns; the
+ * transcript's commands are registered separately by `registerTranscriptCommands`.
  */
 export function registerTranscriptScreens(
   registry: ScreenRegistry,
@@ -45,25 +35,15 @@ export function registerTranscriptScreens(
 }
 
 /**
- * The owner string every transcript claim carries.
- *
- * One binding rather than a literal per descriptor: the screen registry's
- * duplicate policy is owner-scoped, so re-registering under the same owner replaces
- * and a different owner is refused by name. Two spellings of this feature's own name
- * would make a hot reload a collision.
+ * The owner string every transcript claim carries. The screen registry's duplicate policy is
+ * owner-scoped, so one spelling replaces on re-registration and a hot reload never collides.
  */
 export const TRANSCRIPT_OWNER = "transcript";
 
 /**
- * What the session screen hands its body.
- *
- * Derived from the screen context rather than restated, so a member added there is
- * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
- * subtracted because the session screen renders ONE session — a screen that has to offer
- * sessions reads the registry, and this one is handed the session it is a view of — and
- * `chooseScheme` because nothing in a session chooses the color scheme. The one thing it
- * asks of the registry, reading a session again when a person presses `Try again`, is
- * handed over as that act alone.
+ * What the session screen hands its body: the screen context minus `sessionStoreRegistry` (this
+ * screen renders one session) and `chooseScheme`. The one thing it asks of the registry,
+ * re-reading a session when a person presses `Try again`, is handed over as that act alone.
  */
 type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme"> & {
   /** Reads one session again through the registry, for a person's press. */
@@ -71,20 +51,10 @@ type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "cho
 };
 
 /**
- * Mount the session screen: the session header, the pane layout, and the composer.
- *
- * The wrapper keeps the screen's full-height grid, which is what lets the pane layout
- * inside it be the thing that scrolls rather than the window.
- *
- * WHY THE KEY, AND WHY A KEY IS THE RIGHT INSTRUMENT. The session screen holds per-session
- * state that nothing else resets: the pane layout's arrangement, and the record of which
- * panes are showing in windows of their own. The app window deliberately OPENS session
- * stores and never closes them on navigation, so moving from one already-open session
- * to another re-renders this position rather than unmounting it — and every one of
- * those pieces would carry the first session's panes and windows into the second. A
- * key on the session is what makes the subtree's lifetime match the thing it holds
- * state about; the alternative is a reset effect per piece, which is the same rule
- * written once per field and forgotten on the next one.
+ * Mount the session screen: the session header, the pane layout, and the composer. The body is
+ * keyed on the session because the screen holds per-session state nothing else resets (the pane
+ * layout's arrangement, the panes in windows of their own), and moving between two open sessions
+ * re-renders this position rather than unmounting it.
  */
 function mountSessionScreen(
   context: ScreenContext,
@@ -94,12 +64,9 @@ function mountSessionScreen(
   return createElement(
     SessionScreenContainer,
     null,
-    // ABOVE the session screen body and never in place of it. The refused arm says the
-    // position this session was last read up to could not be resolved and the log was
-    // re-read from the beginning of its window, which the session screen body below is
-    // unaffected by: the store projects, the subscription tails, and what was lost is a remembered
-    // place. The component is conditional rather than its hooks, which is the only
-    // shape React allows for a reading whose session id may not exist.
+    // Above the session screen body, never in place of it: a refused resume position does not
+    // affect the body. The component is conditional rather than its hooks, because the session
+    // id may not exist.
     sessionId === undefined
       ? null
       : createElement(ResumeRefusalBanner, {

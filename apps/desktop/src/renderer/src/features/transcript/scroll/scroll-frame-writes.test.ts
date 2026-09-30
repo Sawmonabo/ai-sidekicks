@@ -59,8 +59,7 @@ describe("ScrollFrameWrites", () => {
     expect(frameWrites.request("follow-tail", () => 900)).toBe(false);
 
     clock.runFrame();
-    // The negative control for the fail-closed rule: an immediate fallback write
-    // would land here, unordered, exactly as it did before there was a frame.
+    // An immediate fallback write would land here, unordered.
     expect(writes).toEqual([]);
   });
 

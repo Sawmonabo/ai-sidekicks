@@ -1,16 +1,6 @@
-// The run group's older head, as a body that scrolls inside itself.
-//
-// WHAT IT ANSWERS. A run group reports how many of its rows the outer list's ceiling
-// left out, and until this component that figure was the whole of what a person got:
-// the rows themselves were dropped out of the feed, so a long run's opening was
-// counted and gone. This is the bounded viewport those rows live in — the same
-// ceiling, read as a window rather than as a deletion.
-//
-// IT IS A READ-ONLY LIST AND NOT A SECOND FEED. Each row is one line — the time it
-// carries, the daemon's own word for what it was, and its summary — and nothing here
-// opens a card, streams, or offers an act. The rows in the outer list keep every
-// affordance they have; these are the ones scrolled past, and a second full row
-// treatment for them would be a second renderer for the same vocabulary.
+// The run group's older head, as a read-only body that scrolls inside itself: the rows the
+// outer list's ceiling left out, one line each (time, the daemon's own word, summary). It opens
+// no cards and offers no acts; the rows in the outer list keep those.
 
 import { useMemo, useState } from "react";
 
@@ -24,20 +14,17 @@ import {
 } from "../run-group-body.js";
 import { type RunGroup } from "../run-groups.js";
 
+/** The props of a run group body. */
 export interface RunGroupBodyProps {
   readonly runGroup: RunGroup;
-  /**
-   * How the engine is asked whether it parses the body's height. Defaulted, and
-   * overridable only so a test can drive the arm this host's engine does not take.
-   */
+  /** Probe for whether the engine parses the body's height; overridable for tests only. */
   readonly supportsDeclaration?: CssDeclarationSupportProbe;
 }
 
 /**
  * One run group's body: its older head, bounded, with the clip said out loud.
  *
- * `null` where the run group clips nothing, so an ordinary run group mounts no scroller
- * and pays for none.
+ * `null` where the run group clips nothing, so an ordinary run group mounts no scroller.
  */
 export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null {
   const { runGroup } = props;
@@ -46,17 +33,14 @@ export function RunGroupBody(props: RunGroupBodyProps): React.JSX.Element | null
     () => resolveRunGroupBodyHeight(props.supportsDeclaration),
     [props.supportsDeclaration],
   );
-  // The fade is a fact about the scroll offset, so it is held rather than derived —
-  // and written only when the offset CROSSES the top, which is at most one render per
-  // crossing rather than one per wheel notch.
+  // Held, not derived; written only when the offset crosses the top, not per wheel notch.
   const [isClippedAbove, setIsClippedAbove] = useState(false);
   if (contents.rows.length === 0 && contents.unheldRowCount === 0) {
     return null;
   }
   return (
     <div className="meridian-run-group-body">
-      {/* Never the scroll anchor: an overlay the engine picked as its anchor would
-          hold the fade still and move the rows behind it. */}
+      {/* Never the scroll anchor: an anchored overlay would hold the fade still. */}
       {isClippedAbove ? <div className="meridian-run-group-body__fade" aria-hidden="true" /> : null}
       <ol
         className="meridian-run-group-body__scroller"
@@ -102,11 +86,9 @@ interface RunGroupBodyContents {
 /**
  * What the body draws, derived from the run group it was handed.
  *
- * The ids come from the run group's OWN row ids and the rows from the bounded head the
- * fold sealed, which is what makes this right under a narrowing: a filtered run group
- * carries the admitted ids, so a row the filter excluded is not asked for — and a row
- * older than the sealed head is asked for, not found, and counted as unheld rather
- * than silently omitted.
+ * Ids come from the run group's own row ids and rows from the bounded head the fold sealed, so
+ * a filtered run group does not ask for excluded rows, and a row older than the sealed head is
+ * counted as unheld rather than omitted.
  */
 function runGroupBodyContents(runGroup: RunGroup): RunGroupBodyContents {
   const headRowsById = new Map(runGroup.clippedHeadRows.map((row) => [row.id, row]));

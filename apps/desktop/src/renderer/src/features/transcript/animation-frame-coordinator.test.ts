@@ -26,8 +26,7 @@ describe("AnimationFrameCoordinator", () => {
       "this project is not compiling the fixture define",
     ).not.toBe(null);
 
-    // Nothing scheduled: the clock's frame runs no drain, so there is nothing to
-    // meter and a series that existed here would be measuring the scheduler.
+    // Nothing scheduled, so no drain runs and no series may exist.
     clock.runFrame();
     expect(developmentPerformanceMeters?.readings()).toStrictEqual([]);
 
@@ -42,11 +41,8 @@ describe("AnimationFrameCoordinator", () => {
   });
 
   test("keys its frame time by coordinator, so two feeds are two series", () => {
-    // There is one coordinator per FEED, not per window (`coordinator-binding.ts`), so
-    // two feeds open side by side are two coordinators. Under a shared module constant
-    // both feeds' frames landed in one series, and the p95 an author reads was an
-    // average over a feed blowing the budget and a feed sitting idle — with no second
-    // series anywhere to notice it by.
+    // One coordinator per feed, so two open feeds are two coordinators; a shared key would
+    // fold their frames into one p95.
     const clock = new ManualClock();
     const firstFeed = new AnimationFrameCoordinator({ clock });
     const secondFeed = new AnimationFrameCoordinator({ clock });
@@ -63,15 +59,9 @@ describe("AnimationFrameCoordinator", () => {
   });
 
   test("a mount-and-unmount cycle costs no lasting series, however many times it runs", () => {
-    // The identity that makes two open feeds two series is minted from an ordinal that
-    // never resets, so it names a MOUNT and not a live feed. Without a retirement the
-    // key set grows with every feed this renderer has ever opened: past the registry's
-    // series bound every further feed is refused, and the p95 an author reads is the
-    // p95 of feeds that closed while the feed on screen contributes nothing to it.
-    //
-    // The count is the endurance workload's own: `endurance-workload.ts` alternates the
-    // settings route and the session screen, which mounts the transcript, and
-    // `steady-state.test.ts` drives 200 churn cycles twice.
+    // The identity comes from an ordinal that never resets, so it names a mount. Without
+    // retirement the key set grows with every feed ever opened and, past the registry's series
+    // bound, further feeds are refused.
     const mountCycleCount = 400;
     expect(
       mountCycleCount,
@@ -91,8 +81,7 @@ describe("AnimationFrameCoordinator", () => {
   });
 
   test("holds one live series per live coordinator, and drops it on dispose", () => {
-    // The other half of the bound: retiring must not retire a SIBLING's series, which
-    // a coordinator keying by anything the two share would do.
+    // Retiring must not retire a sibling's series.
     const clock = new ManualClock();
     const firstFeed = new AnimationFrameCoordinator({ clock });
     const secondFeed = new AnimationFrameCoordinator({ clock });
@@ -114,8 +103,7 @@ describe("AnimationFrameCoordinator", () => {
     const { clock, coordinator } = constructCoordinator();
     const order: string[] = [];
 
-    // Submitted the wrong way round on purpose: this is the arrival order the old
-    // per-subsystem arming would have painted in.
+    // Submitted in the wrong order on purpose.
     coordinator.scheduleRevealWork(coordinator.claimTaskKey("reveal"), () => {
       order.push("reveal");
     });
@@ -192,9 +180,8 @@ describe("AnimationFrameCoordinator", () => {
     });
 
     clock.runFrame();
-    // The negative control for the ordering rule: draining the deferred write inside
-    // this frame would put `scroll` after `reveal`, which is the inversion the whole
-    // coordinator exists to prevent.
+    // Negative control: draining the deferred write inside this frame would put `scroll`
+    // after `reveal`.
     expect(order).toEqual(["reveal"]);
     expect(coordinator.pendingTaskCount).toBe(1);
 
@@ -302,10 +289,9 @@ describe("AnimationFrameCoordinator", () => {
     clock.runFrame();
 
     expect(ran).toBe(false);
-    // The budget claim moved here with the scheduler: canceling the last task
-    // releases the frame, so a settled console holds no timer at all.
+    // Canceling the last task releases the frame, so a settled coordinator holds no timer.
     expect(clock.pendingCount).toBe(0);
-    // Idempotent: a second cancel of a key that never ran is a no-op.
+    // Idempotent: a second cancel of a key that never ran does nothing.
     expect(() => {
       coordinator.cancel("reveal-work", taskKey);
     }).not.toThrow();

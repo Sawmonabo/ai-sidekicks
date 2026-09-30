@@ -1,30 +1,8 @@
-// The transcript's registered row renderer: one row, through the row component its kind
-// names.
-//
-// NOTHING HERE RENDERS A TIMELINE ENTRY TYPE. The renderer is generic over
-// `TranscriptRowProps` — it reads `kind`, `type`, `summary`, `timestamp`, and the
-// three list decisions its props carry, and nothing else. Modeling the timeline's own
-// entry vocabulary here would author a second body beside the real one.
-//
-// IT HOLDS NO STATE OF ITS OWN. A disclosure press writes the row's density to the list's
-// retained row state through `useRetainedRowState`, and the density it renders is
-// whatever it was handed. That is the only way the choice survives: the virtualizer mounts
-// the visible range and nothing else, so anything a row remembers privately is discarded
-// the moment a reader scrolls past it.
-//
-// WHAT IT CANNOT SUPPLY, stated rather than papered over. A machine-authored body lives
-// in the daemon's own encrypted column and reaches a reader through a hydrated read
-// projection; a `TimelineRow` carries neither the body nor a reference to one. So every
-// machine row here renders the named absence `MessageContent` and `ToolOutput` give an unread body.
-//
-// LIVE TEXT IS A DIFFERENT CASE. It is published by the reveal engine, which the feed
-// owns, and it reaches a row through the frame's own per-row channel rather than through
-// the row renderer's props — `reveal/components/RowRevealProvider.tsx` states why those
-// props are the wrong home for it. The row asks for its own lane and gets `undefined` while nothing is
-// streaming into it, which is every row of a settled log.
-//
-// A ROW THE KIND TABLE CALLS A RECEIPT DRAWS NOTHING. An event outside the transcript's
-// fold list is not drawn, and the classifier's `receipt` answer is that case.
+// The transcript's row renderer: one row through the card its kind names. It holds no state: a
+// disclosure press writes density to the list's retained row state, because the virtualizer
+// unmounts rows scrolled out of range. A `TimelineRow` carries no body, so machine rows render
+// the named absence `MessageContent` and `ToolOutput` give an unread body. A type the kind table
+// does not name draws nothing.
 
 import { useCallback, useState } from "react";
 
@@ -40,24 +18,17 @@ import { reasoningRunIdOf } from "./thinking/reasoning-reading.js";
 import { ToolRow } from "./ToolRow.js";
 
 /**
- * One row, through the card its kind names.
- *
- * The classifier decides once and this switch spends the answer — the same table the
- * cards themselves read, so the glyph, the label, and the layout a row gets here are the
- * ones it gets anywhere.
+ * One row, through the card its kind names. The classifier decides once and this switch spends
+ * the answer, so the glyph, label and layout match what the cards read anywhere else.
  */
 export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | null {
   const [footnotes] = useState(() => new FootnoteRegistry());
   const rowLease = useRetainedRowState();
   const rowId = props.row.id;
   const density: TranscriptRowDensity = props.density;
-  // THE TOGGLE INVERTS WHAT IS ON SCREEN, which is the density the row was HANDED —
-  // the list's answer with the lease already overlaid on it. So the press reverses
-  // what a reader can see, and it writes the reversal to the list rather than to this
-  // component: a `useState` here would die with the row the moment the virtualizer
-  // scrolled it out of the mounted range, and the choice would come back as whatever the
-  // list said. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own;
-  // a body that does parks its offset in the same lease.
+  // The toggle inverts the density the row was handed (the list's answer with the lease overlaid)
+  // and writes it to the list, not to local state, which would die when the virtualizer unmounts
+  // the row. `innerScrollTopPx` is zero because this row keeps no inner scroll of its own.
   const toggleDensity = useCallback(() => {
     rowLease.setLease(rowId, {
       density: density === "expanded" ? "collapsed" : "expanded",
@@ -66,17 +37,14 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   }, [density, rowId, rowLease]);
 
   const rowKind = classifyTranscriptRow(props.row);
-  // THE REASONING READ IS NOT ARMED HERE, AND THAT IS A COST RULE RATHER THAN A STYLE
-  // ONE. It binds a COMPONENT, not a tree, so it lives in the component that renders it,
-  // and the ordinary row builds no reading for a control it does not draw. Measured on a
-  // mounted window, that per-row machinery was the frame a streaming lane spent and the
-  // heap a console left open kept.
-  //
-  // WHAT STAYS HERE IS THE PURE READ the branch turns on: which run the row attributes.
+  // The reasoning read is armed in the component that renders it, not here: an ordinary row would
+  // build a reading for a control it does not draw, and on a mounted window that per-row
+  // machinery was the frame a streaming lane spent and the heap a long-open window kept. Only the
+  // pure read the branch turns on stays here.
   const attributedRunId = reasoningRunIdOf(props.row);
-  // THE LANE IS THE ROW, which is what `MessageContent` already claims of the member it
-  // fills: "text the reveal engine is publishing for THIS ROW right now". Keying on the
-  // run instead would give two machine rows of one turn one body between them.
+  // The live-text lane is the row, matching `MessageContent`'s `liveText`: keying on the run
+  // would give two machine rows of one turn one body. It arrives through the per-row reveal
+  // channel, not the renderer's props, and is `undefined` for every row of a settled log.
   const liveText = useRowReveal(rowId);
 
   if (rowKind === undefined) {
@@ -119,7 +87,7 @@ export function TranscriptRow(props: TranscriptRowProps): React.JSX.Element | nu
   }
 }
 
-/** The edit control the footer renderer draws, or nothing; the message row shows it on a user's own. */
+/** The edit control the footer renderer draws, or nothing. */
 function editControlOf(props: TranscriptRowProps): React.ReactNode {
   return findTranscriptRowFooterRenderer()?.({ row: props.row, isSuperseded: props.isSuperseded });
 }

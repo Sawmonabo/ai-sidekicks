@@ -1,6 +1,3 @@
-// The two dispositions a reply's body can take, and the two it must never take, and
-// which of the three renderers a body reaches.
-
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -8,10 +5,8 @@ import { describe, expect, it } from "vitest";
 import { FootnoteRegistry } from "../markdown/footnotes/footnote-registry.js";
 import { MessageContent } from "./MessageContent.js";
 
-/** The one byte every ANSI sequence opens with. */
 const ESCAPE = "\u001b";
 
-/** The BEL an OSC sequence is terminated by. */
 const BEL = "\u0007";
 
 function renderBody(
@@ -31,7 +26,6 @@ function renderBody(
   return container;
 }
 
-/** An assistant body whose producer declared `mediaType`, rendered. */
 function renderDeclaredBody(body: string, mediaType: string): HTMLElement {
   return renderBody({ status: "available", body }, { contentType: mediaType });
 }
@@ -43,8 +37,6 @@ describe("a body that opened", () => {
   });
 
   it("negative control: it says nothing about truncation", () => {
-    // Without this, a notice rendered unconditionally would pass every truncation
-    // assertion below while telling a reader that every body is a prefix.
     const container = renderBody({ status: "available", body: "the reply" });
     expect(container.textContent).not.toContain("Truncated");
     expect(container.textContent).not.toContain("turn_content_truncated");
@@ -61,9 +53,7 @@ describe("a body that was truncated", () => {
     });
     expect(container.textContent).toContain("the prefix");
     expect(container.textContent).toContain("Truncated when recorded");
-    // A no-break space, as `formatByteQuantity` emits it — asserting an ordinary
-    // space here would pass only if the figure had lost the character that keeps it
-    // from wrapping away from its unit.
+    // A no-break space, as `formatByteQuantity` emits it.
     expect(container.textContent).toContain("4.0\u00A0KiB");
   });
 
@@ -98,15 +88,13 @@ describe("a body that could not be read", () => {
 describe("a body nobody asked for", () => {
   it("says it has not been read, which is not the same as not being there", () => {
     const container = renderBody(undefined);
-    // `not-checked` rather than `not-loaded`: nothing is in flight here, so
-    // nothing may claim to be — a skeleton bar is a promise of a body arriving.
+    // `not-checked`, not `not-loaded`: nothing is in flight, and a skeleton promises a body.
     expect(container.querySelector(".meridian-nothing--not-checked")).not.toBeNull();
     expect(container.querySelector(".meridian-nothing--not-loaded")).toBeNull();
   });
 
   it("negative control: live text is rendered rather than reported absent", () => {
-    // A streaming turn HAS no stored body, so the unread marker would be wrong for
-    // exactly the row a reader is watching arrive.
+    // A streaming turn has no stored body, so the unread marker would be wrong for it.
     const container = renderBody(undefined, { liveText: "arriving now" });
     expect(container.textContent).toContain("arriving now");
     expect(container.querySelector(".meridian-nothing--not-checked")).toBeNull();
@@ -114,12 +102,6 @@ describe("a body nobody asked for", () => {
 });
 
 describe("the media type its producer declared", () => {
-  // THE DEFECT THIS CLOSES. The renderer was chosen from the bytes alone, and
-  // `AssistantOutputPayload` has carried `contentType` all along — so a `text/plain`
-  // reply carrying an asterisk pair was reformatted into emphasis nobody wrote, and a
-  // markdown reply carrying one stray escape went through the terminal renderer whole,
-  // losing every heading, list and code fence in it.
-
   it("renders a declared markdown body as markdown", () => {
     const container = renderDeclaredBody("an ordinary **reply**", "text/markdown");
     expect(container.querySelector(".meridian-markdown")).not.toBeNull();
@@ -127,10 +109,8 @@ describe("the media type its producer declared", () => {
   });
 
   it("keeps declared markdown on the markdown path when a control byte rode along", () => {
-    // The declaration is the producer's own statement of what it emitted. An escape
-    // sequence inside such a body is terminal residue the media type does not cover, so
-    // it is stripped and the markdown structure is still drawn — reading it instead as
-    // "this whole body is command output" throws that structure away for one byte.
+    // An escape inside a declared markdown body is terminal residue: it is stripped and the
+    // markdown structure is still drawn.
     const container = renderDeclaredBody(`${ESCAPE}[31m## A heading${ESCAPE}[39m`, "text/markdown");
     expect(container.querySelector(".meridian-markdown")).not.toBeNull();
     expect(container.querySelector(".meridian-ansi__body")).toBeNull();
@@ -147,9 +127,7 @@ describe("the media type its producer declared", () => {
   });
 
   it("keeps declared plain text off the ANSI path and still puts no escape on the page", () => {
-    // The ANSI renderer is for command output, and an assistant body its producer called
-    // plain text is not that whichever bytes it carries — but the bytes are still bytes
-    // no reader should see.
+    // Declared plain text is never command output, but the escape bytes are still stripped.
     const container = renderDeclaredBody(`${ESCAPE}]0;a title${BEL}built`, "text/plain");
     expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
     expect(container.querySelector(".meridian-ansi__body")).toBeNull();
@@ -157,8 +135,6 @@ describe("the media type its producer declared", () => {
   });
 
   it("takes the plain arm for a declaration this console has no renderer for", () => {
-    // Fail-closed on the safe side: a producer that described its body precisely is not
-    // second-guessed, and nothing is interpreted that was not asked for.
     const container = renderDeclaredBody('{ "ok": **true** }', "application/json");
     expect(container.querySelector(".meridian-machine-body__plain")).not.toBeNull();
     expect(container.querySelector("strong")).toBeNull();
@@ -166,9 +142,8 @@ describe("the media type its producer declared", () => {
   });
 
   it("reads the type through its parameters and its case", () => {
-    // `contentType` is a free-form wire string, so the value arrives as the producer
-    // spelled it. A comparison against the raw member answers "unrecognized" for both of
-    // these and drops a real markdown reply onto the plain arm.
+    // `contentType` is a free-form wire string; comparing the raw member would send real
+    // markdown to the plain arm.
     for (const declared of ["text/markdown; charset=utf-8", "TEXT/Markdown"]) {
       const container = renderDeclaredBody("an ordinary **reply**", declared);
       expect(container.querySelector("strong")?.textContent).toBe("reply");
@@ -176,9 +151,7 @@ describe("the media type its producer declared", () => {
   });
 
   it("declares the shape of a live turn as well as a stored one", () => {
-    // A streaming assistant turn has no stored body yet and the same declaration on its
-    // row, so a reading applied only to `content` would reformat the tail of every
-    // plain-text turn and settle it correctly one beat later.
+    // A streaming turn has no stored body yet but carries the same declaration.
     const container = renderBody(undefined, {
       liveText: "arriving *now*",
       contentType: "text/plain",
@@ -188,9 +161,7 @@ describe("the media type its producer declared", () => {
   });
 
   it("negative control: a body with no declaration still reads its own bytes", () => {
-    // The tool trio carries no content type at all, so removing the byte reading would
-    // put a build log's escape sequences on the page as text — the defect the byte
-    // reading was added to close. Both of its answers are asserted here.
+    // The tool trio carries no content type, so its bytes decide.
     const ansi = renderBody({
       status: "available",
       body: `${ESCAPE}[31mfailed${ESCAPE}[39m`,

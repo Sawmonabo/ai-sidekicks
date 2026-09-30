@@ -1,11 +1,6 @@
-// The tool kind badge: what it draws, what it defers to a supplied renderer, and the one
-// case where drawing nothing is the right answer.
-//
-// THE THREE OUTCOMES ARE THREE DIFFERENT DECISIONS and are checked apart. An
-// undeclared tool kind draws nothing, because a reserved marker repeated once per
-// tool row would print a paragraph of unbuilt-feature prose down a long log. A supplied
-// renderer draws ITS body and none of the badge's. And an unrecognized value
-// draws the explicit unrecognized badge carrying what the daemon sent.
+// The three outcomes are three decisions: an undeclared tool kind draws nothing, a supplied
+// renderer draws its own body and none of the badge's, and an unrecognized value draws the
+// explicit unrecognized badge.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -50,8 +45,7 @@ describe("the tool kind badge", () => {
   });
 
   it("draws no server figure for a declaration that names none", () => {
-    // The negative control for the case above: a badge that always drew the server
-    // figure would print an empty figure on every non-MCP row.
+    // A badge that always drew the server figure would print an empty one on every non-MCP row.
     const container = renderBadge({
       kind: "declared",
       toolKind: "file-edit",
@@ -77,8 +71,7 @@ describe("the tool kind badge", () => {
   });
 
   it("does not reach a supplied renderer when the row declared nothing", () => {
-    // Absence outranks the renderer: one asked to draw a treatment for a row with no
-    // declaration would have to invent one.
+    // A renderer asked to draw a treatment for a row with no declaration would have to invent one.
     let bodyCalls = 0;
     renderBadge(undefined, () => {
       bodyCalls += 1;

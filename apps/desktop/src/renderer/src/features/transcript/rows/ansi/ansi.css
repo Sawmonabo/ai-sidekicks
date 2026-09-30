@@ -1,9 +1,6 @@
 /* ANSI command output (`AnsiOutput`). */
 
-/*
- * The sixteen ANSI names are tokens in `styles/palette.ts`, beside the code-token colors,
- * and the generator emits all three scheme layers for them.
- */
+/* The sixteen ANSI names are tokens in `styles/palette.ts`. */
 
 .meridian-ansi__body {
   margin: 0;
@@ -119,10 +116,8 @@
 }
 
 /*
- * The two channel values only reverse video reaches, and the only two of the four
- * combinations that are reachable at all: a reversed run paints the body's background
- * as its FOREGROUND and the body's foreground as its BACKGROUND. The other two would be
- * a run painting the color it already had, which nothing emits.
+ * The only two channel values reverse video reaches: a reversed run paints the body's
+ * background as its foreground and the body's foreground as its background.
  */
 .meridian-ansi__fg--default-background {
   color: var(--meridian-ansi-default-background);

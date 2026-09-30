@@ -1,8 +1,5 @@
-// The subagent anchor, held to the three ways it must not move.
-//
-// Each case below is a NEGATIVE control for a last-wins fold: a completion, a resume
-// and a compaction all name an identity that is already anchored, and a fold that took
-// the newest row would move the card on every one of them.
+// The subagent anchor, held to the three ways it must not move: a completion, a resume and a
+// compaction each name an identity already anchored, and a last-wins fold would move the card.
 
 import { describe, expect, it } from "vitest";
 

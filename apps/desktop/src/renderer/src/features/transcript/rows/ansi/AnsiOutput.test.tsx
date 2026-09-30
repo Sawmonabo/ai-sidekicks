@@ -68,10 +68,10 @@ describe("folding a body with more styled runs than the card renders", () => {
       <AnsiOutput source={styledRuns(ANSI_SPAN_RENDER_CAP + RUNS_PAST_THE_CAP)} label="Output" />,
     );
     expect(renderedSpanCount(container)).toBe(ANSI_SPAN_RENDER_CAP);
-    // Both figures in the badge's own label rather than in `detail`, which the badge
-    // renders as a `title` attribute and no keyboard or touch reader ever reaches.
+    // Both figures are in the badge's own label rather than `detail`, which the badge shows only
+    // as a `title` attribute no keyboard or touch reader reaches.
     const notice = container.querySelector(".meridian-nothing__badge-label");
-    // Through `formatCount`, because that is the rule for a figure the console derived:
+    // Through `formatCount`, because that is how a derived figure is formatted:
     // grouped per locale, never a bare `String()` a test could satisfy by accident.
     expect(notice?.textContent).toContain(formatCount(ANSI_SPAN_RENDER_CAP));
     expect(notice?.textContent).toContain(formatCount(RUNS_PAST_THE_CAP));
@@ -79,8 +79,8 @@ describe("folding a body with more styled runs than the card renders", () => {
   });
 
   it("renders every run once the reader asks for the rest", () => {
-    // The bound's rationale claims the fold is recoverable. Before this, reopening the
-    // card re-parsed the same capped sequence and the tail was unreachable.
+    // The fold is recoverable: reopening the card would otherwise re-parse the same capped
+    // sequence and leave the tail unreachable.
     const totalRuns = ANSI_SPAN_RENDER_CAP + RUNS_PAST_THE_CAP;
     const { container } = render(<AnsiOutput source={styledRuns(totalRuns)} label="Output" />);
     fireEvent.click(screen.getByRole("button", { name: "Show the rest" }));

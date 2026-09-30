@@ -1,10 +1,5 @@
-// What a tool or command returned, its error included, in the same three states as the
-// reply: not asked for, asked and unavailable, asked and available.
-//
-// A tool result declares no media type (the tool payload carries a name, a call id, a
-// duration and the body's descriptors), so its bytes decide the renderer: a body carrying
-// an escape is command output, any other is prose. A shape is never derived from the
-// tool's name.
+// Draws a tool's result in the same three states as the reply. A tool payload declares no media
+// type, so its bytes decide: an escape means command output, anything else is prose.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 

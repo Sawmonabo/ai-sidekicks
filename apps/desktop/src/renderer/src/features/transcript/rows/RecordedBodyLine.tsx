@@ -1,27 +1,18 @@
-// The past-tense receipt a settled machine turn leaves.
-//
-// Its own module for the one-component rule, and the split keeps the cost chokepoint
-// visible: this line reports the body's recorded size and media type and NOTHING
-// metered, because a card that summed or restated a cost would be the second source of
-// truth that chokepoint exists to prevent.
+// The receipt a settled machine turn leaves: the body's recorded size and media type, and
+// nothing metered, so no card becomes a second source of cost.
 
 import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 
+/** The descriptive members a row recorded about its body. */
 export interface RecordedBodyLineProps {
   readonly contentType: string | undefined;
   readonly contentLength: number | undefined;
 }
 
 /**
- * What the row itself recorded about its body, on one line.
- *
- * The receipt rule is that an action lands as a record of what happened, so this line
- * reports only what the row itself carries — the
- * body's recorded size and the media type its producer set.
- *
- * A turn that carries neither renders no receipt at all, rather than a line saying
- * nothing was recorded — an absence of descriptive members is the ordinary case for a
- * body-less row and not a fact worth a line in the log.
+ * What the row itself recorded about its body, on one line: the recorded size and the media
+ * type its producer set. A turn that carries neither renders no receipt, since absent
+ * descriptors are the ordinary case for a body-less row.
  */
 export function RecordedBodyLine(props: RecordedBodyLineProps): React.JSX.Element | null {
   if (props.contentType === undefined && props.contentLength === undefined) {

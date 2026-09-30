@@ -1,10 +1,5 @@
-// The ordering rule: the snapshot's canonical order, and the newer of two readings
-// of one row.
-//
-// Driven directly on the fold with no bridge, no session, and no React — which is
-// what the split from `queue-feed.ts` buys. The parse those rows go through first
-// lives in `queue-reading.ts` and is asserted there, so nothing here reaches the
-// schema and nothing there re-asserts the order.
+// The ordering rule, driven directly on the fold with no bridge, session or React: the
+// snapshot's order, and the newer of two readings of one row.
 
 import { describe, expect, it } from "vitest";
 
@@ -35,7 +30,7 @@ function parsedRow(id: string, state: string, updatedAt: string): QueueItemSumma
 
 describe("the snapshot never regresses a newer tail row", () => {
   it("rebuilds the snapshot's order and keeps the newer reading of a raced row", () => {
-    // The finding's own example: a tail update for B, then a snapshot of [A, B].
+    // A tail update for B, then a snapshot of [A, B].
     const order = new QueueOrder();
     order.merge(parsedRow(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z"));
     order.replaceWithSnapshot([

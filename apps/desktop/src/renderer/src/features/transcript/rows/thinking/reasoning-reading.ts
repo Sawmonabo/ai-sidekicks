@@ -1,28 +1,7 @@
-// The reasoning row's model: what the three arms say, and how the tail is cut.
-//
-// WHY A MODEL MODULE BESIDE THE COMPONENT. The reasoning read answers a CLOSED
-// three-state discriminant, and two of the three states carry no entries at all —
-// the client renders the placeholder from the state itself. So the sentences ARE
-// the whole view for those two, and a component that spelled them inline would put
-// the one thing this feature is about (that `unavailable` and `policy_redacted` are
-// different facts and never one empty body) inside a render body where nothing can
-// hold it total over the union. Here the table is total over the contract's own
-// `availability` union by annotation, so a state added to
-// `@ai-sidekicks/contracts` fails to compile in this file rather than reaching a
-// reader as blank space.
-//
-// THE DISTINCTIONS THE SENTENCES MUST KEEP, which is the whole of the rule:
-//
-//   • `unavailable` — the reasoning was not captured. Nothing was withheld.
-//   • `policy_redacted` — it exists and is being withheld, and the reason travels
-//                     on the wire. A redaction rendered as absence is the failure
-//                     this arm exists to prevent, so the copy names the withholding
-//                     and the component renders `policyReason` verbatim beside it.
-//
-// NO PER-SESSION TOGGLE IS MODELED, deliberately: visibility follows product
-// policy and there are no session overrides, so the row offers a read and never
-// a preference. A `showReasoning` flag anywhere in this feature would be a second
-// answer to a question the daemon already answers.
+// The reasoning row's model: the sentence for each availability arm, and how the tail is cut.
+// The copy table is total over the contract's `availability` union, so a new state fails to
+// compile here instead of rendering blank. `unavailable` (never captured) and `policy_redacted`
+// (withheld) are different facts and must never read alike. There is no per-session toggle.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { ReasoningSurfaceReadResponse, RunId, TimelineRow } from "@ai-sidekicks/contracts";
@@ -33,20 +12,17 @@ export type ReasoningAvailability = ReasoningSurfaceReadResponse["availability"]
 /**
  * How many lines of a streaming turn the tail shows.
  *
- * Three, from the density budget the console's design language sets for this row:
- * a tail while streaming and collapsed otherwise. It is a cap on what is DISPLAYED
- * and never a cap on what is published — the reveal engine's text is untouched, and
- * expanding asks the daemon rather than un-cropping this.
+ * A display cap only: the reveal engine's text is untouched, and expanding asks the daemon
+ * rather than un-cropping this.
  */
 export const REASONING_TAIL_LINE_COUNT = 3;
 
 /**
- * What this card holds about the reasoning read, at any moment.
+ * What the row holds about its reasoning read.
  *
- * FOUR STATUSES AND NOT THREE. `not-asked` is a different fact from a read that
- * answered `unavailable`: the first says nobody put the question, the second says
- * the daemon answered it. Collapsing them would make the row claim a provider
- * captured no reasoning every time a reader had simply not expanded the row.
+ * `not-asked` (nobody put the question) is a different fact from a read that answered
+ * `unavailable`; collapsing them would claim no reasoning was captured whenever a row is
+ * simply not expanded.
  */
 export type ReasoningReading =
   | { readonly status: "not-asked" }
@@ -56,7 +32,7 @@ export type ReasoningReading =
 
 /** What one arm says of itself when it carries no entries to show. */
 export interface ReasoningAvailabilityCopy {
-  /** The sentence, in the console's calm register — what happened, never a remedy. */
+  /** The sentence: what happened, never a remedy. */
   readonly title: string;
   /** The second line, saying what remains readable. */
   readonly detail: string;
@@ -65,15 +41,9 @@ export interface ReasoningAvailabilityCopy {
 /**
  * The newest lines of a streaming reasoning body.
  *
- * SLIDING, which is what makes it a tail rather than a head: the window is taken
- * from the END, so a turn that has streamed four hundred lines shows the three a
- * reader is watching arrive. Blank lines are dropped before the window is taken —
- * a provider that emits paragraph breaks would otherwise spend two of the three
- * lines on nothing — and every surviving line is trimmed of trailing whitespace so
- * a partially-arrived line does not render as a ragged one.
- *
- * A pure function over the text, so the same text always cuts the same way and the
- * caller can memoize on the text's identity alone.
+ * The window is taken from the end so a long turn shows what is arriving. Blank lines are
+ * dropped before the window is taken and each line's trailing whitespace is trimmed. Pure, so
+ * a caller can memoize on the text.
  */
 export function reasoningTailOf(text: string): readonly string[] {
   const lines: string[] = [];
@@ -87,13 +57,10 @@ export function reasoningTailOf(text: string): readonly string[] {
 }
 
 /**
- * A sentence per availability arm.
+ * A sentence per availability arm, total over the contract's union.
  *
- * Total over the contract's union by construction. `available` carries an entry
- * of its own because a read that succeeded and served an EMPTY page is still a
- * distinct fact from the two that carry no entries at all — the schema admits it
- * only on the terminal arm, and a reader meeting one is owed the same sentence
- * treatment as the others rather than a blank region.
+ * `available` has one because a read that served an empty page is still a fact, and a reader
+ * is owed a sentence rather than a blank region.
  */
 export const REASONING_AVAILABILITY_COPY: Readonly<
   Record<ReasoningAvailability, ReasoningAvailabilityCopy>
@@ -113,13 +80,9 @@ export const REASONING_AVAILABILITY_COPY: Readonly<
 };
 
 /**
- * The run whose reasoning this row belongs to, or `undefined`.
- *
- * The read is RUN-SCOPED, so a row with no run attribution has nothing to ask
- * about — a `general` row, or a projection that could not attribute one. Returning
- * `undefined` rather than inventing an identifier is what keeps the expand control
- * off a row the read could never answer for, which is this row's fail-closed
- * edge: the renderer derives no eligibility, it reports the absence of one.
+ * The run whose reasoning this row belongs to, or `undefined` for a row with no run
+ * attribution (a `general` row), which keeps the expand control off a row the read cannot
+ * answer for.
  */
 export function reasoningRunIdOf(row: TimelineRow): RunId | undefined {
   return row.kind === "run" ? row.runId : undefined;

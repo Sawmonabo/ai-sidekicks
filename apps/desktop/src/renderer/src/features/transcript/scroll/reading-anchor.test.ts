@@ -1,8 +1,5 @@
-// The reading anchor's three states, and the promise underneath them.
-//
-// Geometry is supplied as values rather than measured, because the anchor's whole
-// interface is a fold over geometry samples: what it does with a sample is the
-// subject, and where the sample came from is the chokepoint's test.
+// The reading anchor's three states and the promise underneath them. Geometry is supplied as
+// values: the anchor is a fold over samples, and where a sample came from is the chokepoint's test.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,8 +38,7 @@ describe("the reading anchor — the three states", () => {
     expect(anchor.state.mode).toBe("following");
 
     anchor.noteAppendedRows(3);
-    // While following, arriving rows are about to be on screen; a pill offering to
-    // jump to them would be noise.
+    // While following, arriving rows are about to be on screen; a pill offering them is noise.
     expect(anchor.state.newRowCount).toBe(0);
 
     anchor.observeGeometry(geometry(1200, false));
@@ -75,8 +71,7 @@ describe("the reading anchor — the three states", () => {
   });
 
   it("negative control: a sample that is not at the tail does not resume following", () => {
-    // The two cases above both end in `following`; without this one they would pass
-    // over an anchor that followed unconditionally.
+    // Without this, the cases above would pass over an anchor that followed unconditionally.
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(1200, false));
     anchor.observeGeometry(geometry(1300, false));
@@ -86,9 +81,8 @@ describe("the reading anchor — the three states", () => {
 
 describe("the reading anchor — what a resize may and may not do", () => {
   it("keeps following when the box shrank rather than the reader moving", () => {
-    // A shorter viewport raises the distance from the tail on its own. Folding that
-    // as "the reader left the tail" stops the transcript following because the window
-    // got smaller, which is nobody's decision.
+    // A shorter viewport raises the distance from the tail on its own; folding that as "the
+    // reader left the tail" would stop following because the window got smaller.
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(4500, true));
     anchor.observeGeometry(geometry(4500, false, "resize"));
@@ -96,8 +90,8 @@ describe("the reading anchor — what a resize may and may not do", () => {
   });
 
   it("resumes following on an at-tail sample however it was produced", () => {
-    // The arms are asymmetric on purpose: arriving at the bottom is arriving,
-    // whether the log got shorter or the pane got taller.
+    // The arms are asymmetric: arriving at the bottom is arriving, whether the log got shorter
+    // or the pane got taller.
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(1200, false));
     anchor.observeGeometry(geometry(4500, true, "resize"));
@@ -105,8 +99,7 @@ describe("the reading anchor — what a resize may and may not do", () => {
   });
 
   it("negative control: the same not-at-tail sample from a scroll does leave the tail", () => {
-    // Without this the resize case above would pass over an anchor that had simply
-    // stopped leaving the tail at all.
+    // Without this, the resize case above would pass over an anchor that never left the tail.
     const anchor = new ReadingAnchor();
     anchor.observeGeometry(geometry(4500, true));
     anchor.observeGeometry(geometry(4500, false, "scroll"));
@@ -166,8 +159,8 @@ describe("the reading anchor — the anchor point", () => {
   });
 
   it("keeps the anchor point when the reader leaves the tail", () => {
-    // Dropping it there would leave the frame with nothing to restore on the very
-    // first append after the reader scrolled up.
+    // Dropping it would leave the frame with nothing to restore on the first append after the
+    // reader scrolled up.
     const anchor = new ReadingAnchor();
     anchor.capture({ rowKey: "row-7", offsetWithinViewportPx: 4 });
     anchor.observeGeometry(geometry(1200, false));
@@ -177,10 +170,8 @@ describe("the reading anchor — the anchor point", () => {
 
 describe("the reading anchor — returning to the tail", () => {
   it("releases the pin, so prune resumes once the reader is done with history", () => {
-    // Pinning is what paging back raises and being at the tail is what says the reader
-    // is finished with it. Reaching the tail by scrolling and reaching it by the pill
-    // are one act with two gestures — and a pin only the pill released would survive
-    // the other one forever, with prune refused underneath it.
+    // Reaching the tail by scrolling and by the pill are one act; a pin only the pill released
+    // would survive the other and keep prune refused.
     const anchor = new ReadingAnchor();
     anchor.pin("cursor-earlier");
     expect(anchor.suppressesPrune()).toBe(true);
@@ -202,8 +193,8 @@ describe("the reading anchor — returning to the tail", () => {
   });
 
   it("notifies on the release, so the window hears the refusal lift", () => {
-    // The refusal is read off the published state, so a release nobody was told about
-    // is a window that keeps deferring until something else happens to notify.
+    // The refusal is read off the published state, so an unannounced release would leave the
+    // window deferring until something else notified.
     const anchor = new ReadingAnchor();
     anchor.pin("cursor-earlier");
     anchor.observeGeometry(geometry(1200, false));

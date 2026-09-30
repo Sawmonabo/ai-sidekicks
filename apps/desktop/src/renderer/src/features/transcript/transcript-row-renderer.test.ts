@@ -1,6 +1,4 @@
-// The transcript row renderer's registry: one renderer, owner-scoped. A second owner
-// is refused by name rather than leaving two bodies and an import-order winner, and
-// this file is where that refusal is checked.
+// The row renderer registry: one owner, and a second owner refused by name.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -27,8 +25,6 @@ describe("transcript row renderer — one owner", () => {
   });
 
   it("refuses a second owner while the first is registered", () => {
-    // A second owner fires this refusal at import time rather than leaving two bodies
-    // and an import-order winner.
     registerTranscriptRowRenderer("transcript-rows", registeredRow);
     expect(() => {
       registerTranscriptRowRenderer("another-owner", () => null);
@@ -52,17 +48,14 @@ describe("transcript row renderer — one owner", () => {
   });
 
   it("negative control: an empty registry has no body", () => {
-    // Without this, every case above would pass over a registry that answered with a
-    // body nobody registered — or with one an earlier case left behind.
+    // Without this, the cases above would pass over a body nobody registered or a leftover one.
     expect(findTranscriptRowRenderer()).toBeUndefined();
   });
 });
 
 describe("transcript row renderer — the density budget vocabulary", () => {
   it("is the two collapse states the density rule names, each declared once", () => {
-    // Two values and not a spacing scale: the density rule is about what is
-    // COLLAPSED. A third member arriving here means the rule grew a state, which is
-    // a design question rather than a console one.
+    // A third member means the density rule grew a state, which is a design question.
     expect([...TRANSCRIPT_ROW_DENSITIES]).toStrictEqual(["collapsed", "expanded"]);
     expect(new Set(TRANSCRIPT_ROW_DENSITIES).size).toBe(TRANSCRIPT_ROW_DENSITIES.length);
   });

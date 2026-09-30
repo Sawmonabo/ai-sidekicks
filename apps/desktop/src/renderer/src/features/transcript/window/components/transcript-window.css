@@ -1,16 +1,8 @@
-/* What a window draws before its first read lands: the skeleton rows. Imported by the
- * transcript's chunk root.
- */
-
-/* --- The window's read state --------------------------------------------- */
+/* Skeleton rows a window draws before its first read lands. */
 
 /*
- * The skeleton rows a window draws before its first read lands.
- *
- * A column of row-shaped bars rather than a spinner: the shape on screen is the shape
- * the rows will take, so the first read replaces a skeleton with its own content
- * instead of swapping one kind of view for another. For the same reason it sits in the
- * window's own cell, over the empty window, where those rows will land.
+ * A column of row-shaped bars rather than a spinner, so the first read replaces the skeleton with
+ * content of the same shape. It sits in the window's own cell, where those rows will land.
  */
 .meridian-transcript-window-skeleton {
   display: flex;
@@ -20,11 +12,9 @@
 }
 
 /*
- * One skeleton row. The pulse is the primitive absence's own keyframe rather than a
- * second one written here — one animation for every skeleton in the console, so a
- * skeleton row in the transcript and a skeleton in a card breathe together.
+ * One skeleton row. The pulse is `Nothing`'s own `meridian-skeleton-pulse` keyframe
+ * (components/Nothing/Nothing.css), so every skeleton in the console breathes together.
  */
-
 .meridian-transcript-window-skeleton__row {
   height: var(--meridian-space-4);
   border-inline-start: var(--meridian-leading-edge) solid var(--meridian-edge);

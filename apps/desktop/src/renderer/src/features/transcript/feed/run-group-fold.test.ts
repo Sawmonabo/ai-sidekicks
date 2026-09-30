@@ -1,9 +1,5 @@
-// The run group fold, driven with no store and no React — what it admits per row.
-//
-// `TranscriptFeed.rows.test.tsx` proves the fold reaches the screen; this file proves what
-// it selects, which the mounted feed cannot show at this size: the cases below need a
-// run longer than the run group cap, and a virtualized feed mounts a range rather than
-// a window whatever the fold admitted.
+// The run group fold, driven with no store and no React. A run longer than the cap needs
+// this file: a virtualized feed mounts a range whatever the fold admitted.
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
@@ -30,13 +26,7 @@ const SESSION_ID = "session-run-group-cap";
 const RUN_ID = "019b793b-7b60-740e-8110-d1a4c1150111";
 const ROWS_PAST_THE_CAP = 5;
 
-/**
- * One finished run of `memberCount` rows, the last of which is its terminal.
- *
- * A single run group and nothing else, so every figure below is that run group's: a
- * session-scoped row beside it would be counted by the fold's top-level arm and the
- * cap's arithmetic would stop being readable from the totals.
- */
+// One finished run of `memberCount` rows, alone, so every figure below is that run's.
 function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
   const payload = { sessionId: SESSION_ID, runId: RUN_ID };
   return Array.from({ length: memberCount }, (_unused, index) => ({
@@ -49,7 +39,6 @@ function oneRunLog(memberCount: number): readonly ProjectedSessionEvent[] {
   }));
 }
 
-/** That log, folded, with the run group open or shut. */
 function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindowModel {
   return foldRunGroupHeaders(
     deriveTranscriptWindow(oneRunLog(memberCount)),
@@ -57,7 +46,6 @@ function foldedOverOneRun(memberCount: number, isOpen: boolean): TranscriptWindo
   ).window;
 }
 
-/** The run group's rows in the viewport, which is every row hanging off its header. */
 function renderedMemberKeys(model: TranscriptWindowModel): readonly string[] {
   return model.viewportRows.filter((row) => row.parentKey === RUN_ID).map((row) => row.key);
 }
@@ -68,14 +56,11 @@ describe("an opened run group admits the cap's own window and no more", () => {
   it("renders exactly the cap when a run longer than it is opened", () => {
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
     expect(renderedMemberKeys(model)).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
-    // And the body lookup agrees, so nothing can draw a row the cap kept out.
     expect(model.rows).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
   });
 
   it("keeps the newest rows and clips the run's older head", () => {
-    // Newest and not oldest because the run group body clips behind a TOP-edge fade.
-    // Reading it the other way round would fade a long run's newest work out of view
-    // and leave its opening on screen.
+    // Newest, not oldest: the body clips behind a top-edge fade.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, true);
     const everyMemberId = deriveTranscriptWindow(oneRunLog(OVER_CAP_MEMBER_COUNT)).rows.map(
       (row: TimelineRow) => row.id,
@@ -106,16 +91,14 @@ describe("an opened run group admits the cap's own window and no more", () => {
   });
 
   it("negative control: the same run group shut still renders its receipt alone", () => {
-    // Without this every case above would pass over a fold that had stopped
-    // admitting anything, which is a run group nobody can open at all.
+    // Guards the cases above against a fold that admits nothing.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, false);
     expect(renderedMemberKeys(model)).toHaveLength(1);
     expect(model.rows[0]?.type).toBe("run.completed");
   });
 
   it("negative control: the cap's selector returns a short run group by identity", () => {
-    // Without this the selection above could have been written as an unconditional
-    // slice, which allocates a second array for every run group in every fold.
+    // Guards against an unconditional slice, which allocates per run group on every fold.
     const shortRowIds = ["a", "b", "c"];
     expect(selectRunGroupRowIdsWithinCap(shortRowIds)).toBe(shortRowIds);
     expect(
@@ -129,7 +112,6 @@ describe("an opened run group admits the cap's own window and no more", () => {
 describe("a run group re-sealed over the rows a narrowing admitted", () => {
   const MEMBER_COUNT = 6;
 
-  /** The run group as the fold sealed it, before any narrowing. */
   function wholeRunGroup(): NonNullable<ReturnType<typeof runGroupOf>> {
     const runGroup = runGroupOf(deriveTranscriptWindow(oneRunLog(MEMBER_COUNT)));
     if (runGroup === undefined) {
@@ -148,10 +130,7 @@ describe("a run group re-sealed over the rows a narrowing admitted", () => {
     const narrowed = narrowRunGroupToAdmittedRows(runGroup, admitted);
     expect(narrowed?.rowCount).toBe(2);
     expect(narrowed?.rowIds).toStrictEqual([...admitted]);
-    // Lifecycle and the terminal are facts about the SESSION. Re-deriving them over
-    // the admitted rows would turn a finished run live the moment a narrowing
-    // excluded its `run.completed` row, and a live run stays open, so it would then stay
-    // open forever.
+    // Lifecycle and terminal are session facts; re-deriving them would turn a finished run live.
     expect(narrowed?.lifecycle).toBe("terminal");
     expect(narrowed?.terminalEventType).toBe(runGroup.terminalEventType);
     expect(narrowed?.terminalRowId).toBe(runGroup.terminalRowId);
@@ -167,13 +146,7 @@ describe("a run group re-sealed over the rows a narrowing admitted", () => {
   });
 });
 
-/**
- * A finished run group to press the disclosure on.
- *
- * Derived through the real projection rather than written out, so the object the
- * toggle is handed is the one the fold produces — a hand-built run group would let a
- * disclosure that keyed on the wrong member pass.
- */
+// Derived through the real projection so the toggle gets the object the fold produces.
 function terminalRunGroup(): RunGroup {
   const runGroup = deriveTranscriptWindow(oneRunLog(3)).runGroupByHeaderKey.get(RUN_ID);
   if (runGroup === undefined) {
@@ -182,13 +155,8 @@ function terminalRunGroup(): RunGroup {
   return runGroup;
 }
 
-/**
- * The arrangement this hook replaced: both halves held for the life of the MOUNT.
- *
- * Not a stand-in — it drives the real `RunGroupCollapseState` and publishes its real
- * opened set, and differs in the one thing these cases are about: what the holder is
- * keyed on.
- */
+// The disclosure held for the life of the mount instead of keyed on the session, over the
+// real `RunGroupFoldState`.
 function useMountScopedRunGroupDisclosure(): RunGroupDisclosure {
   const [collapseState] = useState(() => new RunGroupFoldState());
   const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
@@ -214,13 +182,8 @@ function useMountScopedRunGroupDisclosure(): RunGroupDisclosure {
 describe("the run group disclosure follows the session the pane is a log of", () => {
   const OTHER_SESSION_ID = "session-the-reader-moved-to";
 
-  /**
-   * One disclosure under a bridge, over a session the caller can move.
-   *
-   * The pane is not remounted between the two sessions, which is the whole case: the
-   * app window opens session stores and never closes them, so navigating between two open
-   * sessions re-renders this position rather than unmounting it.
-   */
+  // The pane is not remounted between sessions: open session stores stay alive, so
+  // navigating re-renders this position.
   function mountDisclosureOver(
     useDisclosure: (sessionId: string) => RunGroupDisclosure,
   ): ReturnType<typeof renderHook<RunGroupDisclosure, { readonly sessionId: string }>> {
@@ -243,14 +206,12 @@ describe("the run group disclosure follows the session the pane is a log of", ()
       disclosure.rerender({ sessionId: OTHER_SESSION_ID });
     });
 
-    // A run id is a fact about the session that minted it, so carrying this set
-    // across opens a run group of B by a decision made in A and folds every other one.
+    // A run id belongs to the session that minted it; carrying the set over opens the wrong group.
     expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([]);
   });
 
   it("holds a session's own disclosure across a re-render at that same session", () => {
-    // The negative control on the SCOPE: without it the fix could be "reset on every
-    // render", which would fold a run group the moment any row arrived.
+    // Guards against a fix that resets on every render, folding a group whenever a row arrives.
     const disclosure = mountDisclosureOver(useRunGroupDisclosure);
     act(() => {
       disclosure.result.current.toggle(terminalRunGroup());
@@ -273,7 +234,6 @@ describe("the run group disclosure follows the session the pane is a log of", ()
       disclosure.rerender({ sessionId: OTHER_SESSION_ID });
     });
 
-    // The defect, stated as a case: session B renders with session A's decisions.
     expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);
   });
 });

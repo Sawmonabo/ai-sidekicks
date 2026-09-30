@@ -1,11 +1,6 @@
-// What the window hands to the lease table, and what it counts as one row.
-//
-// SPLIT FROM `window-cap.test.ts`, which is about the cap itself, the refusals a prune
-// can answer with, and the reading floor. The subjects here are the two the cap
-// depends on rather than states: the SEAM to the lease table, so a pruned row's
-// arrangement survives its row, and the COUNTING rule, so a folded run group is one
-// entry and a run-only log is still bounded. The two suites were one file over the
-// size at which a file is doing two jobs.
+// What the window hands to the lease table, and what it counts as one row: the seam that lets a
+// pruned row's arrangement survive its row, and the counting rule that makes a folded run group
+// one entry and bounds a run-only log. `window-cap.test.ts` covers the cap itself.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,8 +15,8 @@ import {
 } from "./window-cap.test-support.js";
 
 describe("the transcript window — leases and cursors", () => {
-  // The SEAM only. What parking means and the bound it is held to are
-  // `retained-row-state-table.test.ts`'s; this case pins that the prune reaches it at all.
+  // The seam only: parking and its bound are `retained-row-state-table.test.ts`'s; this pins
+  // that the prune reaches the table at all.
   it("re-parks a pruned row's lease under a synthetic key, and hands it back", () => {
     const window = loadedWindow();
     window.setLease("run-group-0", { density: "expanded", innerScrollTopPx: 44 });
@@ -50,9 +45,8 @@ describe("the transcript window — leases and cursors", () => {
   });
 
   it("keeps a repeated key rather than collapsing an entry out of the log", () => {
-    // The window is not the layer that decides what to do about a projection
-    // defect: `RowWindow` reports the repeat and draws it at an estimated height,
-    // and it can only do that if the row reaches it at all.
+    // The window keeps a repeated key; the measurement ledger's key projection reports and
+    // draws it, which needs the row to reach it.
     const window = new TranscriptWindow();
     window.ingest([
       { key: "run-group-0", parentKey: undefined, rootCursor: "cursor-0" },
@@ -62,9 +56,9 @@ describe("the transcript window — leases and cursors", () => {
   });
 
   it("counts a row whose parent is not in the window, so a run-only log is capped", () => {
-    // The shape the transcript actually produces: every row names its run, and the run
-    // itself is not a row. Read as "has a parent, therefore a child", the window
-    // counted nobody and a session that never left one run grew without a ceiling.
+    // The shape the transcript produces: every row names its run and the run itself is not a
+    // row. Reading a parent as proof of a child counted nobody, and a session that never left one
+    // run grew without a ceiling.
     const window = new TranscriptWindow({ topLevelCap: 10 });
     window.ingest(runOnlyLog(50));
     expect(window.topLevelRowKeys()).toHaveLength(50);
@@ -77,9 +71,8 @@ describe("the transcript window — leases and cursors", () => {
   });
 
   it("negative control: the same rows under a parent the window holds count once", () => {
-    // Without this the case above would pass over a window that had simply stopped
-    // honoring parents at all. Give the run a row of its own and the fifty entries
-    // collapse into one countable head — the property the cap has always had.
+    // Without this the case above passes over a window that stopped honoring parents. Give the
+    // run a row and the fifty entries collapse into one countable head.
     const window = new TranscriptWindow({ topLevelCap: 10 });
     window.ingest([
       { key: "run-1", parentKey: undefined, rootCursor: "cursor-run-1" },
@@ -91,18 +84,16 @@ describe("the transcript window — leases and cursors", () => {
   });
 
   it("counts a folded run group as one, so the cap bounds run groups and not rows", () => {
-    // The load-bearing consequence of the transcript emitting a run group header. Before
-    // it, every run row named its run, no row WAS that run, and the cap counted each
-    // of them — so ten run groups of a hundred rows read as a thousand against the
-    // ceiling. With the header present the same log is ten.
+    // A run group header row gives every run row a parent that is a row; without it each run row
+    // counted, so ten run groups of a hundred rows read as a thousand against the ceiling.
     const window = new TranscriptWindow({ topLevelCap: 4 });
     window.ingest(foldedRunGroupLog(10));
     expect(window.topLevelRowKeys()).toHaveLength(10);
     const outcome = window.prune(PRUNABLE);
     expect(outcome.applied).toBe(true);
     expect(outcome.topLevelRetained).toBe(4);
-    // Header and receipt leave together — the ancestor closure — so no receipt is
-    // left hanging under a run group the window no longer holds.
+    // Header and receipt leave together (the ancestor closure), so no receipt hangs under a run
+    // group the window no longer holds.
     expect(window.rows().map((row) => row.key)).toEqual([
       "run-6",
       "run-6-receipt",
@@ -116,9 +107,8 @@ describe("the transcript window — leases and cursors", () => {
   });
 
   it("negative control: the same receipts with no header count one apiece", () => {
-    // Without this the case above would pass over a cap that had stopped counting
-    // anything. Take the headers away and the ten receipts are ten orphans, each its
-    // own top-level row — which is exactly the reading the transcript used to give it.
+    // Without this the case above passes over a cap that stopped counting anything: without
+    // headers the ten receipts are ten orphans, each its own top-level row.
     const window = new TranscriptWindow({ topLevelCap: 4 });
     window.ingest(foldedRunGroupLog(10).filter((row) => row.parentKey !== undefined));
     expect(window.topLevelRowKeys()).toHaveLength(10);
@@ -126,8 +116,8 @@ describe("the transcript window — leases and cursors", () => {
   });
 
   it("drops an orphan alone, never the siblings that share its absent parent", () => {
-    // An orphan is its own cut unit. Dropping the whole absent-parent group would
-    // evict a run's entire middle to make room for one row.
+    // An orphan is its own cut unit; dropping the whole absent-parent group would evict a run's
+    // entire middle to make room for one row.
     const window = new TranscriptWindow({ topLevelCap: 3 });
     window.ingest(runOnlyLog(5));
     window.prune(PRUNABLE);

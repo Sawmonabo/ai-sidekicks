@@ -1,42 +1,12 @@
-// The transcript viewport — the virtualized feed, the reading anchor's pill, and the
-// row box every row body is mounted in.
-//
-// This component RENDERS. Every decision it draws was made in a class:
-// `viewport-controller.ts` wires the scroll chokepoint, the reading anchor, the row
-// window, and the window cap together and publishes one snapshot; this file turns
-// that snapshot into elements and does nothing else. No measurement, no
-// subscription, no offset arithmetic lives here — and no BINDING is minted here
-// either: the caller owns the one binding this transcript has and hands it down, so the
-// find walk and the rows on screen are both reading the same virtualizer.
-//
-// THREE THINGS THE MARKUP HAS TO GET RIGHT:
-//
-//   • **One scroll container.** The element below is the only scrollable box in the
-//     transcript. A second one anywhere inside it would give the chokepoint a rival
-//     `scrollTop` it does not own, and the reading anchor is an offset INSIDE this
-//     box.
-//   • **A sizer, and rows placed inside it.** The sizer carries the whole log's
-//     height so the scrollbar is honest; each mounted row is absolutely positioned
-//     and translated to its own offset, so only the rows near the fold exist in the
-//     document. Both the sizer's height and each row's transform are written by the
-//     virtualizer DIRECTLY, under `directDomUpdates` — which is why neither appears
-//     in the style objects below and why writing one here would fight it.
-//   • **`role="feed"`, and rows that ARE articles, declared here.** The log grows at
-//     one end while a person reads the other, which is exactly what a feed is. The
-//     role's required-children relationship is satisfied by the row box BELOW, not
-//     by whatever a row body happens to draw: the body arrives through a row renderer
-//     another module registers, so resting a WCAG-required structural relationship on
-//     it would be fail-OPEN — the feed would stay valid only for as long as that
-//     renderer kept rendering an `<article>`, and would break silently the day it
-//     stopped. The element that declares `role="feed"` owns the guarantee.
-//
-//     The sizer between them is `role="presentation"`: it is pure geometry whose
-//     height the virtualizer writes, it names nothing, and left in the tree it
-//     stands between the feed and the rows it is supposed to own.
-//
-// Attention is steered by luminance and the two-hue rule, never by motion. A lane taking
-// catch-up rate is marked with a class the
-// stylesheet answers in luminance; nothing here animates, and nothing pulses.
+// The transcript viewport: the virtualized feed, the reading anchor's pill, and the row box
+// every row body is mounted in. It only turns `viewport-controller.ts`'s snapshot into elements;
+// the caller owns the one binding, so the find walk and the rows read the same virtualizer.
+// Markup invariants: one scroll container (a nested scroller would rival the chokepoint's
+// `scrollTop`); the sizer and each row's transform are written by the virtualizer under
+// `directDomUpdates`, so no style here sets them; `role="feed"` is declared on the scroll
+// container and its article children by `VirtualRow`, so the relationship does not rest on
+// whatever a registered row renderer draws; the sizer is `role="presentation"`. Attention is
+// steered by luminance, never motion; nothing here animates.
 
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { type TranscriptErrorEntry } from "../transcript-errors.js";
@@ -45,40 +15,29 @@ import { VirtualRow, type ViewportRowRenderer } from "./VirtualRow.js";
 import { JumpToLatest } from "./JumpToLatest.js";
 import { type TranscriptViewportBinding } from "../hooks/useTranscriptViewport.js";
 
-/** What the feed hands the transcript viewport. */
+/** Props for `TranscriptViewport`. */
 export interface TranscriptViewportProps {
   /**
-   * The caller's binding — the one this transcript has.
-   *
-   * TAKEN rather than minted. `useTranscriptViewport` builds a controller, a scroll
-   * chokepoint, a reading anchor, and a virtualizer, and a viewport that minted its
-   * own would give the feed a SECOND set: the find walk would read one while the rows on
-   * screen follow the other, and `jumpToRow` would scroll a virtualizer
-   * with no element under it. One binding per transcript is the whole invariant, and
-   * requiring it as a prop is what makes a second one unrepresentable rather than
-   * merely discouraged.
+   * The caller's binding, taken rather than minted: a viewport that built its own would give
+   * the feed a second virtualizer, so the find walk and the rows on screen would disagree and
+   * `jumpToRow` would scroll one with no element under it.
    */
   readonly binding: TranscriptViewportBinding;
-  /** STABLE across renders, or the memoized rows below re-render with it. */
+  /** Stable across renders, or the memoized rows re-render with it. */
   readonly renderRow: ViewportRowRenderer;
   /** Names the feed for a screen reader walking the window. */
   readonly feedLabel: string;
   /**
-   * Whether this session's first read has settled.
-   *
-   * REQUIRED, so a caller decides rather than inherits: the empty window below is a
-   * CLAIM about a session, and a caller that had not answered this made it while the
-   * read was still in flight — "Nothing has happened in this session yet." rendered
-   * directly above the pane's twelve skeleton rows, two sentences about one moment
-   * with one of them false. An optional prop defaulting to settled would have
-   * reintroduced exactly that on the next caller to forget it.
+   * Whether this session's first read has settled. Required so a caller decides: the empty
+   * window is a claim about a session, and an inherited default would show "Nothing has
+   * happened" above the pane's skeleton rows while the read is still in flight.
    */
   readonly firstReadSettled: boolean;
-  /** A turn is mid-flight — the same value the caller reconciled the binding with. */
+  /** A turn is mid-flight; the value the caller reconciled the binding with. */
   readonly hasActiveTurn?: boolean;
   /**
-   * The head control that walks back into the rows before this window's head, where
-   * the caller has a read to give it. Absent, nothing renders at the head.
+   * The head control that walks back into the rows before this window's head, where the caller
+   * has a read to give it. Absent, nothing renders at the head.
    */
   readonly earlierHistoryControl?: React.ReactNode;
   readonly errorEntries?: readonly TranscriptErrorEntry[];
@@ -95,22 +54,17 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
     <div className="meridian-transcript-viewport">
       <TranscriptErrors entries={props.errorEntries ?? NO_ERROR_ENTRIES} />
       {/*
-       * The head act, floating over the top of the scroll container exactly as the tail
-       * affordance floats over the bottom — both outside the scroll box, because a
-       * control in the flow changes the content height and the reading position each
-       * of them exists to protect is measured against that height.
+       * Floats over the top of the scroll container as the tail affordance floats over the
+       * bottom; both sit outside the scroll box because a control in the flow changes the
+       * content height the reading position is measured against.
        */}
       {props.earlierHistoryControl}
       <div
         className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
         ref={binding.attachScrollContainer}
-        // The feed role is claimed only while there is something to be a feed OF,
-        // and the articles it owns are `VirtualRow`'s half of the same claim.
-        // `feed` REQUIRES owned articles, so an empty one is not a quieter feed but
-        // an invalid one — and a role whose contract the element is breaking is
-        // worse for a screen-reader user than the plain scroll container this
-        // honestly is until the first row lands. The label and the busy state go
-        // with it: both describe the feed, and neither has a subject without it.
+        // The feed role is claimed only while there are rows, since `feed` requires owned
+        // articles (`VirtualRow`'s half) and an empty one is invalid, which is worse for a
+        // screen reader than a plain scroll container. The label and busy state go with it.
         {...(snapshot.rows.length === 0
           ? {}
           : {
@@ -118,9 +72,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
               "aria-label": props.feedLabel,
               "aria-busy": props.hasActiveTurn ?? false,
             })}
-        // Focusable so the log is reachable and scrollable from the keyboard: a
-        // scroll container with no focusable child is unreachable by Tab, and the
-        // reading anchor is a promise made to somebody who can get here.
+        // Focusable so the log is reachable and scrollable from the keyboard.
         tabIndex={0}
       >
         <div
@@ -143,12 +95,8 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
           })}
         </div>
         {/*
-         * NO ROWS AND THE READ HAS LANDED — which are two facts, and the empty
-         * sentence needs both. With no rows alone it also fires while the first read
-         * is in flight, where the pane is already drawing skeleton rows and the
-         * honest answer is not yet known. Nothing renders here in that window: the
-         * skeleton rows ARE the answer, and a second element saying anything at all would be
-         * the viewport talking over its own loading state.
+         * Empty only once the first read has landed: while it is in flight the pane already
+         * draws skeleton rows, and a second element would talk over the loading state.
          */}
         {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
       </div>

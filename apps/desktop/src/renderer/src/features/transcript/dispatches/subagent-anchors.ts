@@ -1,37 +1,7 @@
-// Where a subagent's rows hang — the anchor, and the three ways it must not move.
-//
-// A provider-attributed subagent is keyed by the triple `(runId, provider,
-// subagentId)`, and the transcript draws that child's activity
-// against ONE row: the row that launched it. That anchor has to be reference-stable,
-// because everything above it is keyed on it — the thread the feed draws, the card
-// the frame memoizes, and the position a reader is holding while the log grows under
-// them. An anchor that moved would move the card with it.
-//
-// THREE WAYS IT WOULD MOVE, AND EACH IS A RULE HERE RATHER THAN A HABIT AT A CALL
-// SITE. Every one of them is a LATER row that names an identity already anchored:
-//
-//   • **Completion is first-wins.** A subagent that completes twice — a retry, a
-//     redelivery, a replayed window — anchors to the first completion the window
-//     carries and never to the newest. Taking the newest would walk the card down the
-//     log every time the daemon re-sent a terminal.
-//   • **A resumed child re-anchors to its original launch.** A resume is not a second
-//     launch: the same identity is continuing, so the anchor stays the row that
-//     started it. Anchoring to the resume row would file the child's whole history
-//     under a row that arrived after most of it.
-//   • **A compaction inside the child re-anchors across itself.** `usage.context_
-//     compacted` is a boundary in the child's own transcript and says nothing about
-//     where the child began, so it never becomes an anchor.
-//
-// All three fall out of ONE rule stated once: the FIRST row naming an identity is that
-// identity's anchor, and no later row replaces it. That is why this module is a fold
-// rather than a set of branches — the three cases above are the three ways a
-// last-wins fold would have been wrong, and none of them is reachable from a
-// first-wins one.
-//
-// IDENTITY IS READ, NEVER INFERRED. A row that does not name a `subagentId` is not a
-// subagent row, whatever its type: guessing one from the actor would collapse two
-// concurrent subagents of one provider onto a single anchor and draw both children's
-// work against one row.
+// Where a subagent's rows hang: a subagent is keyed by `(runId, provider, subagentId)` and its
+// anchor is the first row naming that identity, so a repeated completion, a resume or a
+// compaction inside the child never moves the card. Identity is read, never inferred: guessing
+// it from the actor would merge concurrent subagents of one provider onto a single anchor.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -56,10 +26,7 @@ export interface SubagentAnchor {
 }
 
 /**
- * The subagent anchors over one loaded window.
- *
- * A class for the reason every other index in this directory is one: it is asked per
- * row per frame and derived once per window.
+ * The subagent anchors over one loaded window, derived once and asked per row per frame.
  */
 export class SubagentAnchorIndex {
   readonly #rows: readonly TimelineRow[];
@@ -92,13 +59,8 @@ export class SubagentAnchorIndex {
   }
 
   /**
-   * Whether this row belongs to a subagent already anchored at a DIFFERENT row.
-   *
-   * The question a per-row treatment asks: a row that is its identity's anchor draws
-   * the card, a row that names no identity draws its own, and a row that is a later
-   * observation of an identity already anchored draws none — which is what keeps one
-   * subagent's card in one place while its completion, its resume and its compaction
-   * arrive.
+   * Whether this row belongs to a subagent already anchored at a different row. An anchor row draws
+   * the card, a row naming no identity draws its own, and a later observation draws none.
    */
   public isAnchoredElsewhere(rowId: string): boolean {
     const anchor = this.anchorForRowId(rowId);
@@ -112,12 +74,8 @@ export function subagentIdentityKey(identity: SubagentIdentity): string {
 }
 
 /**
- * Derive every subagent anchor over one window.
- *
- * FIRST-WINS, stated once. The anchor is written when an identity is first seen and
- * is never written again; every later row of that identity joins `rowIds` and moves
- * nothing. The three re-anchoring hazards in this module's header are all "a later
- * row of an identity already anchored", so they are all closed by this one rule.
+ * Derive every subagent anchor over one window. First-wins: the anchor is written when an
+ * identity is first seen, and later rows of that identity join `rowIds` and move nothing.
  */
 export function deriveSubagentAnchors(
   rows: readonly TimelineRow[],
@@ -144,16 +102,9 @@ export function deriveSubagentAnchors(
 }
 
 /**
- * The subagent a row names, or `undefined`.
- *
- * All three members are REQUIRED, and that is the fail-closed half of the identity
- * rule: a row naming a `subagentId` under no provider cannot be keyed the way
- * the contract keys one, and admitting it under a fabricated provider would merge two
- * providers' subagents that happen to share an id.
- *
- * `runId` comes off the arm rather than the payload — two of the three `TimelineRow`
- * arms carry it structurally, and the `general` arm structurally cannot, so a
- * subagent row that lost its run attribution is not re-attributed here.
+ * The subagent a row names, or `undefined`. All three members are required: a `subagentId` under
+ * no provider cannot be keyed as the contract keys one, and a fabricated provider would merge two
+ * providers' subagents sharing an id. `runId` comes off the row, and a `general` row has none.
  */
 export function subagentIdentityOf(row: TimelineRow): SubagentIdentity | undefined {
   if (row.kind === "general") {

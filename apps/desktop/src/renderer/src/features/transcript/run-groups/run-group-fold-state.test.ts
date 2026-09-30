@@ -1,12 +1,6 @@
-// Which run groups are open.
-//
-// Its own file beside `run-groups.test.ts` because the subject is a different one:
-// that suite pins how rows partition into run groups, and these cases pin which of
-// the resulting run groups renders its body. Both fold the same window, through
-// `run-groups.test-support.ts`.
-//
-// Every rule here fails SILENTLY. A collapsed live run group still renders a header, so
-// each clean assertion is paired with the control that fails when the rule is removed.
+// Which run groups are open, apart from `run-groups.test.ts`, which pins how rows partition.
+// Both fold the same window through `run-groups.test-support.ts`. Each rule fails silently (a
+// collapsed live run group still renders a header), so each clean assertion has a control.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,8 +19,8 @@ describe("run groups — collapse state never folds the live run group", () => {
   });
 
   it("negative control: closing the live run group changes nothing", () => {
-    // Without the live arm answering first, `close` would remove it from the open
-    // set and the next `isOpen` would report a live run group folded.
+    // Without the live arm answering first, `close` would remove it from the open set and
+    // `isOpen` would report a live run group folded.
     const state = new RunGroupFoldState();
     expect(state.close(live)).toBe(false);
     expect(state.isOpen(live)).toBe(true);

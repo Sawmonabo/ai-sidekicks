@@ -1,9 +1,5 @@
-// The four residuals the adopted virtualizer does not cover, driven as arithmetic.
-//
-// No DOM here on purpose: every claim is about the priors and the key projection, and
-// a shim that answers zero for every rect would make each of them pass vacuously. The
-// two residuals the LIBRARY answers — the total size's documented cost and the absent
-// hit test per scroll event — are asserted where the library is actually bound, in
+// The ledger's residuals as arithmetic, with no DOM: a shim answering zero for every rect would
+// make each claim pass vacuously. The library's own answers are asserted in
 // `viewport-controller.test.ts` and `scroll-chokepoint.test.ts`.
 
 import { describe, expect, it } from "vitest";
@@ -27,8 +23,8 @@ describe("the measurement ledger — accepting a height", () => {
   });
 
   it("holds the previous height for an observation inside the epsilon", () => {
-    // The library's own compare is exact, so without this a streaming row's last-bit
-    // wobble would invalidate its measurement cache on every frame.
+    // The library's compare is exact; without this a streaming row's last-bit wobble would
+    // invalidate its cache every frame.
     const ledger = new RowMeasurementTable();
     ledger.acceptedHeight("row-0", 240);
     expect(ledger.acceptedHeight("row-0", 240 + TRANSCRIPT_GEOMETRY_EPSILON_PX / 2)).toBe(240);
@@ -42,8 +38,7 @@ describe("the measurement ledger — accepting a height", () => {
   });
 
   it("refuses an observation that is not a height, and keeps what it had", () => {
-    // An element that has not been laid out reports zero. Taking that as a row's
-    // height collapses every offset below it onto the same pixel.
+    // An unlaid-out element reports zero; taking it collapses every offset below onto one pixel.
     const ledger = new RowMeasurementTable();
     expect(ledger.acceptedHeight("row-0", 0)).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
     expect(ledger.acceptedHeight("row-0", Number.NaN)).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
@@ -58,7 +53,6 @@ describe("the measurement ledger — accepting a height", () => {
       ledger.acceptedHeight(rowKey, 200);
     }
     expect(ledger.measuredRowCount).toBe(3);
-    // The oldest priors are gone, so those rows fall back to the estimate.
     expect(ledger.heightOf("row-0")).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
     expect(ledger.heightOf("row-5")).toBe(200);
   });
@@ -92,9 +86,8 @@ describe("the measurement ledger — the display validity key", () => {
 
 describe("the measurement ledger — degrading rather than discarding", () => {
   it("gives a repeated key a key of its own, and counts the repeat", () => {
-    // The library's measurement and element caches are keyed by item key, so two
-    // rows sharing one key means the second displaces the first — one row on screen
-    // where the projection sent two.
+    // The library keys its caches by item key, so a shared key would let the second row displace
+    // the first.
     const ledger = new RowMeasurementTable();
     const projection = ledger.projectKeys(["row-0", "row-0", "row-1"]);
     expect(projection.duplicateKeyCount).toBe(1);
@@ -121,8 +114,6 @@ describe("the measurement ledger — degrading rather than discarding", () => {
 
 describe("the measurement ledger — the idle trim", () => {
   it("forgets every prior but the rows named, answering how many went", () => {
-    // What the idle trim asks for. The retained set is the window's rows, so a prior
-    // this drops belongs to a row nothing on screen can be showing.
     const ledger = new RowMeasurementTable();
     for (const rowKey of ["row-a", "row-b", "row-c"]) {
       ledger.acceptedHeight(rowKey, 40);
@@ -133,10 +124,9 @@ describe("the measurement ledger — the idle trim", () => {
   });
 
   it("keeps a repeat's prior by the row it was minted for", () => {
-    // The projection mints `<rowKey>~repeat-<n>` for a duplicate key, and the trim is
-    // handed ROW keys. Without recovering the row from the projected key, a retained
-    // row's repeat would be dropped every trim and re-measured every time it came
-    // back — the negative control is the count, which would read 2 rather than 1.
+    // The projection mints `<rowKey>~repeat-<n>` and the trim is handed row keys; without
+    // recovering the row, a retained row's repeat would be dropped every trim (the count would
+    // read 2, not 1).
     const ledger = new RowMeasurementTable();
     const projection = ledger.projectKeys(["row-a", "row-a", "row-b"]);
     for (const virtualKey of projection.virtualKeys) {

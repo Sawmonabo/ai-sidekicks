@@ -1,11 +1,6 @@
-// What a ROW is, in the mounted feed: a run group header, a seam line, or the row renderer's.
-//
-// The feed's other subjects are the `TranscriptFeed.<subject>.test` files beside this one,
-// and this one holds the three dispatches the row renderer performs and the one piece of state it
-// keeps for a row body. Every case drives the composed feed, because each thing it
-// pins is a correct model that has to reach a component: the run group fold, the seam
-// metadata, and the window's lease table are each derived on every pass and must be
-// drawn.
+// What a row is in the mounted feed: a run group header, a seam line, or the row renderer's. Every
+// case drives the composed feed, because each pinned model (run group fold, seam metadata, lease
+// table) is derived on every pass and has to reach a component.
 
 import { fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -68,8 +63,8 @@ describe("the transcript feed — a finished run folds to a header and its recei
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     expect(feed.querySelectorAll(RUN_GROUP_HEADER)).toHaveLength(1);
-    // The header carries the terminal the daemon named, verbatim, and how much the
-    // run group holds — which is the whole of what a fold may say about hidden rows.
+    // The header carries the daemon's terminal verbatim and how much the run group holds, the
+    // whole of what a fold may say about hidden rows.
     const header = headerByPosition(feed);
     expect(header.textContent).toContain("run.completed");
     expect(header.textContent).toContain("4");
@@ -81,9 +76,8 @@ describe("the transcript feed — a finished run folds to a header and its recei
     const drawn = feed.textContent ?? "";
     // The terminal row survives the fold: "header and receipt" is what folded means.
     expect(drawn).toContain("run.completed");
-    // And the rows above it do not. `run.paused` is the discriminator because it is
-    // a seam AND a member of the folded run group, so a fold that only hid the renderer's
-    // rows would still leak it.
+    // `run.paused` discriminates: it is a seam and a member of the folded run group, so a fold
+    // that only hid the renderer's rows would leak it.
     expect(drawn).not.toContain("run.paused");
     // The live run group is untouched: every row of it is still mounted.
     expect(feed.querySelectorAll(VIEWPORT_ROW).length).toBeGreaterThan(0);
@@ -100,8 +94,7 @@ describe("the transcript feed — a finished run folds to a header and its recei
   });
 
   it("negative control: a session with no terminal run draws no header at all", () => {
-    // Without this every case above would pass over a feed that headed every run,
-    // which would fold the run group somebody is watching being written.
+    // Without this every case above would pass over a feed that headed every run.
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithSystemMessage());
     expect(feed.querySelectorAll(RUN_GROUP_HEADER)).toHaveLength(0);
@@ -125,10 +118,8 @@ describe("the transcript feed — a finished run folds to a header and its recei
   });
 
   it("counts a folded run group as one row against the window cap", () => {
-    // The cap's own unit test pins the counting rule; this pins that the feed feeds
-    // it the shape that rule is written for. In a run-only log — every row naming its
-    // run and no row being it — counting every row would put a long single-run session
-    // over cap before it had many run groups at all.
+    // The cap's own unit test pins the counting rule; this pins that the feed hands it the shape it
+    // is written for: in a run-only log, counting every row would put a long session over cap.
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithTerminalRunGroup());
     expect(feed.textContent).not.toContain("Older entries are no longer in this window.");
@@ -147,16 +138,13 @@ describe("the transcript feed — a seam is the transcript's own row", () => {
     const seamLine = feed.querySelector(".meridian-system-message");
     expect(seamLine).not.toBeNull();
     expect(seamLine?.textContent).toContain("Context compacted");
-    // The boundary is the row's own run-scoped position, which the projection
-    // resolved.
+    // The boundary is the row's run-scoped position, resolved by the projection.
     expect(seamLine?.textContent).toContain("Boundary");
-    // And the row renderer never saw it, which is the dispatch this case is about.
     expect(rendererRowTypes).not.toContain("usage.context_compacted");
   });
 
   it("negative control: an ordinary row still reaches the row renderer unchanged", () => {
-    // Without this the case above would pass over a feed that had stopped delegating
-    // anything, which would replace every row body in the transcript with a seam line.
+    // Without this the case above would pass over a feed that stopped delegating anything.
     withLaidOutViewport();
     const rendererRowTypes: string[] = [];
     const feed = renderFeed(openSessionStoreWithSystemMessage(), (mount) => {
@@ -169,11 +157,9 @@ describe("the transcript feed — a seam is the transcript's own row", () => {
 
 describe("the transcript feed — a row's disclosure leaves the row", () => {
   it("takes a press into the list's lease and hands the answer back", () => {
-    // The round trip that used to happen inside the row body's own `useState`. The
-    // virtualizer mounts the visible range and nothing else, so a choice kept there
-    // was thrown away the moment a reader scrolled past — and came back as whatever
-    // the list said. Now the write goes to the window's lease table, which the feed
-    // overlays on the list's density, and which a prune re-parks rather than drops.
+    // The virtualizer mounts only the visible range, so a choice kept in the row body would be
+    // lost on scroll. The write goes to the window's lease table, which the feed overlays on the
+    // list's density and a prune re-parks rather than drops.
     withLaidOutViewport();
     const feed = renderFeed(openSessionStoreWithToolRows(3), undefined, LeasingRowBody);
     const rows = [...feed.querySelectorAll<HTMLElement>(".leasing-row")];
@@ -184,14 +170,13 @@ describe("the transcript feed — a row's disclosure leaves the row", () => {
     const densitiesAfter = [...feed.querySelectorAll<HTMLElement>(".leasing-row")].map(
       (row) => row.dataset["density"],
     );
-    // Exactly one row changed, and it changed because the LIST answered differently
-    // — the row body holds nothing of its own to have answered with.
+    // Exactly one row changed, because the list answered differently; the row body holds nothing.
     expect(densitiesAfter.filter((density) => density === "collapsed")).toHaveLength(1);
   });
 
   it("negative control: a row nobody touched still shows the list's density", () => {
-    // Without this the case above would pass over an overlay that collapsed every
-    // row once any lease existed, which would fold the whole transcript on one press.
+    // Without this the case above would pass over an overlay that collapsed every row once any
+    // lease existed.
     withLaidOutViewport();
     const densities = new Set<string>();
     renderFeed(openSessionStoreWithToolRows(3), (mount) => {
@@ -201,8 +186,8 @@ describe("the transcript feed — a row's disclosure leaves the row", () => {
   });
 
   it("refuses a row body mounted outside a transcript rather than swallowing its press", () => {
-    // The lease channel has no no-op default: a swallowed write looks exactly like a
-    // row that will not open, which is the defect the whole change closes.
+    // The lease channel has no no-op default: a swallowed write looks exactly like a row that
+    // will not open.
     expect(() => render(<LeasingRowBody {...outsideTranscriptRowProps()} />)).toThrow(
       /retained row state provider/,
     );

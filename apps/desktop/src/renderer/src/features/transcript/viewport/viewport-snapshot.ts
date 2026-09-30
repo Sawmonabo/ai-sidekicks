@@ -1,39 +1,20 @@
-// What a render of the transcript frame is HANDED, what it hands back, and the two
-// pure rules that decide between them.
-//
-// The seam is between the value vocabulary and the wiring. `viewport-controller.ts`
-// owns four live objects, three subscriptions, a virtualizer instance and a
-// coalescing frame; everything in this file is a value, computable from its
-// arguments and holding nothing. A view and the React binding both speak the vocabulary
-// below without ever holding the controller, which is why a row type is imported from
-// HERE and not from the module that wires the objects together.
-//
-// The two functions are here for the same reason. Each is a
-// rule about the value vocabulary this module owns: one reads a row-key tail, the
-// other reads a reading mode and two offsets. Neither touches a field, so neither
-// needs the controller to be tested — they are asserted directly.
+// The values a render of the transcript frame is handed and hands back, plus two pure rules on
+// them. Nothing here holds state, so views and the React binding import the row type from here
+// without holding the controller, and the rules are tested directly.
 
 import { type ReadingAnchorState } from "../scroll/reading-anchor.js";
 import { type RowKeyProjection } from "./row-measurement-table.js";
 import { type WindowRow, type PruneOutcome } from "./window-cap.js";
 
 /**
- * One row, as the viewport addresses it.
- *
- * The window's own row type under the name the view uses for it — an alias rather
- * than a second declaration, because the viewport and the window must agree about
- * what a row IS or the cap applies to a different set than the list renders.
+ * One row, as the viewport addresses it. An alias of the window's row type, so the cap and the
+ * list agree on what a row is.
  */
 export type ViewportRow = WindowRow;
 
 /**
- * The reading state a render draws, which is deliberately not all of it.
- *
- * `anchorPoint` is bookkeeping — where the reader is standing, so a height change
- * beneath them can be undone — and it changes on every pixel of every scroll. It is
- * omitted here because a snapshot that carried it would notify React sixty times a
- * second while somebody was simply scrolling, which is the render this frame's
- * budget and the library's `directDomUpdates` both exist to avoid.
+ * The reading state a render draws. `anchorPoint` is omitted: it changes on every scrolled pixel
+ * and would notify React sixty times a second.
  */
 export type ReadingState = Omit<ReadingAnchorState, "anchorPoint">;
 
@@ -59,11 +40,8 @@ export interface ViewportConditions {
 /**
  * How many rows arrived after the row that used to be last.
  *
- * `undefined` for the tail key means there was no previous window at all, which is
- * zero appended rather than "every row is new": the reading anchor counts rows that
- * arrived UNDER a reader, and a reader who was not there has nothing to be told
- * about. A tail key the retained set no longer holds is likewise zero — the row it
- * named was pruned, so the arithmetic that would follow it has no origin.
+ * Zero when there was no previous window or the previous tail was pruned: nothing is owed to a
+ * reader who was not there, and a vanished key has no origin to count from.
  */
 export function countAppendedAfter(
   rows: readonly ViewportRow[],
@@ -77,18 +55,10 @@ export function countAppendedAfter(
 }
 
 /**
- * How many rows arrived before the row that used to be first.
- *
- * The mirror of {@link countAppendedAfter}, and the two answer different questions
- * about the same array on purpose: rows appended at the tail arrive UNDER a reader and
- * are counted so the tail pill can offer them, while rows inserted at the head arrive
- * ABOVE one and are counted so the frame can undo the shift they cause. A log grows at
- * both ends and only one of those is something a person asked for.
- *
- * `undefined` for the head key is zero for {@link countAppendedAfter}'s reason: there
- * was no previous window, so nothing was inserted into one. A head key the incoming
- * set no longer carries is likewise zero — the row it named is gone, so the count that
- * would follow it has no origin and no shift to describe.
+ * How many rows arrived before the row that used to be first; the mirror of
+ * {@link countAppendedAfter}. Appended rows arrive under a reader and feed the tail pill;
+ * inserted rows arrive above one, and the frame undoes the shift they cause. Zero for the same
+ * reasons: no previous window, or a head key the incoming set no longer carries.
  */
 export function countInsertedBefore(
   rows: readonly ViewportRow[],
@@ -102,20 +72,10 @@ export function countInsertedBefore(
 }
 
 /**
- * Whether the virtualizer may subtract a measurement's delta from the offset.
- *
- * Two conjuncts, and BOTH are load-bearing:
- *
- *   • The reader is not following. While following, the tail glide already puts
- *     them at the bottom and a compensation would fight it. While reading, holding
- *     the offset across a measurement is exactly the reading anchor's promise, and
- *     the library can keep it a frame earlier than the next reconcile can.
- *   • The measured row sits ENTIRELY above the fold. A row the reader can see is
- *     growing below their eyes, not above them, so subtracting its delta would drag
- *     the viewport down on every frame of a stream — and, because each drag moves
- *     the anchor, would re-enter through the anchor's own change notification and
- *     never settle. Dropping this conjunct is measurable as an unbounded render
- *     loop rather than as a subtle drift.
+ * Whether the virtualizer may subtract a measurement's delta from the offset: only when the
+ * reader is not following (the tail glide would fight it) and the measured row sits entirely
+ * above the fold. A visible row grows below the reader's eyes, and compensating for it would
+ * drag the viewport every frame of a stream and loop through the anchor's change notification.
  */
 export function shouldCompensateForInsertion(
   readingMode: ReadingState["mode"],

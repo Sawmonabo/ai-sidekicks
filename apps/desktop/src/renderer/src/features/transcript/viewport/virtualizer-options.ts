@@ -1,19 +1,10 @@
-// The option object the virtualizer is constructed with, and nothing else.
+// The option object the virtualizer is constructed with: each way the library reaches the
+// outside world, pointed at machinery this frame already has.
 //
-// `@tanstack/react-virtual` is adopted because it is the only candidate whose scroller
-// we own — `getScrollElement`, `scrollToFn`, `observeElementOffset`. This module is that
-// ownership, stated once: every way
-// the library can reach the outside world, pointed back at machinery this frame
-// already has. Each default it replaces is named beside it, because what the default
-// would have done is the reason the override exists.
-//
-// Two properties hold across the whole set. Every member is a STABLE reference: the
-// virtualizer re-reads its options on every render and memoizes its measurements
-// against their identity, so a closure rebuilt per render recomputes every offset in
-// the window on a render that changed nothing. And no member reads an element: the
-// offset and the rect both come from one already-taken geometry sample, which is
-// what lets `scroll-chokepoint.ts`'s "no hit test per scroll event while following"
-// hold with no special case.
+// Every member is a stable reference, because the virtualizer memoizes measurements against
+// option identity and a closure rebuilt per render would recompute every offset. No member reads
+// an element: offset and rect come from one geometry sample, so following takes no hit test per
+// scroll event.
 
 import type { Rect, Virtualizer } from "@tanstack/react-virtual";
 
@@ -25,6 +16,7 @@ import { ScrollController, type ScrollContainer } from "../scroll/scroll-chokepo
 /** The virtualizer this frame drives, at the two element types it drives it with. */
 export type TranscriptRowVirtualizer = Virtualizer<HTMLElement, HTMLElement>;
 
+/** What `VirtualizerOptions` reads from: the scroll chokepoint, the ledger and the key lookup. */
 export interface VirtualizerOptionsInputs {
   readonly scroll: ScrollController;
   readonly measurements: RowMeasurementTable;
@@ -32,6 +24,7 @@ export interface VirtualizerOptionsInputs {
   readonly virtualKeyAt: (index: number) => string | undefined;
 }
 
+/** The stable option members the transcript's virtualizer is constructed with. */
 export class VirtualizerOptions {
   readonly #scroll: ScrollController;
   readonly #measurements: RowMeasurementTable;
@@ -43,12 +36,8 @@ export class VirtualizerOptions {
   public readonly getScrollElement = (): HTMLElement | null => this.#scrollContainer ?? null;
 
   /**
-   * Every offset the library would write, performed by the one writer.
-   *
-   * `adjustments` is the library's own compensation for a measurement that landed
-   * above the fold; it is added here because the default implementation adds it too,
-   * and dropping it would leave the library believing it had moved an offset it had
-   * not.
+   * Every offset the library would write, performed by the one scroll writer. `adjustments` is
+   * the library's compensation for a measurement above the fold; the default adds it too.
    */
   public readonly scrollToFn = (
     offset: number,
@@ -63,8 +52,8 @@ export class VirtualizerOptions {
     sink: (offset: number, isScrolling: boolean) => void,
   ): Unsubscribe =>
     this.#scroll.subscribeToGeometry((geometry) => {
-      // Never `isScrolling`: that flag exists to arm the library's own debounce and
-      // scroll-end timers, and this frame's budget is zero timers while idle.
+      // Never `isScrolling`: it arms the library's debounce and scroll-end timers, and an idle
+      // frame arms no timers.
       sink(geometry.scrollTop, false);
     });
 
@@ -74,20 +63,11 @@ export class VirtualizerOptions {
     sink: (rect: Rect) => void,
   ): Unsubscribe =>
     this.#scroll.subscribeToGeometry((geometry) => {
-      // The transcript is a vertical list and never sets `horizontal`, so the library
-      // reads `height` and never `width`. Publishing a width the chokepoint does not
-      // sample would be inventing a number to fill a field nobody reads.
+      // A vertical list: the library reads `height` and never `width`, which is not sampled.
       sink({ width: 0, height: geometry.viewportHeight });
     });
 
-  /**
-   * One row's key, and the height a row is assumed to have before it is measured.
-   *
-   * Both are stable references on purpose. The virtualizer re-reads its options on
-   * every render and memoizes its measurements against their identity, so a closure
-   * rebuilt per render invalidates that memo every render — which is a recomputation
-   * of every offset in the window on a render that changed nothing.
-   */
+  /** One row's key. Stable references: a closure rebuilt per render invalidates the memo. */
   public readonly getItemKey = (index: number): string =>
     this.#virtualKeyAt(index) ?? `row-without-a-key-${String(index)}`;
 
@@ -111,11 +91,8 @@ export class VirtualizerOptions {
   }
 
   /**
-   * Point the seams at the box the chokepoint just took, or at nothing.
-   *
-   * Only an `HTMLElement` can be handed to the library; a structural stand-in driven
-   * by a test leaves the library detached, which is the honest state rather than a
-   * stand-in element it would try to observe.
+   * Points the seams at the box the chokepoint just took, or at nothing. Only an `HTMLElement`
+   * is handed to the library; a test's structural stand-in leaves it detached.
    */
   public bindScrollContainer(scrollContainer: ScrollContainer | undefined): void {
     this.#scrollContainer = scrollContainer instanceof HTMLElement ? scrollContainer : undefined;
@@ -123,11 +100,8 @@ export class VirtualizerOptions {
 }
 
 /**
- * The height an observation reports, preferring the border box the observer already
- * measured over a layout read the browser has to answer.
- *
- * A `ResizeObserver` entry is the cheaper of the two by construction: it was
- * computed during layout, whereas `offsetHeight` forces one.
+ * The observed height, preferring the observer's border box over `offsetHeight`, which forces
+ * layout.
  */
 function observedHeightOf(element: HTMLElement, entry: ResizeObserverEntry | undefined): number {
   const borderBox = entry?.borderBoxSize?.[0];

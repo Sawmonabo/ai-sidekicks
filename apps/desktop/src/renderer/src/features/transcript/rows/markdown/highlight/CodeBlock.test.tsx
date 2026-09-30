@@ -1,7 +1,3 @@
-// A code block is legible before it is colored, paints the daemon's spans as classes,
-// and asks only when it is settled, names a language the daemon colors, and has not
-// been answered before.
-//
 // The span cache is shared by every block, so each case draws a source of its own.
 
 import { render, waitFor } from "@testing-library/react";
@@ -29,10 +25,7 @@ function paintedSpans(container: HTMLElement): readonly (readonly [string, strin
   ]);
 }
 
-/**
- * Reads the DOM at the first commit, before any passive effect runs: what the first
- * frame would paint. A read after `render` returns sees the effects' work too.
- */
+/** Reads the DOM at the first commit, before any passive effect runs: the first frame. */
 function FirstCommit(props: { readonly onCommit: () => void }): null {
   useLayoutEffect(() => {
     props.onCommit();

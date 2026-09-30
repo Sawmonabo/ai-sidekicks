@@ -1,11 +1,5 @@
-// A bound that is spent in bytes, and a cache that never thrashes on the one input the
-// bound exists for.
-//
-// WHAT THE ENCODING CASES ARE NOT HERE. UTF-8 against UTF-16, the surrogate pair, the
-// two-byte accent — those are the ruler's own cases and they live beside the ruler in
-// `console/persistence/`. This suite asks only what the cache does with a measurement,
-// so the one call it keeps is the retained-byte assertion, which reads the same ruler
-// the cache spends rather than restating a number the cache would have to agree with.
+// The encoding cases (UTF-8 against UTF-16, surrogate pairs) live with the byte-length
+// function's own tests; this suite asks only what the cache does with a measurement.
 
 import { describe, expect, it } from "vitest";
 
@@ -31,8 +25,7 @@ describe("the byte-bounded cache", () => {
   });
 
   it("drops a single entry larger than the whole cap rather than clearing the cache", () => {
-    // Storing it would evict everything to make room for something the next insert
-    // removes again — a cache that behaves worse than no cache on its worst input.
+    // Storing it would evict everything for something the next insert removes again.
     const cache = new ByteBoundedCache<number>(8);
     cache.set("small", 1);
     cache.set("a".repeat(64), 2);

@@ -1,43 +1,19 @@
-/* The transcript's cross-directory styles: the session screen's container, the loaded
- * feed's grid, and the few rules worn by rows in more than one of the feature's folders.
- *
- * Loaded with the composition root rather than with the lazy pane chunk, because the
- * eagerly registered session screen draws `.meridian-session-screen-container` before
- * any pane body has loaded.
- *
- *   • `.meridian-session-screen-container`, the session screen's wrapper
- *     (`SessionScreenContainer.tsx`, which imports this sheet).
- *   • `.meridian-transcript-feed`, `.meridian-transcript-feed__head` and
- *     `.meridian-transcript-feed__body`, the feed's grid (`feed/components/TranscriptFeed.tsx`).
- *   • `.meridian-transcript-retry`, worn by the viewport's failed-row control and by the
- *     ANSI output's.
- *
- * Every color is a Meridian custom property and every space a step on the scale, so
- * the feature follows the scheme attribute with no conditional in JSX.
+/* The transcript's cross-directory styles: the session screen's container
+ * (`SessionScreenContainer.tsx`), the loaded feed's grid (`feed/components/TranscriptFeed.tsx`),
+ * and `.meridian-transcript-retry`, worn by the viewport's failed-row control and the ANSI
+ * output's. Loaded with the composition root because the session screen draws its container
+ * before any pane body has loaded.
  */
 
 /* --- The session screen's container ---------------------------------------------- */
 
 /*
- * The empty pane layout state: one pane, full width, filling the screen view.
- *
- * A grid rather than a block, because `.meridian-frame__screen` is a scroll
- * container and a percentage-height chain through a block would collapse the moment
- * the pane's own body wanted to scroll instead. `minmax(0, 1fr)` in both axes is what
- * lets the feed inside be the thing that scrolls.
- *
- * AND `max-height` IS WHAT MAKES THAT TRUE RATHER THAN INTENDED. `min-height: 100%`
- * is a floor and this box has no `height`, so without a ceiling a session whose log
- * outgrew the window would grow this box instead of scrolling inside it: the frame's own
- * scroller would take the overflow, the transcript's track would resolve to its content,
- * and the viewport would mount a row for every entry in the session — a virtualized list
- * laying out and painting the whole log every frame, with a cost that grew with the
- * session rather than with the screen. Measured on the endurance workload, that is 51 of
- * 51 rows mounted in a 5 541-pixel track inside a 768-pixel window.
- *
- * A CEILING AND NOT A `height`, deliberately: the two produce the same box for a
- * pane that overflows and differ for one that does not, and only this one leaves
- * every already-fitting pane exactly where it was.
+ * One pane, full width, filling the screen view. A grid because `.meridian-frame__screen` is a
+ * scroll container and a percentage-height chain through a block would collapse.
+ * `max-height` is the ceiling that keeps the feed the thing that scrolls: with only
+ * `min-height: 100%` a long log grows this box, the viewport mounts every row, and cost grows
+ * with the session (measured on the endurance workload: 51 of 51 rows mounted in a 5,541px
+ * track inside a 768px window). A ceiling, not a `height`, so fitting panes are unchanged.
  */
 .meridian-session-screen-container {
   display: grid;
@@ -50,14 +26,9 @@
 /* --- The loaded transcript -------------------------------------------------- */
 
 /*
- * The whole feed for one session: the find strip and the notice of rows the window let
- * go above, and below them the scrolling window.
- *
- * A column grid whose second track is `minmax(0, 1fr)` rather than a flex column,
- * because the find strip and the notice appear and disappear, and a flex child that
- * could grow would take its height back from the window on every toggle — which moves
- * every row on screen for a reason the reader did not ask for. The grid keeps the
- * window's track the whole remainder either way.
+ * The whole feed for one session: the find strip and window notice, then the scrolling window.
+ * A grid, because a flex child that could grow would take height back from the window whenever
+ * the strip toggles, moving every row on screen.
  */
 .meridian-transcript-feed {
   display: grid;
@@ -68,12 +39,9 @@
 }
 
 /*
- * Everything above the window, in the order it is written: the find strip, the counts
- * of matches it could not reach, and the notice of the rows the window let go, which
- * sits at the top of the history that is loaded. One box, so the first track holds
- * however many are up and none of them can fall past the window into a track of its
- * own. A grid rather than a block so each keeps the box it had as an item of the feed:
- * stretched across, and with no margin collapsing into its neighbor's.
+ * Everything above the window: the find strip, its unreachable-match counts, and the notice of
+ * rows the window let go. One box so the first track holds however many are up; a grid so each
+ * keeps its feed-item box, stretched, with no margin collapsing into a neighbor's.
  */
 .meridian-transcript-feed__head {
   display: grid;
@@ -81,15 +49,10 @@
 }
 
 /*
- * The window's own track.
- *
- * `minmax(0, 1fr)` rather than `1fr`, which is what lets the viewport — and not this
- * row — be the element that scrolls: a `1fr` track floors at its content's min-content
- * height, so the log would grow the row instead of overflowing inside it.
- *
- * One cell, shared by everything in it: before the first read the skeleton lies over the
- * empty viewport it stands in for, so the scroll container a person Tabs into keeps the
- * whole window rather than sitting under it at zero height.
+ * The window's own track. `minmax(0, 1fr)` rather than `1fr`, which floors at min-content
+ * height and would grow the row instead of letting the viewport scroll. One shared cell: the
+ * skeleton lies over the empty viewport before the first read, so the focusable scroll
+ * container keeps the whole window.
  */
 .meridian-transcript-feed__body {
   display: grid;

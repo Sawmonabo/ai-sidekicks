@@ -8,11 +8,8 @@ import {
 
 /**
  * Record the rows that share an identifier with another row in this window.
- *
- * The viewport draws both, the repeat under a key of its own, and nothing on screen says
- * so: the fault is the producer's and a person has nothing to do about it. The count goes
- * to the window's diagnostic capture as one warning each time it changes, so a window
- * that stays the same records nothing further.
+ * The viewport draws both under distinct keys and the fault is the producer's, so the count
+ * goes to the diagnostic capture as one warning per change.
  */
 export function useDuplicateRowKeyCapture(
   sessionId: string,

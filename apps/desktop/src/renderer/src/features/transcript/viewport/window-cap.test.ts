@@ -1,9 +1,6 @@
-// The window cap: what it drops, what it refuses to drop, and what it leaves owed.
-//
-// The logs and the all-clear conditions are `window-cap.test-support.ts`', shared with
-// `window-cap.test.ts` — the seam to the lease table and the rules that decide
-// what counts as one row, which is the other half of this module and a subject of its
-// own.
+// The window cap: what it drops, what it refuses to drop, and what it leaves owed. Logs and the
+// all-clear conditions come from `window-cap.test-support.ts`; the lease-table seam and the
+// counting rules are `window-cap.retained-row-state.test.ts`'s.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,8 +20,8 @@ describe("the transcript window — the cap", () => {
     const outcome = window.prune(PRUNABLE);
     expect(outcome.applied).toBe(true);
     expect(outcome.topLevelRetained).toBe(TRANSCRIPT_WINDOW_ROW_CAP);
-    // Children never trip the cap: the retained set is the cap's worth of run groups
-    // WITH their children, not the cap's worth of rows.
+    // Children never trip the cap: the retained set is the cap's worth of run groups with their
+    // children, not the cap's worth of rows.
     expect(window.size).toBe(TRANSCRIPT_WINDOW_ROW_CAP * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
@@ -50,8 +47,7 @@ describe("the transcript window — the cap", () => {
   });
 
   it("negative control: the un-pruned log DOES contain more than the cap", () => {
-    // Without this, every assertion above would pass over a window that had
-    // silently ingested nothing at all.
+    // Without this, every assertion above would pass over a window that ingested nothing.
     const window = loadedWindow();
     expect(window.topLevelRowKeys().length).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
     expect(window.prune(PRUNABLE).prunedKeys.length).toBeGreaterThan(0);
@@ -94,8 +90,7 @@ describe("the transcript window — when prune may not land", () => {
     window.ingest(syntheticWindowRows(4));
     const outcome = window.prune(PRUNABLE);
     expect(outcome.deferredBecause).toBe("under-cap");
-    // And owes nothing: a window inside its cap is not one waiting on a condition,
-    // so the caller that re-asks has nothing to re-ask about.
+    // And owes nothing: a window inside its cap is not waiting on a condition.
     expect(outcome.owedBecause).toBeUndefined();
   });
 
@@ -113,9 +108,9 @@ describe("the transcript window — when prune may not land", () => {
   });
 
   it("names `held-rows` when every candidate the cap wanted is held", () => {
-    // The second way a pass can end over its cap: no floor stopped the walk, it
-    // simply had nothing it was allowed to take. Reported as an applied prune with
-    // an empty key list this reads exactly like a window already under cap.
+    // The second way a pass ends over its cap: no floor stopped the walk, it just had nothing it
+    // was allowed to take. Reported as applied with an empty key list, it would read like a
+    // window already under cap.
     const window = new TranscriptWindow({ topLevelCap: 2 });
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
@@ -129,9 +124,8 @@ describe("the transcript window — when prune may not land", () => {
   });
 
   it("owes `held-rows` for a pass that took what it could and stayed over cap", () => {
-    // One of the three rows the cap wanted is free, so the pass APPLIES — and the
-    // window is still two rows over its ceiling with nobody re-asking unless the
-    // residual is named beside the applied outcome.
+    // One of the three rows the cap wanted is free, so the pass applies and the window is still
+    // two rows over its ceiling; nobody re-asks unless the residual is named beside the outcome.
     const window = new TranscriptWindow({ topLevelCap: 2 });
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune({
@@ -146,8 +140,8 @@ describe("the transcript window — when prune may not land", () => {
   });
 
   it("negative control: the same rows unheld leave nothing owed", () => {
-    // Without this the two cases above would pass over a window that had started
-    // reporting `held-rows` for every prune it performed.
+    // Without this the two cases above would pass over a window that reported `held-rows` for
+    // every prune.
     const window = new TranscriptWindow({ topLevelCap: 2 });
     window.ingest(syntheticWindowRows(5));
     const outcome = window.prune(PRUNABLE);
@@ -165,14 +159,12 @@ describe("the transcript window — the reading floor", () => {
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: READER_ROW });
     expect(outcome.applied).toBe(true);
-    // AND SAYS SO IS NOT THE WHOLE STORY. Ten rows went and 9 590 stayed, so the
-    // window is still far over its cap — an outcome that reported only `applied`
-    // told the re-ask there was nothing owed, and on a session that then went quiet
-    // those rows stayed resident for the life of the mount.
+    // The window is still far over its cap after the drop; an outcome reporting only `applied`
+    // told the re-ask nothing was owed.
     expect(outcome.owedBecause).toBe("reading-floor");
     expect(outcome.topLevelRetained).toBeGreaterThan(TRANSCRIPT_WINDOW_ROW_CAP);
-    // Everything above the reader that the cap wanted, and not one row more: the
-    // dropped set is the ten run groups before them, with their children.
+    // Everything above the reader that the cap wanted and not one row more: the ten run groups
+    // before them, with their children.
     expect(outcome.prunedKeys).toStrictEqual(
       Array.from({ length: 10 }, (_unused, index) => `run-group-${String(index)}`).flatMap(
         (runGroupKey) => [
@@ -184,16 +176,15 @@ describe("the transcript window — the reading floor", () => {
         ],
       ),
     );
-    // The reader's row survives, and so does everything after it — the window the
-    // reader is about to scroll into is whole rather than holed.
+    // The reader's row and everything after it survive, so the window they are about to scroll
+    // into is whole.
     const retainedKeys = window.rows().map((row) => row.key);
     expect(retainedKeys[0]).toBe(READER_ROW);
     expect(retainedKeys).toHaveLength((TOP_LEVEL_ROW_COUNT - 10) * (CHILDREN_PER_RUN_GROUP + 1));
   });
 
   it("negative control: without the floor the very same row is dropped", () => {
-    // Which is what makes the case above the floor's doing rather than an accident
-    // of where the cap happened to cut.
+    // This makes the case above the floor's doing rather than an accident of where the cap cut.
     const window = loadedWindow();
     expect(window.prune(PRUNABLE).prunedKeys).toContain(READER_ROW);
   });
@@ -207,8 +198,8 @@ describe("the transcript window — the reading floor", () => {
   });
 
   it("names `reading-floor` when the floor leaves it nothing to take", () => {
-    // A prune that returned `applied` with an empty key list would be
-    // indistinguishable from a window that was already under cap.
+    // `applied` with an empty key list would be indistinguishable from a window already under
+    // cap.
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: "run-group-0" });
     expect(outcome.applied).toBe(false);
@@ -218,8 +209,8 @@ describe("the transcript window — the reading floor", () => {
   });
 
   it("negative control: a floor the drop never reaches owes nothing", () => {
-    // Without this, `owedBecause` could be a member the reading floor sets on every
-    // pass it is given rather than only on the passes it actually stopped.
+    // Without this, `owedBecause` could be set by the floor on every pass rather than only on
+    // passes it stopped.
     const nearTheTailRow = `run-group-${String(TOP_LEVEL_ROW_COUNT - 5)}`;
     const window = loadedWindow();
     const outcome = window.prune({ ...PRUNABLE, readingFloorRowKey: nearTheTailRow });
@@ -229,8 +220,8 @@ describe("the transcript window — the reading floor", () => {
   });
 
   it("negative control: a floor at the tail prunes byte-identically to no floor at all", () => {
-    // The reader at the tail is the common case, and the floor must cost it
-    // nothing: same outcome value, same retained window.
+    // The reader at the tail is the common case and the floor must cost it nothing: same
+    // outcome, same retained window.
     const tailKey = `run-group-${String(TOP_LEVEL_ROW_COUNT - 1)}`;
     const withoutFloor = loadedWindow();
     const withFloorAtTail = loadedWindow();

@@ -1,16 +1,6 @@
-// The refused position reaches a screen, driven through the screen that mounts it.
-//
-// WHAT THIS SUITE PROVES, IN BOTH DIRECTIONS. The resume decision reaches the screen
-// (a decision computed on every read but rendered by nothing is the failure one way),
-// and only its refused arm draws the banner (a banner on every ordinary read is the
-// failure the other way). So this suite drives the REGISTERED session screen, and the
-// arm it asserts on is a refusal the daemon actually raised about a position this
-// console actually sent.
-//
-// EVERYTHING BELOW THE SCREEN IS REAL: a real `SessionStoreRegistry` opening a real
-// entry, whose real scheduler performs real reads, the second of which carries the
-// position the first acknowledged. The only stand-in is the session screen BODY, which is
-// the composition root's parameter and another feature's component entirely.
+// The refused resume position reaches the screen, driven through the registered session screen
+// over a real `SessionStoreRegistry` and scheduler; only the session screen body is a stand-in.
+// Both directions are covered: a decision that nothing renders, and a banner on every read.
 
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -28,7 +18,7 @@ import { registerTranscriptScreens } from "../contributions/screens.js";
 
 const SESSION_ID = "session-resume-degraded";
 
-/** The code the banner renders verbatim. This module's own, never the daemon's. */
+/** The code the banner renders verbatim. */
 const REFUSAL_CODE = "resume-cursor-unresolvable";
 
 /** The position the first read acknowledges, and the second read submits. */
@@ -51,20 +41,16 @@ function snapshotAt(cursor: number, acknowledged?: string): SessionSnapshot {
 }
 
 /**
- * Render the registered `session` screen over a registry whose reads follow a
- * script, and refresh it `refreshes` times.
- *
- * The screen is resolved from a registry composed HERE rather than the process-wide
- * one, because a case that registered into the singleton would
- * be asserting over a board production also fills.
+ * Render the registered `session` screen over a registry whose reads follow a script, and
+ * refresh it `refreshes` times. The screen is resolved from a registry composed here so a
+ * case never registers into the process-wide one.
  */
 async function renderSessionScreen(input: {
   readonly reads: readonly (SessionSnapshot | { readonly rejectWith: unknown })[];
   readonly refreshes: number;
 }): Promise<void> {
-  // A manual clock, because the scheduler debounces every request against one: the
-  // reads have to have COMPLETED before the render, or every arm renders the interval
-  // before a decision exists and the negative controls pass on nothing.
+  // A manual clock, because the scheduler debounces every request against one: the reads
+  // must have completed before the render, or the negative controls pass on nothing.
   const clock = new ManualClock(0);
   let readIndex = 0;
   const sessionStoreRegistry = new SessionStoreRegistry({
@@ -95,11 +81,8 @@ async function renderSessionScreen(input: {
     await settleReactWork();
   }
 
-  // Under the provider, because this mounts the WHOLE session screen and the
-  // views composed into it read the bridge the way every view in the console does. The
-  // scenario is the quiet one: this suite's subject is the resume decision, which the
-  // registry above settles, so a scenario with a script would be beats nothing here
-  // reads.
+  // Mounted under the provider because the whole session screen renders and its views read the
+  // bridge. The quiet scenario is enough: the resume decision is settled by the registry above.
   render(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {descriptor.render({
@@ -137,10 +120,9 @@ describe("the session screen renders the refused resume position", () => {
   });
 
   it("reaches the screen even though the recovering read establishes nothing", async () => {
-    // The reason the decision carries its own notification. The recovery answers at
-    // the beginning of the window, which `admitsSnapshotAt` refuses for arriving
-    // behind the store's cursor — so no store transition happens and a screen
-    // subscribed to the projection's revision alone would render nothing at all.
+    // The recovery answers at the beginning of the window, which `admitsSnapshotAt` refuses
+    // for arriving behind the store's cursor, so no store transition happens and a screen
+    // subscribed to the projection's revision alone would render nothing.
     await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
@@ -150,8 +132,8 @@ describe("the session screen renders the refused resume position", () => {
   });
 
   it("negative control: an honored position renders no notice at all", async () => {
-    // Without this, a screen that rendered the sentence unconditionally would pass
-    // both cases above — and would tell every session its position was lost.
+    // Without this, a screen that rendered the sentence unconditionally would pass both cases
+    // above.
     await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), snapshotAt(9, "9_1723291500000000000")],
       refreshes: 2,
@@ -161,18 +143,15 @@ describe("the session screen renders the refused resume position", () => {
   });
 
   it("negative control: a first read that acknowledges nothing renders no notice", async () => {
-    // The arm the retired rule refused on: nothing acknowledged is the ordinary first
-    // read, not a failure, and it is what every scripted scenario answers with. A
-    // screen that treated it as a refusal put a band above every session screen.
+    // Nothing acknowledged is the ordinary first read, not a refusal, and it is what every
+    // scripted scenario answers with.
     await renderSessionScreen({ reads: [snapshotAt(0)], refreshes: 1 });
 
     expect(screen.queryByText(REFUSAL_CODE)).toBeNull();
   });
 
   it("negative control: the session screen body mounts on both arms", async () => {
-    // The notice renders ABOVE the room and never in place of it. Without this, a
-    // screen that replaced the session screen with the refusal would satisfy the first
-    // case while reporting an outage the daemon is not having.
+    // The notice renders above the room, never in place of it.
     await renderSessionScreen({
       reads: [snapshotAt(7, ACKNOWLEDGED), REFUSES_THE_POSITION, snapshotAt(0)],
       refreshes: 2,
@@ -182,8 +161,7 @@ describe("the session screen renders the refused resume position", () => {
   });
 
   it("clears once a later read settles a position of its own", async () => {
-    // Not a permanent band. The decision is the newest completed read's, so the next
-    // ordinary refresh replaces the refusal and this renders nothing.
+    // The decision is the newest completed read's, so the next ordinary refresh replaces it.
     await renderSessionScreen({
       reads: [
         snapshotAt(7, ACKNOWLEDGED),

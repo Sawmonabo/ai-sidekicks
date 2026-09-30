@@ -1,20 +1,7 @@
-// The run-group fold: which of a window's rows a run's disclosure lets through.
-//
-// A SECOND PASS OVER THE DERIVED WINDOW rather than a branch inside the derivation,
-// and its own module for the same reason it is its own pass: the two answer to
-// different clocks. The derivation changes when the log does; this changes when a
-// person clicks a disclosure, and folding inside would re-project ten thousand rows
-// on every toggle.
-//
-// THREE DECISIONS LIVE HERE AND NOWHERE ELSE, because each of them is a way the
-// fold could quietly lie about what is on screen:
-//
-//   • Which rows a run group contributes — its receipt while shut, the cap's own
-//     window while open.
-//   • Where a run group clips, which is `selectRunGroupRowIdsWithinCap` and is read by the
-//     fold AND by the narrowing that re-seals a run group's figures, so one rule
-//     decides both.
-//   • Which run groups a person has opened, which is this mount's and not the log's.
+// Which of a window's rows a run group's disclosure lets through. A second pass over the
+// derived window, not a branch inside the derivation: the derivation changes when the log
+// does, this changes when a person toggles a disclosure, and folding inside would
+// re-project every row on each toggle.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
@@ -40,39 +27,15 @@ export interface RunGroupDisclosure {
 }
 
 /**
- * Fold every terminal run group that is not open into a header and its receipt.
+ * Folds every terminal run group that is not open into a header and its receipt.
  *
- * A SECOND PASS over the derived window rather than a branch inside the derivation,
- * because the two answer to different clocks: the derivation changes when the log
- * does and this changes when a person clicks a disclosure. Folding inside would
- * re-project ten thousand rows on every toggle.
- *
- * WHAT A HEADER ROW IS. One viewport row keyed by the run id — which is exactly the
- * key `readRunGroupKey` already hands every one of that run group's rows as their
- * `parentKey`. So emitting it does two things in one act: it gives the run group
- * something to draw, and it makes the run group's rows CHILDREN of a row the window
- * holds, which is what the cap's top-level rule was written for: a run group counts once
- * against the cap, folded or open.
- *
- * A FOLDED RUN GROUP KEEPS ITS RECEIPT. "Header and receipt" is the whole of the
- * folded shape: the header says which run ended and how much it holds, and the
- * terminal row says how it ended, in the daemon's own words. The rest is omitted
- * from the viewport rows AND from the body lookup, so nothing can draw a row the
- * fold has hidden.
- *
- * AND AN OPENED RUN GROUP KEEPS ONLY WHAT THE RUN GROUP CAP ADMITS, so one very long run
- * cannot open into a virtual window the run group ceiling does not bound, and the
- * header's `clipped` figure names only rows that are not on screen. The permitted
- * subset is selected HERE, by `selectRunGroupRowIdsWithinCap`, so the rows
- * outside it never reach the viewport and the header's `clipped` count is exactly
- * what is not rendered. The receipt is admitted whatever the cap says: a run group
- * whose terminal fell outside the window would report how it ended in a header that
- * could no longer show it.
- *
- * AND THE FOLD REPORTS WHAT IT WITHHELD, on the narrowing stage's rule and for its
- * reason: every finished run folds by default, so this is the largest of the
- * find field's four counts on any session that has finished a run, and the pass below
- * is the one that already separates those rows.
+ * The header is one viewport row keyed by the run id, the `parentKey` every row of that run
+ * group already carries, so the group counts once against the window cap folded or open.
+ * The receipt (the terminal row) is always kept; other rows of a folded group leave both the
+ * viewport rows and the body lookup. An opened group keeps only what
+ * `selectRunGroupRowIdsWithinCap` admits, so the header's `clipped` figure names exactly the
+ * rows not on screen. The rows it withholds are returned as `removedRows` for the find
+ * field's counts.
  */
 export function foldRunGroupHeaders(
   model: TranscriptWindowModel,
@@ -82,20 +45,15 @@ export function foldRunGroupHeaders(
   if (model.runGroupByHeaderKey.size === 0) {
     return { window: model, removedRows: NO_ROWS_REMOVED };
   }
-  // ITS OWN table, never the projection's: this pass files a live run group's rows
-  // under no parent while the projection files them under their run, so one table
-  // shared between the two stages would answer each with the other's triple and
-  // thrash on every pass. The early return above leaves the table untouched, which is
-  // correct — a window with no run groups publishes the projection's own rows unchanged.
+  // Its own retention table, never the projection's: that stage files a live run group's rows
+  // under their run while this one files them under no parent, so a shared table would thrash.
   retention.beginPass();
   const viewportRows: ViewportRow[] = [];
   const rows: TimelineRow[] = [];
   const removedRows: TimelineRow[] = [];
   const rowsByKey = new Map<string, TimelineRow>();
   const headeredRunIds = new Set<string>();
-  // Computed once per opened run group rather than per row: the selection is a fact
-  // about the run group, and asking it inside the loop would re-slice a 4,000-row run
-  // four thousand times.
+  // Once per opened run group, not per row: re-slicing a long run per row is quadratic.
   const cappedRowIdsByRunId = new Map<string, ReadonlySet<string>>();
   for (const [runId, runGroup] of model.runGroupByHeaderKey) {
     if (openedTerminalRunIds.has(runId) && runGroup.clippedRowCount > 0) {
@@ -113,9 +71,7 @@ export function foldRunGroupHeaders(
     }
     if (!headeredRunIds.has(runId)) {
       headeredRunIds.add(runId);
-      // At the run group's FIRST row, so the header sits where the run group starts and
-      // the log's order is untouched. The header is its own cut unit: pruning it
-      // takes its subtree with it, which is the ancestor closure the cap performs.
+      // At the group's first row, so the header sits where the run starts and log order holds.
       viewportRows.push(retention.retainGroupHeaderIdentity(runId));
     }
     const cappedRowIds = cappedRowIdsByRunId.get(runId);
@@ -142,16 +98,10 @@ export function foldRunGroupHeaders(
 }
 
 /**
- * The run group rows the cap admits — the NEWEST `RUN_GROUP_VISIBLE_ROW_CAP` of them.
+ * The run group rows the cap admits: the newest `RUN_GROUP_VISIBLE_ROW_CAP` of them.
  *
- * Newest and not oldest because `run-groups.ts` says where the clip is drawn: the
- * body "clips behind a top-edge fade", so the rows the cap keeps are the ones at
- * the bottom of the run group and the remainder is the run's older head. Reading it
- * the other way round would fade the newest work of a long run out of view and
- * leave its opening on screen.
- *
- * The array is returned BY IDENTITY when the run group is under the cap, so a
- * run group nothing was taken from allocates nothing.
+ * The body clips its older head behind a top-edge fade, so the newest rows stay on screen.
+ * Returns the input array itself when it is under the cap.
  */
 export function selectRunGroupRowIdsWithinCap(rowIds: readonly string[]): readonly string[] {
   return rowIds.length <= RUN_GROUP_VISIBLE_ROW_CAP
@@ -162,17 +112,9 @@ export function selectRunGroupRowIdsWithinCap(rowIds: readonly string[]): readon
 /**
  * One run group as a narrowing leaves it, or `undefined` when it admits no row of it.
  *
- * WHAT THE NARROWING MAY CHANGE AND WHAT IT MAY NOT. Membership is a fact about the
- * narrowing, so `rowIds`, `rowCount` and the clipped figure are re-derived over the
- * admitted rows — a header reporting the whole run's count over a body holding four
- * of its rows would make its own figure a lie. Lifecycle, the terminal that ended
- * the run and the row it was read from are facts about the SESSION, so they are
- * carried through untouched: a filter that hid a run's `run.completed` row would
- * otherwise turn a finished run group live, and a live run group stays open, so it
- * would then stay open forever.
- *
- * The clipped figure is re-derived from the cap's own selector rather than from a
- * second subtraction, so there is one expression of where a run group clips.
+ * `rowIds`, `rowCount` and the clipped figure are re-derived over the admitted rows;
+ * lifecycle and the terminal row are session facts and pass through, so a filter that hides
+ * a run's `run.completed` row cannot turn a finished group live.
  */
 export function narrowRunGroupToAdmittedRows(
   runGroup: RunGroup,

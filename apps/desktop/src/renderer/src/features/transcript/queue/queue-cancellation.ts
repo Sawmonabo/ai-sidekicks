@@ -1,10 +1,5 @@
-// Cancel-before-admission: the queue's one removal path, and what a view reads while
-// it is in flight.
-//
-// A cancel is a MUTATION, not part of the fold over the daemon's rows. This module holds
-// no rows: the call answering confirms the REQUEST, and the row changes state when the
-// daemon says it did, on the snapshot or on the tail. What it does hold is which items
-// have a cancel in flight, so a control disables rather than re-fires.
+// Cancel before admission. A cancel is a request, not part of the row fold: a row changes when
+// the daemon reports it. This module only tracks which items have a cancel in flight.
 
 /**
  * Asks the daemon to cancel one queued item before it is admitted. Rejects where the
@@ -24,11 +19,9 @@ export interface QueueCancellationState {
 }
 
 /**
- * One reading's cancels: what is in flight, and how one is asked for.
- *
- * It publishes through a callback rather than holding listeners of its own. The
- * watchers belong to the reading this is part of: two publication paths for one
- * view would let a cancel's settlement render a frame the rows had not reached.
+ * One reading's cancels: what is in flight, and how one is asked for. It publishes through a
+ * callback because the watchers belong to the enclosing reading; a second publication path could
+ * render a cancel's settlement before the rows had caught up.
  */
 export class QueueCancellations {
   readonly #cancel: QueueCancelCall;
@@ -37,10 +30,8 @@ export class QueueCancellations {
 
   #cancelItem = async (queueItemId: string): Promise<void> => {
     if (this.#pendingCancelIds.has(queueItemId)) {
-      // Silent: the person pressed Cancel for the cancel already going, and a failure
-      // card would report a failure where they were only early. This is the chokepoint
-      // and not the button, because the set the button disables from is published one
-      // render behind, so two presses inside one frame both see a live control.
+      // Silent: a second press for a cancel already going is early, not a failure. Checked here
+      // and not in the button because the disabled set publishes one render behind.
       return;
     }
     this.#pendingCancelIds = withId(this.#pendingCancelIds, queueItemId);

@@ -1,6 +1,3 @@
-// A fence's info string resolves to a language the daemon colors, or to nothing, and
-// nothing is what keeps a block from asking.
-
 import { describe, expect, it } from "vitest";
 
 import { resolveHighlightableLanguage } from "./highlight-languages.js";
@@ -23,8 +20,6 @@ describe("resolving a fence's info string", () => {
   });
 
   it("negative control: an unknown language resolves to nothing", () => {
-    // Without this, a resolver that returned its input would pass every case above and
-    // send the daemon a language it refuses.
     expect(resolveHighlightableLanguage("brainfuck")).toBeUndefined();
     expect(resolveHighlightableLanguage("../../etc/passwd")).toBeUndefined();
     expect(resolveHighlightableLanguage("")).toBeUndefined();

@@ -10,9 +10,8 @@ import { type RowJumpOutcome } from "./row-jump.js";
 /**
  * The row the transcript's current question names, or `undefined` where it names none.
  *
- * One expression of it, read by the feed and by the deferred jump alike: the held
- * request is abandoned when this changes, so a second reading of "which row is
- * being asked about" would be a second answer to the question that cancels it.
+ * The one reading shared by the feed and the deferred jump, which abandons its request when
+ * this changes.
  */
 export function jumpOutcomeRowId(outcome: RowJumpOutcome | undefined): string | undefined {
   return outcome === undefined || outcome.status === "not-in-loaded-log"
@@ -23,11 +22,7 @@ export function jumpOutcomeRowId(outcome: RowJumpOutcome | undefined): string | 
 /**
  * Which run group of this window holds a row, if one does.
  *
- * Composes `readRunIdOfGroupedRow` rather than restating its narrowing: which rows carry
- * a run at all is the run groups module's rule, and what this adds is the membership
- * test against the window in hand. Two copies of the narrowing would drift silently —
- * the jump would go on landing correctly while the run groups it opened were decided by
- * a different reading of the same row.
+ * Composes `readRunIdOfGroupedRow` so which rows carry a run stays one rule.
  */
 export function findRunGroupRunIdInWindow(
   row: TimelineRow,

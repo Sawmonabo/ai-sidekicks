@@ -63,8 +63,8 @@ describe("the three availability arms", () => {
   });
 
   it("negative control: a redaction never renders as an absence of reasoning", () => {
-    // Without the arm split, `policy_redacted` and `unavailable` would render the
-    // same empty body and a reader could not tell withheld from never-captured.
+    // Without the arm split, `policy_redacted` and `unavailable` would render the same empty
+    // body and a reader could not tell withheld from never-captured.
     const redacted = renderThinkingRow({
       reading: {
         status: "read",
@@ -75,9 +75,8 @@ describe("the three availability arms", () => {
       reading: { status: "read", response: { availability: "unavailable" } },
     });
     expect(redacted.textContent).not.toBe(unavailable.textContent);
-    // The unavailable arm says the opposite in as many words — "Nothing is being
-    // withheld here" — so the check is on the redaction's own claim rather than on
-    // the word, which both arms are entitled to use.
+    // The unavailable arm says "Nothing is being withheld here", so the check is on the
+    // redaction's own claim rather than on the word both arms may use.
     expect(unavailable.textContent).not.toContain("withheld by policy");
     expect(unavailable.textContent).not.toContain("org-policy-7");
   });
@@ -148,9 +147,8 @@ describe("the expand control", () => {
   });
 
   it("survives a refusal and says which press it is", () => {
-    // THE FAILURE, EXERCISED. A control drawn on `not-asked` alone would leave a read
-    // refused by a transport that was down for a moment on screen with no way to ask
-    // again, and a refusal never hides the control that produced it.
+    // A control drawn on `not-asked` alone would leave a briefly down transport's refusal on
+    // screen with no way to ask again.
     const onExpand = vi.fn();
     const container = renderThinkingRow({
       onExpand,
@@ -168,8 +166,8 @@ describe("the expand control", () => {
   });
 
   it("negative control: the refusal is still drawn beside the control that survived it", () => {
-    // Without this, offering the retry by REPLACING the refusal would pass the case
-    // above while hiding why the first press failed.
+    // Without this, replacing the refusal with the retry would pass the case above while hiding
+    // why the first press failed.
     const container = renderThinkingRow({
       reading: {
         status: "refused",

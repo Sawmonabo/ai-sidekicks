@@ -1,7 +1,5 @@
-// What a truncated body says about the part that is not here.
-//
-// The disposition is a decision over two recorded lengths, so both arms run without
-// rendering; the notice cases then read what a person sees.
+// The disposition is a pure function of two recorded lengths, so both arms run without
+// rendering.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -38,9 +36,8 @@ describe("the truncation notice", () => {
       <TruncationNotice storedBody={STORED_PREFIX} preTruncationLength={4096} />,
     );
     expect(container.textContent).toContain("Truncated when recorded");
-    // `\s` rather than a literal space: `Intl` separates a quantity from its unit
-    // with a narrow no-break space, and asserting the typed one would pass only on
-    // the locale that happens to use it.
+    // `\s` rather than a space: `Intl` separates a quantity from its unit with a narrow
+    // no-break space.
     expect(container.textContent).toMatch(/61\sB of 4\.0\sKiB/u);
   });
 

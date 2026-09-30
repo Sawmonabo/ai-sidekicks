@@ -1,61 +1,19 @@
-// The markdown rules — the streaming-markdown and math-and-diagram constraints as
-// decisions rather than as prose, plus the two rules this console owns outright.
-//
-// The PIPELINE lives under `markdown/`: the segmenter, the parse, the mapper, the
-// footnote registry, the code block's color spans. This module is the policy that
-// pipeline obeys, and it is separate for one reason — every rule below is a claim about
-// what the console may and may not render, and a claim that lives inside the machinery
-// that implements it can only be checked by reading the machinery. Here it is a value a
-// test can assert against and a mapper can be handed.
-//
-// THE FIVE RULES, EACH WITH ITS OWN CONSEQUENCE.
-//
-//   1. **A committed-and-volatile split.** The committed prefix is memoized and
-//      stable; the volatile tail is the reveal engine's, and an incomplete construct
-//      never mounts. `MARKDOWN_SETTLE_LAG_BLOCKS` is the lag; `remend` closes the
-//      tail's unterminated constructs so a half-open `**` renders as bold-in-progress
-//      rather than italicizing the rest of the message.
-//   2. **Mermaid and math are deferred until the block settles.** Both are expensive
-//      and both are wrong when fed a prefix: half a formula is not a formula, and a
-//      diagram redrawn per token is a strobe. So a volatile math block renders as the
-//      source it currently is, in mono, and becomes a formula when it settles.
-//   3. **Model HTML is never rendered.** `mdast-util-gfm` delivers raw HTML as `html`
-//      nodes at block and inline level; the mapper renders their literal text. That is
-//      why NO SANITIZER IS ON THIS PATH — there is nothing to sanitize, because
-//      nothing is ever parsed as markup. A sanitizer here would be the console
-//      claiming it renders model HTML safely, which it does not do at all.
-//   4. **Path links come only from wire-validated path references.** Today there are
-//      none, and a console with no validated allowlist ships no path links — so a link
-//      renders as its own text and nothing is clickable.
-//   5. **Footnotes resolve through one registry keyed by source**, so a definition
-//      line never resolves as its own body.
+// The markdown policy as values a test can assert and the mapper can be handed. Model HTML is
+// never rendered (nothing is parsed as markup, so there is no sanitizer), and no link is
+// clickable because there are no wire-validated path references. Math and diagram fences wait
+// for their block to settle.
 
 /**
- * The URL `remend` writes into a link whose target has not finished arriving.
- *
- * A verbatim copy of the library's sentinel rather than a re-derivation, because the
- * two sides of one seam share a module and this is the console's side of `remend`'s.
- * A link carrying it is a link the stream has not finished, and the mapper renders its
- * text with no anchor — the same disposition the path-link rule gives every other link, reached
- * for a different reason.
+ * The URL `remend` writes into a link whose target has not finished arriving, copied verbatim
+ * from the library. The mapper renders such a link as its text with no anchor, like any other.
  */
 export const INCOMPLETE_LINK_SENTINEL = "streamdown:incomplete-link";
 
 /**
- * The mdast node types whose rendering waits for the block to settle.
- *
- * Math and diagrams, and nothing else. Both wait for their block to settle and both fail the
- * same way on a prefix. `mdast-util-gfm` emits neither as its own node type — math
- * arrives as `code` with a `math` language or as inline text, and mermaid as a `code`
- * node with the `mermaid` language — so the set is keyed by the fence's INFO STRING,
- * which is the only place either declares itself.
- *
- * Mermaid sits here permanently rather than until a renderer arrives. Diagrams are
- * opt-in, lazy, strict, and user-triggered, and opt-in plus user-triggered together mean
- * a diagram is never drawn because a
- * message contained one. This console ships no control that asks for one, so a mermaid
- * fence renders as its source — which is exactly what deferral already does for it,
- * and why no mermaid dependency is on this package.
+ * The fence info strings whose rendering waits for the block to settle: math and diagrams, both
+ * wrong when fed a prefix. `mdast-util-gfm` gives neither its own node type, so the set is keyed
+ * by the info string. A mermaid fence always renders as its source, since the console ships no
+ * control that asks for a diagram, so no mermaid dependency exists.
  */
 export const DEFERRED_FENCE_LANGUAGES = ["math", "latex", "tex", "mermaid"] as const;
 

@@ -1,5 +1,3 @@
-// ANSI as data — and the two decorations this console deliberately does not reproduce.
-
 import { describe, expect, it } from "vitest";
 
 import {
@@ -10,23 +8,10 @@ import {
   parseAnsiSpans,
 } from "./ansi-spans.js";
 
-/**
- * The control character every sequence below starts with.
- *
- * Built from its code point rather than typed as a literal: a raw escape in source is
- * invisible in a diff and in a review, and a test whose fixture cannot be read is a test
- * whose failure cannot be explained.
- */
+/** Built from its code point: a raw escape in source is invisible in a diff. */
 const ESCAPE = String.fromCodePoint(0x1b);
 
-/**
- * One styled run per repetition, so a fixture's run count is its repetition count.
- *
- * Every run carries content, which is what makes the elision figures below exact: anser
- * runs with `remove_empty`, so the entry list and the span list are the same population
- * and a count taken over either agrees — the parse counts over the SPANS' own walk so
- * that agreement is a property of this module rather than of an option set elsewhere.
- */
+/** One styled run per repetition, each with content, so a run count is a span count. */
 function styledRuns(runCount: number): string {
   return `${ESCAPE}[31ma${ESCAPE}[39m`.repeat(runCount);
 }
@@ -45,27 +30,20 @@ describe("parsing ANSI output", () => {
   });
 
   it("renders a color the console does not reproduce in the inherited foreground", () => {
-    // A 256-color or true-color run carries the tool's own palette, which has no
-    // honest mapping onto this console's. It reads as plain text rather than as a
-    // nearest-neighbor guess.
     const { spans } = parseAnsiSpans(`${ESCAPE}[38;5;208mamber-ish`);
     expect(spans[0]?.text).toBe("amber-ish");
     expect(spans[0]?.foreground).toBeUndefined();
   });
 
   it("reads reverse video from the flag anser actually publishes", () => {
-    // The library strips `reverse` from `decorations` and reports the state as
-    // `isInverted`, a member its shipped declaration omits. This pins both halves: a
-    // release that stopped setting the flag, or started leaving the decoration in place,
-    // fails here rather than silently rendering every reversed run unreversed.
+    // The library strips `reverse` from `decorations` and reports `isInverted`, which its
+    // declaration omits; this pins both halves.
     const { spans } = parseAnsiSpans(`${ESCAPE}[7mswapped`);
     expect(spans[0]?.reversed).toBe(true);
     expect(spans[0]?.decorations).toStrictEqual([]);
   });
 
   it("keeps the stream's own two colors under reverse video, unswapped", () => {
-    // The span reports what the STREAM said; the swap is a render-time relation between
-    // the two channels, and lives with the class names.
     const { spans } = parseAnsiSpans(`${ESCAPE}[31m${ESCAPE}[42m${ESCAPE}[7mswapped`);
     expect(spans[0]?.foreground).toBe("red");
     expect(spans[0]?.background).toBe("green");
@@ -73,8 +51,7 @@ describe("parsing ANSI output", () => {
   });
 
   it("undoes the library's own default substitution, leaving the unset channel unset", () => {
-    // Anser fills a missing channel with white/black before it swaps. Rendered, that pair
-    // is muted gray on faint gray in this console — a substitution that reverses nothing.
+    // Anser fills a missing channel with white/black before it swaps.
     const bare = parseAnsiSpans(`${ESCAPE}[7mbare`);
     expect(bare.spans[0]?.foreground).toBeUndefined();
     expect(bare.spans[0]?.background).toBeUndefined();
@@ -93,8 +70,6 @@ describe("parsing ANSI output", () => {
   });
 
   it("negative control: an unreversed run carries no reverse state", () => {
-    // Without this, a parser that reported every run reversed would pass every assertion
-    // above, and every plain line of build output would render inverted.
     const { spans } = parseAnsiSpans(`${ESCAPE}[31mfailed`);
     expect(spans[0]?.reversed).toBe(false);
   });
@@ -106,8 +81,6 @@ describe("parsing ANSI output", () => {
   });
 
   it("negative control: blink and conceal are NOT reproduced", () => {
-    // Both absences are decisions. Blink would hand a subprocess the transcript's motion
-    // budget; conceal would let a tool hide bytes it printed. The text survives both.
     const { spans } = parseAnsiSpans(`${ESCAPE}[5m${ESCAPE}[8msecret`);
     expect(spans.map((span) => span.text).join("")).toBe("secret");
     expect(spans[0]?.decorations).toStrictEqual([]);
@@ -119,16 +92,13 @@ describe("parsing ANSI output", () => {
   it("bounds what it renders and says how much it left out", () => {
     const { spans, elidedSpanCount } = parseAnsiSpans(styledRuns(ANSI_SPAN_RENDER_CAP + 40));
     expect(spans.length).toBe(ANSI_SPAN_RENDER_CAP);
-    // The exact figure, not merely a positive one: the count is what the card puts on
-    // screen, and a mapper that reported the entry total rather than the withheld runs
-    // would satisfy "greater than zero" while telling the reader the wrong number.
+    // The exact figure: the card prints it, and the entry total would also be positive.
     expect(elidedSpanCount).toBe(40);
   });
 
   it("takes the cap from its caller, so a fold can be lifted for one block", () => {
-    // `AnsiOutput` re-parses the same source under a wider cap when the reader asks for
-    // the rest. Without a cap parameter the tail of a color-heavy command is reachable
-    // by nothing, because reopening the card re-parses exactly the same capped sequence.
+    // `AnsiOutput` re-parses the same source under a wider cap when the reader asks for the
+    // rest.
     const source = styledRuns(10);
     const folded = parseAnsiSpans(source, 4);
     expect(folded.spans).toHaveLength(4);
@@ -140,15 +110,12 @@ describe("parsing ANSI output", () => {
   });
 
   it("negative control: a cap at the run count elides nothing at its own boundary", () => {
-    // Without this, an off-by-one that withheld the last admitted run would still report
-    // a plausible-looking figure in the two assertions above.
     const { spans, elidedSpanCount } = parseAnsiSpans(styledRuns(4), 4);
     expect(spans).toHaveLength(4);
     expect(elidedSpanCount).toBe(0);
   });
 
   it("negative control: output inside the bound elides nothing", () => {
-    // Without this, a mapper that always reported an elision would pass the case above.
     const { spans, elidedSpanCount } = parseAnsiSpans("plain output");
     expect(spans).toHaveLength(1);
     expect(elidedSpanCount).toBe(0);
@@ -184,8 +151,6 @@ describe("the class names one span carries", () => {
   });
 
   it("paints a bare reversed run in the console's own default pair, swapped", () => {
-    // `ESC[7m` on its own sets neither color, so both ends of the swap are the console's
-    // defaults: the body's background becomes the text color and its foreground the fill.
     expect(
       ansiSpanClassNames({
         text: "x",
@@ -234,8 +199,7 @@ describe("the class names one span carries", () => {
   });
 
   it("negative control: swapping two undefined channels would name nothing", () => {
-    // The defect this replaced: with both channels unset, a swap that carried the two
-    // `undefined`s across produced no classes at all and the run rendered unreversed.
+    // With both channels unset, a swap that carried the two `undefined`s named no classes.
     const bare = ansiSpanClassNames({
       text: "x",
       foreground: undefined,

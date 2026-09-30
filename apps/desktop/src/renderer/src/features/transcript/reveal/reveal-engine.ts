@@ -1,44 +1,7 @@
-// The reveal engine — N lanes streaming at once, none of them teleporting.
-//
-// Streaming paints through a bounded reveal budget so four concurrent lanes cost one
-// frame, and reveal monotonicity is checked in the browser test tier. THE SENTENCE THIS
-// MODULE ADDS: stream N agents at once so every lane moves
-// continuously and no lane teleports, with the visible text never regressing. Four
-// decisions carry it:
-//
-//   • **One ordered queue, two closed commit modes.** `direct` deltas are appends
-//     and are trusted; `authoritative` deltas carry the producer's whole view of
-//     the source and are CHECKED against what this lane holds. A producer whose
-//     source changed under us is a diagnostic, never a silent concatenation of two
-//     disagreeing histories.
-//   • **The budget is allocated across lanes every frame, never spent on one.**
-//     Each lane takes its fair share first; only the remainder is offered to lanes
-//     that are behind, and never more than `REVEAL_CATCH_UP_MULTIPLIER` shares.
-//     Catch-up raises a lane's rate and never jumps it, which is why
-//     four lanes all move rather than one finishing while three wait.
-//   • **The frame is the only scheduler, and it is not this engine's.** Work is
-//     submitted to `animation-frame-coordinator.ts`' phase two and re-submitted only
-//     while a lane has characters left, so a drain always lands AFTER the frame's
-//     scroll writes rather than whenever this engine happened to arm. A settled engine
-//     holds no submitted task at all, which is the idle-CPU budget's precondition and
-//     is asserted rather than claimed.
-//   • **Transition failures aggregate.** A lane whose advance throws is quarantined
-//     and counted; the other lanes finish their frame. Letting the first throw
-//     escape would make delivery depend on lane order, which is the failure mode
-//     `core/emitter.ts` reasons about for sinks and this one has for lanes. A
-//     quarantine also STOPS COSTING: the lane releases the text it will never
-//     reveal and refuses every speculative delta after it, so a producer that keeps
-//     streaming into a lane the engine has given up on grows nothing.
-//
-// WHAT THIS ENGINE IS NOT. It publishes TEXT and says how much of it is safe to
-// show. Turning that text into blocks — the incremental lex, the memoized block
-// parse, the settled-block subtree, the code blocks' span cache — is the card layer's, and
-// a parser here would be a second one.
-//
-// WHAT IT NO LONGER DECLARES. The two closed sets and the four published shapes —
-// the engine states, the diagnostic kinds, a delta, a lane state, a frame — live in
-// `reveal-vocabulary.ts`, which states why the cut is there. A consumer that only
-// speaks the language holds that module and never this one.
+// N reveal lanes streaming at once through a bounded per-frame character budget, so lanes move
+// continuously, none jumps, and visible text never regresses. It publishes text and how much
+// of it is safe to show; turning text into blocks belongs to the card layer. The engine's
+// published types live in `reveal-model.ts`.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import {
@@ -62,26 +25,31 @@ import type {
   RevealLaneState,
 } from "./reveal-model.js";
 
+/** Options for a `RevealEngine`. */
 export interface RevealEngineOptions {
   /**
-   * The frame this engine's drains are ordered inside.
-   *
-   * Required rather than optional, and the engine holds no clock of its own: an
-   * engine that could fall back to arming its own frame would be the unordered path
-   * `animation-frame-coordinator.ts` exists to close, silently available to
-   * whichever caller forgot to pass one.
+   * The frame this engine's drains run inside. Required, and the engine has no clock of its
+   * own: an optional coordinator would leave an unordered path open to any caller that forgot it.
    */
   readonly frameCoordinator: AnimationFrameCoordinator;
+  /** Characters revealed per frame across all lanes; defaults to the shared frame budget. */
   readonly frameCharacterBudget?: number;
 }
 
+/**
+ * N lanes streaming at once. Each frame every lane takes its fair share of the budget first;
+ * only the remainder goes to lanes that are behind, capped at `REVEAL_CATCH_UP_MULTIPLIER`
+ * shares, so every lane moves and none jumps. A `direct` delta is a trusted append; an
+ * `authoritative` one is checked against what the lane holds. A lane whose advance throws is
+ * quarantined and the others finish the frame.
+ */
 export class RevealEngine {
   readonly #frameCoordinator: AnimationFrameCoordinator;
   readonly #frameTaskKey: string;
   readonly #frameCharacterBudget: number;
   readonly #frameEmitter = new Emitter<RevealFrame>("reveal frame");
   readonly #diagnosticEmitter = new Emitter<RevealDiagnostic>("reveal diagnostic");
-  /** Insertion-ordered: the one ordered queue the header's first decision names. */
+  /** Insertion order is the queue order the catch-up remainder is offered in. */
   readonly #lanesById = new Map<string, RevealLane>();
 
   #frameSubmitted = false;
@@ -94,11 +62,7 @@ export class RevealEngine {
   }
 
   /**
-   * Take one delta.
-   *
-   * Arming happens here and nowhere else, and only when there is work: an engine
-   * handed an empty delta arms nothing, which is what keeps an idle console at zero
-   * timers.
+   * Take one delta. Arms a frame only when there is work, so an idle engine holds no timer.
    */
   public ingest(delta: RevealDelta): void {
     if (this.#disposed) {
@@ -140,17 +104,14 @@ export class RevealEngine {
     return working.some((lane) => lane.isCatchingUp) ? "catching-up" : "streaming";
   }
 
-  /** True while a drain is submitted. `TranscriptWindow` reads this to defer prune. */
+  /** True while a drain is submitted. The viewport defers pruning while this is true. */
   public get isDraining(): boolean {
     return this.#frameSubmitted;
   }
 
   /**
-   * Whether this engine has been torn down.
-   *
-   * Read by the React binding's re-mint arm: a remount of the same component instance
-   * has already run the cleanup, and a disposed engine silently ignores every delta,
-   * so the second mount has to be able to tell a live engine from a corpse.
+   * Whether this engine has been torn down. The React binding checks it to re-mint after a
+   * remount: a disposed engine ignores every delta.
    */
   public get isDisposed(): boolean {
     return this.#disposed;
@@ -211,10 +172,7 @@ export class RevealEngine {
     this.#frameSubmitted = false;
   }
 
-  /**
-   * One frame's work: allocate, advance, publish, and re-arm only if anything is
-   * still pending.
-   */
+  /** One frame's work: allocate, advance, publish, and re-arm only if anything is pending. */
   #drainFrame(): void {
     const workingLanes = [...this.#lanesById.values()].filter((lane) => lane.hasWork());
     if (workingLanes.length === 0) {
@@ -226,13 +184,12 @@ export class RevealEngine {
     let spent = 0;
 
     for (const lane of workingLanes) {
-      // Cleared before the pass, so "catching up" describes THIS frame's
-      // allocation rather than a flag a lane keeps once it has caught up.
+      // Cleared before the pass so "catching up" describes this frame's allocation.
       lane.isCatchingUp = false;
       spent += this.#advanceLane(lane, fairShare, failures);
     }
-    // The remainder, offered in queue order to the lanes that are behind. Bounded
-    // by the catch-up ceiling so a lane's RATE rises and its position never jumps.
+    // The remainder, offered in queue order to lanes that are behind, bounded by the catch-up
+    // ceiling so a lane's rate rises and its position never jumps.
     for (const lane of workingLanes) {
       const remaining = this.#frameCharacterBudget - spent;
       if (remaining <= 0) {
@@ -258,20 +215,13 @@ export class RevealEngine {
       });
     }
     this.#frameEmitter.emit({ state: this.state, lanes: this.lanes(), charactersRevealed: spent });
-    // Keyed by the coordinator's identity AND this engine's own frame-task key. The
-    // task key alone separates two engines on one coordinator and nothing else: the
-    // ordinal restarts at 1 in every coordinator, and there is one coordinator per
-    // FEED, so every feed's first engine claimed the same key and two feeds' drains
-    // folded into one series. The composed key is one series per engine per feed.
-    //
-    // Composed by the COORDINATOR rather than here, because the same string is what
-    // its `dispose` retires this series under, and two spellings of one key retire
-    // nothing while looking correct at both ends.
+    // The series key comes from the coordinator, which also retires it on dispose: the task key
+    // alone repeats across coordinators (one per feed), and two spellings of one key retire
+    // nothing.
     recordRevealDrain(this.#frameCoordinator.meterSeriesKeyFor(this.#frameTaskKey), spent);
     this.#armFrame();
   }
 
-  /** Advance one lane through the gate. Returns the characters actually revealed. */
   #advanceLane(lane: RevealLane, share: number, failures: string[]): number {
     try {
       return lane.advance(
@@ -281,16 +231,11 @@ export class RevealEngine {
         REVEAL_LITERAL_BACKTRACK_CAP,
       );
     } catch (transitionFailure: unknown) {
-      // The lane RELEASES what it will not reveal rather than only being flagged —
-      // see `RevealLane.quarantine`. Flagged alone, it stayed in the map with a rope
-      // the producer went on growing and no frame would ever walk.
+      // The lane releases what it will not reveal instead of only being flagged: flagged alone,
+      // it stayed in the map with a rope the producer kept growing and no frame would walk.
       lane.quarantine();
-      // The TOTAL stringifier, because this expression runs after the `catch` has
-      // been entered and a `String(...)` that threw here would leave the handler by
-      // exception: the throw escapes the frame loop past `#armFrame()`, so one
-      // lane's null-prototype failure value stops every lane permanently, with no
-      // diagnostic and no terminal. A quarantine that takes the engine with it is
-      // not a quarantine.
+      // The total stringifier: a `String(...)` that threw inside this handler would escape the
+      // frame loop past `#armFrame()` and stop every lane for good, with no diagnostic.
       failures.push(`${lane.laneId}: ${lossyStringify(transitionFailure)}`);
       return 0;
     }

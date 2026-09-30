@@ -15,9 +15,8 @@ export interface TranscriptJumpReach {
 }
 
 /**
- * What one absence has to be told before it can decide on an act: the acts and the two
- * readings the folded arm consults, in one value, because the table below is keyed by
- * absence and cannot take an argument list per arm.
+ * What one absence needs to decide on an act: the acts and the two readings the folded arm
+ * consults, in one value, because the table below is keyed by absence.
  */
 interface TranscriptJumpActContext {
   readonly foldedWindow: TranscriptWindowModel;
@@ -34,22 +33,11 @@ type TranscriptJumpAct = (
 ) => TranscriptJumpReach | undefined;
 
 /**
- * The act each absence deserves over THIS transcript, or `undefined` where none exists.
+ * The act each absence deserves over this transcript, or `undefined` where none exists.
  *
- * A TABLE KEYED BY ABSENCE, total over `ROW_JUMP_ABSENCES` by `satisfies`, so a
- * narrowing added to the pipeline cannot compile and fall through to "Open that
- * run group and go to it", offering an act that could not reach the row.
- *
- * An act is resolved per outcome rather than per absence because both arms are only
- * conditionally reachable:
- *
- *   • A row a fold dropped is reachable by opening the run group that is holding it. That
- *     act does not reach a row whose run group is already OPEN and which sits past the
- *     run group's own row cap — toggling there would close the run group and take the rest
- *     of the run off screen too — so that case, and only that case, offers nothing.
- *   • A row the cap took is reachable by nothing. This console subscribes to the
- *     log and holds no read that fetches a range of it, so the honest answer is
- *     the sentence alone.
+ * Total over `ROW_JUMP_ABSENCES` by `satisfies`, so a new narrowing cannot fall through to an
+ * act that cannot reach the row. The folded arm offers nothing when its group is already open
+ * (toggling would close it and drop the rest of the run); a row the cap took has no act.
  */
 const JUMP_ACTS = {
   "folded-into-run-group": (row, context) => {
@@ -71,9 +59,8 @@ const JUMP_ACTS = {
 /**
  * The act this transcript offers for one outcome, or `undefined` where it offers none.
  *
- * The two non-absence arms answer before the table is consulted, and each for its
- * own reason rather than for one shared one: a row the viewport is showing needs no
- * act to reach it, and a row this window never held has none to offer.
+ * The two non-absence arms answer before the table: a row on screen needs no act, and a row
+ * this window never held has none to offer.
  */
 export function useTranscriptJumpReach(inputs: {
   readonly outcome: RowJumpOutcome | undefined;

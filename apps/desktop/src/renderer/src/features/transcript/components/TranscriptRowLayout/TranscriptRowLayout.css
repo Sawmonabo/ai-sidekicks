@@ -1,19 +1,8 @@
 /*
- * A transcript row is a flush-left line, drawn as a three-column grid: the 2 px
- * edge, a fixed gutter, one measure.
- *
- * Imported by `TranscriptRowLayout.tsx` alone, so the component cannot render without
- * its CSS.
- *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
- *
- * What governs this sheet: the row's anatomy (edge, gutter, one measure), actor hues on
- * the edge and never behind text, and secondary controls that wait in a hover footer.
- *
- * The edge spans both rows of the grid so a revealed footer does not leave a gap in
- * the attribution — a transcript line is one line, footer or no footer.
+ * A transcript row is a flush-left line drawn as a three-column grid: the 2 px edge, a fixed
+ * gutter, one measure. The edge spans both grid rows so a revealed footer leaves no gap in the
+ * attribution. Hand-authored composition; every value comes from the generated `meridian.css`
+ * as a custom property.
  */
 .meridian-transcript-row-layout {
   display: grid;
@@ -37,8 +26,7 @@
   background: var(--meridian-row-hue);
 }
 
-/* No user owns this row, so the edge reads as a boundary rather than an
-   identity. Dimmed, never colored — a guess would be worse than an absence. */
+/* No user owns this row, so the edge reads as a boundary: dimmed, never colored. */
 .meridian-transcript-row-layout--unattributed .meridian-transcript-row-layout__edge {
   opacity: 0.6;
 }
@@ -60,9 +48,8 @@
   white-space: nowrap;
 }
 
-/* The gutter's figures are the row's quietest reading, so it asks the figure for its
-   faint face through the figure's own custom properties rather than declaring the
-   figure here. */
+/* The gutter's figures are the quietest reading; ask the figure for its faint face through
+   its own custom properties. */
 .meridian-transcript-row-layout__gutter {
   --meridian-figure-wire-color: var(--meridian-text-faint);
   --meridian-figure-wire-size: var(--meridian-text-xs);
@@ -70,7 +57,6 @@
 
 .meridian-transcript-row-layout__body {
   grid-area: body;
-  /* Content in a single measure. */
   max-inline-size: 78ch;
   min-inline-size: 0;
   color: var(--meridian-text);
@@ -95,10 +81,8 @@
   font-size: var(--meridian-text-xs);
 }
 
-/*
- * A superseded turn is still part of the log — it is dimmed, never removed and never
- * struck through, because the row still says what happened at the time it happened.
- */
+/* A superseded turn is dimmed, never removed or struck through: the row still says what
+   happened. */
 .meridian-transcript-row-layout--superseded .meridian-transcript-row-layout__body {
   opacity: 0.62;
 }
@@ -108,11 +92,9 @@
 }
 
 /*
- * A row's secondary controls live in its hover footer, never as a second
- * visible button. `:focus-within` is not an afterthought — without it the footer is
- * unreachable by keyboard, and `pointer-events` is what stops an invisible control
- * from swallowing a click. Tab reaches a `pointer-events: none` element perfectly
- * well, so the keyboard path is unaffected by the pointer guard.
+ * A row's secondary controls live in its hover footer. `:focus-within` keeps the footer
+ * reachable by keyboard; `pointer-events` stops an invisible control from swallowing a click
+ * while Tab still reaches it.
  */
 .meridian-transcript-row-layout__footer {
   display: flex;
@@ -132,19 +114,10 @@
 }
 
 /*
- * The same reveal, as a class a row can put its own control in.
- *
- * The footer above is a fixed grid area; a row that wants one control to appear on
- * its hover — a card's disclosure, say — has nowhere to put it and would have to
- * write `.meridian-transcript-row-layout:hover .its-own-class` in its own sheet. That is a
- * second sheet declaring this component's class, which makes the reveal a question the
- * cascade answers rather than a rule either sheet states. So the contract is a CLASS:
- * this layout owns when a thing is revealed, and the row owns what the thing is.
- *
- * `pointer-events` is deliberately absent, unlike the footer's. The footer is a strip
- * that spans the row and would swallow clicks meant for the body; a control placed
- * inline is over nothing, and a guard here would break a click on a disclosure that a
- * row had left permanently visible under its own rule.
+ * The same reveal as a class a row can put its own control in (a card's disclosure, say), so
+ * this layout owns when a thing is revealed and the row owns what it is. `pointer-events` is
+ * absent, unlike the footer: an inline control is over nothing, and a guard would break a click
+ * on a disclosure a row keeps permanently visible.
  */
 .meridian-transcript-row-layout__revealed {
   opacity: 0;

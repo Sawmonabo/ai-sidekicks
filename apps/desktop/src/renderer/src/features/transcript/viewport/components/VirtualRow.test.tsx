@@ -1,11 +1,6 @@
-// A transcript row says where it sits in the whole log, or says nothing at all.
-//
-// The subject is the position pair and the index attribute, which this module
-// delegates to `primitives/WindowedListRow` rather than writing. What that buys is
-// the fail-closed arm: the window cap prunes, so a row already painted at an index
-// the recomputed count no longer holds survives one paint, and an unconditional pair
-// announces a position outside the list. These cases drive the mount itself, so the
-// delegation is asserted through the rendered markup rather than by reading imports.
+// A transcript row says where it sits in the whole log, or says nothing. The position pair and
+// index attribute are delegated to `WindowedListRow`; these cases assert the rendered markup, so
+// its fail-closed arm is what is driven.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -47,14 +42,12 @@ describe("TranscriptRowMount — where the row sits in the whole log", () => {
   });
 
   it("fails closed on an index the pruned count no longer holds", () => {
-    // The prune sequence: the cap evicted rows, so the count is recomputed to 3 950
-    // while a row painted at 4 000 outlives one frame. "Entry 4 001 of 3 950" is not
-    // a smaller reading of the truth, so the row claims no position at all.
+    // The cap evicted rows, so the count is recomputed to 3 950 while a row painted at 4 000
+    // outlives one frame; "entry 4 001 of 3 950" would be false, so the row claims no position.
     const row = renderMount(4000, 3950);
     expect(row.getAttribute("aria-setsize")).toBe("-1");
     expect(row.getAttribute("aria-posinset")).toBeNull();
-    // And the keyboard cannot land on a row that withheld its position, so the index
-    // the virtualizer resolves an element through is withheld on the same predicate.
+    // The virtualizer's index is withheld on the same predicate, so the keyboard cannot land here.
     expect(row.getAttribute(WINDOWED_ROW_INDEX_ATTRIBUTE)).toBeNull();
   });
 

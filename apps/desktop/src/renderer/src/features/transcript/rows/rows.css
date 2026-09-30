@@ -46,11 +46,7 @@
 
 /* --- The tool row --------------------------------------------------------- */
 
-/*
- * One line, and it stays one line. `min-width: 0` on the summary is what lets it be the
- * part that gives: a header that wrapped would defeat the density budget the collapsed
- * row exists to hold.
- */
+/* One line: `min-width: 0` on the summary lets it be the part that gives, not the header wrap. */
 .meridian-tool-card__header {
   display: flex;
   align-items: center;
@@ -86,10 +82,8 @@
   font-size: var(--meridian-text-xs);
 }
 
-/*
- * Hover-revealed, and revealed by focus too — a control that appears only under a
- * pointer is a control a keyboard cannot reach.
- */
+/* Revealed by focus as well as hover: a control that appears only under a pointer is
+   unreachable by keyboard. */
 .meridian-tool-card__disclosure {
   display: inline-flex;
   align-items: center;
@@ -105,10 +99,8 @@
   cursor: pointer;
 }
 
-/* The row-hover arm is the row layout's, reached by the class the disclosure carries:
-   `meridian-transcript-row-layout` belongs to `TranscriptRowLayout.css`, and a rule here
-   naming it would make the reveal depend on which of the two sheets the bundler emits
-   last. These two arms name only the tool card's own class, so they stay. */
+/* The row-hover arm belongs to the row layout's sheet, reached through the class the
+   disclosure carries; naming that class here would make the reveal depend on stylesheet order. */
 .meridian-tool-card__disclosure:focus-visible,
 .meridian-tool-card__disclosure[aria-expanded="true"] {
   opacity: 1;

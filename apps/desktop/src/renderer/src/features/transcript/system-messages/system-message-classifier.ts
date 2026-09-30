@@ -1,15 +1,6 @@
-// The epoch rule — which rows are seams, and what one row's seam says.
-//
-// A seam is one line marking a change in the run's condition, and this module decides
-// which rows earn one. The closed vocabulary it classifies into is
-// `system-message-kinds.ts`': the kinds, the wire types each reads, the label, the glyph
-// and the one caution. Splitting the two is what keeps a reader of the table away from
-// the payload reads, and a reader of the payload reads away from the table.
-//
-// THE OTHER HALF OF THE DESIGN'S RULE — superseded turns stay present but visibly past
-// — is `superseded-bands.ts`. It asks a different question of a different subject
-// (a whole window, ranked against the rollback cutoffs inside it) and shares no
-// table with the classifier below, so the two grow apart without colliding.
+// The epoch rule: which rows are seams, and what one row's seam says. The closed vocabulary
+// it classifies into (kinds, wire types, labels, glyphs, the one caution) is in
+// `system-message-kinds.ts`. Superseded turns are ranked separately in `superseded-bands.ts`.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -21,13 +12,8 @@ import {
 
 /**
  * One seam, decomposed into the parts the frame lays on a line.
- *
- * Every wire-sourced member is carried VERBATIM and typed `string`, which is the
- * fail-closed projection rule — an unknown enum member renders as the explicit
- * unrecognized row or badge, never as a guess — expressed in the type: a closed union
- * here would have to decide what
- * to do with a value it did not know, and the only fail-closed answers are to drop
- * it or to guess.
+ * Wire-sourced members are carried verbatim as `string` so an unknown enum member is shown
+ * as it arrived, never dropped or guessed.
  */
 export interface SystemMessageReading {
   readonly kind: SystemMessageKind;
@@ -40,10 +26,8 @@ export interface SystemMessageReading {
   /** The event type this seam was read from, verbatim. */
   readonly wireType: string;
   /**
-   * The boundary position, for the two seams that carry one: the rollback's
-   * confirmed rewind floor, read through the boundary arm's typed payload, and the
-   * compaction's own run-scoped position. `undefined` where the row carried none —
-   * rendered as an absence, never as zero.
+   * The rollback's confirmed rewind floor, or the compaction's run-scoped position;
+   * `undefined` where the row carried none, rendered as an absence, never as zero.
    */
   readonly boundaryPosition: number | undefined;
   /** The epoch the seam belongs to, where the arm carries one. */
@@ -57,12 +41,8 @@ export interface SystemMessageReading {
 }
 
 /**
- * The seam classifier.
- *
- * A class because it holds a derived table — wire type to seam kind — that is
- * wasteful to rebuild per row. A module-level table would be module-level mutable
- * state, which this tree does not keep; an instance built once per transcript is the
- * same table with an owner.
+ * The seam classifier. A class so the wire-type-to-kind table is built once per transcript
+ * instead of per row, without module-level mutable state.
  */
 export class SystemMessageClassifier {
   readonly #kindByWireType: ReadonlyMap<string, SystemMessageKind>;
@@ -96,14 +76,9 @@ export class SystemMessageClassifier {
       runId,
       actorId: row.actor,
       wireType: row.type,
-      // THE COMPACTION BOUNDARY IS THE ROW'S OWN POSITION, not a payload member.
-      // `usage.context_compacted` registers no payload variant in
-      // `@ai-sidekicks/contracts` and names no boundary member anywhere in it, so a
-      // payload read here was permanently absent. What the wire DOES carry is the
-      // run-scoped `position` the `run` arm requires — the projection-resolved
-      // originating run position, and the comparand a rollback's cutoff is ranked
-      // against. A compaction row on any other arm carries no position at all, and
-      // that absence is rendered as one.
+      // `usage.context_compacted` has no payload variant or boundary member; the wire does
+      // carry the `run` arm's run-scoped `position`, the comparand a rollback cutoff ranks
+      // against. A compaction on any other arm has no position.
       boundaryPosition: kind === "compaction" && row.kind === "run" ? row.position : undefined,
       epoch,
       continuity: readString(row.payload, "continuity"),
@@ -131,11 +106,8 @@ function readString(payload: Readonly<Record<string, unknown>>, key: string): st
 }
 
 /**
- * The losses a switch declares, verbatim.
- *
- * Every entry is kept as the string the wire sent — the vocabulary is closed on
- * the wire and widened by amendment, so a renderer that mapped unknown members
- * onto a fallback phrase would silently stop reporting the newest kind of loss.
+ * The losses a switch declares, each kept as the string the wire sent, so a newly added
+ * kind of loss is still reported.
  */
 function readDeclaredLosses(payload: Readonly<Record<string, unknown>>): readonly string[] {
   const value = payload["declaredLosses"];
@@ -146,11 +118,8 @@ function readDeclaredLosses(payload: Readonly<Record<string, unknown>>): readonl
 }
 
 /**
- * The rollback boundary's payload, which the contract types rather than leaves
- * open.
- *
- * Read through the arm's own narrowing so the rewind cutoff never reaches a
- * consumer through a cast — the property this narrowing exists to guarantee.
+ * The rollback boundary's typed payload, read through the arm's narrowing so the rewind
+ * cutoff never reaches a consumer through a cast.
  */
 function rollbackSeamOf(
   row: Extract<TimelineRow, { kind: "rollback_boundary" }>,

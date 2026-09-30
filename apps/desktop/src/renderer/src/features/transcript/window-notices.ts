@@ -1,24 +1,16 @@
-// The way the transcript's window is not the whole session, said as a notice.
-//
-// One kind today: rows the window's cap let go as the session grew, counted. The notice
-// sits at the top of the history that is loaded, where the control that loads earlier
-// history will stand. What a window never received is said once, under the session
-// header, and a row that shares an identifier is the producer's fault and goes to the
-// diagnostic capture; neither is a notice here.
-//
-// None of these is a read in flight, so none takes `not-loaded`, the skeleton that
-// drops its second line. This module chooses the kind and writes the words; `Nothing`
-// owns how a notice looks.
+// Notice text for the ways the transcript window is less than the session. One kind today: rows
+// the window cap dropped as the session grew. A repeated row id goes to the diagnostic capture
+// (`useDuplicateRowKeyCapture`), not to a notice.
 
 import { formatCount } from "@renderer/lib/wire-figures.js";
 import { type NothingKind } from "@renderer/components/Nothing/Nothing.js";
 
-/** One way this window is less than the session it is a window onto. */
+/** One way the window holds less than the session. */
 export type WindowAbsence =
-  /** Rows the window's cap pushed out as the session grew. */
+  /** Rows the window cap dropped as the session grew. */
   { readonly kind: "dropped"; readonly count: number };
 
-/** What a notice renders as. */
+/** The kind and words of one notice. */
 export interface WindowNoticeText {
   readonly kind: NothingKind;
   readonly title: string;
@@ -26,8 +18,8 @@ export interface WindowNoticeText {
 }
 
 /**
- * What a notice says, about `subject`: a lowercase plural noun phrase naming what the
- * window holds ("entries").
+ * The notice for one absence. `subject` is a lowercase plural noun phrase naming what the window
+ * holds ("entries").
  */
 export function buildWindowNoticeText(absence: WindowAbsence, subject: string): WindowNoticeText {
   return {
@@ -37,10 +29,7 @@ export function buildWindowNoticeText(absence: WindowAbsence, subject: string): 
   };
 }
 
-/**
- * Every notice worth showing, in the caller's order. A counted absence at zero says
- * nothing and is dropped here, so a caller hands over what it derived.
- */
+/** The notices worth showing, in the caller's order; an absence counted at zero yields none. */
 export function buildWindowNoticeTexts(
   absences: readonly WindowAbsence[],
   subject: string,

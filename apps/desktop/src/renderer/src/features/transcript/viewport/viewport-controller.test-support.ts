@@ -1,11 +1,5 @@
-// The rows, the calm reconcile conditions, and the attached controller both
-// viewport-controller suites drive.
-//
-// Two files reconcile the same controller — one about where a reader is held, one
-// about what the window cap prunes — and both need a row list of a given length and
-// the condition record that says "nothing is streaming". Written twice they would
-// drift, and the second suite's claims would quietly stop being about the same
-// reconcile as the first's.
+// Rows, calm reconcile conditions and an attached controller shared by both viewport-controller
+// suites, so their claims stay about the same reconcile.
 
 import { ManualClock } from "@renderer/lib/clock.js";
 import type { ViewportRow } from "./viewport-snapshot.js";

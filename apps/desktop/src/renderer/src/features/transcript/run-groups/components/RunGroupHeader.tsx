@@ -1,34 +1,7 @@
-// The run group header — one finished run, folded to a line somebody can open.
-//
-// WHAT WAS MISSING. `run-groups.ts` was written to be drawn: it carries the actor, the
-// lifecycle, which terminal ended the run, the row count, the clipped count and the
-// incomplete-child marker, and `RunGroupFoldState` carries whether a person has
-// opened one. None of it reached a component. What reached the rows instead was a
-// flat `collapsedRowIds` set handed down as a per-row density — which exactly one
-// card reads. So a completed or failed run stayed fully expanded, and the palette's
-// collapse row refused on the reasoning that everything was already folded.
-//
-// THE HEADER IS THE RUN GROUP'S ONLY CONTROL. It is a disclosure and nothing else: it
-// opens the fold and folds it back, and every other decision about the run group —
-// which rows are in it, whether it has ended, what ended it — is the model's. That
-// is why nothing here re-derives a lifecycle or a count; a header that recomputed
-// either would be a second answer to a question the fold already settled.
-//
-// WHAT IT SAYS, and every one of them is a value rather than a phrase: the actor
-// verbatim in their own hue, the run's newest state verbatim in mono, the account the
-// run is billed to, how many rows the run group holds, how many of them the body clips,
-// and whether a child run this run group summarizes expanded incompletely.
-//
-// THE STATE REPLACED THE TERMINAL RATHER THAN JOINING IT. The header used to draw
-// `terminalEventType`, which is empty for every run that has not ended — so a live
-// run group said who and how many and nothing at all about what the run was doing. The
-// state is the wider fact and a terminal is one of its values, so drawing both would
-// put the same word on the line twice on every finished run.
-//
-// AND THE CLIPPED ROWS BECAME REACHABLE. The clipped figure named rows that were
-// dropped out of the feed, which made it a count of something a person could not get
-// to. `RunGroupBody` is where they live now, mounted under this line while the
-// run group is open.
+// The run group header: one finished run folded to a line that opens. Its only control is the
+// disclosure; the lifecycle, counts and row membership are the model's, never recomputed here.
+// It shows the run's newest state (a terminal is one of its values) and mounts `RunGroupBody`
+// underneath while open, so the clipped rows are reachable.
 
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
@@ -38,6 +11,7 @@ import { formatHueWheelTokenName, tokenReference } from "@renderer/styles/tokens
 import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { type RunGroup } from "../run-groups.js";
 
+/** The props of a run group header. */
 export interface RunGroupHeaderProps {
   readonly runGroup: RunGroup;
   /** Whether the run group's rows are on screen beneath this header. */
@@ -58,9 +32,9 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
         hueStep < 0 || hueStep >= HUE_WHEEL_STEPS
           ? undefined
           : {
-              // The same 2 px attribution edge every transcript row wears, so a run group
-              // and the rows inside it are attributed the same way and by the same
-              // wheel. An actor hue never sits behind text, so it is an edge and not a tint.
+              // The same 2 px attribution edge every transcript row wears, so a run group and
+              // its rows are attributed by the same wheel. An edge, not a tint: a hue never
+              // sits behind text.
               borderInlineStartColor: tokenReference(formatHueWheelTokenName(hueStep)),
             }
       }
@@ -81,15 +55,12 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
       ) : (
         <span className="meridian-run-group-header__actor">{runGroup.actorId}</span>
       )}
-      {/* The daemon's own word for what the run is doing, in mono and verbatim. The
-          console never paraphrases it into a tense of its own, and says nothing at all
-          where the log has reported no state since the last rewind. */}
+      {/* The daemon's own word for what the run is doing, verbatim; nothing where the log has
+          reported no state since the last rewind. */}
       {runGroup.runStateEventType === undefined ? null : (
         <span className="meridian-run-group-header__state">{runGroup.runStateEventType}</span>
       )}
-      {/* The account the run was admitted under, where the log named one. No label at
-          all otherwise: an absent account is a receipt that named none, not a figure
-          this console is missing. */}
+      {/* The account the run was admitted under, where the log named one. */}
       {runGroup.payingAccountId === undefined ? null : (
         <span className="meridian-run-group-header__account">
           {"billed to "}
@@ -116,9 +87,7 @@ export function RunGroupHeader(props: RunGroupHeaderProps): React.JSX.Element {
           title="A child run in this run group is not fully expanded."
         />
       ) : null}
-      {/* Only while the run group is open, because a folded run group draws its header and
-          its receipt and nothing else — mounting a scroller inside a fold would be the
-          fold showing rows it exists to put away. */}
+      {/* Only while open: a folded run group draws its header and receipt and nothing else. */}
       {props.isOpen ? <RunGroupBody runGroup={runGroup} /> : null}
     </div>
   );

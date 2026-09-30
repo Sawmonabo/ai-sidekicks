@@ -1,26 +1,15 @@
-// Does this display quantize a programmatic scroll offset to whole pixels?
-//
-// A question about the DISPLAY, not about the transcript — which is why it is its own
-// object. A fractional-device-pixel-ratio monitor rounds a written `scrollTop` and
-// an integral one keeps it, and nothing in the platform reports which. The only way
-// to find out is to write and read back.
-//
-// WHY IT MATTERS. `scroll-chokepoint.ts` lets the scroll
-// controller skip a write that would change nothing — an entirely ordinary
-// optimization on a display that rounds, and a BUG on one that does not, because
-// there the two offsets differ by a fraction of a pixel that the reader can see
-// accumulate. So skipping is gated on a confirmed answer, never on a guess.
-//
-// TWO WITNESSES, NOT ONE. A single readback can be explained by a user scroll
-// landing between the write and the read, and the only cost of waiting for a second
-// is one unskipped no-op write. Two readings that disagree discard both rather than
-// averaging two contradictions.
+// Does this display quantize a programmatic scroll offset to whole pixels? Nothing in the
+// platform reports it, so the learner writes a fractional offset and reads back.
+// Skipping a no-op write is an optimization on a display that rounds and a visible bug on one
+// that does not, so skipping waits for a confirmed answer.
+// Two agreeing readbacks are required: one can be a user scroll landing between write and read.
 
 import { SCROLL_QUANTIZATION_SAMPLE_COUNT } from "../viewport/viewport-constants.js";
 
+/** Learns from write/readback pairs whether the display rounds programmatic scroll offsets. */
 export class WholePixelQuantizationLearner {
   readonly #witnessCount: number;
-  /** Agreeing readbacks so far, bounded by the count that settles the question. */
+  /** Readbacks since the last disagreement, bounded by the count that settles the question. */
   readonly #witnesses: boolean[] = [];
 
   #verdict: boolean | undefined;
@@ -30,16 +19,9 @@ export class WholePixelQuantizationLearner {
   }
 
   /**
-   * Fold one write and its readback in.
-   *
-   * Only a FRACTIONAL request is evidence: an integral request lands on an integer
-   * on every display, so counting it would confirm quantization everywhere.
-   *
-   * The reading is INTEGRALITY, not an epsilon compare against the rounded value —
-   * that comparison is vacuously true, because rounding never moves a number by as
-   * much as an epsilon worth having. A fractional request that reads back integral
-   * quantized; one that reads back fractional did not, which is also the honest
-   * answer for a display that quantizes to half a device pixel rather than to one.
+   * Fold one write and its readback in. Only a fractional request is evidence, since an
+   * integral one lands on an integer on every display. The reading is integrality, not an
+   * epsilon compare, which rounding never trips.
    */
   public observe(requestedScrollTop: number, appliedScrollTop: number): void {
     if (this.#verdict !== undefined || Number.isInteger(requestedScrollTop)) {
@@ -48,8 +30,7 @@ export class WholePixelQuantizationLearner {
     const witness = Number.isInteger(appliedScrollTop);
     const previous = this.#witnesses[0];
     if (previous !== undefined && previous !== witness) {
-      // Disagreement, so the earlier reading was a concurrent user scroll rather
-      // than the display's rule. Start over rather than average two contradictions.
+      // Disagreement means the earlier reading was a concurrent user scroll; start over.
       this.#witnesses.length = 0;
     }
     this.#witnesses.push(witness);
@@ -60,11 +41,8 @@ export class WholePixelQuantizationLearner {
   }
 
   /**
-   * Whether writing `requestedScrollTop` over `currentScrollTop` would change
-   * nothing a reader could see.
-   *
-   * Fail-closed while the question is open: an unanswered display is treated as one
-   * that does not quantize, so the write happens.
+   * Whether writing `requestedScrollTop` over `currentScrollTop` would change nothing a
+   * reader could see. Fails closed while the question is open, so the write happens.
    */
   public isNoOpWrite(requestedScrollTop: number, currentScrollTop: number): boolean {
     return (

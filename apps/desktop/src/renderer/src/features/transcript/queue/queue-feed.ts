@@ -1,15 +1,7 @@
-// Every live queue reading in this window, and the hook a view reads one through.
-//
-// `queue-reading.ts` owns what ONE session's reading says; this module owns how many
-// there are and how long each lives. Every view on one bridge and session is
-// served by one snapshot read and one tail: the entry opens them when the first
-// watcher arrives and forgets them when the last leaves, so a window with no queue
-// view mounted holds no subscription and a view that mounts later reads afresh.
-//
-// The calls are supplied by the view that mints a reading, through a forwarder that
-// reads that view's latest calls, so a view may hand over a new `QueueCalls`
-// object each render. A later view on the same bridge and session shares that
-// reading and the forwarder it was minted with.
+// The window's registry of live queue readings, and the hook a view reads one through. Views
+// on one bridge and session share one snapshot read and one tail, opened by the first watcher
+// and closed by the last. Calls come from the minting view through a forwarder that reads its
+// latest calls, so a new `QueueCalls` object each render is fine.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
@@ -25,22 +17,17 @@ import type { PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { SessionQueueReading, type QueueCalls, type QueueFeed } from "./queue-reading.js";
 
 /**
- * Every live reading in this window, keyed by the bridge and the session.
- *
- * A `WeakMap` on the bridge so a closed window takes its readings with it, and the
- * entry itself is dropped once nobody is watching.
+ * Every live reading in this window, keyed by bridge and session. The `WeakMap` on the bridge
+ * lets a closed window take its readings with it; an entry drops once nobody is watching.
  */
 class SessionQueueReadings {
   readonly #bySession = new WeakMap<PlatformBridge, Map<string, SessionQueueReading>>();
 
   /**
-   * The live reading for this pair, minting one where the entry is free.
-   *
-   * Called from a render AND from a subscription's setup, and both matter: React runs
-   * cleanups before setups, so the pane swap that unmounts one view and mounts
-   * another in the same commit retires the reading between the mounting view's
-   * render and its subscribe. Resolving again at subscribe time is what makes that
-   * commit end with ONE live registered reading.
+   * The live reading for this pair, minting one where the entry is free. Called from render and
+   * from a subscription's setup: React runs cleanups before setups, so a pane swap can retire
+   * the reading between a view's render and its subscribe, and resolving again at subscribe
+   * time keeps exactly one live registered reading.
    */
   public reading(
     bridge: PlatformBridge,
@@ -59,9 +46,8 @@ class SessionQueueReadings {
     }
     const forThisBridge = forBridge;
     const created = new SessionQueueReading(clock, sessionId, calls, () => {
-      // Identity-checked, not `delete(sessionId)`: the entry under that key may already
-      // be a successor reading with watchers of its own. A retiring reading may only
-      // remove itself.
+      // Identity-checked, not `delete(sessionId)`: the key may already hold a successor reading
+      // with watchers of its own. A retiring reading may only remove itself.
       if (forThisBridge.get(sessionId) === created) {
         forThisBridge.delete(sessionId);
       }
@@ -85,13 +71,9 @@ class SessionQueueReadings {
 const sessionQueueReadings = new SessionQueueReadings();
 
 /**
- * Read one session's queue through the calls it is handed.
- *
- * Every view on one bridge and session is served by one snapshot read and one
- * tail. The watcher count is what opens and closes them, so a window with no queue
- * view mounted holds no subscription. The window half of the trigger set is wired
- * here and the session half is `useQueueRepairRead`: this hook is reached by a caller
- * that holds only the session id, and a repair is a fact about a session store.
+ * Read one session's queue through the calls it is handed. The window half of the read triggers
+ * is wired here and the session half is `useQueueRepairRead`, because a caller of this hook may
+ * hold only the session id and a repair is a fact about a session store.
  */
 export function useQueueFeed(
   bridge: PlatformBridge,
@@ -100,9 +82,9 @@ export function useQueueFeed(
 ): QueueFeed {
   const clock = useBridgeClock();
   const forwardedCalls = useForwardedCalls(calls);
-  // Both callbacks go through the registry rather than closing over the reading this
-  // render resolved: that reading can be retired before React runs the subscription's
-  // setup, and watching a retired one would revive it outside the registry.
+  // Both callbacks resolve through the registry rather than closing over this render's reading:
+  // it can be retired before the subscription's setup, and watching it would revive it outside
+  // the registry.
   const subscribe = useCallback(
     (onFeedChanged: () => void) =>
       sessionQueueReadings.watch(bridge, clock, sessionId, forwardedCalls, onFeedChanged),
@@ -112,8 +94,8 @@ export function useQueueFeed(
     () => sessionQueueReadings.reading(bridge, clock, sessionId, forwardedCalls).snapshot(),
     [bridge, clock, sessionId, forwardedCalls],
   );
-  // Resolved at trigger time for the same reason, so the mount trigger fires once per
-  // pair rather than once per render.
+  // Resolved at trigger time for the same reason, so the mount trigger fires once per pair
+  // rather than once per render.
   const readTrigger = useMemo<ReadTriggerTarget>(
     () => ({
       get triggeringEventKinds(): ReadonlySet<string> {
@@ -127,20 +109,18 @@ export function useQueueFeed(
     [bridge, clock, sessionId, forwardedCalls],
   );
   const feed = useSyncExternalStore(subscribe, readFeed, readFeed);
-  // Wired after the subscription, and the order is load-bearing: the subscription is
-  // what opens the reading and takes its first read, so a trigger set wired ahead of it
-  // would ask an unopened reading for a `subscribe` read and cost a second one.
+  // Wired after the subscription, and the order is load-bearing: the subscription opens the
+  // reading and takes its first read, so an earlier wiring would ask an unopened reading for a
+  // `subscribe` read and cost a second one.
   useWindowReadTriggers(readTrigger, bridge.transportReconnect);
 
   return feed;
 }
 
 /**
- * Re-read one session's queue when its stream is repaired.
- *
- * A view holding the session store calls this beside `useQueueFeed`; one holding
- * only the id still re-reads on mount and on focus. The store's sticky degraded flag
- * clearing is the console's nearest reading of a stream that stopped and came back.
+ * Re-read one session's queue when its stream is repaired, meaning the session's degraded cause
+ * clears. A view holding the session store calls this beside `useQueueFeed`; one holding only
+ * the id still re-reads on mount and on focus.
  */
 export function useQueueRepairRead(
   bridge: PlatformBridge,
@@ -166,10 +146,8 @@ export function useQueueRepairRead(
 }
 
 /**
- * The calls a reading makes, forwarded to the latest committed `calls`.
- *
- * Stable for the life of the view, so a new `calls` object each render neither
- * re-subscribes the reading nor is ignored by one already minted.
+ * The calls a reading makes, forwarded to the latest committed `calls`. Stable for the life of
+ * the view, so a new `calls` object each render neither re-subscribes nor is ignored.
  */
 function useForwardedCalls(calls: QueueCalls): QueueCalls {
   const latest = useLatestRef(calls);

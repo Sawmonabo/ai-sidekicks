@@ -1,24 +1,6 @@
-// What this pane hands its chrome, and the hole in the middle of it.
-//
-// WHAT IS DELIBERATELY NOT ASSERTED HERE. The frame is `components/PaneFrame`'s:
-// which controls it draws and when, that a pane is named by its whole trail, that an
-// unattributed pane borrows nobody's hue, and that a mismatched address is refused
-// rather than thrown are all claims about that component, asserted once beside it.
-// Repeating them here would be a second copy that agrees until one of them is edited,
-// and it would make this suite red for a defect in another feature's module.
-//
-// What is left is this pane's half, and each of these fails in a way a screenshot
-// would not catch:
-//
-//   • The pane mounts at its own KIND and hands over its own ADDRESS — the session
-//     the route names. A pane that passed the wrong kind draws the wrong glyph and
-//     the wrong name.
-//   • The rows are drawn by the registered row renderer, read from the real registry.
-//   • No open session and an empty session are different absences. Both are quiet
-//     gray lines; only the copy tells "no session is open here" from "your session is
-//     empty".
-//
-// The fixtures live in `TranscriptPane.test-support.tsx`.
+// What this pane hands its chrome: its own kind, the session its route names, the rows the
+// registered renderer draws, and the two different absences (no open session, empty session).
+// The frame itself is asserted beside `PaneFrame`; fixtures: `TranscriptPane.test-support.tsx`.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -27,9 +9,8 @@ import {
   registerTranscriptRowRenderer,
   unregisterTranscriptRowRenderer,
 } from "./transcript-row-renderer.js";
-// The shared stub rather than a second one: `happy-dom` reports zero for both box
-// readings, and a viewport with no box holds no rows — a case that stubbed only the
-// height would be measuring its own setup.
+// The shared stub: `happy-dom` reports zero for both box readings, and a viewport with no
+// box holds no rows.
 import { withLaidOutViewport } from "./feed/components/TranscriptFeed.test-support.js";
 import { type TranscriptPaneContext } from "./TranscriptPane.js";
 import {
@@ -47,8 +28,8 @@ function addressCrumbs(pane: HTMLElement): readonly (string | null)[] {
 }
 
 beforeEach(() => {
-  // The pane's lazily loaded body registers the renderer before the pane can render,
-  // so every case starts with one registered, as the product does.
+  // The lazily loaded body registers the renderer before the pane renders, so each case
+  // starts with one registered.
   registerTranscriptRowRenderer("transcript-pane-test", () => null);
 });
 
@@ -61,9 +42,7 @@ afterEach(() => {
 describe("TranscriptPane — what it hands the chrome", () => {
   it("mounts at its own kind, so the head wears the transcript glyph and name", () => {
     const pane = renderPane({ context: paneContext() });
-    // The chrome derives both from the kind, so the kind is what this asserts: a
-    // pane that passed another kind's string would draw that kind's mark and title
-    // and nothing else on screen would say otherwise.
+    // The chrome derives the glyph and name from the kind, so the kind is what this asserts.
     expect(pane.classList.contains("meridian-pane--transcript")).toBe(true);
     expect(pane.querySelector(".meridian-pane__heading")?.textContent).toBe("Transcript");
     expect(pane.querySelector(".meridian-pane__kind svg")).not.toBeNull();
@@ -75,10 +54,7 @@ describe("TranscriptPane — what it hands the chrome", () => {
   });
 
   it("hands over no session at all rather than one the route does not name", () => {
-    // Reachable: the auxiliary transcript window opens on a bare route and the frame
-    // resolves its subject through the context picker before this pane sees one.
-    // What the chrome then draws is its own business; what this pane owes is the
-    // honest absence rather than a placeholder it invented.
+    // The pane owes an honest absence here, not a placeholder it invented.
     const pane = renderPane({ context: paneContext({}, null) });
     expect(addressCrumbs(pane)).toStrictEqual([]);
   });
@@ -86,8 +62,6 @@ describe("TranscriptPane — what it hands the chrome", () => {
 
 describe("TranscriptPane — the body", () => {
   it("says no session is open when the pane has no store", () => {
-    // "No session is open in this pane" is a fact about this pane's address, and the
-    // feed is not mounted at all while there is no log to show.
     const pane = renderPane({ context: paneContext() });
     const body = pane.querySelector(".meridian-pane__body");
     expect(body?.textContent).toContain("No session is open in this pane.");
@@ -95,10 +69,8 @@ describe("TranscriptPane — the body", () => {
   });
 
   it("mounts the transcript and renders one row per admitted event", () => {
-    // The positive control for the whole composition: a row renderer is registered, a store is
-    // open, and a log has landed in it, so the projection has to reach the screen.
-    // Every earlier case here is an absence, and a pane that rendered NOTHING but
-    // absences would have passed all of them.
+    // Positive control: every earlier case is an absence, so a pane that rendered nothing
+    // would pass them all.
     withLaidOutViewport();
     registerTranscriptRowRenderer("transcript-pane-test", (rowProps) => (
       <article data-row-type={rowProps.row.type}>{rowProps.row.summary}</article>

@@ -1,29 +1,7 @@
-// Every window this feed derives, in the one order they may be derived in.
-//
-// WHAT THIS MODULE OWNS. A transcript pane holds a chain of windows, not one: the whole
-// unfurled projection, that projection with finished run groups folded, and finally the
-// part the viewport reconciled onto the screen. Each stage is somebody else's derivation
-// — `transcript-window.ts`', `run-group-fold.ts`', `useTranscriptViewport.ts`',
-// `useVisibleTranscriptWindow.ts`' — and what this module adds is the ORDER and nothing
-// else. It folds no log, measures no row and writes no `scrollTop`.
-//
-// AND WHY EACH STAGE'S OWN REPORT LEAVES WITH IT. The counts beside the find
-// field are made of exactly these separations — a match the cap took and one a folded
-// run group holds are two states with two different exits — so the stage that removed
-// the rows is the one that publishes them.
-// Re-deriving the difference downstream re-walked the whole projection on every
-// appended row for as long as a query sat in the field.
-//
-// WHY THE VIEWPORT BINDING IS DERIVED HERE RATHER THAN BESIDE THE ARRANGEMENT. The
-// last window in the chain is read back off the viewport's own reconciled snapshot,
-// so find looks at what is on screen rather than at the log behind it — which puts
-// the binding INSIDE the chain rather than downstream of it. There is exactly one
-// binding, minted here: a second one would leave the find walk reading a virtualizer
-// with no element under it, which is a jump that reports success and scrolls
-// nothing. The reveal engine is minted here for the same reason
-// in a different register — a lane is a row of THIS window, so a second engine would
-// publish a second answer for one row's text — and it is disposed with the mount
-// that holds this chain.
+// Every window this feed derives, in the one order they may be derived in: the unfurled
+// projection, the run-group fold, and the part the viewport reconciled onto the screen. Each
+// stage publishes the rows it removed, since re-deriving the difference downstream re-walked the
+// projection on every append. The one viewport binding and reveal engine are minted here.
 
 import { useEffect } from "react";
 
@@ -59,12 +37,9 @@ export interface TranscriptFeedWindowsInputs {
 }
 
 /**
- * The chain, with every stage's own report beside it.
- *
- * Published as separate members rather than as the last window alone, because the
- * views above read from two different points in it: find classifies an id against
- * every stage to say WHICH one is the reason a row is not on screen, and the rows
- * render the folded one.
+ * The chain, with every stage's own report beside it. Published as separate members because find
+ * classifies an id against every stage to say which one removed a row, while the rows render the
+ * folded one.
  */
 export interface TranscriptFeedWindows {
   readonly firstReadSettled: boolean;
@@ -84,14 +59,12 @@ export interface TranscriptFeedWindows {
 export function useTranscriptFeedWindows(
   inputs: TranscriptFeedWindowsInputs,
 ): TranscriptFeedWindows {
-  // The same reading `<TranscriptWindowSkeleton>` draws its rows from, so the empty
-  // sentence and the skeleton rows cannot both be on screen.
+  // The same reading `TranscriptWindowSkeleton` draws from, so the empty sentence and the
+  // skeleton rows cannot both be on screen.
   const firstReadSettled = useTranscriptFirstReadSettled(inputs.sessionStore);
-  // The fold is the MOUNT's, not the log's: which finished run groups a person has
-  // opened is a fact about who is reading, so it is held here and handed to the
-  // derivation rather than folded into it.
+  // Which finished run groups a person has opened is a fact about who is reading, so it is held
+  // here and handed to the derivation rather than folded into it.
   const runGroupDisclosure = useRunGroupDisclosure(inputs.sessionStore.sessionId);
-  // THE UNFURLED PROJECTION — every member row of every run group, before any fold.
   const unfurledWindow = useTranscriptProjection(inputs.sessionStore);
   const runGroupFold = useFoldedRunGroups(
     unfurledWindow,
@@ -99,14 +72,9 @@ export function useTranscriptFeedWindows(
     inputs.sessionStore.sessionId,
   );
   const transcriptWindow = runGroupFold.window;
-  // THE REVEAL ENGINE IS THIS FEED'S, minted once and disposed with it. What it
-  // publishes reaches a row through the frame's own channel; what it is DOING reaches
-  // the viewport as the drain state, which used to be the literal `false` — a default
-  // standing in for a reading of a scheduler nothing had mounted.
-  // THE FRAME IS MINTED HERE, above both holders, because that is the only place one
-  // object can order the whole paint: phase one is the viewport's scroll writes and
-  // phase two is the reveal drain, and a coordinator minted inside either would order
-  // that half against nothing.
+  // The reveal engine is this feed's, minted once and disposed with it; its drain state reaches
+  // the viewport. The frame coordinator is minted above both holders, the only place one object
+  // can order the whole paint: phase one is the viewport's scroll writes, phase two the drain.
   const frameCoordinator = useAnimationFrameCoordinator(inputs.clock);
   const reveal = useReveal({ frameCoordinator });
   const viewport = useTranscriptViewport({
@@ -116,13 +84,9 @@ export function useTranscriptFeedWindows(
     isRevealDraining: reveal.isDraining,
   });
 
-  // WHAT THIS WINDOW IS SHOWING, PUBLISHED FOR A DRIVER PROCESS TO READ. Registered
-  // here because this is where the session id and the one binding meet. The reading
-  // exists for the endurance tier, which drives a real window from outside the
-  // renderer and can otherwise tell "the transcript mounted nothing" from "the transcript has
-  // nothing to mount" only by guessing; it reaches the page only through the session
-  // diagnostics a fixture composition installs. The reader is stable, so this registers
-  // once per mount rather than once per render.
+  // Registered here, where the session id and the one binding meet, so the session diagnostics a
+  // driver process reads can tell a transcript that mounted nothing from one with nothing to
+  // mount. The reader is stable, so this registers once per mount rather than once per render.
   const readWindowDiagnostics = viewport.readWindowDiagnostics;
   const diagnosticsSessionId = inputs.sessionStore.sessionId;
   useEffect(
@@ -135,11 +99,9 @@ export function useTranscriptFeedWindows(
     inputs.clock,
   );
 
-  // A lane whose row this window no longer holds, or holds only inside a run group that
-  // has reached its terminal, is a turn that is over: the engine drops it so a
-  // finished lane stops costing memory. Asked of the engine's own lanes, which are at
-  // most one per streaming row — walking the window instead would be a pass over the
-  // whole log on every event.
+  // A lane whose row this window no longer holds, or holds only inside a terminal run group, is
+  // a turn that is over, so the engine drops it. Asked of the engine's own lanes (at most one
+  // per streaming row) rather than walking the whole log on every event.
   const retireRevealLanes = reveal.retireLanes;
   useEffect(() => {
     retireRevealLanes(
@@ -148,9 +110,8 @@ export function useTranscriptFeedWindows(
     );
   }, [retireRevealLanes, transcriptWindow]);
 
-  // Read back off the viewport's own reconciled snapshot, so find is looking at the
-  // window on screen rather than at the log behind it. What the cap took is the
-  // difference between the two.
+  // Read back off the viewport's reconciled snapshot, so find sees the window on screen; what
+  // the cap took is the difference between the two.
   const visible = useVisibleTranscriptWindow(transcriptWindow, viewport.snapshot.rows);
 
   return {

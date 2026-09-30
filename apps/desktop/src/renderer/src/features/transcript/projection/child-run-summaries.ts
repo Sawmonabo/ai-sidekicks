@@ -1,53 +1,7 @@
-// The child runs this window's log names, summarized — the row projection's half of the seam
-// `dispatches/child-run-entries.ts` reads.
-//
-// WHAT WAS MISSING, AND IT WAS A GAP BETWEEN TWO CORRECT MODULES. `ChildRunIndex`
-// finds every row carrying `childRunSummary` and draws it; the row projection
-// carried that member on no row it ever built, so the child-run treatment was
-// reachable from hand-written fixtures and from nothing a scenario could play. The
-// member is a PROJECTION's, not an event's — no registered payload carries one — so
-// the only honest way to reach it from a log is to derive it, which is what the row
-// projection exists to do and what its own header calls naming every member the log cannot
-// supply.
-//
-// WHAT THE LOG ACTUALLY SUPPORTS, WHICH IS WHY THIS IS A DERIVATION RATHER THAN AN
-// INVENTION. The run lifecycle puts the orchestration linkage on the BIRTH beat —
-// `run.queued` carries `{agentId?, parentRunId?, reachedBy?,
-// internalHelper?}` — so a run whose creation row names a parent IS
-// a child run, said by the daemon rather than guessed here. Every member of the
-// summary then comes off that same log:
-//
-//   • `runId` / `parentRunId` — the creation row's own two identities, verbatim.
-//   • `state` — the state the child's newest lifecycle beat announces, read from the
-//     KIND through `runStateForTransitionKind` rather than from an unvalidated payload
-//     member, which is the same rule the run-entity fold is written under. The
-//     creation row announces `queued`, which that mapping deliberately excludes
-//     because it is not one of the eight transitions, so it is spelled here beside the
-//     one type literal this module keys on.
-//   • `eventCount` — how many of this window's rows are attributed to the child, by
-//     the projection's OWN attribution reader. A count of what is held, which is what
-//     the contract says the member is on the incomplete arm.
-//   • `completeness` — `complete`. The session's log keeps every row a child wrote,
-//     a context compaction inside the child included, so the count above is the
-//     child's whole history. The one incomplete cause is a failed child-run detail
-//     fetch, and this console performs no such fetch here.
-//
-// THE SUMMARY IS COMPOSED HERE AND NOT PARSED HERE. A view never runs a contracts
-// schema over a value — the wire's own shapes are narrowed where the daemon call
-// returns and nowhere else — and this value never crossed a wire in the first place: it is the
-// row projection's reading of rows the store already holds. So the one refusal a schema would
-// have performed is performed in code beside the reason for it: a creation row naming
-// ITSELF as its parent produces no summary, because a self-parenting node makes the
-// lineage graph cyclic and every walk of it non-terminating. The `RunId` casts are the
-// sibling projection's, for its stated reason — the brand is a compile-time nominal tag
-// over `string` with no runtime witness, and the value under it is the wire's own.
-//
-// IT IS STAMPED ON ONE ROW PER CHILD: the creation row, which is the only row in the
-// log that names the child AND its parent. Stamping the child's later rows would file
-// them as re-summarizations, and a re-summarization is a claim the wire did not make —
-// those rows say nothing about a parent at all. One row per child therefore takes a
-// fresh object each projection pass and loses its place in the retention table, which
-// is one row per child run and is stated here rather than discovered from a profile.
+// The child runs this window's log names, summarized: the row projection's half of the seam
+// `dispatches/child-run-entries.ts` reads. A run whose `run.queued` creation row names a
+// parent is a child run, said by the daemon; the summary is stamped on that one row per
+// child, the only row naming both, so it takes a fresh object each pass.
 
 import { type ChildRunSummary, type RunId, type RunState } from "@ai-sidekicks/contracts";
 import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
@@ -55,27 +9,19 @@ import { readWireString } from "@renderer/lib/wire-strings.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { attributedRunIdOf } from "./run-attribution.js";
 
-/**
- * The one event type that carries the orchestration linkage.
- *
- * Spelled once because two things read it: the pass that finds a child run, and the
- * state mapping below, which has to say what a creation row announces because the
- * transition mapping deliberately does not carry it.
- */
+/** The one event type that carries the orchestration linkage. */
 const RUN_CREATED_TYPE = "run.queued";
 
-/** The state a creation row announces, which no transition mapping carries. */
+/** The state a creation row announces; the transition mapping deliberately omits `queued`. */
 const RUN_CREATED_STATE: RunState = "queued";
 
 /**
- * Every child run this log names, keyed by the EVENT ID of the row it is stamped on.
+ * Every child run this log names, keyed by the event id of the row it is stamped on.
  *
- * Keyed by the row rather than by the run because that is the question the projection
- * asks — "does this event carry a summary" — and a run-keyed map would make the caller
- * re-decide which of a child's rows is its creation row, which is this module's rule.
- *
- * A pure fold, so the same log answers with the same summaries however many times it
- * is projected — the property the caller's memo depends on.
+ * `state` is read from the newest lifecycle beat's kind, `eventCount` counts this window's
+ * rows attributed to the child, and `completeness` is `complete` because the log keeps every
+ * row a child wrote and no child-run detail fetch happens here. A pure fold, which the
+ * caller's memo depends on.
  */
 export function deriveChildRunSummaries(
   events: readonly ProjectedSessionEvent[],
@@ -91,9 +37,7 @@ export function deriveChildRunSummaries(
     }
     const reading = readingsByRunId.get(runId);
     if (reading === undefined) {
-      // Not a child run, or a row that arrived before its creation row did. Either
-      // way there is nothing to summarize: a child whose parent nothing named is a
-      // run, and the transcript already draws one.
+      // Not a child run, or a row that arrived before its creation row: nothing to summarize.
       continue;
     }
     reading.eventCount += 1;
@@ -115,12 +59,9 @@ interface ChildRunReading {
 }
 
 /**
- * Record a creation row that names a parent, or leave the run unrecorded.
+ * Records a creation row that names a parent, or leaves the run unrecorded.
  *
- * `parentRunId` is read as a wire string and nothing else is inferred: a creation row
- * naming no parent is an ordinary run's, and a row naming a parent this reader cannot
- * read as a string is malformed rather than parentless — both produce no reading, and
- * the difference between them is not one the transcript can act on.
+ * A row naming no parent, or one whose parent is not a string, produces no reading.
  */
 function admitChildRun(
   readingsByRunId: Map<string, ChildRunReading>,
@@ -141,14 +82,9 @@ function admitChildRun(
 }
 
 /**
- * Turn the readings into summaries, keyed by the row each is stamped on, and drop the
- * one shape the lineage graph cannot hold.
- *
- * THE SELF-PARENT REFUSAL IS THE WHOLE OF THE CHECK, and it is here rather than in a
- * schema because a schema is a parser and nothing on this path was parsed: every field
- * below is either the log's own string or this module's own count. A run that named
- * itself as its own parent makes the graph cyclic, so it produces no summary at all
- * rather than one whose first walk does not terminate.
+ * Turns the readings into summaries keyed by the stamped row, dropping a run that names itself
+ * as its parent: that makes the lineage graph cyclic and every walk of it non-terminating.
+ * This is the check a schema would do; nothing on this path was parsed.
  */
 function composedSummaries(
   readingsByRunId: ReadonlyMap<string, ChildRunReading>,

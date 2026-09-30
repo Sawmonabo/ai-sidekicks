@@ -1,18 +1,7 @@
-// What one derivation's rows keep from the one before it.
-//
-// The subject is `TranscriptRowRetention`, driven THROUGH `deriveTranscriptWindow` rather than
-// alone: the retention's value is a property of the derivation that uses it — which
-// objects reach the feed and which of them are recognizable — and a case that called
-// the table directly would prove the table works while saying nothing about whether
-// the window is wired to it.
-//
-// The LOGS are built here rather than taken from `transcript-logs.test-support.ts`
-// because two of these cases need two logs that differ in ONE member of ONE event,
-// which no shared builder offers and which is the whole instrument: it separates a
-// table that compares what it holds from one that trusts a key and serves a stale
-// row. The row ids and instants inside them are still that module's — a log written
-// against its own clock would be a second fixture epoch, which is the thing a shared
-// stamp exists to prevent.
+// Driven through `deriveTranscriptWindow`, not the table alone: retention matters as a property
+// of the derivation (which row objects reach the feed and stay recognizable). Logs are built here
+// because two cases need logs differing in one member of one event, which no shared builder
+// offers; ids and instants still come from `transcript-logs.test-support.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,7 +15,6 @@ import { deriveTranscriptWindow } from "./transcript-window.js";
 
 const SESSION_ID = "session-transcript-row-retention";
 
-/** A log entry the row projection can read. The row id it takes is derived from these. */
 function logEntry(
   sequence: number,
   payload: Readonly<Record<string, unknown>>,
@@ -41,7 +29,6 @@ function logEntry(
   };
 }
 
-/** A log of `count` entries, each carrying its own payload object. */
 function log(count: number): ProjectedSessionEvent[] {
   return Array.from({ length: count }, (_unused, index) => logEntry(index, { index }));
 }
@@ -51,18 +38,14 @@ const LOG_ENTRY_COUNT = 4;
 describe("the transcript window's row retention", () => {
   it("publishes the same row objects when the log gained an entry and nothing else moved", () => {
     const retention = new TranscriptRowRetention();
-    // ONE array of entries, appended to — which is what the store actually holds: it
-    // admits an event by publishing a new array over the SAME entry objects. Rebuilding
-    // the entries here would hand the projection fresh payload objects and the rows
-    // would rightly take new identities, so the case would be measuring the fixture.
+    // One array appended to, as the store does (a new array over the same entry objects);
+    // rebuilt entries would carry fresh payloads and rightly take new row identities.
     const entries = log(LOG_ENTRY_COUNT);
     const before = deriveTranscriptWindow(entries, retention);
     const after = deriveTranscriptWindow([...entries, logEntry(LOG_ENTRY_COUNT, {})], retention);
 
-    // Every row the first pass published is the SAME object in the second, and so is
-    // its place in the virtualizer's identity list. Both halves matter: the feed's row
-    // memo compares the projected row and the viewport's compares the identity triple,
-    // so a pass that renewed either one re-renders the whole mounted window.
+    // Both the row and its identity triple keep identity: the feed's row memo compares the row
+    // and the viewport's compares the triple.
     for (const row of before.rows) {
       expect(after.rowsByKey.get(row.id)).toBe(row);
     }
@@ -73,10 +56,8 @@ describe("the transcript window's row retention", () => {
   });
 
   it("publishes a new object for a row whose members moved", () => {
-    // The negative control on the comparison. Without it the case above would pass
-    // over a table that returned whatever it held under a key and never looked at the
-    // candidate — which is not a cache but a stale card on screen, and the one failure
-    // this whole mechanism can cause.
+    // Guards the case above against a table that returns whatever it holds under a key without
+    // comparing, which would show a stale row.
     const retention = new TranscriptRowRetention();
     const first = [logEntry(0, { index: 0 }), logEntry(1, { index: 1 })];
     const before = deriveTranscriptWindow(first, retention);
@@ -97,11 +78,8 @@ describe("the transcript window's row retention", () => {
   });
 
   it("negative control: a projection given no retention publishes all-new objects", () => {
-    // This is the code that was here, stated as a case: `deriveTranscriptWindow` used to
-    // mint every row and every identity triple per call, so a log that gained one entry
-    // handed the feed a window in which nothing had changed and nothing was
-    // recognizable. Every assertion above would pass over a `toBe` that had quietly
-    // become a structural compare; this one fails if it ever does.
+    // Without retention every pass mints new objects; this fails if a `toBe` above became a
+    // structural compare.
     const entries = log(LOG_ENTRY_COUNT);
     const before = deriveTranscriptWindow(entries);
     const after = deriveTranscriptWindow(entries);
@@ -117,10 +95,8 @@ describe("the transcript window's row retention", () => {
   });
 
   it("forgets a row the projection stopped publishing", () => {
-    // The table holds one pass, not every pass. A row that left and came back
-    // unchanged takes a NEW object, which is the observable half of "this can never
-    // outgrow the window it describes" — an accumulating map keyed by row id would
-    // hand back the object it had been holding since the row left.
+    // The table holds one pass, so a row that left and came back takes a new object; an
+    // accumulating map would hand back the one it kept.
     const retention = new TranscriptRowRetention();
     const entries = log(LOG_ENTRY_COUNT);
     const held = deriveTranscriptWindow(entries, retention).rows[0];

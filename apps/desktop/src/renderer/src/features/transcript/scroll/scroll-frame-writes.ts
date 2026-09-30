@@ -1,51 +1,27 @@
-// The transcript's phase-one write queue — the half of the scroll chokepoint that
-// belongs to a FRAME rather than to a gesture.
-//
-// `scroll-chokepoint.ts` owns what a write IS: the closed caller union, the clamp,
-// the learned quantization, the geometry it publishes. This module owns WHEN a
-// reactive write happens, which is a different question with a different answer, and
-// the split is where it stops being buried in the controller: a gesture writes in the
-// frame the person acted in, and a reaction to geometry writes in phase one of the
-// next frame, against that frame's one clean sample.
-//
-// THREE DECISIONS THIS MODULE MAKES:
-//
-//   • **The sample is taken once, before any of the frame's writes.** Every reactive
-//     caller in one frame computes against the same geometry. Re-reading the scroll container
-//     per caller would hand the second caller a height the first one moved, which is
-//     the disagreement that makes a follower and an anchor fight over one frame.
-//   • **Coalesced per CALLER, on the union the chokepoint already closes.** A follower
-//     that asked twice in one frame wants the second answer; two different callers
-//     still both get a turn, in submission order. Coalescing per anything coarser
-//     would silently drop one subsystem's write, which is the failure the caller union
-//     exists to make impossible to do by accident.
-//   • **A request refuses rather than degrading to an immediate write.** With no
-//     coordinator adopted there is no frame to be ordered inside, and an unordered
-//     fallback would be exactly the path the coordinator exists to close — available,
-//     silently, to whichever composition forgot to wire the frame.
+// Phase-one write queue: holds reactive scroll writes until the next frame and computes each
+// against that frame's single geometry sample.
+// Writes coalesce per caller (two callers both get a turn, in submission order), and a
+// request refuses when no frame coordinator is adopted rather than falling back to an
+// unordered immediate write.
 
 import { type AnimationFrameCoordinator } from "../animation-frame-coordinator.js";
 import { type ScrollGeometry } from "./geometry-sample.js";
 import { type ScrollCaller } from "./scroll-callers.js";
 
 /**
- * What a phase-one caller computes: the offset it wants, from the frame's one clean
- * geometry sample. `undefined` withdraws the request, which is how a caller whose
- * reason has passed by the time the frame runs writes nothing at all.
+ * What a phase-one caller computes: the offset it wants, from the frame's geometry sample.
+ * `undefined` withdraws the request.
  */
 export type ScrollTargetComputation = (geometry: ScrollGeometry) => number | undefined;
 
 /**
- * The narrow port back into the chokepoint.
- *
- * Two members, deliberately: this module decides WHEN and the controller decides
- * WHAT, so anything wider would let the frame queue reach into the clamp, the
- * quantization, or the publication — every one of which is the controller's.
+ * The narrow port back into the chokepoint: this module decides when to write, the
+ * controller decides what a write does (clamp, quantization, publication).
  */
 export interface ScrollWriteTarget {
   /** The last published sample, or `undefined` before the first attach. */
   readonly lastGeometry: ScrollGeometry | undefined;
-  /** Perform the write. The controller's one `scrollTop` write path. */
+  /** Perform the write through the controller's one `scrollTop` write path. */
   readonly glide: (caller: ScrollCaller, targetScrollTop: number) => void;
 }
 
@@ -63,11 +39,8 @@ export class ScrollFrameWrites {
   }
 
   /**
-   * Join a frame.
-   *
-   * Single-shot and idempotent. Adopting a second, different coordinator would put
-   * one controller's writes in two frames, which is the split being ordered at all
-   * exists to end — so it throws rather than picking one.
+   * Join a frame. Idempotent; a second, different coordinator would put one controller's
+   * writes in two frames, so it throws.
    */
   public adopt(frameCoordinator: AnimationFrameCoordinator): void {
     if (this.#released || this.#frameCoordinator === frameCoordinator) {
@@ -81,7 +54,7 @@ export class ScrollFrameWrites {
     this.#frameCoordinator = frameCoordinator;
   }
 
-  /** Whether a frame has been adopted. What `request` refuses on. */
+  /** Whether a frame has been adopted; `request` refuses without one. */
   public get hasFrame(): boolean {
     return this.#frameCoordinator !== undefined;
   }
@@ -92,10 +65,8 @@ export class ScrollFrameWrites {
   }
 
   /**
-   * Ask for a write in the next frame's phase one.
-   *
-   * Returns whether the request was taken, so a caller can tell "queued" from "this
-   * controller is in no frame" rather than assuming the write is coming.
+   * Ask for a write in the next frame's phase one. Returns whether the request was taken,
+   * so a caller can tell "queued" from "this controller is in no frame".
    */
   public request(caller: ScrollCaller, computeTarget: ScrollTargetComputation): boolean {
     const frameCoordinator = this.#frameCoordinator;
@@ -131,9 +102,7 @@ export class ScrollFrameWrites {
     }
     const geometry = this.#writeTarget.lastGeometry;
     if (geometry === undefined) {
-      // No sample yet means no attached scroll container, so there is nothing to write to and
-      // nothing to compute against. Silently dropping is right here and only here:
-      // the request was for a frame this controller turned out not to have a box in.
+      // No sample means no attached scroll container: nothing to compute against or write to.
       return;
     }
     const targetScrollTop = computeTarget(geometry);

@@ -1,8 +1,4 @@
-// What the queue-feed suites build their cases out of.
-//
-// The registered row shapes, the stubbed calls, the probe that reports the hook's answer
-// out of the tree, and the mounts the suites share. Written once so the files cannot
-// drift into disagreeing about what a row looks like.
+// Shared fixtures for the queue-feed suites: row shapes, stubbed calls, a probe and the mounts.
 
 import { useEffect, type ReactElement } from "react";
 import { act, render } from "@testing-library/react";
@@ -51,12 +47,9 @@ export const QUEUED_ROW: QueueItemSummary = queueRow(
 );
 
 /**
- * The shipped fixture bridge, which supplies the reconnect signal, its engine's frozen
- * clock that a case hands to the provider beside the bridge, and stub queue calls that
- * record what they were asked.
- *
- * The record is live: every case destructures at the top and asserts at the bottom, so
- * each member is an array the calls append to rather than a copy taken up front.
+ * The fixture bridge with its engine's frozen clock and stub queue calls that record what they
+ * were asked. The record is live: each member is an array the calls append to, so a case
+ * destructures at the top and asserts at the bottom.
  */
 export function queueFeedBridge(snapshot: readonly QueueItemSummary[] = []): {
   bridge: PlatformBridge;
@@ -148,10 +141,6 @@ export async function openFeed(snapshot: readonly QueueItemSummary[] = []): Prom
     },
   };
 }
-
-// One session's queue is read once, however many views ask for it. The count is the
-// assertion, so the negative controls in the suite show the counter is capable of
-// reaching two: a hook that opened nothing would otherwise pass the first case.
 
 /** Two views on one bridge, each asking the hook its own question. */
 export function TwoQueueReaders(props: {

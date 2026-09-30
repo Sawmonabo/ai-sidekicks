@@ -1,45 +1,7 @@
-// Reaching the rows BEFORE the window this console was given.
-//
-// WHY THERE IS ANYTHING TO REACH. A session's stream replays from the position this
-// user was last acknowledged at, so a resumed read establishes a window whose
-// head is somewhere in the middle of the log. Everything below that head exists, was
-// never delivered, and is unreachable by scrolling: the store appends at the tail and
-// the viewport prunes toward it, so no amount of reading moves the head. One read
-// moves it — a backward timeline page asked for with `beforeCursor`, which the
-// composition hands this walk — and this is the object that decides when to ask and
-// what to do with the answer.
-//
-// WHAT IT IS NOT. It is not a second window model, and it holds no rows: the page it
-// reads goes straight into the session store's own log through
-// `prependEarlierEvents`, which is the one call a log grows at its head through. What
-// this object holds is a POSITION and a verdict — where the next page starts, and
-// whether the producer said any remain.
-//
-// THE VERDICT IS THE PRODUCER'S. `hasMore` is required on both arms of the registered
-// response, so "are there earlier rows" is an answer the daemon gave rather than a
-// fact inferred from a page arriving full, from a page arriving short, or from a
-// cursor's absence. The one thing read locally is whether a cursor came back at all —
-// without one there is nowhere to ask from, whatever the reply claims remains.
-//
-// SINGLE-FLIGHT, AND LOCAL. A second press while a page is in flight is dropped
-// rather than queued: the control is a button a person can press repeatedly, and two
-// backward reads from one cursor fetch the same rows twice and then merge one of them
-// into a log that already holds it. The exclusion is a field here.
-//
-// AND A PAGE CAN OUTLIVE THE WINDOW IT WAS ADDRESSED FROM. A refresh re-establishes
-// the store's base state while a backward read is in flight, and the page that then
-// arrives names rows before a head the store has already left. Merging it is not
-// merely stale, it is UNRECOVERABLE: those rows land in front of the new window's
-// oldest row, the log's head sequence moves down to them, and every later page — the
-// ones that would have filled the interval between the two heads — is then refused by
-// the store's own strictly-earlier guard as not earlier than a row that should never
-// have been there. Nothing this object does afterwards can take them out again, since
-// the log grows at its head and shrinks at neither end. So the page is DISCARDED,
-// which costs one round trip and leaves the walk free to re-ask from the head the
-// store now has. What it is measured against is the STORE's window generation rather
-// than a cursor compared here: a read that re-established the SAME position still
-// threw the old log away, and a page admitted across that boundary opens exactly the
-// same hole.
+// Reaches the rows before the window this console was given. A resumed stream replays from
+// the last acknowledged position, so the window's head can sit mid-log, and only a backward
+// `beforeCursor` page moves it. This holds a position and a verdict, not rows: pages go
+// into the session store through `prependEarlierEvents`.
 
 import {
   type EventCursor,
@@ -61,11 +23,9 @@ export interface EarlierHistoryState {
   /**
    * Whether a backward page can be asked for right now.
    *
-   * False for three different reasons, and the transcript deliberately does not tell
-   * them apart: the window opens at the beginning of the log, the producer has said
-   * nothing remains, or a page is already in flight. All three mean the same thing to
-   * a person looking at the control — there is nothing to press — and the third is
-   * carried separately as {@link isReading} for the ones that render progress.
+   * False when the window opens at the beginning of the log, the producer says nothing
+   * remains, or a page is in flight; the transcript does not tell them apart, and
+   * {@link isReading} carries the last for progress.
    */
   readonly canLoadEarlier: boolean;
   /** A backward page is in flight. */
@@ -79,8 +39,8 @@ export interface EarlierHistoryState {
 /**
  * The read that fetches one backward page, parsed, or the refusal standing in its place.
  *
- * Handed in by the composition that has one. It answers `served` or `refused` for every
- * outcome a transport can have and never rejects, so the walk holds no `catch`.
+ * Resolves `served` or `refused` for every transport outcome and never rejects, so the walk
+ * holds no `catch`.
  */
 export type EarlierPageRead = (
   request: TimelineReadRequest,
@@ -90,30 +50,24 @@ export type EarlierPageRead = (
 /**
  * One session's backward walk.
  *
- * A class with private fields per `apps/desktop/AGENTS.md`: this is state with an act
- * that changes it, and the act has to be able to refuse without every caller
- * remembering the single-flight rule.
+ * Single-flight: a press while a page is in flight is dropped, since two reads from one cursor
+ * fetch the same rows twice. Whether earlier rows remain is the daemon's `hasMore`, never
+ * inferred from page size; only a missing cursor is read locally. A page is discarded when
+ * the store's window generation moved while it was in flight: merging it would put rows
+ * before a head the store has left, and the store's strictly-earlier guard would then refuse
+ * every later page.
  */
 export class EarlierHistoryReader {
   /**
-   * The store window this walk is based on, once one has been observed.
-   *
-   * The store's own claim rather than a copy of its head cursor, because the claim is
-   * re-taken by the one act that moves a window — a completed read re-establishing the
-   * base state — whichever position that read was performed from.
+   * The store window this walk is based on, once observed. The store's own claim, re-taken
+   * by any read that re-establishes its base state, whatever position that read used.
    */
   #baseWindowGeneration: CurrentGenerationClaim | undefined;
   /**
-   * The line every backward page is read on, and the one thing that can stop one.
-   *
-   * OWNED HERE RATHER THAN TAKEN FROM THE PRESS, because the round has to be opened
-   * AFTER the single-flight guard has admitted the press: a round opened by the caller
-   * would abort the page already in flight on exactly the double press this walk drops,
-   * and the reader would then install `callDaemon`'s own `read-abandoned` refusal beside a
-   * control that had done nothing wrong. The walk's owner ends the line through
-   * {@link abandonReads}, which is what `useEarlierHistory.ts` hands the holder as its
-   * disposal — so a pane that leaves stops its outstanding page rather than only
-   * ignoring it.
+   * The line every backward page is read on. Owned here and opened after the single-flight
+   * guard admits a press, so a double press cannot abort the page already in flight. The
+   * walk's owner ends it through {@link abandonReads}, so a pane that leaves stops its
+   * outstanding page.
    */
   readonly #readLine = new ReadScope();
   /** Where the next page starts. `undefined` means there is nowhere to ask from. */
@@ -129,22 +83,18 @@ export class EarlierHistoryReader {
   }
 
   /**
-   * End the read line: an outstanding page stops, and no later one is live.
+   * Ends the read line: an outstanding page stops and no later one is live.
    *
-   * The walk's own fields are left exactly as they stand. A holder that hands this
-   * reader back — React's double-mount does — is handed a corpse its `isClosed`
-   * reading recognizes, and a fresh reader is minted rather than this one revived.
+   * The walk's fields stay as they are; a holder handed this reader back (React's
+   * double-mount) sees `isAbandoned` and mints a fresh one.
    */
   public abandonReads(): void {
     this.#readLine.abandon();
   }
 
   /**
-   * What the transcript should render, read against the store as it stands.
-   *
-   * The store is passed in rather than held because the walk's base is a fact the
-   * STORE owns — a completed read re-establishes where the window starts — and an
-   * object holding its own copy would keep walking from a head the store had moved.
+   * What the transcript should render, read against the store as it stands. The store is
+   * passed in, not held, because the walk's base is the store's fact.
    */
   public state(sessionStore: SessionStore): EarlierHistoryState {
     this.#rebaseIfWindowMoved(sessionStore);
@@ -177,11 +127,8 @@ export class EarlierHistoryReader {
     try {
       const reply = await readEarlierPage(
         {
-          // BOTH BRANDS ARE FORWARDED, NEVER MINTED. `SessionId` and `EventCursor` are
-          // compile-time markers over opaque wire strings, and both of these values
-          // came off the wire: the id is the one the store was opened under, and the
-          // cursor is whatever the daemon last issued. The two casts stay local
-          // because a feature may import no other feature.
+          // `SessionId` and `EventCursor` are markers over wire strings that both came off the
+          // wire; the casts stay local because a feature may import no other feature.
           sessionId: sessionStore.sessionId as SessionId,
           beforeCursor: beforeCursor as EventCursor,
           limit: TRANSCRIPT_EARLIER_PAGE_ROWS,
@@ -189,31 +136,23 @@ export class EarlierHistoryReader {
         { signal: round.signal },
       );
       if (isReadAbandoned(round.signal)) {
-        // NOTHING IS WAITING, so nothing installs — not the page and not the refusal
-        // `callDaemon` composes for an abandoned read. The reading is taken here rather
-        // than left to the window generation because the two answer different
-        // questions: that one says the window moved under this page, and this one says
-        // there is no longer a pane offering the control the page was pressed on.
+        // Nothing is waiting, so nothing installs, neither the page nor the refusal
+        // `callDaemon` composes for an abandoned read. The window generation says the window
+        // moved; this says the pane offering the control is gone.
         return;
       }
       if (reply.status === "refused") {
-        // Through the round as well, and for the same reason the page is: a refusal
-        // installed after the window moved is a failure reported against a read the
-        // transcript is no longer offering, on a control the rebase has already re-armed.
+        // Through the round too, so a refusal is not installed after the window moved.
         baseWindowGeneration.settle(() => {
           this.#refusal = reply.refusal;
         });
         return;
       }
       const page = readEarlierTimelinePage(reply.value);
-      // THE ROWS GO TO THE STORE AND THE POSITION STAYS HERE. The merge answers how
-      // many it admitted, which is what makes a page the log already held visible as
-      // a page that added nothing rather than as a press that did nothing.
-      //
-      // AND BOTH INSTALL ONLY WHILE THIS PAGE'S WINDOW IS STILL THE STORE'S. Settling
-      // through the round covers the position as well as the rows on purpose — a walk
-      // carried into a window it was not measured in would go on asking from a cursor
-      // that names the old head, which is the same hole reached one press later.
+      // The rows go to the store and the position stays here; the admitted count shows a page
+      // the log already held as one that added nothing. Both install only while this page's
+      // window is still the store's, or the walk would keep asking from a cursor naming the
+      // old head.
       baseWindowGeneration.settle(() => {
         this.#admittedRowCount += sessionStore.prependEarlierEvents(page.events).admitted;
         this.#nextBeforeCursor = page.nextBeforeCursor;
@@ -225,18 +164,12 @@ export class EarlierHistoryReader {
   }
 
   /**
-   * Start the walk over when the store's window is no longer the one it was based on,
-   * and answer the window generation it is based on now.
+   * Starts the walk over when the store's window is not the one it was based on, and
+   * answers the window generation it is based on now.
    *
-   * ONE SIGNAL, AND IT IS THE ACT ITSELF. A window moves in two ways that look
-   * different from outside: a completed read that acknowledged a different position
-   * gives a different head, and one that acknowledged the SAME position still threw
-   * the old log away and dropped whatever a backward walk had put in front of it.
-   * Both are the store re-establishing its base state, which is exactly what re-takes
-   * its window generation — so one comparison covers both, and covers them at the
-   * moment the window moved rather than after a page has already landed in the wrong
-   * one. It is answered rather than only stored, because the caller that issues a read
-   * has to hold the generation it was issued under until the reply lands.
+   * One comparison covers both ways a window moves: a different acknowledged head, and the
+   * same head re-read after the old log (and any rows prepended to it) was thrown away. The
+   * caller keeps the generation until its reply lands.
    */
   #rebaseIfWindowMoved(sessionStore: SessionStore): CurrentGenerationClaim {
     const baseWindowGeneration = this.#baseWindowGeneration;
@@ -247,9 +180,8 @@ export class EarlierHistoryReader {
     const windowHeadCursor = sessionStore.snapshot().windowHeadCursor;
     this.#baseWindowGeneration = windowGeneration;
     this.#nextBeforeCursor = windowHeadCursor;
-    // A window that opens at the beginning of the log has nothing before it, which is
-    // exhausted in the only sense the control cares about: there is nothing to press
-    // for. It is not a refusal and it is not a failure — it is a first read.
+    // A window that opens at the beginning of the log has nothing before it: exhausted, not a
+    // refusal.
     this.#exhausted = windowHeadCursor === undefined;
     this.#refusal = undefined;
     this.#admittedRowCount = 0;

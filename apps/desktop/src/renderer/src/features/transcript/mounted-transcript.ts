@@ -1,35 +1,14 @@
-// Which transcript a command acts on: the seam between a chord and a mounted feed.
-//
-// The transcript's commands are contributed when the window is composed, before any
-// window has rendered and long before a session is open. The acts they perform
-// belong to a mounted feed: opening find, walking its matches, scrolling its tail.
-// Something has to join the two, and it cannot be a closure — the command is built
-// once per window and the feed comes and goes with the route.
-//
-// So the feed ADOPTS this holder while it is mounted, and every command resolves its
-// target at press time. Three properties follow, and each is the reason for the
-// shape below:
-//
-//   • **The newest mount is the target.** Two transcript panes in one window are two
-//     feeds; the most recently mounted is the one a chord acts on, rather than a focus
-//     model nothing publishes.
-//   • **Release is by identity.** A pane unmounting drops ITS adoption and not
-//     whichever happens to be last, so a strict-mode double mount and a route
-//     change cannot leave the holder pointing at a feed that is gone.
-//   • **No mounted feed is a refusal, not a silence.** `perform` answers with the
-//     refusal rather than raising it; the caller that contributed the command knows
-//     where its refusals are rendered.
-//
-// Module scope is window scope, as it is for the command registry: each window is its
-// own renderer process, so two windows share nothing.
+// The seam between a chord and a mounted feed. Commands are contributed before any feed
+// exists, so a feed adopts this holder while mounted and commands resolve their target at
+// press time. The newest mount is the target; release is by identity, so a strict-mode double
+// mount or route change cannot leave a gone feed adopted. Module scope is one window.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 
 /**
- * The acts a mounted transcript offers, one function per command, named for the act
- * rather than the control that triggers it. Declared beside the holder of the mounted one,
- * so the commands and the feed do not import each other.
+ * The acts a mounted transcript offers, one function per command, named for the act rather
+ * than the control. Declared beside the holder so commands and feed do not import each other.
  */
 export interface TranscriptActs {
   readonly openFind: () => void;
@@ -48,9 +27,8 @@ export type TranscriptActOutcome =
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
- * What an act says when no transcript is mounted. One value rather than one per act: a
- * person pressing a transcript chord from the settings page needs to know the transcript
- * is not here, not which act they reached for.
+ * What an act says when no transcript is mounted. One value, since the person needs to know
+ * the transcript is not here, not which act they reached for.
  */
 export const TRANSCRIPT_NOT_MOUNTED_REFUSAL: Refusal = refuse(
   "transcript",

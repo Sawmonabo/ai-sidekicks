@@ -1,5 +1,3 @@
-// Definitions, keyed by the message that carried them.
-
 import type { RootContent } from "mdast";
 import { describe, expect, it } from "vitest";
 
@@ -25,8 +23,7 @@ describe("the footnote registry", () => {
   });
 
   it("negative control: an identifier from another message does not resolve", () => {
-    // Without this, a registry keyed on the identifier alone would pass every case above
-    // and show one message's note under another message's marker.
+    // A registry keyed on the identifier alone would show one message's note under another's.
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     expect(registry.definitionsFor("event-99").get("1")).toBeUndefined();
@@ -58,9 +55,7 @@ describe("the footnote registry", () => {
   });
 
   it("hands back one snapshot identity until that source's definitions move", () => {
-    // `useSyncExternalStore` compares snapshots by identity, so a view rebuilt per read
-    // would report a change on every render — and one held past a change would report
-    // none on the render that matters.
+    // A rebuilt view would report a change on every render; one held past a change, none.
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     const first = registry.definitionsFor("event-01");
@@ -72,9 +67,7 @@ describe("the footnote registry", () => {
   });
 
   it("negative control: an unchanged re-registration moves neither snapshot nor sink", () => {
-    // Without this, a registry that announced every write would re-render every open
-    // popover on every frame of every stream — the settled blocks re-register the same
-    // node arrays constantly, and that is not a change to anything on screen.
+    // Settled blocks re-register the same node arrays constantly; nothing on screen changes.
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     const first = registry.definitionsFor("event-01");
@@ -120,9 +113,7 @@ describe("the footnote registry", () => {
   });
 
   it("tells the source an eviction took a definition from", () => {
-    // A popover open over an evicted note is showing something the registry no longer
-    // holds, so eviction is a change to that source exactly as a rewrite is — and the
-    // source it names comes off the evicted KEY, which is the only place it is written.
+    // An evicted note changes its source exactly as a rewrite does; the source comes off the key.
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     let evictedSourceChanges = 0;

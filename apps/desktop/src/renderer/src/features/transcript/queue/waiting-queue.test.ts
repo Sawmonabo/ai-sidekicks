@@ -1,8 +1,4 @@
-// The shelf's question, and the four answers that are all "not waiting".
-//
-// The claim that would rot silently is the one the shelf's whole contract rests on: a row
-// the daemon has stopped calling `queued` leaves the shelf by not surviving this
-// predicate, and the row itself is still in the reading the transcript's pending rows render.
+// The shelf shows only `queued` rows; the four other states all mean "not waiting".
 
 import { describe, expect, it } from "vitest";
 import type { QueueItemSummary } from "@ai-sidekicks/contracts";

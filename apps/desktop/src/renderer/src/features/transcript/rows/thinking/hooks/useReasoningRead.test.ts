@@ -1,19 +1,5 @@
-// The reasoning read the transcript's rows make, over a real bridge whose answer a case
-// decides.
-//
-// `bridgeAnswering` rather than a hand-built port, for `child-run-expansion.test.ts`'
-// reason: the hook reaches the console's own daemon call, `callDaemon`, so a stand-in
-// would prove the case answers itself rather than that a refusal off the wire reaches
-// the state a row renders.
-//
-// TWO SUBJECTS, AND THEY ARE DIFFERENT FACTS. What a SECOND press does — the read
-// stored its refusal and then admitted no second press, so a transport that was down
-// for one moment took the read away for the row's whole life — and what an answer for
-// a row that has moved on does, which is nothing.
-//
-// A `.tsx` FILE FOR A `.ts` MODULE, because the wrapper `renderHook` mounts is a
-// component and the hook resolves its bridge from context — there is no way to drive
-// it that does not render one.
+// The reasoning read over a real bridge whose answer a case decides: a second press after a
+// refusal, and an answer arriving for a row that has moved on.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -49,9 +35,8 @@ describe("useReasoningRead — a refusal is retryable and an answer is not", () 
   });
 
   it("issues a second read when a refused one is asked again", async () => {
-    // THE DEFECT, EXERCISED. The guard admitted `not-asked` alone, so a read refused by
-    // a transport that was down for one moment could never be taken again — and the
-    // control was hidden in that state, so there was nothing on screen to press either.
+    // The guard once admitted only `not-asked`, so a read refused by a briefly down transport
+    // could never be retried, and the control was hidden in that state too.
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
       wrapper: inBridge(held),
@@ -74,9 +59,8 @@ describe("useReasoningRead — a refusal is retryable and an answer is not", () 
   });
 
   it("negative control: a read that answered is not asked again", async () => {
-    // Without this, admitting a refusal would have been written as admitting anything
-    // settled — and a second press would re-ask a question whose answer is on screen,
-    // for a page this row holds no continuation cursor to extend.
+    // Without this, admitting a refusal could be written as admitting anything settled, and a
+    // second press would re-ask a question whose answer is on screen.
     const { held, recover } = bridgeFailingUntilCleared(REASONING_READ, UNAVAILABLE_REASONING);
     recover();
     const { result } = renderHook(() => useReasoningRead(SAMPLE_RUN_ID), {
@@ -120,11 +104,8 @@ interface HeldReasoningRead {
 }
 
 /**
- * A bridge whose reasoning read answers only when the case says so.
- *
- * The window between the press and the reply is the whole subject below — a row
- * re-addressed at another run while its answer is on the wire — and it is not
- * observable without a reply the case releases.
+ * A bridge whose reasoning read answers only when the case says so, to observe the window
+ * between the press and the reply.
  */
 function bridgeHoldingReasoningRead(): HeldReasoningRead {
   let releaseReply = (): void => undefined;
@@ -148,11 +129,8 @@ function bridgeHoldingReasoningRead(): HeldReasoningRead {
 
 describe("useReasoningRead — the row moves while the answer is on the wire", () => {
   it("never lands one run's reasoning on a row addressed at another", async () => {
-    // THE FAILURE, EXERCISED. A read with no signal would let a row re-addressed at a
-    // second run go on parsing the FIRST run's answer and fold it into the state the
-    // row renders — reasoning belonging to a run nobody was looking at,
-    // presented as this one's. Re-addressing the line abandons the read, so the reply
-    // installs nothing.
+    // Without the signal, a row re-addressed at a second run would fold the first run's answer
+    // into its state, presenting one run's reasoning as another's.
     const { held, release } = bridgeHoldingReasoningRead();
     const { result, rerender } = renderHook((runId: RunId) => useReasoningRead(runId), {
       initialProps: SAMPLE_RUN_ID,

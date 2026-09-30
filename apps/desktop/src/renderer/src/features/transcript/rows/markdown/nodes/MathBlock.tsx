@@ -1,54 +1,13 @@
-// The math block — the console's ONE `dangerouslySetInnerHTML` site.
-//
-// One of the console's static tripwires is that there is no `dangerouslySetInnerHTML`
-// outside the math-owned node. This is that node: a second occurrence anywhere under
-// `console/` is a review rejection.
-//
-// WHY THE EXCEPTION IS HERE AND NOWHERE ELSE. KaTeX's whole interface is a string of
-// markup; there is no token stream to build spans from, and re-implementing a TeX
-// typesetter to avoid one `innerHTML` would be far more code to trust than the one site it
-// removed. Everything else the console renders — markdown, code, ANSI — arrives as data,
-// which is why those paths need no exception and are forbidden one.
-//
-// FOUR CONSTRAINTS ON THE ADOPTED TYPESETTER — KaTeX, lazy, settled blocks only,
-// `trust: false`, MathML output first — and each of them load-bearing rather than
-// cautious:
-//
-//   • **`trust: false`** is KaTeX's own default and is passed explicitly anyway. It is
-//     what disables `\href`, `\url`, `\includegraphics`, and `\htmlClass`, the commands
-//     that let TeX source emit a link or a class into the document. The source here is
-//     model output, so the one thing it must not be able to do is reach outside the
-//     formula.
-//   • **`output: "mathml"`** means the markup is a MathML subtree — elements the browser
-//     lays out, not styled HTML — which is both the accessible rendering and the
-//     narrowest one. The row's "MathML output first" is the instruction, and taking
-//     `htmlAndMathml` would double the markup for a visual result MathML already gives.
-//   • **`strict: false`** so a formula with a warning renders rather than refusing; a
-//     user's mistake in a formula is not the console's error to raise.
-//   • **Settled blocks only.** `markdown-rules.ts` defers math until the block settles,
-//     so this component never sees a prefix. Half a formula is not a formula, and KaTeX
-//     asked to render one throws or renders something the next frame contradicts.
-//
-// AND ONE MORE THAT IS NOT NEGOTIABLE: an unparseable formula renders as its SOURCE, in
-// mono, beside a named absence — never as KaTeX's red error text, which is a stranger's
-// voice in the transcript, and never as nothing, which would read as the author having
-// written nothing.
-//
-// WHICH IS WHY `throwOnError` IS TRUE HERE AND THE CALL SITS IN A `try`. Under
-// `throwOnError: false` KaTeX does not report a parse failure at all: it RESOLVES,
-// returning its own error rendering as the markup, so the `unrenderable` arm below is
-// unreachable and the source is never shown. Coloring that rendering away — the
-// `errorColor: "transparent"` this file used to pass — does not restore the arm; it
-// paints the stranger's voice invisible and leaves a sighted reader an empty box where a
-// formula was. Throwing is the only way this component learns the difference between a
-// formula KaTeX typeset and one it gave up on, so the failure is caught and named
-// instead. `strict: false` still stands, and is a different question: a WARNING renders,
-// a parse error does not.
+// Renders TeX with KaTeX: the renderer's one `dangerouslySetInnerHTML` site, because KaTeX only
+// produces a markup string. KaTeX loads lazily, settled blocks only, with `trust: false` (model
+// output must not emit `\href`, `\url` or a class), MathML output and `strict: false`. An
+// unparseable formula shows its source beside a named absence, never KaTeX's red error text.
 
 import { useEffect, useState } from "react";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
+/** What one formula is drawn from. */
 export interface MathBlockProps {
   /** The TeX source, wire-verbatim. */
   readonly source: string;
@@ -56,6 +15,7 @@ export interface MathBlockProps {
   readonly isDisplayMode: boolean;
 }
 
+/** A formula typeset by KaTeX, or its source beside a named absence when it cannot be. */
 export function MathBlock(props: MathBlockProps): React.JSX.Element {
   const state = useKatexMarkup(props.source, props.isDisplayMode);
 
@@ -63,8 +23,7 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
     return (
       <span
         className={props.isDisplayMode ? "meridian-math meridian-math--display" : "meridian-math"}
-        // THE ONE SITE. The markup is KaTeX's MathML output over `trust: false`, and a
-        // second occurrence anywhere under `console/` is a review rejection.
+        // KaTeX's MathML output over `trust: false`.
         dangerouslySetInnerHTML={{ __html: state.mathMarkup }}
       />
     );
@@ -85,19 +44,15 @@ export function MathBlock(props: MathBlockProps): React.JSX.Element {
   );
 }
 
-/** What one render attempt produced. Closed — a nameless failure is one a card cannot explain. */
+/** What one render attempt produced. */
 type MathRenderState =
   | { readonly status: "pending" }
   | { readonly status: "rendered"; readonly mathMarkup: string }
   | { readonly status: "unrenderable" };
 
 /**
- * KaTeX's markup for this source, loaded on first use.
- *
- * The import is dynamic because the constraint says lazy, and the measurement is why it
- * matters: KaTeX is 261 KB of JavaScript and 28 KB
- * of CSS, which alone would be more than half the renderer's whole initial budget for a
- * capability most sessions never reach.
+ * KaTeX's markup for this source, loaded on first use: KaTeX is 261 KB of JavaScript plus 28 KB
+ * of CSS, more than half the renderer's initial budget, and most sessions never render math.
  */
 function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState {
   const [state, setState] = useState<MathRenderState>({ status: "pending" });
@@ -111,10 +66,8 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
           output: "mathml",
           trust: false,
           strict: false,
-          // See this file's header. `renderToString` throws on a formula it cannot
-          // parse, which is the only signal that distinguishes one from a formula it
-          // typeset — and `errorColor` is deliberately not passed, because the only
-          // thing it could color is a rendering this component never accepts.
+          // With `throwOnError: false` KaTeX resolves with its own error rendering, which would
+          // make the unrenderable arm unreachable; throwing is the only signal of a parse failure.
           throwOnError: true,
         });
         if (isMounted) {
@@ -122,11 +75,8 @@ function useKatexMarkup(source: string, isDisplayMode: boolean): MathRenderState
         }
       })
       .catch(() => {
-        // ONE ARM FOR BOTH CAUSES, and deliberately: whether KaTeX would not load or
-        // would not parse this formula, the reader is in the same position and the
-        // console's answer is the same one — the source, exactly as it was written,
-        // under an absence that says it was not typeset. A fourth state would be a
-        // distinction the reader cannot act on.
+        // One arm for both causes (KaTeX failed to load, or would not parse this formula): the
+        // reader is in the same position either way.
         if (isMounted) {
           setState({ status: "unrenderable" });
         }

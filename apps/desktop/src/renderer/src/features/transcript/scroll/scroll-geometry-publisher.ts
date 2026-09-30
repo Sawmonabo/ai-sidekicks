@@ -1,25 +1,7 @@
-// The transcript's geometry publication: what three numbers MEAN, and who is woken by them.
-//
-// ITS OWN MODULE BESIDE `scroll-chokepoint.ts`. Publishing geometry rather than polling
-// it — a replayable, instance-bound subscription — is a whole job beside the two the
-// chokepoint exists for, which are owning the scroll container and writing the offset.
-// `geometry-sample.ts` names the reader of its comparison "a publisher"; this is that
-// publisher, and it holds the emitter, the last sample, and the tolerance the two
-// derived facts come out of.
-//
-// WHAT IS HERE AND WHAT IS NOT. Here: the derivation from the three sampled numbers,
-// the held sample, the replay, and the rule about which sample is worth waking a
-// subscriber for. Not here: the SCROLL CONTAINER. This module never reads a DOM property and
-// never writes one — its caller reads `scrollTop`, `clientHeight` and `scrollHeight`
-// exactly once each and hands the three over, which is what keeps "the sample reads
-// three properties and no fourth" a claim about the module that does the reading, and
-// what keeps the one `scrollTop` write in the console in the one module
-// `apps/desktop/AGENTS.md` pins by path.
-//
-// AND IT TAKES A READING RATHER THAN A SCROLL CONTAINER for the same reason a cycle would
-// otherwise close: `ScrollContainer` is the chokepoint's own declaration, and a
-// publisher that took one would have to import the module that imports it —
-// `scroll-callers.ts` records the same shape one seam over.
+// Geometry publication: derives the tail facts from three sampled numbers, holds the last
+// sample, replays it to new subscribers, and wakes them only for a sample that says something new.
+// It takes a reading rather than a scroll container: `ScrollContainer` is declared in
+// `scroll-chokepoint.ts`, which imports this module, so taking one would close an import cycle.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
@@ -34,11 +16,9 @@ import {
 } from "./geometry-sample.js";
 
 /**
- * The three numbers a scroll container read produces, before anything is derived from them.
- *
- * The SAMPLED members of `ScrollGeometry` and nothing else: the two derived facts are
- * this module's to compute and the provenance pair is its to stamp, so a caller that
- * could supply either would be a second answer to a question decided here.
+ * The three numbers a scroll container read produces, before anything is derived.
+ * Only the sampled members of `ScrollGeometry`; the derived and provenance members are
+ * this module's to compute.
  */
 export interface ScrollGeometryReading {
   readonly scrollTop: number;
@@ -46,25 +26,20 @@ export interface ScrollGeometryReading {
   readonly contentHeight: number;
 }
 
+/** Construction inputs for a `ScrollGeometryPublisher`. */
 export interface ScrollGeometryPublisherOptions {
   readonly clock: Clock;
   /**
    * Within this many pixels of the bottom counts as the tail.
-   *
-   * Explicitly `| undefined` because the controller FORWARDS its own optional rather
-   * than resolving it — the default belongs to the module that does the arithmetic, so
-   * under `exactOptionalPropertyTypes` an absent tolerance has to be a value this
-   * option accepts rather than a key the caller has to conditionally omit.
+   * Explicitly `| undefined` so the controller can forward its own optional under
+   * `exactOptionalPropertyTypes`.
    */
   readonly tailTolerancePx?: number | undefined;
 }
 
 /**
  * Holds the transcript's last geometry sample and wakes the subscribers a new one is news for.
- *
- * One per scroll controller. A class rather than a closure because the held sample,
- * the emitter and the tolerance are one object's state and the module level is not a
- * place to keep them.
+ * One per scroll controller.
  */
 export class ScrollGeometryPublisher {
   readonly #clock: Clock;
@@ -84,10 +59,8 @@ export class ScrollGeometryPublisher {
   }
 
   /**
-   * Watch the geometry, and receive the last sample immediately.
-   *
-   * The replay is the point: a pane mounted mid-stream needs to know whether it is at the
-   * tail before the next scroll event, and polling for that is what the budgets forbid.
+   * Watch the geometry; the sink receives the last sample immediately, so a pane mounted
+   * mid-stream knows whether it is at the tail without polling.
    */
   public subscribe(sink: (geometry: ScrollGeometry) => void): Unsubscribe {
     const unsubscribe = this.#emitter.subscribe(sink);
@@ -100,12 +73,9 @@ export class ScrollGeometryPublisher {
 
   /**
    * Derive a sample from one reading, record it, and emit it if it says anything new.
-   *
-   * The emit feeds the anchor and both of the library's observers, so a sample identical
-   * to the one they already hold must not wake them. The compare is the three sampled
-   * numbers within the epsilon this frame already owns; `sampledAt` and the cause are
-   * provenance and decide nothing. Returns the sample either way, so a caller does not
-   * take a second reading to find out what was published.
+   * A sample equal to the held one (three numbers within the epsilon; `sampledAt` and cause
+   * are provenance) must not wake the anchor and the virtualizer observers. Returns the
+   * sample either way.
    */
   public publish(reading: ScrollGeometryReading, cause: GeometryChangeCause): ScrollGeometry {
     const distanceFromTailPx = Math.max(
@@ -131,13 +101,8 @@ export class ScrollGeometryPublisher {
   }
 
   /**
-   * Drop every subscriber.
-   *
-   * SUBSCRIBERS ONLY, and the held sample deliberately stays: a disposed controller
-   * must wake nobody, and the last sample is the answer to what the pane's box WAS,
-   * which a diagnostic reading it afterwards is entitled to. Nothing republishes it —
-   * a subscription taken after this replays it and then hears nothing, because the
-   * controller that fed this publisher has no scroll container to sample.
+   * Drop every subscriber. The held sample stays: a disposed controller must wake nobody,
+   * and a later subscription replays the last sample and then hears nothing.
    */
   public clear(): void {
     this.#emitter.clear();

@@ -1,12 +1,6 @@
-// Superseded bands, held to the off-by-one and the epoch blindness that still render.
-//
-// A band off by one dims the exact turn a person rewound to — which is the turn they
-// are looking at — and an epoch-blind band dims another run's rows, because
-// re-execution reuses ordinals. Neither throws, so each clean assertion here is
-// paired with a negative control that fails when the rule is removed.
-//
-// SPLIT FROM `system-message-classifier.test.ts`, which drives the seam classifier. The two share no
-// table (`system-message-classifier.ts` states why), so they are two subjects rather than one file.
+// An off-by-one band dims the turn the person rewound to, and an epoch-blind band dims another
+// run's rows (re-execution reuses ordinals). Neither throws, so each assertion is paired with
+// a negative control that fails when the rule is removed.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -15,7 +9,6 @@ import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-s
 import { SupersededIndex, deriveSupersededBands, supersededBandKey } from "./superseded-bands.js";
 
 describe("superseded bands — the rewind floor is EXCEEDS and nothing else", () => {
-  /** Three turns and a boundary that rewound to the second of them. */
   function rewoundWindow(): readonly TimelineRow[] {
     return [
       runRow({ id: "a1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
@@ -37,8 +30,7 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
   });
 
   it("negative control: the row AT the cutoff is the retained floor and survives", () => {
-    // Off by one here dims the exact turn a person rewound to — which is the turn
-    // they are looking at.
+    // Off by one here dims the exact turn the person rewound to.
     const index = new SupersededIndex(rewoundWindow());
     expect(index.isSuperseded("a2")).toBe(false);
     expect(index.isSuperseded("a1")).toBe(false);
@@ -93,9 +85,7 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
   });
 
   it("takes the LOWEST applicable cutoff when a row is reached by two", () => {
-    // `SupersededMarker` is defined as the FIRST accepted rollback that rewound
-    // the surviving history containing the row, so a later, higher cutoff never
-    // displaces an earlier, lower one.
+    // The first accepted rollback wins: a later, higher cutoff never displaces an earlier one.
     const bands = deriveSupersededBands([
       runRow({
         id: "a5",
@@ -145,15 +135,14 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
       throw new Error("the rewound window derived no band");
     }
     expect(index.bandKeyByRowId().get("a3")).toBe(supersededBandKey(band));
-    // The retained floor and the turns before it are in no band at all, so the fold
-    // can never take a row the rewind left standing.
+    // The retained floor and earlier turns are in no band, so the fold never takes them.
     expect(index.bandKeyByRowId().has("a2")).toBe(false);
     expect(index.bandKeyByRowId().has("a1")).toBe(false);
   });
 
   it("keeps two rewinds of one epoch apart, and both apart from a bare run id", () => {
-    // The key shares one map with the run group header's, which IS a bare run id, so a
-    // collision here would draw a rewind band where a run group belongs.
+    // The key shares one map with run group header keys (bare run ids); a collision would draw a
+    // rewind band where a run group belongs.
     const index = new SupersededIndex([
       runRow({ id: "a2", sequence: 1, type: "run.running", runId: "run-a", position: 2 }),
       runRow({ id: "a4", sequence: 2, type: "run.running", runId: "run-a", position: 4 }),

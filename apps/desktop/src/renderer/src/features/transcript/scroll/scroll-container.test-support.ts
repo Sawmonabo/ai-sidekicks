@@ -1,35 +1,22 @@
-// A scroll container a test can drive, at geometry a DOM shim cannot answer.
-//
-// `happy-dom` reports zero for `clientHeight`, `scrollHeight`, and `scrollTop`, so a
-// case about where the reader is standing would pass over a viewport with no
-// dimensions at all. This is the layout engine's stand-in and never the stand-in for
-// a module under test: the chokepoint, the controller, the measurement ledger, and
-// the virtualizer bound to them are all the shipped ones.
-//
-// It lives beside the chokepoint rather than in `tests/helpers/` because it is this
-// feature's own scaffolding — the `ScrollContainer` shape is `scroll-chokepoint.ts`' —
-// and only this feature's tests need it.
-//
-// The offset is held in a closure and reached through an accessor pair rather than a
-// plain field, for a reason worth stating: a fixture assigning the offset by name
-// would be indistinguishable from a second scroll writer to anyone sweeping the console
-// for one, and the honest answer is not to exempt the file but to write the field once,
-// where the scroll container's own accessor already is.
+// A scroll container a test can drive at real geometry: `happy-dom` reports zero for
+// `clientHeight`, `scrollHeight` and `scrollTop`.
+// The offset lives behind an accessor pair so the fixture is not a second `scrollTop` writer.
 
 import { type ScrollContainer } from "./scroll-chokepoint.js";
 
+/** A `ScrollContainer` with settable geometry that counts scroll listeners. */
 export interface CountingScrollContainer extends ScrollContainer {
   readonly scrollListenerCount: number;
-  /** Move the offset the way a reader does, and tell the listeners about it. */
+  /** Move the offset the way a reader does, and notify the scroll listeners. */
   moveTo(offset: number): void;
   /**
-   * Change the box the scroll container reports, the way a window or pane resize does — and
-   * tell nobody, because a resize fires no scroll event. What notices is the
-   * controller's own overflow pass, which a caller drives on the frozen clock.
+   * Change the reported box the way a pane resize does. No scroll event fires; the
+   * controller's overflow pass on the frozen clock is what notices.
    */
   resizeTo(clientHeight: number, scrollHeight: number): void;
 }
 
+/** Starting geometry for `createCountingScrollContainer`, in pixels. */
 export interface CountingScrollContainerOptions {
   readonly initialScrollTop?: number;
   readonly clientHeight?: number;
@@ -40,6 +27,7 @@ const DEFAULT_INITIAL_SCROLL_TOP_PX = 40;
 const DEFAULT_CLIENT_HEIGHT_PX = 300;
 const DEFAULT_SCROLL_HEIGHT_PX = 4000;
 
+/** Builds a `CountingScrollContainer` with the given starting geometry. */
 export function createCountingScrollContainer(
   options: CountingScrollContainerOptions = {},
 ): CountingScrollContainer {

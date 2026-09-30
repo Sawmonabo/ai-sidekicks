@@ -1,29 +1,7 @@
-// Child runs and handoffs, as structure the transcript can draw.
-//
-// WHAT WAS MISSING. A row carries `childRunSummary` and nothing rendered it: the
-// run group header raised an incompleteness marker over a whole run group and the child
-// run itself — its state, how much it holds, and which node produced it — reached no
-// row at all. A handoff was worse off still: work changing hands read as an ordinary
-// receipt in the log beside every other row.
-//
-// TWO ENTRY KINDS, ONE INDEX, because they are asked the same way at the same moment:
-// the feed's row renderer holds one window and asks, per row, "is this row one of the
-// transcript's own treatments". Two indexes would be two passes over one window for two
-// lookups that are always both performed.
-//
-// A HANDOFF IS A PROJECTION ENTRY AND NEVER AN EVENT TYPE. `handoff` is an entry the
-// projection produces; no `handoff` event type
-// is registered anywhere and nothing here looks for one. What the console has is the
-// set of wire types that mean work changed hands, and this directory is that set's
-// one home: it is the only view that draws a handoff, so the vocabulary sits
-// beside the renderer that spends it rather than in a second table somewhere else.
-//
-// EVERY MEMBER IS READ AS ITSELF. `fromActor`, `toActor` and `reason` are
-// the three members the entry carries; each is read off the projected
-// payload through the console's one wire-string reader and rendered verbatim or
-// rendered as an absence. Nothing here composes a sentence, maps an unrecognized value
-// onto a phrase, or infers a `toActor` from a row's own actor — an inferred handoff
-// target is a claim about who has the work, made by the renderer.
+// Child runs and handoffs as structure the transcript can draw. One index serves both because the
+// feed asks both questions per row. A handoff is a projection entry, never an event type; its
+// `fromActor`, `toActor` and `reason` are read off the payload and rendered verbatim or as an
+// absence, never inferred.
 
 import {
   type ChildRunSummary,
@@ -32,19 +10,15 @@ import {
 } from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
-// The transcript's one open-payload reader, which answers the `rollback_boundary` arm's
-// TYPED payload with an empty record rather than widening it into a bag.
+// The one open-payload reader; it answers the `rollback_boundary` arm's typed payload with an
+// empty record.
 import { projectedPayload } from "@renderer/store/session-events/wire-payload.js";
 import { SubagentAnchorIndex } from "./subagent-anchors.js";
 
 /**
- * The wire types that mean work changed hands: a child run taking a piece of it.
- *
- * Typed as the wire union rather than as bare strings, so a member the contract does
- * not register fails to compile here instead of silently matching no row. Declared
- * here because this directory holds the console's one handoff renderer, so the
- * vocabulary and the treatment that spends it are one module — the shape
- * `apps/desktop/AGENTS.md` asks for ("two sides of one seam share a module").
+ * The wire types that mean work changed hands: a child run taking a piece of it. Typed as the
+ * wire union so a member the contract does not register fails to compile rather than match no
+ * row.
  */
 const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = ["subagent.started", "subagent.completed"];
 
@@ -52,34 +26,24 @@ const HANDOFF_WIRE_TYPES: readonly SessionEventType[] = ["subagent.started", "su
 export interface ChildRunEntry {
   readonly rowId: string;
   /**
-   * The LATEST summary this window carries for the child, whichever row carried it.
-   *
-   * The anchor above and this are different questions: where the card is drawn, and
-   * what it says. A child summarized again after progress or termination is the same
-   * child observed later, so the figures a reader sees — its state, how much it holds,
-   * whether the reading is complete, and which node produced it — are the newest ones,
-   * while the card itself stays where it was.
+   * The latest summary this window carries for the child, whichever row carried it. The card
+   * stays anchored at `rowId` while its state, size, completeness and producing node are the
+   * newest.
    */
   readonly summary: ChildRunSummary;
   /** The row's own actor, or `undefined` where the row named none. */
   readonly actorId: string | undefined;
   readonly timestamp: string;
   /**
-   * The later rows that re-summarized this same child run, in log order.
-   *
-   * Carried rather than drawn: the card is anchored at the row that first named the
-   * child, so a child re-summarized twenty times is one card that updates rather than
-   * twenty cards down the log. The list is what makes that claim checkable, and the
-   * last entry in it is the row {@link summary} came from.
+   * The later rows that re-summarized this child run, in log order; the last is the row
+   * {@link summary} came from. One card updates rather than one card per re-summary.
    */
   readonly resummarizedRowIds: readonly string[];
 }
 
 /**
- * One row that hands work from one actor to another.
- *
- * Every member but `rowId`, `wireType` and `timestamp` is optional on the wire, and
- * each absent one is rendered as an absence rather than filled in.
+ * One row that hands work from one actor to another. Every member but `rowId`, `wireType` and
+ * `timestamp` is optional on the wire, and an absent one renders as an absence.
  */
 export interface HandoffEntry {
   readonly rowId: string;
@@ -90,21 +54,15 @@ export interface HandoffEntry {
   readonly reason: string | undefined;
   readonly timestamp: string;
   /**
-   * The child run this handoff opened, when the row names one.
-   *
-   * What the handoff thread is drawn to: the child run's run group header is keyed by
-   * its run id, so a handoff that names one can be threaded to the run group it
-   * started and one that does not draws no thread rather than an invented one.
+   * The child run this handoff opened, when the row names one. A handoff that names one is threaded
+   * to that run group's header (keyed by run id); one that does not draws no thread.
    */
   readonly childRunId: string | undefined;
 }
 
 /**
- * Child-run and handoff structure over one loaded window.
- *
- * A class for the reason `SupersededIndex` and `RunGroupIndex` are: the answers
- * are asked once per row per frame and derived once per window, and the derivation
- * is a pure fold that a test can drive with no DOM at all.
+ * Child-run and handoff structure over one loaded window, derived once and asked per row per
+ * frame. The derivation is a pure fold that a test can drive with no DOM.
  */
 export class ChildRunIndex {
   readonly #rows: readonly TimelineRow[];
@@ -147,12 +105,9 @@ export class ChildRunIndex {
 }
 
 /**
- * Every row carrying a child-run summary, in log order.
- *
- * The member is on `TimelineRowBase`, so it reaches all four arms and this reads it
- * without narrowing on `kind`: a child run summarized onto a `general` row is still a
- * child run, and dropping it because the row carries no run attribution would hide
- * background work — which this transcript forbids in terms.
+ * Every row carrying a child-run summary, in log order. The member is on `TimelineRowBase`, so
+ * this reads it without narrowing on `kind`: dropping a child run on a `general` row would hide
+ * background work.
  */
 export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly ChildRunEntry[] {
   const entriesByChildRunId = new Map<string, ChildRunEntryUnderConstruction>();
@@ -164,13 +119,8 @@ export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly Ch
     const held = entriesByChildRunId.get(row.childRunSummary.runId);
     if (held !== undefined) {
       held.resummarizedRowIds.push(row.id);
-      // THE LATEST OBSERVATION IS WHAT THE CARD SHOWS, and the FIRST row is where it
-      // shows it. The two are different questions and the fold used to answer both
-      // with the first row: a child that progressed, terminated, gained a producing
-      // node or lost transcript entries kept rendering the state, count, completeness
-      // and provenance of the moment it was first named, with every later reading in
-      // the window discarded. Only the summary moves; the anchor, its actor and its
-      // timestamp stay the row's, so the card does not travel down the log.
+      // The latest observation is what the card shows, at the first row's anchor. Only the summary
+      // moves; the anchor, actor and timestamp stay the first row's so the card does not travel.
       held.summary = row.childRunSummary;
       continue;
     }
@@ -188,28 +138,20 @@ export function deriveChildRunEntries(rows: readonly TimelineRow[]): readonly Ch
 }
 
 /**
- * Every handoff in the window, in log order.
- *
- * A row qualifies on its `type` alone — the projected event type, which is free-form
- * by contract and compared against the one table above. A row that carries handoff
- * members under some other type is NOT a handoff: the entry set is the projection's
- * to decide, and admitting a row on the presence of a `toActor` member would let any
- * payload become one.
+ * Every handoff in the window, in log order. A row qualifies on its `type` alone: one carrying
+ * handoff members under another type is not a handoff, since the projection decides the set.
  */
 export function deriveHandoffEntries(rows: readonly TimelineRow[]): readonly HandoffEntry[] {
   const anchors = new SubagentAnchorIndex(rows);
   const entries: HandoffEntry[] = [];
   for (const row of rows) {
-    // `some` rather than `includes`: a row's `type` is the free-form string the
-    // timeline contract carries, and the vocabulary above is the narrowed wire union.
+    // `some` rather than `includes`: `type` is the free-form contract string, the table is the
+    // narrowed union.
     if (!HANDOFF_WIRE_TYPES.some((wireType) => wireType === row.type)) {
       continue;
     }
-    // ANCHORED, WHERE THE ROW NAMES A SUBAGENT. A `subagent.started` and the
-    // `subagent.completed` that follows it are one handoff observed twice, and the
-    // anchor index decides which row it is drawn at — first-wins, so a completion, a
-    // resume and a compaction inside the child all leave the card where it was. A row
-    // that names no subagent identity is anchored by nothing and draws its own entry.
+    // A `subagent.started` and its `subagent.completed` are one handoff observed twice; the anchor
+    // index picks the row it is drawn at. A row naming no subagent draws its own entry.
     if (!anchors.isAnchoredElsewhere(row.id)) {
       const payload = projectedPayload(row);
       entries.push({
@@ -227,12 +169,8 @@ export function deriveHandoffEntries(rows: readonly TimelineRow[]): readonly Han
 }
 
 /**
- * One entry while the fold is still running.
- *
- * The two members a later row may still move are writable HERE and readonly on
- * {@link ChildRunEntry}, so the fold can advance them and a consumer cannot: the
- * published type is what every reader holds, and the pass that builds it is the only
- * thing that ever writes one.
+ * One entry while the fold runs: `summary` is writable here and readonly on {@link ChildRunEntry},
+ * so only the fold moves it.
  */
 interface ChildRunEntryUnderConstruction {
   readonly rowId: string;
@@ -243,13 +181,9 @@ interface ChildRunEntryUnderConstruction {
 }
 
 /**
- * The child run a handoff row opened, or `undefined`.
- *
- * The summary is consulted FIRST because it is a parsed contract shape and the
- * payload member is a free-form read: where a row carries both, the one the schema
- * validated wins. Neither is invented from the row's own `runId`, which on these rows
- * is the PARENT — threading a handoff to its own parent run group would draw a line
- * from a row to the run group it already sits in.
+ * The child run a handoff row opened, or `undefined`. The parsed summary wins over the free-form
+ * payload member. Neither falls back to the row's own `runId`, which is the parent: that would
+ * thread a handoff to the run group it already sits in.
  */
 function childRunIdOf(row: TimelineRow): string | undefined {
   return row.childRunSummary?.runId ?? readWireString(projectedPayload(row)["childRunId"]);

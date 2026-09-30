@@ -20,8 +20,7 @@ describe("transcript commands — the chords", () => {
   const commandIds = new Set(createTranscriptCommands(IDLE_ACTS).map((command) => command.id));
 
   it("binds only commands this module actually contributes", () => {
-    // A chord naming an id nothing registers is a keypress that silently does
-    // nothing, which is invisible until somebody presses it.
+    // A chord naming an id nothing registers is a keypress that silently does nothing.
     for (const binding of TRANSCRIPT_KEY_BINDINGS) {
       expect(commandIds.has(binding.commandId)).toBe(true);
     }

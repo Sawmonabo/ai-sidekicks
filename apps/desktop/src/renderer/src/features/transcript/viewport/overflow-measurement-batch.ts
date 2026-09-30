@@ -1,61 +1,30 @@
-// Triggers accumulate; one pre-paint frame runs the pass. Nothing here knows what
-// the pass measures.
+// Batches re-measurement of clamped rows: several triggers in one frame (container resize,
+// webfont swap, an explicit request) run the pass once, in a clock frame rather than a
+// microtask so the pass reads settled layout.
 //
-// The transcript clamps rows, and a clamped row's real height is knowable only after
-// layout. Three unrelated things want that re-measured — the scroll container resized, a
-// webfont swapped, a caller asked outright — and each can fire several times in one
-// frame. Running the pass per trigger reads a layout the browser has not settled
-// and pays for the read once per trigger; this batch turns all three into one pass.
-//
-// WHY IT IS ITS OWN MODULE rather than three private methods on the scroll
-// controller. Two reasons, and the second is structural:
-//
-//   • Batching is not scrolling. A scroll fires none of these triggers, so the
-//     arming, the single-frame coalescing, and the cancellation are one idea that
-//     none of the chokepoint's four decisions contains.
-//   • It carries NO domain type. The geometry and the scroll container are the chokepoint's
-//     vocabulary and the chokepoint imports this module, so an import back would be
-//     the cycle the layering gate refuses. What the pass does is a `() => void` the
-//     caller closes over, and the observed subject is narrowed to an element here —
-//     which is the whole of what this module ever needed to know.
-//
-// The frame comes from the clock seam rather than from a microtask, so the pass
-// reads a layout the browser has settled rather than one it is still computing.
+// Carries no domain type: the scroll chokepoint imports this module, so importing its
+// vocabulary back would be a cycle. The pass is a `() => void` the caller closes over.
 
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 
+/** Dependencies of an `OverflowMeasurementBatch`: the clock and the callbacks it drives. */
 export interface OverflowMeasurementBatchOptions {
   readonly clock: Clock;
   /** Run once per batched frame. Composed by the caller, opaque here. */
   readonly runPass: () => void;
   /**
-   * Run SYNCHRONOUSLY on each resize observation, before the frame is armed.
+   * Runs synchronously on each resize observation, before the frame is armed.
    *
-   * The seam exists because the two jobs the resize trigger used to share have
-   * different tolerances for being late. Re-measuring clamped rows may coalesce —
-   * that is what this module is for. Publishing the box may not: it is the only
-   * way a viewport height reaches the library's rect, so a window whose box
-   * changed and whose publication was deferred ranges against a box that no
-   * longer exists until something else happens to publish.
-   *
-   * DEFERRING IT WAS NOT MERELY LATE, IT WAS INDEFINITE. `ManualClock.advance`
-   * excludes frames deliberately — `runFrame` is a separate control, so that a
-   * frozen clock never reports a paint its holder did not release — and a fixture
-   * build hands the console exactly that clock (the bridge resolution's, read through
-   * `useBridgeClock`). So in every fixture tier an armed frame waits for a call
-   * the workload has no reason to make: measured on the endurance run, the transcript
-   * published geometry ONCE, from `attach`, and spent two hundred churn cycles
-   * ranging a 149 px viewport against the 32 px box it had at mount.
-   *
-   * A read and a notify only. The three properties this publishes are the ones
-   * `scroll-chokepoint.ts` already declares affordable per scroll event at 60 Hz,
-   * and a resize observation is where the platform expects a layout read; a
-   * publication that reports the same box as the last one wakes nobody, which is
-   * what keeps a resize this causes from arming another.
+   * Re-measuring clamped rows may coalesce, but publishing the box may not: it is the only
+   * way the viewport height reaches the library's rect. A deferred frame is also indefinite
+   * under a manual clock, which never runs frames unless told to; the endurance run
+   * published geometry once and ranged a 149 px viewport against the 32 px box it had at
+   * mount. A read and a notify only, and a publication of an unchanged box wakes nobody.
    */
   readonly publishOnResize: () => void;
 }
 
+/** Coalesces every trigger inside one frame into a single overflow re-measurement pass. */
 export class OverflowMeasurementBatch {
   readonly #clock: Clock;
   readonly #runPass: () => void;
@@ -71,12 +40,7 @@ export class OverflowMeasurementBatch {
     this.#publishOnResize = options.publishOnResize;
   }
 
-  /**
-   * Ask for a pass. Every request inside one frame costs one pass.
-   *
-   * The armed handle IS the accumulator: a second request while one is armed is
-   * already represented by the frame that is coming.
-   */
+  /** Asks for a pass; every request inside one frame costs one pass. */
   public request(): void {
     if (this.#disposed || this.#armedFrame !== undefined) {
       return;
@@ -88,14 +52,10 @@ export class OverflowMeasurementBatch {
   }
 
   /**
-   * Re-run the pass whenever the observed subject resizes.
+   * Re-runs the pass whenever the observed subject resizes.
    *
-   * Typed as `object` rather than as the caller's scroll container: this module has no
-   * business knowing what a scroll container is, and the only property it needs is
-   * the one the narrowing below establishes — that the subject happens to be an
-   * element the platform can observe. A subject that is not one, which is what a
-   * unit tier drives, is skipped rather than handed to an observer that could never
-   * feed it.
+   * Typed as `object` so the module needs no scroll-container type; a subject that is not an
+   * element (a unit tier drives one) is skipped.
    */
   public observeResize(candidate: object): void {
     if (this.#disposed || !(candidate instanceof Element)) {
@@ -104,15 +64,13 @@ export class OverflowMeasurementBatch {
     const observerHost = globalThis as { readonly ResizeObserver?: typeof ResizeObserver };
     const ObserverConstructor = observerHost.ResizeObserver;
     if (ObserverConstructor === undefined) {
-      // A DOM shim without a resize observer. The pass still runs on font loading
-      // and on the caller's own explicit requests, so the absence costs a trigger
-      // rather than the feature.
+      // A DOM shim without a resize observer: the pass still runs on font loading and
+      // explicit requests.
       return;
     }
     const observer = new ObserverConstructor(() => {
-      // Published first and armed second, which is the ordering the seam is about:
-      // the publication is what the window ranges against and must not wait on a
-      // frame, while the pass behind it may.
+      // Publish first, then arm: the window ranges against the publication, so it must not
+      // wait on a frame.
       this.#publishOnResize();
       this.request();
     });
@@ -120,12 +78,7 @@ export class OverflowMeasurementBatch {
     this.#resizeObserver = observer;
   }
 
-  /**
-   * Re-run the pass once the webfonts have swapped.
-   *
-   * A clamped row's height is a function of its font, so every measurement taken
-   * before the swap describes a layout that no longer exists.
-   */
+  /** Re-runs the pass once the webfonts have swapped; a clamped row's height depends on them. */
   public observeFontLoading(): void {
     const fonts = (globalThis as { readonly document?: FontLoadingDocument }).document?.fonts;
     if (fonts === undefined) {
@@ -137,11 +90,8 @@ export class OverflowMeasurementBatch {
   }
 
   /**
-   * Stop observing, and cancel a frame that has not run.
-   *
-   * Every read is null-safe and the whole method is repeatable: release runs on an
-   * unmount that may follow a failed attach, so the observer and the armed frame
-   * may each be absent independently.
+   * Stops observing and cancels a frame that has not run. Repeatable and null-safe: it runs on
+   * an unmount that may follow a failed attach.
    */
   public release(): void {
     this.#resizeObserver?.disconnect();
@@ -160,11 +110,8 @@ export class OverflowMeasurementBatch {
 }
 
 /**
- * Fonts, as much of the API as this module uses.
- *
- * Declared rather than reached through `document.fonts` typing, because the console
- * runs under a DOM shim in the unit tier where the set is absent, and an optional
- * declaration is the honest statement of that.
+ * The part of `document.fonts` this module uses; declared optional because the unit tier's DOM
+ * shim has no font set.
  */
 interface FontLoadingDocument {
   readonly fonts?: { readonly ready: Promise<unknown> };

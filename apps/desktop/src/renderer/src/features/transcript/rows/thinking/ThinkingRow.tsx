@@ -1,33 +1,7 @@
-// The reasoning row's body: the three arms, the streaming tail, and the one control.
-//
-// A mount may supply `body` to replace it. `reasoning-reading.ts` carries the reading this
-// component renders.
-//
-// WHAT IT RENDERS, and why it is a real view rather than a placeholder. Two of the three
-// availability arms carry no entries at all, which means the whole of what a reader sees
-// for them is the sentence the state itself supplies. Showing nothing for those two would
-// be the exact defect the discriminant exists to prevent — `unavailable` and
-// `policy_redacted` rendering as one empty body — so it renders the arms.
-//
-// THE TAIL AND THE READ ARE TWO DIFFERENT THINGS AND ARE NOT RANKED AGAINST EACH
-// OTHER. The tail is text the reveal engine is publishing right now, cut to the
-// newest lines; the read is what the daemon says the durable reasoning holds. A turn
-// that is still streaming has a tail and no read, a settled turn has a read and no
-// tail, and a turn that streams while a reader expands it has both — so both render,
-// in that order, rather than one hiding the other. Ranking them would mean a reader
-// who expanded mid-turn lost sight of the arriving lines.
-//
-// ONE COMPONENT, AND THE FIVE PARTS BELOW IT ARE RENDER HELPERS RATHER THAN
-// COMPONENTS. A `.tsx` module declares one component, and none of these five holds
-// state, an effect, or an identity a reader could mount independently — each is a
-// branch of this body's own render, so each is a plain function returning a node,
-// which is the shape `primitives/absence/Nothing.tsx` already uses for the same reason.
-//
-// THE CONTROL IS FAIL-CLOSED ABOUT ELIGIBILITY. The read is run-scoped; a row with
-// no run attribution is a row the read could never answer for, so the control is
-// ABSENT rather than present-and-disabled. A disabled control is a claim that the
-// action exists and is not currently permitted, which is a different sentence from
-// "this row is not addressable by that read at all" — and the second is the true one.
+// The reasoning row's body: the streaming tail, the read's result, and the one expand control.
+// The tail and the read are not ranked: a turn expanded mid-stream shows both, tail first.
+// The control is absent, not disabled, on a row with no run attribution: the read is run-scoped,
+// and a disabled control would claim an action that exists but is not permitted.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
@@ -84,12 +58,11 @@ export function ThinkingRow(props: ThinkingRowProps): React.JSX.Element {
 }
 
 /**
+/**
  * The newest lines of a turn that is still streaming, or nothing.
  *
- * `aria-live` is deliberately absent. The lines change many times a second while a
- * turn streams, and a live region here would read a reasoning trace aloud over
- * whatever a person was doing; the settlement is what gets announced, by the
- * views that own announcements.
+ * `aria-live` is deliberately absent: the lines change many times a second, and a live region
+ * would read a reasoning trace aloud over whatever a person was doing.
  */
 function renderReasoningTail(liveText: string | undefined): React.ReactNode {
   if (liveText === undefined) {
@@ -102,11 +75,8 @@ function renderReasoningTail(liveText: string | undefined): React.ReactNode {
   return (
     <ol className="meridian-reasoning-surface__tail" aria-label="the newest reasoning lines">
       {lines.map((line, index) => (
-        // The window slides, so a line's TEXT is not stable across frames and its
-        // position in the window is. Keying on the text would remount every row each
-        // time a line arrived; keying on the position remounts none of them, and the
-        // list is a fixed-size window rather than a reorderable collection, which is
-        // the case an index key is correct for.
+        // The window slides, so a line's text is unstable across frames while its position is.
+        // An index key remounts nothing, and this fixed-size window is never reordered.
         <li key={index} className="meridian-reasoning-surface__tail-line">
           {line}
         </li>
@@ -161,10 +131,8 @@ function renderAvailabilityArm(response: ReasoningSurfaceReadResponse): React.Re
       title={copy.title}
       detail={copy.detail}
       {...(response.availability === "policy_redacted"
-        ? // VERBATIM, in the wire's own figure. The reason is the daemon's sentence
-          // about its own policy and the console neither paraphrases nor summarizes
-          // it — rendering it as prose of the console's own would make a redaction
-          // read as the console's opinion of one.
+        ? // Verbatim, in the wire's own figure: the reason is the daemon's sentence about its own
+          // policy, and paraphrasing it would make a redaction read as the console's opinion.
           { action: <WireFigure value={response.policyReason} title="Policy reason" /> }
         : {})}
     />
@@ -187,17 +155,9 @@ function renderReasoningEntries(entries: readonly ReasoningEntry[]): React.React
 /**
  * The one offer this row makes.
  *
- * Absent where the read cannot address the row, and absent once the read has
- * ANSWERED: a second press would re-ask a question that has an answer on screen, and
- * this row holds no continuation cursor to spend on the bounded page's tail.
- *
- * A REFUSAL IS NOT AN ANSWER, so the control survives one: a refusal never hides the
- * control that produced it. Hiding it would leave a read refused by a transport that
- * was down for a moment on screen with no way to ask again, and the only route back
- * would be to scroll the row out of the mounted range and let the virtualizer discard
- * the state. The
- * label says which of the two presses this is, because "Show reasoning" over a
- * refusal already on screen reads as an offer that was never taken.
+ * Absent where the read cannot address the row, and once the read has answered: a second press
+ * would re-ask an answered question, and this row holds no continuation cursor. A refusal keeps
+ * the control so a briefly down transport can be retried; the label says which press it is.
  */
 function renderExpandControl(
   runId: RunId | undefined,

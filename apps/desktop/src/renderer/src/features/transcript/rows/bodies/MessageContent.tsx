@@ -1,11 +1,6 @@
-// The agent's reply, drawn honestly in each of its three states: not asked for, asked and
-// unavailable, asked and available.
-//
-// A truncated body renders its prefix and says so (`TruncationNotice`); an unreadable one
-// keeps the turn at its position with the unavailable marker (`UnavailableBody`). Neither
-// is silent: an empty body reads as "the author said nothing" and a dropped row as "the
-// turn never happened", and both are false. `ToolOutput` draws a tool's result the same
-// way through the same two notices.
+// The agent's reply in its three states: not asked for, unavailable, available. A truncated body
+// renders its prefix and says so; an unreadable one keeps the turn at its position with the
+// unavailable marker, because an empty body or a dropped row would misreport the turn.
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
@@ -49,8 +44,7 @@ export function MessageContent(props: MessageContentProps): React.JSX.Element {
   }
 
   if (props.content === undefined) {
-    // `not-checked`, not `not-loaded`: nothing was asked for, so nothing is arriving and a
-    // skeleton would promise a body a beat later.
+    // `not-checked`, not `not-loaded`: nothing was asked for, so a skeleton would promise a body.
     return <Nothing kind="not-checked" placement="inline" title="This body has not been read." />;
   }
 
@@ -70,11 +64,8 @@ export function MessageContent(props: MessageContentProps): React.JSX.Element {
 }
 
 /**
- * The body's bytes through the renderer its kind names.
- *
- * Escapes are stripped for the markdown and plain arms and never for the ANSI one: the
- * terminal pipeline removes residue after `anser` has parsed the styling out of it, and a
- * pre-pass would take the styling with it.
+ * The body's bytes through the renderer its kind names. Escapes are stripped for the markdown
+ * and plain arms but not the ANSI one, where `anser` parses the styling out first.
  */
 function renderBodyText(
   props: MessageContentProps,
@@ -87,7 +78,7 @@ function renderBodyText(
   }
   const declaredText = withoutResidualEscapes(body);
   if (kind === "plain-text") {
-    // No parse and no footnotes: the sheet keeps the line breaks and runs of spaces.
+    // Verbatim: no parse, no footnotes.
     return <p className="meridian-machine-body__plain">{declaredText}</p>;
   }
   return (

@@ -1,17 +1,12 @@
-// One settled markdown block, memoized.
-//
-// Its own module for the one-component rule, and the boundary it draws is the reason
-// the streaming body stays cheap: a settled block's nodes and context are
-// referentially stable across every later frame, so the comparison skips the whole
-// subtree — including a code block that would otherwise re-consult the color span cache
-// on every token that arrives after it. `memo` earns its place here and would not on
-// the volatile tail, which is re-parsed by construction.
+// One settled markdown block, memoized. Its nodes and context are referentially stable across
+// frames, so the comparison skips the whole subtree, including a code block's span-cache lookups.
 
 import type { RootContent } from "mdast";
 import { memo } from "react";
 
 import { MarkdownNodes, type MarkdownRenderContext } from "../markdown/nodes/MarkdownNodes.js";
 
+/** What one settled block is drawn from. */
 export interface SettledBlockProps {
   readonly nodes: readonly RootContent[];
   readonly context: MarkdownRenderContext;

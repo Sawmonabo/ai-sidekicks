@@ -1,7 +1,4 @@
-// The find field.
-//
-// The counter is asserted from the side of the walk: the walkable set and the true
-// total are different numbers, and the position is of the walkable one.
+// The find field. The counter's denominator is the walkable set, not the uncapped total.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -13,7 +10,6 @@ import { runRow } from "../../timeline-rows.test-support.js";
 /** More matches than the three-row window below can walk, so the cap arm is real. */
 const UNCAPPED_TOTAL = 940;
 
-/** Three rows, all matching "hit", so a query produces a walkable list. */
 function matchingResult(): FindResult {
   return findInTranscript(
     [
@@ -46,7 +42,6 @@ function matchingResult(): FindResult {
   );
 }
 
-/** What a mounted field lets a case observe. */
 interface FindHarness {
   readonly field: HTMLElement;
   readonly acts: readonly string[];
@@ -94,9 +89,8 @@ describe("find field — the counter is the console's own reading", () => {
   });
 
   it("names the walkable set as the denominator when the walk is capped", () => {
-    // The denominator is the set the next/previous walk can actually reach. It read
-    // "1 of 940" over a three-match walk, so the walk wrapped at three while the
-    // field advertised 940 and matches 4-940 were unreachable in silence.
+    // The denominator is the set the walk can reach; the uncapped total would advertise matches
+    // no step lands on.
     const capped: FindResult = { ...matchingResult(), totalMatchCount: UNCAPPED_TOTAL };
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
     expect(field.textContent).toContain("1 of 3");
@@ -141,8 +135,7 @@ describe("find field — the walk", () => {
 
 describe("find field — the chord puts the caret in the field", () => {
   it("takes focus and selects the query when the field is asked for", () => {
-    // The chord's whole point is that the next keystroke enters the query. Before
-    // this the field mounted with focus still on the transcript or the palette.
+    // The chord's point is that the next keystroke enters the query.
     const harness = renderField({ query: "hit" });
     expect(document.activeElement).toBe(harness.input);
     expect(harness.input.selectionStart).toBe(0);
@@ -184,9 +177,7 @@ describe("find field — the chord puts the caret in the field", () => {
   });
 
   it("negative control: a re-render that did not open the field leaves focus alone", () => {
-    // Without this the two cases above would pass over an effect with no dependency
-    // list, which would snatch focus back on every keystroke and every result
-    // recompute.
+    // Guards against an effect with no dependency list, which would snatch focus per keystroke.
     const { rerender } = render(
       <FindBox
         query="hit"
@@ -237,9 +228,8 @@ describe("find field — the query and the close", () => {
   });
 
   it("renders the query it was given, and not the one the matcher trimmed", () => {
-    // The field shows what somebody typed; `result.query` is the trimmed form the
-    // matcher actually ran. Conflating them would delete a trailing space out
-    // from under the cursor.
+    // The field shows what was typed; `result.query` is the trimmed form. Conflating them would
+    // delete a trailing space under the cursor.
     const harness = renderField({ query: "hit " });
     expect(harness.input.value).toBe("hit ");
   });

@@ -1,9 +1,6 @@
-// The seams the adopted virtualizer is constructed with, driven one at a time.
-//
-// Each case is the same claim in a different place: the library reaches machinery
-// this frame already owns, rather than the platform. What the library's DEFAULT
-// would have done is what makes each one worth asserting — an unnamed `scrollTo`, a
-// second scroll listener, a second `ResizeObserver` on the same box.
+// The seams the virtualizer is constructed with, driven one at a time. Each must reach
+// machinery this frame owns rather than the platform (an unnamed `scrollTo`, a second scroll
+// listener, a second `ResizeObserver` on the same box).
 
 import { describe, expect, it } from "vitest";
 
@@ -14,10 +11,8 @@ import { ViewportController } from "./viewport-controller.js";
 import type { TranscriptRowVirtualizer } from "./virtualizer-options.js";
 
 /**
- * The instance argument the two observer seams ignore.
- *
- * Both read the chokepoint rather than the virtualizer — which is the property under
- * test — so the parameter is unused and typed rather than constructed.
+ * The instance argument the two observer seams ignore; both read the chokepoint, so it is typed
+ * rather than constructed.
  */
 const UNUSED_VIRTUALIZER = undefined as unknown as TranscriptRowVirtualizer;
 
@@ -30,9 +25,8 @@ function attachedController(): { controller: ViewportController } {
 
 describe("the virtualizer seams — what the library is allowed to reach", () => {
   it("routes the library's own scroll write through the chokepoint, named", () => {
-    // This library is adopted because its scroller is ours.
-    // The default `scrollToFn` calls `scrollElement.scrollTo`, which names neither a
-    // caller nor an amount — exactly the write the chokepoint exists to prevent.
+    // The default `scrollToFn` calls `scrollElement.scrollTo`, which names neither a caller nor
+    // an amount: the write the chokepoint exists to prevent.
     const { controller } = attachedController();
     controller.seams.scrollToFn(120, { adjustments: 30 });
     expect(controller.scroll.writeCount("measurement-compensation")).toBe(1);
@@ -49,9 +43,8 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
   });
 
   it("feeds the library's offset and rect from ONE scroll listener", () => {
-    // The library's own `observeElementOffset` and `observeElementRect` each attach
-    // their own listener and observer. Two sources for one box is how two readers
-    // start disagreeing about where the reader is standing.
+    // The library's own offset and rect observers attach their own listener and observer; two
+    // sources for one box let two readers disagree about where the reader is.
     const scrollContainer = createCountingScrollContainer();
     const controller = new ViewportController({ clock: new ManualClock() });
     controller.attach(scrollContainer);
@@ -66,9 +59,8 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
   });
 
   it("gives the library a new viewport rect when the box changes without a scroll", () => {
-    // The library's own `observeElementRect` runs a `ResizeObserver`; this frame
-    // replaces it, so the height a resize produces reaches the virtualizer through
-    // this subscription or through nothing at all.
+    // The library's own rect observer runs a `ResizeObserver`; this frame replaces it, so a
+    // resize reaches the virtualizer through this subscription or not at all.
     const scrollContainer = createCountingScrollContainer({ clientHeight: 300 });
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });
@@ -84,8 +76,8 @@ describe("the virtualizer seams — what the library is allowed to reach", () =>
   });
 
   it("negative control: a pass over an unchanged box gives it nothing to re-lay-out", () => {
-    // Otherwise the case above would pass over a seam that republished on every
-    // pass, which is a full re-layout of the window per measurement frame.
+    // Otherwise the case above passes over a seam that republished on every pass, a full
+    // re-layout per measurement frame.
     const scrollContainer = createCountingScrollContainer({ clientHeight: 300 });
     const clock = new ManualClock();
     const controller = new ViewportController({ clock });
