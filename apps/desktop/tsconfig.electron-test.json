@@ -42,11 +42,7 @@
   "include": [
     "tests/e2e/**/*",
     "tests/endurance/**/*",
-    // The scaffolding's own suites: two of them reach the launcher and the palette helper below,
-    // which hand `page.evaluate` browser callbacks, so a Node-lib program cannot hold them.
-    "tests/helpers/**/*.test.ts",
     "tests/helpers/**/*.test-support.ts",
-    "tests/helpers/deferred-rejection.ts",
     "tests/helpers/electron-harness.ts",
     "tests/helpers/launch-readiness.ts",
     // The palette helper both launching tiers open through. It hands `page.evaluate` a callback
@@ -63,20 +59,5 @@
     // `window.desktopBridge`, so the preload global's declaration is part of this program too.
     "src/renderer/src/desktop-bridge.d.ts"
   ],
-  // The renderer unit tests these globs reach are typechecked by the renderer's
-  // test config, the list `vitest/tier-projects.ts` runs under the renderer project.
-  "exclude": [
-    "dist",
-    "node_modules",
-    "fixtures/**/*.test.ts",
-    "tests/scenarios/**/*.test.ts",
-    "tests/helpers/scenario-contract-check/**/*.test.ts",
-    "tests/helpers/fixture-bridge.test.ts",
-    "tests/helpers/CommittedFrameRecorder.test.tsx",
-    "tests/helpers/settle.test.tsx",
-    "tests/helpers/mount-app.test.ts",
-    "tests/helpers/live-region.test.ts",
-    "tests/endurance/streaming-lanes.test.ts",
-    "tests/endurance/transcript-endurance.test-support.test.ts"
-  ]
+  "exclude": ["dist", "node_modules"]
 }

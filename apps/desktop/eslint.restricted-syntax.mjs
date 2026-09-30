@@ -127,21 +127,18 @@ export const TIME_READING_SELECTORS = [
 /**
  * The files the time bans are lifted for, and the only ones.
  *
- * Both are negative controls that have to call the banned API to show that `Date.parse` answers a
+ * Each is a negative control that has to call the banned API to show that `Date.parse` answers a
  * number for a value RFC 3339 refuses. An exempt file is exempt from every selector composed for
  * it, so a `Date.parse` landing in one would stay green; keep the set to files that need the call.
  */
-export const TIME_READING_EXEMPT_FILES = [
-  "src/renderer/src/lib/instant.test.ts",
-  "src/renderer/src/lib/wire-figures.time.test.ts",
-];
+export const TIME_READING_EXEMPT_FILES = ["src/renderer/src/lib/instant.test.ts"];
 
 /**
  * The renderer's exported-collection ban.
  *
  * Its own export because it is a different claim about a different subject (module shape rather
  * than wire readings) and `eslint.config.mjs` composes the two into different unions: the time bans
- * are lifted for the two negative controls above, and this one is lifted for nothing.
+ * are lifted for the negative controls above, and this one is lifted for nothing.
  */
 export const EXPORTED_COLLECTION_SELECTOR = {
   // A collection published through a module door, which the state-and-views rules in

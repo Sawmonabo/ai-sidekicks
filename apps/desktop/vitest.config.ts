@@ -112,11 +112,9 @@ export default defineConfig({
           // beside it is a plain unit whose environment is this project's, not a DOM's. `build/**`
           // and `scripts/**` are the package's two executable trees, with units co-located beside
           // the executable as in `src/main/**`, spawned as commands from a node environment.
-          // `tests/helpers/**` joins them because those suites drive Node scaffolding with no DOM
-          // and no need for a renderer bundle (the managed Electron child, process-tree readers,
-          // bounded cleanup, launch deadline, artifact readers driven with doubles, heap-snapshot
-          // writer, release fuse wire); read the directory for the roster. The renderer helpers'
-          // tests in the same folder run under the renderer project's DOM and are excluded here.
+          // `tests/helpers/**` joins them because a helper's own suite drives Node scaffolding with
+          // no DOM and no need for a renderer bundle. The renderer helpers' tests in the same folder
+          // run under the renderer project's DOM and are excluded here.
           include: [
             "src/main/**/*.test.ts",
             "src/preload/**/*.test.ts",

@@ -38,22 +38,12 @@ import { PATH_ALIASES } from "./path-aliases.js";
 pinScreenshotTierUpdateMode();
 
 /**
- * The renderer unit tests that sit outside `src/renderer/src/`: the fixtures' own
- * tests, the scenario tests, the tests of the renderer helpers in `tests/helpers/`,
- * and the tests of the two endurance support modules. They run under the renderer
- * project's DOM, so the Node projects whose globs reach the same folders exclude them.
+ * The renderer unit tests that sit outside `src/renderer/src/`: the scenario contract check in
+ * `tests/helpers/`. They run under the renderer project's DOM, so the Node projects whose globs
+ * reach the same folders exclude them.
  */
 export const RENDERER_TESTS_OUTSIDE_SOURCE: readonly string[] = [
-  "fixtures/**/*.test.ts",
-  "tests/scenarios/**/*.test.ts",
   "tests/helpers/scenario-contract-check/**/*.test.ts",
-  "tests/helpers/fixture-bridge.test.ts",
-  "tests/helpers/CommittedFrameRecorder.test.tsx",
-  "tests/helpers/settle.test.tsx",
-  "tests/helpers/mount-app.test.ts",
-  "tests/helpers/live-region.test.ts",
-  "tests/endurance/streaming-lanes.test.ts",
-  "tests/endurance/transcript-endurance.test-support.test.ts",
 ];
 
 /** Every tier that runs under Vitest, in the order they run, before the shared plugins. */

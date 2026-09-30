@@ -40,16 +40,7 @@
     "src/**/*.d.ts",
     // The renderer unit tests outside `src/`, the list `vitest/tier-projects.ts`
     // runs under the renderer project (`RENDERER_TESTS_OUTSIDE_SOURCE`).
-    "../../fixtures/**/*.test.ts",
-    "../../tests/scenarios/**/*.test.ts",
-    "../../tests/helpers/scenario-contract-check/**/*.test.ts",
-    "../../tests/helpers/fixture-bridge.test.ts",
-    "../../tests/helpers/CommittedFrameRecorder.test.tsx",
-    "../../tests/helpers/settle.test.tsx",
-    "../../tests/helpers/mount-app.test.ts",
-    "../../tests/helpers/live-region.test.ts",
-    "../../tests/endurance/streaming-lanes.test.ts",
-    "../../tests/endurance/transcript-endurance.test-support.test.ts"
+    "../../tests/helpers/scenario-contract-check/**/*.test.ts"
   ],
   "exclude": []
 }
