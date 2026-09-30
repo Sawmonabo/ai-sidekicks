@@ -184,8 +184,17 @@ describe("McpFixtureBody", () => {
     const { container } = await renderSettledMcpPage(operationsServing([ISSUE_TRACKER]));
     // The two legs disagree and the row's chip carries the daemon's aggregate; folding the legs
     // by eye would have to pick one.
-    expect(rowNamed(container, "issue-tracker")?.textContent).toContain("needs-auth");
-    expect(rowNamed(container, "issue-tracker")?.textContent).toContain("connected");
+    const row = rowNamed(container, "issue-tracker");
+    const chipLabels = (selector: string): readonly (string | null)[] =>
+      [...(row?.querySelectorAll(`${selector} .meridian-chip__label`) ?? [])].map(
+        (label) => label.textContent,
+      );
+    expect(chipLabels(".meridian-mcp__row-identity")).toStrictEqual([
+      "codex",
+      "project",
+      "needs-auth",
+    ]);
+    expect(chipLabels(".meridian-mcp__legs")).toStrictEqual(["needs-auth", "connected"]);
   });
 
   it("withholds the trust control on the row whose trust store could not be read", async () => {
