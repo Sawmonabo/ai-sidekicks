@@ -1,0 +1,54 @@
+// A code block's source with the daemon's color spans painted over it.
+//
+// Each span is painted as a class that reads a theme token, never as a color written on
+// the element, so a theme or color-scheme switch repaints the same spans in place. The
+// text between spans is left as text, so the block's characters are the same before
+// and after its colors arrive and nothing on the line moves when they do.
+
+import {
+  HIGHLIGHT_SPAN_CLASSES,
+  HIGHLIGHT_SPAN_WIDTH,
+  type HighlightLanguage,
+} from "@ai-sidekicks/contracts";
+
+import { useCodeSpans } from "./hooks/useCodeSpans.js";
+
+export interface HighlightedSourceProps {
+  readonly source: string;
+  readonly language: HighlightLanguage;
+}
+
+export function HighlightedSource(props: HighlightedSourceProps): React.JSX.Element {
+  const spans = useCodeSpans(props.source, props.language);
+  return <>{spans === undefined ? props.source : paintSpans(props.source, spans)}</>;
+}
+
+/**
+ * The source cut at its spans' edges, each span wrapped in its class.
+ *
+ * Offsets and lengths count UTF-16 code units, the unit `slice` cuts in, so a character
+ * outside the basic plane before a span moves nothing after it.
+ */
+function paintSpans(source: string, spans: Uint32Array): React.ReactNode[] {
+  const painted: React.ReactNode[] = [];
+  let cursor = 0;
+  for (let index = 0; index < spans.length; index += HIGHLIGHT_SPAN_WIDTH) {
+    const offset = spans[index] ?? 0;
+    const end = offset + (spans[index + 1] ?? 0);
+    const spanClass = HIGHLIGHT_SPAN_CLASSES[spans[index + 2] ?? 0];
+    if (offset > cursor) {
+      painted.push(source.slice(cursor, offset));
+    }
+    painted.push(
+      // The index is the span's identity: the list is replaced whole, never reordered.
+      <span key={index} className={`meridian-code__${String(spanClass)}`}>
+        {source.slice(offset, end)}
+      </span>,
+    );
+    cursor = end;
+  }
+  if (cursor < source.length) {
+    painted.push(source.slice(cursor));
+  }
+  return painted;
+}

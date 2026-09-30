@@ -13,7 +13,7 @@
  * Each entry must be a query or mutation the daemon's method map names: the reply
  * registry types every entry with `DaemonParams` and `DaemonResult`, which accept only
  * a `DaemonMethod`, so a misspelled method or a subscription is a compile error there.
- * Grouped by namespace: driver, timeline, session and presence.
+ * Grouped by namespace: driver, timeline, session, presence and highlight.
  */
 export const REGISTERED_DAEMON_METHODS = [
   "driver.interruptRun",
@@ -27,6 +27,7 @@ export const REGISTERED_DAEMON_METHODS = [
   "session.create",
   "session.read",
   "presence.read",
+  "highlight.read",
 ] as const;
 
 /** One daemon method the console calls. */

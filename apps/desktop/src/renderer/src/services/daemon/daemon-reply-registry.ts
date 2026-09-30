@@ -10,7 +10,7 @@
 // THE SET IS CLOSED, AT COMPILE TIME. `REGISTERED_DAEMON_METHODS`
 // (`daemon-method-contract.ts`) names the methods and is checked against the method
 // map; the table below is built from that list alone, each entry looked up in its
-// namespace's descriptor table, so a name the four tables do not hold is a type
+// namespace's descriptor table, so a name none of those tables holds is a type
 // error at the lookup. Nothing here pairs a schema with a method: the descriptor
 // that owns the method already did.
 //
@@ -25,6 +25,7 @@
 
 import {
   DRIVER_METHOD_DESCRIPTORS,
+  HIGHLIGHT_METHOD_DESCRIPTORS,
   PRESENCE_METHOD_DESCRIPTORS,
   SESSION_METHOD_DESCRIPTORS,
   TIMELINE_METHOD_DESCRIPTORS,
@@ -59,6 +60,7 @@ const CONSOLE_NAMESPACE_DESCRIPTORS = {
   ...TIMELINE_METHOD_DESCRIPTORS,
   ...SESSION_METHOD_DESCRIPTORS,
   ...PRESENCE_METHOD_DESCRIPTORS,
+  ...HIGHLIGHT_METHOD_DESCRIPTORS,
 };
 
 /**

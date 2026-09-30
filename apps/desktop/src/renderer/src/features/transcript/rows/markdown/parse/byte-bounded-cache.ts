@@ -1,19 +1,16 @@
 // A content-addressed cache bounded in BYTES rather than in entries.
 //
-// Two callers, one implementation, hoisted on the second use per
-// `apps/desktop/AGENTS.md`: the settled-block parse cache and the highlighter's token
-// cache. Both hold values whose sizes span orders of magnitude — a one-line paragraph
-// and a pasted file are one entry each and not one cost each — so an entry count is
-// the wrong bound for either and would be the wrong bound written twice.
+// Two callers, one implementation: the settled-block parse cache and the code block's
+// color span cache. Both hold values whose sizes span orders of magnitude — a
+// one-line paragraph and a pasted file are one entry each and not one cost each — so an
+// entry count is the wrong bound for either and would be the wrong bound written twice.
 //
-// WHY IT MEASURES THE KEY AND NOT THE VALUE. The key is the source text, and the value
-// is what parsing or tokenizing that text produced. The console cannot measure a node
-// tree's retained size without walking it, and walking it on every insert would cost
-// more than the cache saves; the source length is exact, free, and proportional to
-// what the value costs — shiki's retained tokens measure 21.5x their source precisely
-// because that ratio holds. The BOUND is
-// therefore stated in source bytes and each caller's own constant is sized with its
-// own ratio in mind.
+// WHAT IT CHARGES. Always the key, which is the source text the cache holds on to.
+// The value too, when its caller can measure it: a node tree's retained size cannot be
+// had without walking it, and walking it on every insert would cost more than the cache
+// saves, so the parse cache charges its key alone and sizes its bound with that in
+// mind; a span list is one typed array whose byte length is exact and free, so the
+// span cache charges both and its bound is what the cache really holds.
 //
 // EVICTION IS LEAST-RECENTLY-USED, and it is a `Map` insertion-order rotation rather
 // than a heap: a read moves its entry to the back, an insert appends, and eviction
@@ -35,6 +32,7 @@ export interface ByteBoundedCacheStats {
 
 export class ByteBoundedCache<TValue> {
   readonly #byteCap: number;
+  readonly #measureValueBytes: ((value: TValue) => number) | undefined;
   readonly #entriesByKey = new Map<
     string,
     { readonly value: TValue; readonly byteLength: number }
@@ -42,8 +40,10 @@ export class ByteBoundedCache<TValue> {
 
   #retainedByteCount = 0;
 
-  public constructor(byteCap: number) {
+  /** `measureValueBytes`, where given, adds each value's own bytes to its key's. */
+  public constructor(byteCap: number, measureValueBytes?: (value: TValue) => number) {
     this.#byteCap = byteCap;
+    this.#measureValueBytes = measureValueBytes;
   }
 
   /**
@@ -70,7 +70,7 @@ export class ByteBoundedCache<TValue> {
    * no cache at all on exactly the input that motivated the bound.
    */
   public set(key: string, value: TValue): void {
-    const byteLength = measureUtf8ByteLength(key);
+    const byteLength = measureUtf8ByteLength(key) + (this.#measureValueBytes?.(value) ?? 0);
     if (byteLength > this.#byteCap) {
       return;
     }

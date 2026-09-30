@@ -2,23 +2,38 @@
  *
  * One sheet for the components under `nodes/`, `footnotes/` and `highlight/`, imported
  * by the transcript's chunk root.
- *
- * The code-token colors the code block spends are colors rather than boxes
- * and live in `styles/palette.ts`; the note below the first banner says why.
  */
 
 /* --- Cards: the code palette -------------------------------------------- */
 
 /*
- * The five code-token colors live in `styles/palette.ts` and are emitted by
- * `styles/generate-css.ts`, not declared here, so they are fitted into the sRGB gamut
- * and `styles/contrast.test.ts` measures them against the well they are painted on.
- *
- * The theme in `code-theme.ts` emits a reference to each token kind's
- * custom property as each token's foreground rather than a color, which is what
- * makes one token cache serve both schemes: a cached line is theme-independent, and
- * flipping the scheme repaints through the cascade.
+ * A code block paints the daemon's five span classes, each through the theme token
+ * that colors it, so a theme or color-scheme switch repaints the same spans in place.
+ * The token values live in `styles/palette.ts` and are emitted by
+ * `styles/generate-css.ts`, fitted into the sRGB gamut and measured by
+ * `styles/contrast.test.ts` against the well they are painted on. A comment is painted
+ * in the faint text color, which `--meridian-code-comment` names.
  */
+
+.meridian-code__keyword {
+  color: var(--meridian-code-keyword);
+}
+
+.meridian-code__name {
+  color: var(--meridian-code-name);
+}
+
+.meridian-code__string {
+  color: var(--meridian-code-string);
+}
+
+.meridian-code__number {
+  color: var(--meridian-code-number);
+}
+
+.meridian-code__comment {
+  color: var(--meridian-code-comment);
+}
 
 /* --- Cards: markdown prose ---------------------------------------------- */
 
@@ -189,12 +204,6 @@
   font-size: var(--meridian-text-sm);
   line-height: 1.5;
   tab-size: 2;
-}
-
-.meridian-code__line {
-  display: block;
-  min-height: 1lh;
-  white-space: pre;
 }
 
 /* --- Cards: math -------------------------------------------------------- */

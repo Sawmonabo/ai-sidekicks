@@ -1,9 +1,9 @@
 // The transcript cards' named figures that are not ceilings.
 //
-// THE CEILINGS ARE NOT HERE. The seven the cards spend — the two cache byte caps, the
-// highlight and worker thresholds, the footnote registry's cap, the tool summary's, and
-// the ANSI span cap — are declared in `features/transcript/cards/card-caps.ts`, each
-// carrying the rationale it was written with.
+// THE CEILINGS ARE NOT HERE. The five the cards spend — the two cache byte caps, the
+// footnote registry's cap, the tool summary's, and the ANSI span cap — are declared in
+// `features/transcript/cards/card-caps.ts`, each carrying the rationale it was written
+// with.
 //
 // What stays is a figure nothing is checked against. A number that appears inline in this subtree and is not a layout
 // literal is still a review rejection — the rationale is the point, not the constant.
