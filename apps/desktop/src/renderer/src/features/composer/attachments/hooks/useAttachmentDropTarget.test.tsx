@@ -1,6 +1,5 @@
-// Drop and paste over the composer region, held to the one guard that matters most:
-// a paste carrying no file is left entirely alone, because the message input lives
-// inside this same region and pasting text into it is the commonest act there is.
+// A paste carrying no file is left entirely alone, because the message input lives inside the
+// composer region and pasting text into it is the commonest act there.
 
 import { useRef } from "react";
 import { act, render } from "@testing-library/react";
@@ -14,7 +13,7 @@ function fileNamed(name: string): File {
   return new File(["payload"], name, { type: "text/plain" });
 }
 
-/** Dispatch one carrying event and hand it back, so a case can read what it settled. */
+/** Dispatch one carrying event and return it so a case can read what it settled. */
 function dispatch(target: HTMLElement, type: string, property: string, value: unknown): Event {
   const event = eventCarrying(type, property, value);
   act(() => {
@@ -70,8 +69,7 @@ describe("the composer's drop and paste binding", () => {
   });
 
   it("negative control: a paste carrying no file is not touched at all", () => {
-    // Without this, a binding that called `preventDefault()` on every paste would pass
-    // the case above and silently break pasting text into the message line.
+    // Without this, a binding that called `preventDefault()` on every paste would pass above.
     const { region, delivered } = mountProbe();
     const event = dispatch(region, "paste", "clipboardData", { files: fileListOf([]) });
     expect(delivered).toHaveLength(0);
@@ -83,8 +81,8 @@ describe("the composer's drop and paste binding", () => {
     const transfer = fileTransferOf([fileNamed("notes.md")]);
     dispatch(region, "dragenter", "dataTransfer", transfer);
     expect(region.getAttribute("data-dragging")).toBe("true");
-    // Entering a child fires `dragenter` again before the parent's `dragleave`, which
-    // is exactly the pair a flag would get wrong.
+    // Entering a child fires `dragenter` again before the parent's `dragleave`, the pair a
+    // flag would get wrong.
     dispatch(region, "dragenter", "dataTransfer", transfer);
     dispatch(region, "dragleave", "dataTransfer", transfer);
     expect(region.getAttribute("data-dragging")).toBe("true");

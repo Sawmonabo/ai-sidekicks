@@ -1,38 +1,8 @@
-// The chunk loop: one bounded slice at a time, from the offset the daemon last
-// acknowledged.
-//
-// SPLIT FROM `attachment-ingest-stream.ts` BECAUSE IT IS A LOOP AND THEY ARE CALLS.
-// Open and complete are one request each with one answer to read; this is a loop that
-// slices a `Blob`, reads bytes off the user's own disk, encodes them, and moves
-// an offset that only the daemon may move — with two acknowledgements that are unusable
-// and a payload read that can fail for a reason no port call can. Its own subject, its own
-// module.
-//
-// THE OFFSET IS THE DAEMON'S, NOT THIS CLIENT'S. Each chunk is answered with
-// `{ ingestId, receivedBytes }` — the spooled running total of DECODED bytes, which is
-// the bound the daemon enforces — and the ledger advances to THAT rather than by the
-// slice this client happened to send. Charting the local count made the progress figure
-// a record of what went on the wire, which stops being the same number the moment
-// anything is dropped or replayed, and left the client unable to say which stream had
-// even been acknowledged. `attachment-ingest-acknowledgement.ts` owns the two answers that
-// are unusable and why each one stops the stream instead of being rounded off.
-//
-// THE BYTES ARE SENT, NOT DESCRIBED. Each chunk carries the base64 of one slice read
-// out of the user's own `Blob`. A request that described a size and carried no
-// payload would let this client advance its ledger and call Complete over a stream the
-// daemon received nothing on — minting an empty artifact rather than the file. The
-// slice bounds memory too: `ARTIFACT_CHUNK_MAX_BYTES` raw bytes at a time, so a
-// hundred-megabyte upload never holds more than one chunk.
-//
-// RETRY REPLAYS, IT DOES NOT RESTART. A replayed chunk — same sequence number, same
-// bytes — is acknowledged without being re-appended, so a lost response resumes at the
-// current offset rather than restarting the upload. The two codes whose disposition
-// differs are named and classified in `attachment-policy.ts`; this file acts on that
-// and invents no policy.
-//
-// A USER CAN ACT WHILE A CALL IS IN FLIGHT, so every continuation re-reads the
-// ledger after its await and proceeds only if the entry still stands where it stood. A
-// stream stopped mid-chunk would otherwise run on to completion.
+// The chunk loop: one bounded slice of the user's `Blob` at a time, from the offset the daemon
+// last acknowledged. The offset is the daemon's: the ledger advances to the reply's spooled
+// decoded total, never by the slice sent. Each chunk carries the slice's base64, at most
+// `ARTIFACT_CHUNK_MAX_BYTES` raw bytes, so memory stays bounded. A replayed chunk (same
+// sequence number, same bytes) is acknowledged without re-appending, so retry resumes.
 
 import { ARTIFACT_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
 
@@ -49,13 +19,14 @@ import { isSendingAttachmentIngestEntry } from "../attachment-shapes.js";
 /** The refusal a payload that can no longer be read leaves on its entry. */
 export const PAYLOAD_READ_REFUSAL_CODE = "payload-read-rejected";
 
+/** What one chunk stream is given to send an open stream's bytes. */
 export interface AttachmentChunkStreamOptions {
   readonly port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly clock: Clock;
   readonly ledger: AttachmentIngestEntries;
 }
 
-/** One open stream's bytes, sent cap-sized slice by cap-sized slice. */
+/** One open stream's bytes, sent in slices of at most one chunk cap. */
 export class AttachmentChunkStream {
   readonly #port: Pick<AttachmentIngestPort, "writeChunk">;
   readonly #clock: Clock;
@@ -68,23 +39,14 @@ export class AttachmentChunkStream {
   }
 
   /**
-   * `AttachmentIngestChunk`, one bounded slice at a time from the current offset.
+   * Send the stream's remaining bytes one slice at a time from the ledger's offset, resolving
+   * `true` when all are acknowledged and `false` when the stream stopped.
    *
-   * The ledger IS the offset, so a resumed stream re-reads and re-sends the slice that
-   * was in flight when the response was lost and the daemon acknowledges it without
-   * re-appending. Which is also why the sequence number is derived from the ledger
-   * rather than counted in a field of its own: every chunk but the last is exactly one
-   * cap wide and the loop ends on the last, so the count of acknowledged chunks is the
-   * offset divided by the cap — and a replay recomputes the same number from the same
-   * offset, which is exactly what the daemon's idempotent acknowledgement matches on.
-   *
-   * AND THE OFFSET MOVES ONLY WHERE THE DAEMON SAYS IT DID. The ledger takes the reply's
-   * own `receivedBytes` once the reply has been checked against the stream this chunk
-   * was sent on; an acknowledgement that names another stream, carries no total, or
-   * fails to advance is a refusal on this ingest rather than a number rounded into the
-   * ledger. The advance check is also what makes this loop terminate on the daemon's
-   * answer: the offset is the ledger, so a total that stood still would re-slice from
-   * the same place for as long as the daemon kept answering.
+   * A resumed stream re-sends the slice that was in flight when a response was lost. The
+   * sequence number is the offset divided by the cap, since every chunk but the last is exactly
+   * one cap wide, so a replay recomputes the number the daemon's idempotent acknowledgement
+   * matches on. An acknowledgement for another stream, without a total, or that fails to
+   * advance is a refusal: a total that stood still would re-slice from the same offset forever.
    */
   public async send(localId: string): Promise<boolean> {
     for (;;) {
@@ -93,9 +55,8 @@ export class AttachmentChunkStream {
       if (
         entry === undefined ||
         stamp === undefined ||
-        // The bytes live on the sending arm of the entry only, so this narrowing is
-        // what reaches them at all: an entry that settled underneath this loop has
-        // released its payload and there is nothing left here to slice.
+        // The bytes live on the sending arm only; an entry that settled underneath this
+        // loop has released its payload.
         !isSendingAttachmentIngestEntry(entry) ||
         entry.ingestId === undefined
       ) {
@@ -108,10 +69,9 @@ export class AttachmentChunkStream {
         return true;
       }
       const slice = payload.slice(offset, offset + ARTIFACT_CHUNK_MAX_BYTES);
-      // The one local failure: a `Blob` off a picker points at a file on disk, and a file
-      // that was moved, deleted or made unreadable between two chunks gives a rejecting
-      // `arrayBuffer()`.
-      // Left alone, that upload would sit at `ingesting` with the file already gone.
+      // The one local failure: a picker's `Blob` points at a file on disk, and one moved,
+      // deleted or made unreadable between chunks rejects `arrayBuffer()`. Left alone, the
+      // upload would sit at `ingesting` with the file gone.
       let bytes: Uint8Array;
       try {
         bytes = new Uint8Array(await slice.arrayBuffer());
@@ -135,15 +95,13 @@ export class AttachmentChunkStream {
       });
       const settled = this.#ledger.currentIfUnchanged(localId, stamp);
       if (settled === undefined) {
-        // Abandoned or removed mid-chunk. `abandon` already asked for this spool back,
-        // because the ingest id was in the ledger for it to find.
+        // Abandoned or removed mid-chunk; `abandon` already asked for this spool back.
         return false;
       }
       const acknowledgement = readChunkAcknowledgement(settled, ingestId, acknowledged);
       if (acknowledgement.status === "unusable") {
-        // `restart` rather than the retry-in-place default, and it is passed rather than
-        // mapped: that default assumes this client and the daemon still agree on the
-        // offset, which is precisely the assumption this answer has broken.
+        // `restart` is passed rather than the retry-in-place default, which assumes client
+        // and daemon still agree on the offset.
         writeIngestRefusal(
           this.#ledger,
           localId,

@@ -1,15 +1,7 @@
-// Which readings a card is given about an attachment, and whose each one is.
-//
-// The rule under test on the MEDIA TYPE is that NEITHER side gates the other: a payload
-// the browser could not type still shows the daemon's finding, and a declaration with
-// nothing derived yet still shows. The two cases where both exist are the interesting
-// ones — an agreeing pair collapses to one chip rather than printing the same string
-// twice, and a disagreement keeps both with the derived reading leading.
-//
-// The NAME is the other axis and the rule there is the opposite: the derived name
-// replaces the declaration outright, because the caller's string survives as manifest
-// metadata and nowhere else. Both the card's visible face and its accessible label read
-// this one function, which is what stops them from answering the same question two ways.
+// Neither side gates the other on the media type: a payload the browser could not type still
+// shows the daemon's finding, and an agreeing pair collapses to one chip while a disagreement
+// keeps both with the derived one leading. The derived name replaces the declaration outright,
+// and the face and the accessible label read the one function.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -74,8 +66,8 @@ describe("attachment media type — which readings the card is given", () => {
   });
 
   it("negative control: neither reading present yields no reading at all", () => {
-    // Without this, a function that always answered with something would satisfy every
-    // case above and would put an empty chip on an attachment nobody has typed.
+    // Without this a function that always answered something would put an empty chip on an
+    // untyped attachment.
     expect(attachmentMediaTypeReadings(ingestEntry(undefined, undefined))).toEqual([]);
   });
 });
@@ -116,8 +108,8 @@ describe("attachment name — the derived name replaces the declaration", () => 
   });
 
   it("negative control: before the daemon has read a byte, the declaration is the name", () => {
-    // Without this, a function that always answered the derived member would report an
-    // absent name on every in-flight attachment — the arm every card starts on.
+    // Without this, always answering the derived member would report an absent name on every
+    // in-flight attachment.
     expect(attachmentNameReading(namedEntry("notes.md", undefined))).toStrictEqual({
       name: "notes.md",
       provenance: "declared",

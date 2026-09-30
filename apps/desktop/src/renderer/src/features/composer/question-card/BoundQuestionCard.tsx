@@ -8,12 +8,12 @@ import { type QuestionReading } from "@renderer/store/session-events/question-re
 import { useQuestionAnswer, type ResolveQuestionCall } from "./hooks/useQuestionAnswer.js";
 import { QuestionCard } from "./QuestionCard.js";
 
+/** What the mount hands the bound question card. */
 export interface BoundQuestionCardProps {
-  /** The question this row is blocked on, read off the row by the component that mounts it. */
+  /** The question this row is blocked on. */
   readonly question: QuestionReading;
-  /** Every question of the record, read from the row's personal-data half by the mount. */
+  /** Every question of the record, from the row's personal-data half. */
   readonly questions: QuestionAskedPersonalData["questions"];
-  /** The call that answers it. */
   readonly resolveQuestion: ResolveQuestionCall;
 }
 

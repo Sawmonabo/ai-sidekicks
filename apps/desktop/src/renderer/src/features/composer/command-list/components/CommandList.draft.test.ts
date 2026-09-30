@@ -1,10 +1,6 @@
-// The command list against a draft that is written from somewhere else.
-//
-// Its own file because the claim is the inverse of the one in `CommandList.test.ts`:
-// those cases type into the line and watch the list follow, and these write the draft
-// through the store and assert the list follows THAT — the composer's line is a view
-// of a draft it does not own, and a list that only tracked keystrokes would be right
-// about the common case and wrong about every restore and rebind.
+// The command list against a draft written from somewhere else. The composer's line is a view
+// of a draft it does not own, so a list that only tracked keystrokes would be wrong about every
+// restore and rebind.
 
 import { describe, expect, it } from "vitest";
 import { UNMATCHED_PREFIX, mountComposer, typeIntoLine } from "../command-list.test-support.js";
@@ -17,9 +13,8 @@ describe("CommandList — the list follows every write to the draft", () => {
   }
 
   it("closes when a write replaces the line with ordinary text", async () => {
-    // The finding: the command list subscribed to the line's native `input` event, which
-    // fires for typing and for nothing else. A write through the draft store does not
-    // fire it, so the popover stood open over a line that had stopped being a command.
+    // The list subscribed to the line's native `input` event, which fires for typing only, so
+    // a draft-store write left the popover open over a line that had stopped being a command.
     const mounted = await mountComposer({ bridge: recordingBridge([]), focusedPane: undefined });
     await typeIntoLine(mounted.line, UNMATCHED_PREFIX);
     expect(isPopoverOpen(mounted.container)).toBe(true);
@@ -31,9 +26,7 @@ describe("CommandList — the list follows every write to the draft", () => {
   });
 
   it("opens when a write hands back a slash line", async () => {
-    // The other direction of the same defect: the write brings the command line back
-    // and the list has to come with it, or the person is typing into a filter nothing
-    // is showing them.
+    // The other direction: the write brings the command line back and the list must follow.
     const mounted = await mountComposer({ bridge: recordingBridge([]), focusedPane: undefined });
     await mounted.writeDraft("ship the parser fix");
     expect(isPopoverOpen(mounted.container)).toBe(false);
@@ -58,8 +51,7 @@ describe("CommandList — the list follows every write to the draft", () => {
   });
 
   it("negative control: typing still opens and closes it", async () => {
-    // Without this the cases above would hold over a hook that had stopped reading the
-    // line altogether, which closes the popover for good.
+    // Without this, a hook that stopped reading the line altogether would pass above.
     const mounted = await mountComposer({ bridge: recordingBridge([]), focusedPane: undefined });
 
     await typeIntoLine(mounted.line, "/");

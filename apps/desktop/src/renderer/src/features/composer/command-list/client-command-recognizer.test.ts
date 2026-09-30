@@ -1,9 +1,5 @@
-// The two answers, and that they stay two.
-//
-// The claim worth a unit is the second one's SCOPE: recognition is decided against
-// every id this window has registered, visible or not, so a command that exists and
-// does not apply here is never reported as a name nobody has heard of. That is the
-// difference between "go where it applies" and "you typed it wrong".
+// Recognition is decided against every id this window has registered, visible or not, so a
+// command that exists but does not apply here is never reported as a name nobody has heard of.
 
 import { describe, expect, it } from "vitest";
 
@@ -54,8 +50,7 @@ describe("recognizeClientCommand", () => {
   });
 
   it("negative control: a name the provider also publishes resolves as the console's", () => {
-    // The console and the provider may both publish `compact`. The console's registration
-    // is what decides here, because the console's is the only one this composer can run.
+    // Only the console's registration is one this composer can run.
     const recognition = recognizeClientCommand("compact", {
       registeredCommandIds: ["compact"],
     });

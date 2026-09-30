@@ -1,35 +1,7 @@
-// One attachment, in the position the user put it, whatever became of it.
-//
-// Three arms rather than a card with flags, because `attachment-shapes.ts` keeps what a
-// user declared, what the daemon derived, and an unresolved reference as separate shapes:
-//
-//   • IN FLIGHT — progress from `receivedBytes`, the spooled running total of DECODED
-//     bytes, with the six-hour stream ceiling disclosed once the upload has gone quiet.
-//   • COMPLETE — the derived summary REPLACES the declaration. `fileName`,
-//     `mimeType`, `sizeBytes`, and the minted artifact id, because a
-//     declared type or size is advisory input and never a trusted fact.
-//   • UNRESOLVED — the marker sits HERE, in the declared position, naming one of six
-//     causes and its own remedy. Never appended, never footnoted, and the turn proceeds
-//     around it.
-//
-// THE DECLARED FILENAME IS NEVER REBUILT. Ingest validation keeps every caller-supplied
-// string out of every path component and lets the original survive as manifest metadata
-// only, so the declaration renders as a wire string in the in-flight arm and is REPLACED
-// by `fileName` the moment one exists. Nothing in this file concatenates a name
-// with anything.
-//
-// AND THE LABEL READS THE SAME NAME THE FACE DOES, from one place. A completed ingest
-// stays on the in-flight arm of the reading — `complete` is a state of an entry, not a
-// second reading — so a label that read the declaration while the face showed the
-// daemon's normalized name would give a screen-reader user a different artifact identity
-// from a sighted one on exactly the attachments where normalization changed something.
-// `attachment-provenance.ts` answers which name an entry goes by, and both renderings
-// ask it.
-//
-// EVERY BYTE FIGURE GOES THROUGH THE CHOKEPOINT. `formatByteQuantity` is the console's
-// only byte formatter and this card holds no arithmetic of its own; the raw counts
-// reach the progress element as attributes, which are a measurement rather than a
-// figure a person reads.
+// One attachment in the position the user put it: in flight (progress from `receivedBytes`),
+// complete (the daemon's derived name, type and size replace the advisory declaration), or
+// unresolved (a marker naming its cause and remedy). The label and the face read the same name
+// from `attachment-provenance.ts`, so a screen reader hears the identity a sighted user sees.
 
 import type { SessionAttachmentUnresolvedCause } from "@ai-sidekicks/contracts";
 import { Fragment } from "react";
@@ -59,6 +31,7 @@ import "./attachments.css";
 /** Whose claim a name is, where the name shown is still the caller's own. */
 const DECLARED_NAME_TITLE = "Declared by the sender";
 
+/** Props for one attachment card. */
 export interface AttachmentCardProps {
   readonly reading: AttachmentReading;
   /** The instant the card rendered at. Ages move when it re-reads and never on a timer. */
@@ -69,6 +42,7 @@ export interface AttachmentCardProps {
   readonly onAbandon?: ((localId: string) => void) | undefined;
 }
 
+/** Renders one attachment reading as an in-flight, resolved, or unresolved card. */
 export function AttachmentCard(props: AttachmentCardProps): React.JSX.Element {
   const { reading } = props;
   return (
@@ -105,11 +79,8 @@ function attachmentLabel(reading: AttachmentReading): string {
 }
 
 /**
- * The in-flight arm: the declaration, the ingest entry's progress, and the two controls.
- *
- * The declaration is rendered as a wire string and labeled as declared, so a
- * user reading a name here knows it is theirs and not the server's finding. It
- * is replaced wholesale by the resolved arm rather than annotated in place.
+ * The in-flight arm: the declaration, progress, and the two controls. The declaration renders
+ * as a wire string labeled as declared; the resolved arm replaces it wholesale.
  */
 function renderIngesting(
   entry: AttachmentIngestEntry,
@@ -128,10 +99,8 @@ function renderIngesting(
         ) : (
           <WireFigure value={nameReading.name} />
         )}
-        {/* EITHER READING EARNS THE CHIP, and where the two disagree both are shown
-            with the derived one leading. `attachment-provenance.ts` owns the rule; this
-            renders it. Labeled by provenance rather than by tone alone, because a
-            color cannot say whose claim a media type is. */}
+        {/* Either reading earns the chip; where they disagree both show, derived first. Labeled
+            by provenance because color cannot say whose claim a media type is. */}
         {attachmentMediaTypeReadings(entry).map((mediaTypeReading) => (
           <Fragment key={mediaTypeReading.provenance}>
             {mediaTypeReading.provenance === "declared" ? (
@@ -152,9 +121,7 @@ function renderIngesting(
         <Chip label={entry.state} mono tone={entry.state === "refused" ? "failure" : "neutral"} />
       </div>
 
-      {/* The measurement, not a figure: the element takes the raw decoded counts and
-          the reader gets the scaled pair above it. A percentage rendered here would be
-          a second byte formatter wearing a different unit. */}
+      {/* The raw counts are a measurement; the scaled pair above is what a reader sees. */}
       <progress
         className="meridian-attachment__progress"
         max={Math.max(1, entry.declared.byteLength)}
@@ -214,11 +181,8 @@ function renderIngesting(
 }
 
 /**
- * The unresolved arm: one of six causes, its own sentence, and its own remedy.
- *
- * The cause is read from the reading node's own manifest row and rendered verbatim; the
- * console recomputes nothing from live relay state, which is exactly what lets a marker
- * carry a non-pinned replication status as its cause. A cause with no remedy says so.
+ * The unresolved arm: the cause from the reading node's own manifest row, rendered verbatim
+ * with its remedy. The console recomputes nothing from live relay state.
  */
 function renderUnresolved(
   attachmentId: string,

@@ -1,10 +1,6 @@
-// What Send can resolve to, and the two questions the router asks of its host.
-//
-// The router produces exactly one of these and three modules consume them: the
-// controller that dispatches, the command zone that supplies the predicates, and the
-// Send button that renders the settlement. Holding the vocabulary beside the router
-// rather than inside it keeps that seam one declaration read by both sides, and keeps
-// the router the module that ROUTES.
+// What Send can resolve to, and the two predicates the router takes from its host. Held beside
+// the router, not in it, so the controller, the command zone and the Send button read one
+// declaration.
 
 import type { InterventionRequestPayload, QueueItemCreateRequest } from "@ai-sidekicks/contracts";
 
@@ -25,12 +21,8 @@ export interface ComposerSteerResolution {
 }
 
 /**
- * The interception arm: a registered client command.
- *
- * The slash prefix is reserved: a registered command is executed by the client and
- * never composes into a message, a context, or a provider turn on any path. So this arm
- * carries the command's NAME and no request at all: there is nothing for the wire to be
- * handed.
+ * The interception arm: a registered client command. A registered command is executed by the
+ * client and never composes into a message on any path, so this arm carries only its name.
  */
 export interface ComposerClientCommandResolution {
   readonly outcome: "client-command";
@@ -55,34 +47,19 @@ export type ComposerSendOutcome =
   | { readonly status: "refused"; readonly refusal: Refusal };
 
 /**
- * Whether a name is a registered client command.
- *
- * A PORT rather than a registry handle: the composer is handed a session
- * store, a bridge, a draft store, a route, and a focused pane, and no command
- * registry — so the router takes the one predicate it needs. The default answers
- * `false` for every name, which means an unrecognized `/word` refuses loudly and
- * names the escape, and no text is ever silently sent as prose.
+ * Whether a name is a registered client command. A port, since the composer has no command
+ * registry handle. The default answers `false`, so an unrecognized `/word` is not
+ * intercepted.
  */
 export type ClientCommandPredicate = (commandName: string) => boolean;
 
-/**
- * What the console knows about a name the bound provider published.
- *
- * Narrowed from the catalog's own entry rather than restated, so the three members
- * the refusal reads can never disagree with the list a person read them off.
- */
+/** What the console knows about a provider-published name, narrowed from the catalog entry. */
 export type EnumeratedProviderCommand = Pick<ProviderCommandEntry, "name" | "kind" | "driverName">;
 
 /**
- * Whether a name is one the addressed agent's provider published, for discovery.
- *
- * A SECOND port beside the client-command predicate and deliberately not a widening
- * of it: the two answers lead to opposite acts. A client command is run; a provider
- * entry is refused by name, because the enumeration is for discovery only — exactly
- * one enumerated entry, the compaction command, is sent through its own control and
- * never through a typed line. The default answers `undefined` for every name,
- * which leaves a composer with no enumeration behind it saying exactly what it said
- * before this port existed.
+ * Whether a name is one the addressed agent's provider published, for discovery. A second
+ * port because the outcome differs: a client command runs, a provider entry is refused by
+ * name (only the compaction command has its own control). The default answers `undefined`.
  */
 export type ProviderCommandPredicate = (
   commandName: string,

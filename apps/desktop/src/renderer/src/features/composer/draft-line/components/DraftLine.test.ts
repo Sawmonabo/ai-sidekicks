@@ -1,10 +1,6 @@
-// The message line, Send, and the draft beneath them: where an unsent body lives, and
-// what a refused send leaves in the line.
-//
-// The two claims are one claim read twice. The line owns no text — the supplied draft
-// store does — so a send that did not land must leave the store holding what the
-// person wrote, and a line with its own copy would pass the first case and lose the
-// words in the second. Enter belongs to neither: the line takes it and sends nothing.
+// The message line, Send, and the draft beneath them: an unsent body lives in the supplied
+// draft store, so a send that did not land must leave what the person wrote (a line with its
+// own copy would lose it). Enter belongs to neither; the line takes it and sends nothing.
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -71,8 +67,7 @@ describe("DraftLine — the unsent body lives in the supplied draft store", () =
     expect(settle).toHaveBeenCalledTimes(1);
     expect(line.value).toBe("");
     result.unmount();
-    // The negative control for the persistence claim above: a settled send leaves
-    // nothing for the next mount to restore.
+    // A settled send leaves nothing for the next mount to restore.
     expect(
       mountDraftLine({ calls: sendCallsAnswering(settle), draftStore, sessionStore }).line.value,
     ).toBe("");
@@ -96,10 +91,8 @@ describe("DraftLine — the line without Send", () => {
 
 describe("DraftLine — a rejected steer keeps the message in the line", () => {
   it("leaves the text and renders the daemon's cause", async () => {
-    // The finding on screen: fulfillment was treated as success, so the line
-    // emptied and the user's words were gone for an intervention the run had
-    // declined. Nothing about the reply says the message traveled, so nothing about
-    // the composer may say so either.
+    // Nothing in the reply says the message traveled, so the line must not clear for an
+    // intervention the run declined.
     const bar = mountAddressable(
       sendCallsAnswering(async ({ method }) =>
         method === "run.intervene"
@@ -126,8 +119,7 @@ describe("DraftLine — a rejected steer keeps the message in the line", () => {
   });
 
   it("negative control: the same send against an applied answer clears the line", async () => {
-    // Without this the case above would hold over a bar that had stopped clearing
-    // the draft at all, which loses the send state rather than preserving the text.
+    // Without this, the case above would pass a bar that never clears the draft at all.
     const bar = mountAddressable(sendCallsAnswering(answerSteer));
 
     fireEvent.change(bar.line(), { target: { value: "keep going on the parser" } });
@@ -162,11 +154,8 @@ describe("DraftLine — a refusal about the whole session leaves the bar", () =>
   }
 
   it("raises the frame's banner while the composer keeps the daemon's words", async () => {
-    // A banner goes across the frame, and a session that has left the node is the whole
-    // window's fact — every other pane is drawing it. The composer is a pure view
-    // with no store of its own, so the handover is this bar's explicit act; the line
-    // and the card stay exactly as they were, because the person is standing here and
-    // their words are unsent.
+    // A session that has left the node is the whole window's fact, so the bar hands it to the
+    // frame; the line and the card stay, since the person's words are unsent.
     const bar = sendAgainst(callsRejectingWith("session.not_found"));
 
     await act(async () => {
@@ -181,8 +170,7 @@ describe("DraftLine — a refusal about the whole session leaves the bar", () =>
   });
 
   it("negative control: a refusal about this send alone raises no banner", async () => {
-    // Without this the case above would pass over a bar that escalated every refused
-    // send, which puts one person's rate limit across the whole window.
+    // Without this, the case above would pass a bar that escalated every refused send.
     const bar = sendAgainst(callsRejectingWith("ratelimit.exceeded"));
 
     await act(async () => {

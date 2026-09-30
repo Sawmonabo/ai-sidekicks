@@ -1,31 +1,9 @@
-// What a leading slash OPENS, and what the popover lists once it is open.
-//
-// Pure, and separate from both the read and the component, because the two rules
-// worth pinning are decisions rather than renders: when the command list is
-// open at all, and which entries survive the prefix a person has typed.
-//
-// TWO SOURCES, ONE LIST, AND THEY ARE NOT INTERCHANGEABLE. A console entry is an act
-// this client performs, and the slash prefix is reserved for exactly those. A provider
-// entry is DISCOVERY: the autocomplete surfaces what the bound provider offers, and
-// selecting one inserts nothing into the message box and starts no turn. So the entry
-// type is a discriminated union rather than one shape with an optional command id: the
-// difference decides whether an entry can be acted on at all, and an optional member
-// would let a render forget to ask.
-//
-// EVERY PROVIDER FIELD IS WIRE-VERBATIM OR ABSENT. `description`, `scope`, and
-// `enabled` are each present exactly when the provider declared one — the contract is
-// explicit that an omitted description means the provider published none and that a
-// synthesized `enabled: true` would be a fabricated reading. Nothing here defaults
-// any of the three.
-//
-// AND EXACTLY ONE BINDING'S ENTRIES REACH THE LIST. The reply is agent-scoped and an
-// agent can hold several live bindings at once — an older Claude run beside a newer
-// Codex one — so it carries ONE GROUP PER BINDING, each naming the `runId` and the
-// `(driverName, providerAccountId)` it was read under. Passing every group into the
-// catalog put commands and skills from bindings the addressed run does not use under
-// the addressed run's own name — and the routing rule is that a command enumerated
-// under one binding is never offered under another. `selectAddressedBindingGroup` is
-// where that selection happens, once, for both readers of this enumeration.
+// What a leading slash opens and what the popover lists: pure decisions over two sources. A
+// console entry is an act this client performs; a provider entry is discovery only, so the
+// entry type is a union and a render cannot forget to ask whether one can be acted on. Provider
+// `description`, `scope` and `enabled` are wire-verbatim or absent, never defaulted. Only one
+// binding's group reaches the list, because a command enumerated under one binding is never
+// offered under another.
 
 import type { ProviderCommandBindingGroup } from "@ai-sidekicks/contracts";
 
@@ -52,21 +30,19 @@ export interface ProviderCommandEntry {
   readonly kind: "command" | "skill";
   readonly scope: string | undefined;
   readonly enabled: boolean | undefined;
-  /** The binding this entry was READ UNDER, carried with the entry rather than beside it. */
+  /** The binding this entry was read under, carried with the entry rather than beside it. */
   readonly driverName: string;
   /** `null` is the wire's positive statement that no account was bound. */
   readonly providerAccountId: string | null;
 }
 
+/** One row of the command list: a console act or a provider discovery entry. */
 export type CommandListEntry = ConsoleCommandEntry | ProviderCommandEntry;
 
 /**
- * The binding the composer is addressed to, as much of it as the console holds.
- *
- * Both members are `undefined`-able because both come from projections that answer
- * with an incomplete target routinely — the run id is present exactly on the
- * provider-bound path, and the driver name arrives only once the agent entity carries
- * one. An absent member matches nothing rather than matching everything.
+ * The binding the composer is addressed to, as much of it as the console holds. Both members
+ * are `undefined`-able because the projections answer with an incomplete target; an absent
+ * member matches nothing rather than everything.
  */
 export interface AddressedProviderBinding {
   readonly runId: string | undefined;
@@ -82,24 +58,11 @@ export function addressedProviderBinding(target: ComposerTarget): AddressedProvi
 }
 
 /**
- * The one group whose binding the addressed run is on, or `undefined`.
- *
- * TWO ROUTING FACTS, TRIED IN THE ORDER THE WIRE MAKES THEM TRUSTWORTHY.
- *
- *   1. **The group names this run.** `runId` is the reply's own positive attribution
- *      — the arm the contract reaches when exactly one run is live on that binding —
- *      so a group naming the addressed run IS the addressed binding.
- *   2. **The group names this run's driver, and no sibling does.** `runId` is `null`
- *      on two legitimate arms: no run is live on the binding, and two or more are, in
- *      which case the addressed run may well be one of them. The composer's own
- *      address carries the driver the agent is bound to, so a single group on that
- *      driver is the addressed binding by elimination.
- *
- * Anything else answers `undefined`, and the command list renders that as "this run's
- * binding published nothing here" rather than falling back to another binding's
- * entries. Ambiguity is refused rather than resolved by order: two groups claiming
- * one run is contradictory provenance, and two groups on one driver with no run
- * attribution is a coin flip presented as routing.
+ * The one group whose binding the addressed run is on, or `undefined`. Tried in order: a
+ * group whose `runId` names the addressed run; otherwise the single group on the addressed
+ * driver, since `runId` is `null` both when no run is live and when several are. Ambiguity
+ * answers `undefined` rather than resolving by order, and the list then renders "published
+ * nothing here" instead of falling back to another binding's entries.
  */
 export function selectAddressedBindingGroup(
   groups: readonly ProviderCommandBindingGroup[],
@@ -137,9 +100,8 @@ export function composeCommandList(input: {
     for (const entry of group.entries) {
       providerEntries.push({
         source: "provider",
-        // Keyed by the binding as well as the name: one agent can hold two bindings
-        // that each publish `review`, and a name-only key would collapse them into
-        // one row whose provenance depended on iteration order.
+        // Keyed by the binding as well as the name: two bindings can each publish `review`, and
+        // a name-only key would collapse them into one row whose provenance depended on order.
         key: `provider:${group.binding.driverName}:${group.binding.providerAccountId ?? ""}:${entry.name}`,
         name: entry.name,
         description: entry.description,
@@ -155,31 +117,19 @@ export function composeCommandList(input: {
 }
 
 /**
- * Whether the provider declared this entry unavailable.
- *
- * `enabled` is THREE-VALUED on the wire and each value means a different thing:
- * `false` is the provider declaring the entry disabled, `true` is it declaring the
- * entry available, and ABSENT is the provider drawing no such distinction at all.
- * So the test is against `false` and never against falsiness — an absent flag read
- * as disabled would report a state the provider never published, which is the same
- * fabrication as the synthesized `enabled: true` the contract forbids at the other
- * end.
- *
- * Here rather than at either reader: the row renders the state and the popover's key
- * handler answers a press on one, and two spellings of one three-valued test is the
- * pair that drifts.
+ * Whether the provider declared this entry unavailable. `enabled` is three-valued on the
+ * wire, so the test is against `false` and never falsiness: an absent flag read as disabled
+ * would report a state the provider never published. Shared so the row and the key handler
+ * cannot spell the test two ways.
  */
 export function isDeclaredUnavailable(entry: CommandListEntry): boolean {
   return entry.source === "provider" && entry.enabled === false;
 }
 
 /**
- * The entries whose name begins with what has been typed.
- *
- * Case-insensitive and a PREFIX rather than the palette's subsequence matcher, and
- * the difference is deliberate: this list completes a name a person is part way
- * through typing into a line that will be parsed by its first word, so an entry that
- * matched loosely would be an entry the send path then refuses.
+ * The entries whose name begins with what has been typed. Case-insensitive and a prefix rather
+ * than the palette's subsequence matcher, because the line is parsed by its first word and a
+ * loosely matched entry would be one the send path then refuses.
  */
 export function filterCommandList(
   entries: readonly CommandListEntry[],

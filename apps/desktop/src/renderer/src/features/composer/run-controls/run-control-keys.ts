@@ -1,11 +1,6 @@
 // The keys the run controls hold a dispatch under: the in-flight key and the record token.
-//
-// `hooks/useRunControlDispatch.ts` mints the token when it admits a dispatch, and it is the
-// record's own id: one admitted dispatch appends exactly one record, so the token
-// identifies the request and a form finds its own settlement by it rather than by
-// whichever record is newest. The run and the control ride it so a token is legible in
-// a test failure and in a debugger; the ordinal is the dispatch hook's monotonic
-// counter, which keeps two dispatches of one control on one run distinct.
+// The token is the record's own id (one admitted dispatch, one record), so a form finds its own
+// settlement by it rather than by whichever record is newest.
 
 import { type RunControl } from "./services/run-control-dispatch.js";
 
@@ -13,10 +8,8 @@ import { type RunControl } from "./services/run-control-dispatch.js";
 const TOKEN_SEPARATOR = ":";
 
 /**
- * Mint the token an admitted dispatch's record will be recorded under.
- *
- * The run and the control ride it so a token is legible in a test failure and in a
- * debugger.
+ * Mints the token an admitted dispatch's record is recorded under. The run and control make
+ * it legible in a failure; the ordinal keeps two dispatches of one control on one run distinct.
  */
 export function mintRunControlDispatchToken(
   runId: string,

@@ -1,9 +1,4 @@
-/* The discovery popover, sitting above the line it watches.
- *
- * A sheet of its own beside `CommandList`, the component it styles, rather than an
- * addition to `Composer.css`: each sheet stays with the one thing it draws. Meridian
- * tokens only — no raw color reaches this file.
- */
+/* The discovery popover, sitting above the line it watches. Meridian tokens only. */
 
 .meridian-command-discovery {
   display: flex;
@@ -74,28 +69,25 @@
   display: flex;
 }
 
-/* The answer to a key press the command list could not honor. Muted like the lede,
-   because it explains the list rather than reporting a failure of one. */
+/* The answer to a key press the command list could not honor. Muted, since it explains the
+   list rather than reporting a failure. */
 .meridian-command-discovery__notice {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
-/* The provider cut its own enumeration at the registered cap. Said in the muted
-   secondary voice the lede uses: it qualifies what is on screen rather than
-   reporting a failure of the read, which succeeded. */
+/* The provider cut its enumeration at the registered cap. Muted: it qualifies what is on
+   screen rather than reporting a failure of the read, which succeeded. */
 .meridian-command-discovery__truncated {
   margin: 0;
   color: var(--meridian-text-muted);
   font-size: var(--meridian-text-xs);
 }
 
-/* An entry the provider declared disabled. Dimmed rather than hidden or struck
-   through: the entry IS part of what the binding published, and the driver returns
-   it precisely so a disabled command is distinguishable from one that does not
-   exist. The declared state itself keeps the secondary weight the binding line
-   uses — dimming the marker would hide the one thing this row is here to add. */
+/* An entry the provider declared disabled. Dimmed rather than hidden, because the driver
+   returns it so a disabled command is distinguishable from one that does not exist. The
+   declared state keeps the secondary weight; dimming it would hide what this row adds. */
 .meridian-command-discovery__row--unavailable .meridian-command-discovery__name,
 .meridian-command-discovery__row--unavailable .meridian-command-discovery__description {
   color: var(--meridian-text-faint);
@@ -106,14 +98,9 @@
   font-size: var(--meridian-text-xs);
 }
 
-/* One labeled group inside the discovery listbox.
- *
- * `display: contents` is deliberately NOT used: the group is a real row of the list's
- * flex column, and its own column is what keeps the heading above its rows without a
- * second gap rule. The nested list carries no marker and no indent of its own — the
- * rows are the outer listbox's options through this group, and an indent would read
- * as a hierarchy the entries do not have.
- */
+/* One labeled group inside the discovery listbox. `display: contents` is not used: the group
+   is a real row of the list's flex column, which keeps the heading above its rows without a
+   second gap rule. The nested list has no marker or indent, which would imply a hierarchy. */
 .meridian-command-discovery__group {
   display: flex;
   flex-direction: column;

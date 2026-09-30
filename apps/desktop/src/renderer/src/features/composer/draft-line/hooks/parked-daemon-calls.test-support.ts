@@ -1,32 +1,22 @@
-// Send calls that park until the case settles them.
-//
-// A scripted answer arrives on its own schedule, which suits "what does this composer
-// do with the reply" and not "what does it do while the reply is still traveling":
-// a call issued under one address, completing after the composer has moved to another.
-// Parking the call puts the case in charge of that interval.
-//
-// The transport the held state belongs to is the shipped fixture and not a cast
-// object: the clock and the scenario stay the fixture's.
-//
-// ONE QUEUE, SETTLED OLDEST FIRST, rather than a map keyed by method or by params. The
-// cases issue at most a handful of calls and settle them in issue order, and a
-// settle-by-method helper would answer the wrong call the first time one case issued
-// the same method twice.
-//
-// It sits beside the send controller's settlement suite, the one suite that parks a call.
+// Send calls that park until the case settles them, so a case controls a call issued under one
+// address that completes after the composer moved to another. Parked calls form one queue,
+// settled oldest first: a settle-by-method helper would answer the wrong call when a case
+// issues one method twice.
+
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../../fixtures/scenarios/waiting-for-input.js";
 import type { ComposerSendCalls } from "../send-dispatch.js";
 import { interventionResponse, sendCallsAnswering } from "../send-router.test-support.js";
 
+/** Send calls whose replies the case supplies, over the shipped fixture bridge. */
 export class ParkedDaemonCalls {
   readonly #parked: ParkedCall[] = [];
   public readonly bridge: PlatformBridge;
   public readonly calls: ComposerSendCalls;
 
   public constructor() {
-    // The composer's own scenario, because these cases are the composer's.
+    // The composer's own scenario.
     this.bridge = bridgeAnswering(async () => undefined, WAITING_FOR_INPUT_SCENARIO).bridge;
     this.calls = sendCallsAnswering(
       async () =>
@@ -36,7 +26,7 @@ export class ParkedDaemonCalls {
     );
   }
 
-  /** How many calls are waiting. A case asserts on this to prove one was issued. */
+  /** How many calls are waiting. */
   public get parkedCount(): number {
     return this.#parked.length;
   }

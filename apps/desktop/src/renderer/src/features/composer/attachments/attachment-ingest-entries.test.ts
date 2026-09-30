@@ -1,9 +1,6 @@
-// The ledger: declared order, and the stamp a continuation checks itself against.
-//
-// Driven directly, with no bridge and no client — everything here settles before it
-// returns, which is exactly what makes this module separable from the one that calls
-// across a seam. The stamp cases are the mechanism the ingest client's abandonment
-// guard rests on, stated once here at the seam that owns it.
+// The ledger: declared order, and the stamp a continuation checks itself against. Driven
+// directly with no bridge or client; the stamp cases are the mechanism the client's abandonment
+// guard rests on.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -47,8 +44,7 @@ describe("ingest ledger — declared order is the record", () => {
   });
 
   it("negative control: a local id nobody declared moves nothing", () => {
-    // Without this, the cases above would pass over a ledger that answered every call
-    // by rebuilding its order from scratch.
+    // Without this the cases above would pass over a ledger rebuilding its order every call.
     const ledger = ledgerHolding("first", "second");
     ledger.remove("third");
     expect(declaredOrderOf(ledger)).toStrictEqual(["first", "second"]);
@@ -70,8 +66,7 @@ describe("ingest ledger — declared order is the record", () => {
         },
       });
     }
-    // `first` never completed, so it names nothing: an artifact id is what an ingest
-    // mints, and there is nothing to put in the reference before then.
+    // `first` never completed, so it names nothing: an ingest mints the artifact id.
     expect(ledger.artifactIds()).toStrictEqual(["artifact-9"]);
   });
 });
@@ -98,9 +93,8 @@ describe("ingest ledger — the stamp a continuation checks against", () => {
   });
 
   it("withholds it after a rewrite that ends where it began", () => {
-    // The case a state comparison alone cannot see. An entry moved and moved back is
-    // not the entry the continuation captured — its ingest identity, its ledger, or
-    // its refusal may all have changed underneath — and the generation is what says so.
+    // A state comparison alone cannot see this: an entry moved and moved back is not the entry
+    // the continuation captured, and the generation says so.
     const ledger = ledgerHolding("first");
     const stamp = ledger.stamp("first");
     const entry = ledger.current("first");
@@ -134,8 +128,7 @@ describe("ingest ledger — the stamp a continuation checks against", () => {
   });
 
   it("negative control: another attachment's arrival is not a change to this entry", () => {
-    // Without this, the cases above would pass over a check that answered `undefined`
-    // for everything — and every continuation would stop on the first publish.
+    // Without this the cases above would pass over a check answering `undefined` for everything.
     const ledger = ledgerHolding("first", "second");
     const stamp = ledger.stamp("first");
     expect(stamp).toBeDefined();

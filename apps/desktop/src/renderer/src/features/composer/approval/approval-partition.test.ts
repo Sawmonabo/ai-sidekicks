@@ -1,10 +1,3 @@
-// The folds over this pane's reads: what each section renders from, and how far each
-// read got.
-//
-// One sharp claim. `partitionApprovalRecords` answers empty for every phase that has not
-// answered, which is safe only while its callers render the phase beside it — the
-// cases below pin that emptiness as a NON-answer so a caller cannot read it as one.
-
 import { describe, expect, it } from "vitest";
 
 import { partitionApprovalRecords } from "./approval-partition.js";
@@ -30,9 +23,7 @@ describe("partitionApprovalRecords — one answered read, split in two", () => {
   });
 
   it("answers empty while the read has not answered", () => {
-    // The emptiness a caller may NOT read as an answer: only an answered read with no
-    // rows means "the daemon returned nothing", which is why every caller renders the
-    // phase this was folded from beside the arrays.
+    // Not an answer: only an answered read with no rows means the daemon returned nothing.
     expect(partitionApprovalRecords({ status: "loading" })).toStrictEqual({
       pending: [],
       history: [],

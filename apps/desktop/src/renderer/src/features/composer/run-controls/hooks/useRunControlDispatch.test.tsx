@@ -1,22 +1,10 @@
 // One control per run in flight at a time, decided synchronously.
 //
-// The failure this file pins is a tick, not a render: two presses inside one frame
-// both read the busy set from the render that produced their handler, so both find
-// it empty and both dispatch. Two dispatches mint two idempotency keys against one
-// run version, which makes them two distinct mutations rather than replays of one,
-// and the loser's stale refusal can become the visible settlement. Every case here
-// therefore calls `dispatch` twice inside ONE `act` and counts what reached the
-// wire, rather than asserting on what the row rendered afterwards.
-//
-// The cases drive the real hook. What is supplied per case is `perform`, because
-// that is the seam the run controls settle on: the canned outcomes below stand in for a
-// dispatcher answer, and the two arms that matter — a settlement and a rejection —
-// are both driven through it.
-//
-// EVERY BRIDGE HERE IS MINTED ONCE AND HELD. The hook keys its records, its busy
-// set and its latch on the bridge, so a stub rebuilt inside the hook callback would
-// be a different transport on every render — which is a fact about the double, not
-// about the hook. The last describe is the one that changes it deliberately.
+// Two presses inside one frame both read the busy set from the render that produced their
+// handler and both dispatch, minting two idempotency keys against one run version, so every case
+// calls `dispatch` twice inside one `act` and counts what reached the wire. `perform` is the
+// per-case seam. Each bridge is minted once and held, because the hook keys its state on the
+// bridge; only the last describe changes it deliberately.
 
 import type { RunControlAck } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
@@ -37,22 +25,17 @@ import {
   appliedIntervention,
 } from "../run-control-commands.test-support.js";
 
-/** A bridge is only the subject the hook's state belongs to: no case calls through it. */
 function answeringNothing(): PlatformBridge {
   return bridgeAnswering(async () => undefined).bridge;
 }
 
-/**
- * Calls no case in the latch suites reaches: each of those hands `dispatch` its own
- * `perform`, so a dispatcher call here would be a defect in the case.
- */
+/** Calls no latch case reaches: each hands `dispatch` its own `perform`. */
 const UNUSED_CALLS: RunControlCalls = {
   pause: () => Promise.reject(new Error("this case dispatches through its own perform")),
   resume: () => Promise.reject(new Error("this case dispatches through its own perform")),
   intervene: () => Promise.reject(new Error("this case dispatches through its own perform")),
 };
 
-/** A settlement the hook can record without any call being involved. */
 const ACKNOWLEDGED: RunControlOutcome = {
   kind: "acknowledged",
   control: "interrupt",
@@ -61,8 +44,7 @@ const ACKNOWLEDGED: RunControlOutcome = {
 
 describe("one control per run is in flight at a time", () => {
   it("performs once and mints one key when the control is pressed twice in a tick", async () => {
-    // The claim that fails on the unlatched body: it performed twice and minted two
-    // keys, so the daemon saw two distinct mutations rather than one replayed.
+    // Fails on the unlatched body: it performed twice and minted two keys.
     const mintIdempotencyKey = vi.fn(() => "6f1a0d3e-2c4b-4a7e-9f10-5b8c7d2e3a41");
     const requests: unknown[] = [];
     const calls: RunControlCalls = {
@@ -87,9 +69,8 @@ describe("one control per run is in flight at a time", () => {
   });
 
   it("latches per run and control, so a second control on one run still performs", async () => {
-    // The scope control for the case above: nothing about being inside one tick
-    // suppresses a dispatch, and a run's other controls are not held behind the
-    // one that is going.
+    // Scope control: being inside one tick suppresses nothing, and a run's other controls are
+    // not held behind the one that is going.
     const perform = vi.fn(async () => ACKNOWLEDGED);
     const bridge = answeringNothing();
     const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
@@ -120,8 +101,8 @@ describe("one control per run is in flight at a time", () => {
   });
 
   it("releases the latch on a rejected perform and hands the rejection to the caller", async () => {
-    // Without the release this control is busy for the rest of the window; without the
-    // rethrow the rejection reaches nobody.
+    // Without the release the control is busy for the window; without the rethrow the
+    // rejection reaches nobody.
     const rejection = { code: "run.not_found", message: "no such run" };
     const perform = vi.fn((): Promise<RunControlOutcome> => Promise.reject(rejection));
     const bridge = answeringNothing();
@@ -168,9 +149,8 @@ describe("one control per run is in flight at a time", () => {
 
 describe("the run controls' state belongs to the bridge it dispatched through", () => {
   it("admits the same run and control at once through a replaced bridge", async () => {
-    // The finding: only the dispatcher rotated on a swap. The held keys stayed with
-    // the transport that was gone, so a retry through the new one was refused as
-    // already in flight — until the old call settled, and forever where it never did.
+    // Only the dispatcher rotated on a swap, so the held keys stayed with the gone transport
+    // and a retry through the new one was refused as in flight.
     const pendingOnFirstBridge = pendingOutcome();
     const performOnSecondBridge = vi.fn(async () => ACKNOWLEDGED);
     const { result, rerender } = renderHook(
@@ -194,9 +174,8 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
   });
 
   it("shows the replaced bridge no records rather than the previous one's", () => {
-    // The busy set and the records are the other two holders. A row rendered under
-    // the new transport would otherwise be marked busy by a call that transport
-    // never made.
+    // The busy set and the records are the other two holders; a row under the new transport
+    // must not be marked busy by a call it never made.
     const pendingOnFirstBridge = pendingOutcome();
     const { result, rerender } = renderHook(
       ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
@@ -237,8 +216,7 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
   });
 
   it("negative control: a settlement on the bridge that is still current is recorded", async () => {
-    // Without this, a hook that had simply stopped recording anything would pass
-    // every case above.
+    // Without this, a hook that had stopped recording would pass every case above.
     const pending = pendingOutcome();
     const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {
       initialProps: { bridge: answeringNothing() },
@@ -256,8 +234,8 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
   });
 
   it("negative control: one bridge still refuses the same run and control twice", async () => {
-    // The rule the rotation must not be read as relaxing: a second press on the
-    // transport that is still current is the same act, and is refused.
+    // The rotation does not relax the rule: a second press on the current transport is the
+    // same act and is refused.
     const pending = pendingOutcome();
     const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {
       initialProps: { bridge: answeringNothing() },
@@ -276,7 +254,6 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
   });
 });
 
-/** A `perform` whose settlement the case decides, so busy state is observable. */
 function pendingOutcome(): {
   perform: () => Promise<RunControlOutcome>;
   resolve: (outcome: RunControlOutcome) => void;

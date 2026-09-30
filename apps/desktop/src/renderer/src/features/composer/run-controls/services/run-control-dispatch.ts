@@ -1,23 +1,12 @@
 // The run controls' one chokepoint: guards threaded, keys minted, answers read.
 //
-// Guard threading and key minting live here rather than in each button. A button that
-// assembled its own request could omit a comparand or reuse a key across a changed
-// body, and both fail silently at the call site and loudly on the wire.
-//
-//   1. Every request carries `expectedRunVersion`, taken from the target the caller passes
-//      (`RunControlTarget` types it as a required number). Steer and interrupt also carry
-//      a `clientIdempotencyKey` minted here per dispatch and never reused across a
-//      changed body.
-//   2. The fresh comparand comes from the answer, reconciled against the state stream.
-//      An applied native steer advances the run with no state event, and the run also
-//      advances with no control pressed, so neither reading is freshest alone; the
-//      caller gets the newer, and that maximum is taken once, beside the cache.
-//   3. Eligibility is not decided here. Every control is dispatched and the daemon's
-//      answer is what comes back; a rejected call propagates to the caller.
-//   4. Steer is gated on the bound driver's declared flag in `run-control-gating.ts`;
-//      pause, resume and interrupt never are.
-//
-// The daemon calls are an argument (`RunControlCalls`), so this module holds no bridge.
+// A button assembling its own request could omit a comparand or reuse a key across a changed
+// body, so every request carries `expectedRunVersion` from the caller's target, and steer and
+// interrupt carry a `clientIdempotencyKey` minted per dispatch. The fresh comparand is the
+// newer of the answer's version and the state stream's, since the run also advances with no
+// control pressed. Eligibility is decided by the daemon, not here; a rejected call propagates.
+// Only steer is gated on the bound driver, in `run-control-gating.ts`. The daemon calls are an
+// argument (`RunControlCalls`), so this module holds no bridge.
 
 import type {
   InterventionRequestPayload,
@@ -41,9 +30,8 @@ export interface RunControlCalls {
 }
 
 /**
- * The controls, closed and declared once: pause and resume on an active run
- * (`run.pause`, `run.resume`), and steer and interrupt through the generic
- * `run.intervene` dispatch.
+ * The controls, declared once: pause and resume (`run.pause`, `run.resume`), and steer and
+ * interrupt through the generic `run.intervene` dispatch.
  */
 export const RUN_CONTROLS = ["pause", "resume", "steer", "interrupt"] as const;
 
@@ -71,12 +59,9 @@ export interface RunControlTarget {
 }
 
 /**
- * The dispatcher.
- *
- * A class with private fields rather than a bag of callbacks: the freshest
- * comparand, the minted keys, and the recorded outcomes are one object's state, and
- * a hook closing over three `useState` setters would have made "thread the answer's
- * runVersion into the next request" a rule each button re-implemented.
+ * The dispatcher. A class so the freshest comparand, minted keys and outcomes are one
+ * object's state, and threading the answer's version into the next request is not a rule
+ * each button re-implements.
  */
 export class RunControlDispatcher {
   readonly #calls: RunControlCalls;
@@ -93,29 +78,18 @@ export class RunControlDispatcher {
   }
 
   /**
-   * The comparand this dispatcher has read for a run off the daemon's own answers.
-   *
-   * Read from those answers and from nowhere else. This is one of the two readings
-   * `comparandFor` reconciles, and callers that send a guard want that one.
+   * The comparand read off the daemon's own answers, one of the two readings
+   * `comparandFor` merges.
    */
   public freshComparandFor(runId: string): number | undefined {
     return this.#freshComparandByRunId.get(runId);
   }
 
   /**
-   * The comparand to send for a run: the newer of the daemon's last answer and the
-   * reading the state stream currently carries.
-   *
-   * Both are wire figures and both are monotonic per run, so the larger is the
-   * fresher. Preferring the cached one unconditionally would pin every later
-   * control to the version the last settlement saw: the run advances through
-   * `run.subscribeState` without any control being pressed, the row renders that
-   * newer projection, and each guarded call would then be refused as stale with no
-   * way back — a refusal carries no `runVersion`, so no failed control can refresh
-   * the cache it was refused over.
-   *
-   * A caller with neither reading gets `undefined` and does not dispatch — never a
-   * zero, which would be a guard the console invented.
+   * The comparand to send for a run: the newer of the daemon's last answer and the state
+   * stream's reading. Both are monotonic per run. Preferring the cached one would pin every
+   * later control to a stale version, and a refusal carries no `runVersion` to refresh it.
+   * Neither reading gives `undefined` and no dispatch, never an invented zero.
    */
   public comparandFor(runId: string, streamReading: number): number;
   public comparandFor(runId: string, streamReading: number | undefined): number | undefined;
@@ -130,13 +104,13 @@ export class RunControlDispatcher {
     return Math.max(cached, streamReading);
   }
 
-  /** Pause. `run.pause`, and never an intervention arm — the union has none. */
+  /** Pause via `run.pause`; the intervention union has no pause arm. */
   public async pause(target: RunControlTarget): Promise<RunControlOutcome> {
     const ack = await this.#calls.pause(this.#guardedRequest(target));
     return this.#acknowledged("pause", target, ack);
   }
 
-  /** Resume. `run.resume` moves a paused run back to running and does nothing else. */
+  /** Resume: `run.resume` moves a paused run back to running. */
   public async resume(target: RunControlTarget): Promise<RunControlOutcome> {
     const ack = await this.#calls.resume(this.#guardedRequest(target));
     return this.#acknowledged("resume", target, ack);
@@ -151,10 +125,7 @@ export class RunControlDispatcher {
     });
   }
 
-  /**
-   * Interrupt: `run.intervene` with a fresh key and, where given, the reason. The
-   * messages still waiting go as the next turn.
-   */
+  /** Interrupt: `run.intervene` with a fresh key and, where given, the reason. */
   public async interrupt(target: RunControlTarget, reason?: string): Promise<RunControlOutcome> {
     return await this.#settle("interrupt", target, {
       type: "interrupt",
@@ -164,7 +135,7 @@ export class RunControlDispatcher {
     });
   }
 
-  /** The two guards every intervention carries: the comparand and a key for this body. */
+  /** The comparand and a key for this body, carried by every intervention. */
   #interventionGuards(target: RunControlTarget): {
     readonly targetRunId: RunId;
     readonly expectedRunVersion: number;
@@ -203,7 +174,7 @@ export class RunControlDispatcher {
   }
 }
 
-/** The run id as the contract brands it. An id the contract rejects is a defect upstream. */
+/** The run id as the contract brands it; an id the contract rejects is a defect upstream. */
 function readRunIdOrThrow(runId: string): RunId {
   const branded = readRunId(runId);
   if (branded === undefined) {

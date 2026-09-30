@@ -1,15 +1,7 @@
-// The ingest port a client is handed, and what each of its calls answers.
-//
-// A MODULE OF ITS OWN BECAUSE IT IS A SEAM AND NOT A DETAIL. The protocol
-// (`attachment-ingest-stream.ts`, `attachment-ingest-chunks.ts`) and the reclaim
-// (`attachment-ingest-abort.ts`) each call the port, so its shape is declared once
-// here. Declaring it here also keeps the dependency one-way: the client imports the
-// reclaim, the reclaim imports nothing of the client's.
-//
-// A CALL ANSWERS ITS VALUE AND A REJECTION PROPAGATES. Nothing in this client turns a
-// port rejection into state. A rejected `begin`, `writeChunk` or `complete` rejects the
+// The ingest port a client is handed, declared once because the stream, the chunk loop and the
+// reclaimer all call through it. A port rejection is never turned into state: it rejects the
 // promise of `drive`, which `attach` and `retry` discard, so it reaches the page as an
-// unhandled rejection; a rejected `abort` does too, because nobody awaits it.
+// unhandled rejection, and so does a rejected `abort`.
 
 import type {
   AttachmentIngestChunkRequest,

@@ -1,10 +1,5 @@
-// What the chip puts on screen, as against what the fold decided.
-//
-// A SEPARATE SUITE FROM `composer-attachment-chip.test.ts`, which drives the fold: that
-// one holds what the model SAYS, and neither of the two claims below is reachable from
-// it. Both are about carriage — whether a sentence the model already carries reaches a
-// person, and whether a control announces as the thing it measures — and a model test
-// passes over a component that renders the right words into an attribute nobody reads.
+// What the chip puts on screen, as against what the fold decided. These claims are about
+// carriage (whether a sentence the model carries reaches a person), which a model test misses.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -48,8 +43,7 @@ describe("the attachment chip's progress bar", () => {
   });
 
   it("negative control: a settled entry draws no bar to name", () => {
-    // Without this the case above would pass over a chip that drew a bar on every
-    // state, which reads as an upload about to start on one that already failed.
+    // Without this the case above would pass over a chip that drew a bar in every state.
     const container = renderChip(
       sendingEntry("refused", {
         declaredName: "notes.md",
@@ -63,9 +57,7 @@ describe("the attachment chip's progress bar", () => {
 
 describe("the attachment chip's remedies", () => {
   it("renders what a refusal recommends as text a person can read", () => {
-    // The recommendation is text, not a control's `title`: a tooltip is never seen by a
-    // touch user, is reached by a keyboard user only with a pointer they are not using,
-    // and is announced reliably by no assistive technology this console can name.
+    // Text, not a `title`: a tooltip is unseen by touch users and announced unreliably.
     const container = renderChip(
       sendingEntry("refused", {
         declaredName: "notes.bin",
@@ -104,8 +96,7 @@ describe("the attachment chip's remedies", () => {
   });
 
   it("negative control: a chip with no refusal and no abandon carries neither line", () => {
-    // Both sentences are consequences of controls, so a chip offering neither says
-    // neither — otherwise the cases above would pass over prose rendered always.
+    // Both sentences belong to controls, so a chip offering neither says neither.
     const container = renderChip(sendingEntry("declared", { declaredName: "notes.md" }));
     const settled = render(
       <AttachmentChip

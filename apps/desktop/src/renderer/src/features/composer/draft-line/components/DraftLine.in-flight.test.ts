@@ -1,8 +1,5 @@
-// One send at a time: what Send does while a send is still open.
-//
-// Its own file because in-flight is a state rather than an outcome. The cases are
-// about the window between dispatch and settlement, which is the one a fast pair of
-// presses actually meets.
+// One send at a time: what Send does while a send is still open, between dispatch and
+// settlement.
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -18,10 +15,8 @@ import {
 
 describe("DraftLine — one send in flight", () => {
   it("dispatches once for two Send presses inside one frame", async () => {
-    // Both presses run before React re-renders, so both read `status === "idle"`.
-    // The controller's synchronous latch is the only thing that can separate them,
-    // and this case is the negative control for it: without the latch the stub is
-    // called twice and two turns are queued from one intent.
+    // Both presses run before React re-renders, so both read `status === "idle"`; only the
+    // controller's synchronous latch separates them. Without it the stub is called twice.
     const settleCalls: string[] = [];
     let releaseFirstCall: () => void = () => undefined;
     const pending = new Promise<void>((resolve) => {
@@ -79,9 +74,8 @@ describe("DraftLine — one send in flight", () => {
     });
     expect(sendButton(result.container).disabled).toBe(true);
 
-    // A separate frame, so the line has re-rendered into `sending` — the press
-    // is refused by the rendered state rather than by the latch, and refused
-    // SILENTLY: nothing was rejected, the person was only early.
+    // A separate frame, so the line has re-rendered into `sending`: the press is refused
+    // silently by the rendered state, since the person was only early.
     await act(async () => {
       pressSend(result.container);
     });
@@ -97,8 +91,7 @@ describe("DraftLine — one send in flight", () => {
   });
 
   it("accepts the next send once the first has settled", async () => {
-    // The negative control for the latch itself: it releases in `finally`, so a
-    // wedged latch would make the composer send exactly once per window.
+    // The latch releases in `finally`; a wedged one would send exactly once per window.
     const settleCalls: string[] = [];
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,

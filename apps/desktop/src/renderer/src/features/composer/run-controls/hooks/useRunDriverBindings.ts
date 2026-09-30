@@ -1,6 +1,4 @@
 // One session's run-to-driver bindings, read off its store.
-//
-// The join itself, and why it reads two sources, is `foldRunDriverBindings`'s.
 
 import { useMemo } from "react";
 
@@ -14,11 +12,8 @@ import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";
 
 /**
- * One session's run-to-driver bindings, as its store currently has them.
- *
- * Folded once per change of either reading rather than at each render: the join
- * walks the timeline, and a render body that rebuilt it would do that on every
- * keystroke in the composer.
+ * One session's run-to-driver bindings, as its store currently has them. Folded once per
+ * change of either reading, since the join walks the timeline.
  *
  * @consumedBy the composer's run controls
  */

@@ -1,29 +1,8 @@
-// Asking the composer for the caret, from a view that is not the composer.
-//
-// `registries/composer/composer-registry.ts` is the contract for what the session screen HANDS the composer
-// on every render. This is the other direction, and it needed its own seam: a view
-// that tells a person "send a message to an agent and its run appears here" is telling
-// them to do something it cannot help them start, and every remedy inside the console
-// — a route change, a palette open, a pane focus — puts the caret somewhere other than
-// the line they were pointed at.
-//
-// IT CARRIES A REQUEST AND NOT A HANDLE. The composer's input element belongs to the
-// composer and is created and destroyed by its own mount; publishing a `ref` through a
-// registry would hand every feature a live DOM node whose lifetime it does not own,
-// and a feature holding a stale one would call `focus()` on a detached element and
-// see nothing happen. What travels here is the ASK — one event, no payload — and the
-// composer decides what focusing means.
-//
-// AN ASK WITH NO COMPOSER MOUNTED IS DROPPED, DELIBERATELY. There is no queue and no
-// replay: a request is about a person's attention right now, and a caret that jumps
-// into a composer which mounted seconds later would move focus out from under
-// whatever they had started doing instead. The emitter's own no-sink case is exactly
-// that behavior, so nothing here adds a buffer to defeat it.
-//
-// IT IS AN EVENT AND NOT A STORE, so nothing re-renders on an ask. Focus is an
-// imperative act on a DOM element, and routing it through rendered state would mean
-// holding a "wanted focus" flag that has to be cleared, can be read twice, and shows
-// up in every snapshot of a store that is otherwise about what is on screen.
+// Asking the composer for the caret from a view that is not the composer. It carries a request,
+// not a `ref`: the input element's lifetime belongs to the composer, and a stale handle would call
+// `focus()` on a detached node. An ask with no composer mounted is dropped, with no queue or
+// replay, so a late mount never pulls focus from what the person moved on to. It is an event, not
+// a store, so nothing re-renders on an ask.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 
@@ -32,25 +11,14 @@ export type ComposerFocusRequest = Readonly<Record<string, never>>;
 
 const composerFocusRequests = new Emitter<ComposerFocusRequest>("composer focus request");
 
-/**
- * Ask whichever composer is mounted to take the caret.
- *
- * Called by a view that has just told a person to type something, and answered by
- * nobody at all when no composer
- * is mounted, which is a window with no session open.
- */
+/** Ask whichever composer is mounted to take the caret; nobody answers when none is mounted. */
 export function requestComposerFocus(): void {
   composerFocusRequests.emit({});
 }
 
 /**
- * The composer's side: take the caret when asked. Unsubscribed on unmount.
- *
- * The sink is called with NO argument rather than handed the emitter's event value.
- * The emitter is a generic fan-out and delivers one, but this seam's whole claim is
- * that the ask carries nothing — a listener that received a value would eventually be
- * a listener that branched on one, and the seam would have grown a payload nobody
- * declared.
+ * The composer's side: take the caret when asked. The sink is called with no argument so the
+ * seam never grows a payload; unsubscribe on unmount.
  */
 export function subscribeToComposerFocus(takeFocus: () => void): Unsubscribe {
   return composerFocusRequests.subscribe(() => {

@@ -1,7 +1,4 @@
-// What the accelerator sends, and what it refuses to send.
-//
-// Every refusal below names what was typed, because on each of those paths nothing
-// was asked.
+// What the line handler sends and what it refuses to send; each refusal names what was typed.
 
 import { describe, expect, it } from "vitest";
 
@@ -13,7 +10,6 @@ import {
   WORKFLOW_TEST_SESSION_ID,
 } from "./workflow-command.test-support.js";
 
-/** One line as the router hands it over. */
 function line(text: string): ComposerCommandLine {
   return { commandName: "workflow", text };
 }
@@ -38,8 +34,7 @@ describe("startWorkflowFromLine", () => {
   });
 
   it("starts the definition found on a later page of the enumeration", async () => {
-    // The whole reason the read follows the cursor: this name is unreachable from the
-    // first page, and refusing it would be a refusal about a name the daemon carries.
+    // This name is unreachable from the first page, so the read must follow the cursor.
     const calls = recordedWorkflowCalls();
     const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }, { definitions: [{ name: "release" }] }],
@@ -136,7 +131,6 @@ describe("startWorkflowFromLine", () => {
   });
 });
 
-/** The refusal code one outcome carried, or a loud failure if it applied. */
 function refusalCodeOf(outcome: Awaited<ReturnType<typeof startWorkflowFromLine>>): string {
   if (outcome.status !== "refused") {
     throw new Error("this line must not have started a workflow");
@@ -144,7 +138,6 @@ function refusalCodeOf(outcome: Awaited<ReturnType<typeof startWorkflowFromLine>
   return outcome.refusal.code;
 }
 
-/** The sentence one refusal carried, read the same guarded way. */
 function refusalDetailOf(outcome: Awaited<ReturnType<typeof startWorkflowFromLine>>): string {
   if (outcome.status !== "refused") {
     throw new Error("this line must not have started a workflow");

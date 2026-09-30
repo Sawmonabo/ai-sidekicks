@@ -1,18 +1,8 @@
-// The popover that shows what this run's provider can be asked to do.
-//
-// Split from `CommandList.tsx`, which owns the composer-side
-// trigger — when a popover is open at all, and what a selection sends — while this
-// owns what an open one renders and how it is moved through.
-//
-// EVERY PROVIDER ENTRY IS ONE THE PROVIDER ENUMERATED, under the binding it was read
-// for. Nothing here composes a provider command, completes one, or offers one the read
-// did not carry.
-//
-// THE LIST IS TWO LABELED GROUPS AND NEVER ONE FLAT RUN. The console's own commands
-// are acts this window performs; the provider's are names it will not send. `CommandListGroup`
-// carries the heading and the `role="group"` that states the difference before a press;
-// what stays here is the partition, which preserves each row's position in the single
-// key sequence the cursor walks across both halves.
+// The popover listing what the console can do and what the run's provider enumerated.
+// Every provider entry is one the provider enumerated for the addressed binding; nothing here
+// composes or completes a provider command. `CommandList.tsx` owns when the popover opens.
+// Two labeled groups, never one flat run: console commands are acts this window performs, provider
+// entries are names it will not send. The partition keeps each row's flat position.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
@@ -35,60 +25,36 @@ import { type ProviderCommandReadState } from "../provider-command-read.js";
 import { EnumerationState } from "./EnumerationState.js";
 
 /**
- * No command reads a line here: a picked entry carries no typed argument, so an
- * argument-reading command takes its palette act.
+ * A picked entry carries no typed argument, so an argument-reading command takes its palette
+ * act.
  */
 const PICKED_ENTRY_READS_NO_LINE: readonly string[] = [];
 
 /**
  * Why pressing a key on a provider row runs nothing.
  *
- * Declared once and rendered only in answer to the press: the popover's lede already
- * carries the standing claim ("Choosing an entry starts no turn"), which the listbox
- * names through `aria-describedby`, so this sentence exists to answer a GESTURE
- * rather than to restate the list's purpose a second time on every open.
+ * Shown only in answer to the press: the lede already states the standing claim.
  */
 const PROVIDER_ENTRY_NOT_RUNNABLE =
   "Provider commands and skills are listed for reference. This console starts no turn from one, so there is nothing here to run.";
 
-/**
- * The same press, on a row the provider declared unavailable.
- *
- * Its own sentence rather than the one above, because a person who pressed this row
- * is owed the reading the reply actually carried: the entry is disabled where it
- * lives, which stays true wherever they try it next.
- */
+/** The same press on a row the provider declared disabled; it is disabled there too. */
 const PROVIDER_ENTRY_DISABLED =
   "The provider published this entry as disabled, so it is unavailable there as well as here. Nothing was run.";
 
-/**
- * What the console's own half is called.
- *
- * It names the ACT rather than the source, because the difference a person needs
- * before they press anything is whether pressing does something here.
- */
+/** The console group's heading: it names the act, so a person knows what pressing does. */
 const CONSOLE_GROUP_LABEL = "This console's commands — these run here";
 
 /**
- * What the provider's half is called, in the words the design gives it.
- *
- * "Discovery, not runnable" is the whole claim: the entries are the provider's own
- * enumeration, carried so a person can read what the binding offers, and this console
- * starts no turn from one. Stated on the group so it is read once, on entering the
- * section, rather than inferred from which rows happen to carry a button.
+ * The provider group's heading. The entries are the provider's own enumeration and this console
+ * starts no turn from one, so the group says so once on entering the section.
  */
 const PROVIDER_GROUP_LABEL = "Discovery, not runnable";
 
 /**
- * The popover itself, mounted only while the line opens it.
- *
- * A separate component for two reasons. The active-entry cursor is born with the
- * open list and dies with it, so a cursor held above the open state cannot survive a
- * dismissal and point at a row from a list nobody is looking at. And the catalog is
- * READ HERE, on every render this component makes, rather than memoized above it:
- * the console's command registry is filled by the frame's own registration effect
- * after a child mounts, so a list captured once would be the empty registry for the
- * life of the window.
+ * The popover, mounted only while the line opens it so the active-entry cursor dies with the list.
+ * The catalog is read on every render, not memoized: the command registry fills after a child
+ * mounts, so a list captured once would stay empty.
  */
 export function CommandListPopover(props: CommandListPopoverProps): React.JSX.Element {
   const { prefix, readCommands, enumeration, addressed, stepIntoListToken } = props;
@@ -98,13 +64,11 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   const listRef = useRef<HTMLUListElement | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [actionOutcome, setActionOutcome] = useState<CommandOutcome | undefined>(undefined);
-  // Set only by a press that could not be honored, and cleared by the next move or
-  // the next act, so the region never keeps answering a gesture the person has left.
+  // Set by a press that could not be honored; cleared by the next move or act.
   const [activationNotice, setActivationNotice] = useState<string | undefined>(undefined);
 
-  // The addressed run's own group, selected before the catalog is composed. A served
-  // reading whose groups name no binding this run is on contributes nothing, and the
-  // absence says so beneath the list.
+  // The addressed run's group, chosen before the catalog is composed; a reading with no group
+  // for this run contributes nothing, and the absence is stated beneath the list.
   const addressedGroup =
     enumeration.phase === "served"
       ? selectAddressedBindingGroup(enumeration.groups, addressed)
@@ -114,8 +78,7 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
     providerGroups: addressedGroup === undefined ? [] : [addressedGroup],
   });
   const entries = filterCommandList(catalog, prefix);
-  // A group whose tail the cap dropped answers no question about what is missing, so
-  // the search over it never finished and the empty claim is withheld under it.
+  // A group cut by the cap cannot show what is missing, so the empty claim is withheld.
   const isEnumerationTruncated = addressedGroup !== undefined && !addressedGroup.complete;
   const isServedEmpty =
     entries.length === 0 && haveAllSourcesAnswered(enumeration) && !isEnumerationTruncated;
@@ -131,17 +94,12 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
   );
 
   const boundedIndex = entries.length === 0 ? -1 : Math.min(activeIndex, entries.length - 1);
-  // THE TWO HALVES, EACH CARRYING ITS ROW'S POSITION IN THE FLAT SEQUENCE. The cursor,
-  // `aria-activedescendant`, and the Enter handler all count over `entries`, so the
-  // grouping may not renumber anything: a group that counted from zero would light one
-  // row and activate another. Composed once per render beside the list they describe —
-  // both are derived from `entries`, which is itself re-read on every render because
-  // the console's command registry fills after this child mounts.
+  // Rows keep their flat position: the cursor, aria-activedescendant and Enter all count over
+  // `entries`, so per-group numbering would light one row and activate another.
   const consoleRows = groupRowsOf(entries, "console");
   const providerRows = groupRowsOf(entries, "provider");
 
-  // The token at mount is the baseline, so a list reopened after an earlier step
-  // into the list does not steal focus the moment it appears.
+  // The token at mount is the baseline, so a reopened list does not steal focus on appearing.
   const stepIntoListBaselineRef = useRef(stepIntoListToken);
   useEffect(() => {
     if (stepIntoListToken > stepIntoListBaselineRef.current) {
@@ -172,13 +130,8 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
         setActiveIndex((index) => Math.max(index - 1, 0));
         return;
       }
-      // Enter and Space settle the ACTIVE row — the row `aria-activedescendant`
-      // already names, read from the same bounded index the attribute is composed
-      // from, so what is announced and what is activated agree by construction
-      // rather than through a second lookup that could disagree with it. Space is
-      // prevented from its default before anything else happens: a listbox is a
-      // focusable scroll container, and a Space that both ran the act and scrolled
-      // the popover would move the list out from under the person mid-press.
+      // Enter and Space act on the row aria-activedescendant names, from the same bounded index.
+      // Space is prevented because a listbox scrolls and Space would move it mid-press.
       if (event.key === "Enter" || event.key === " ") {
         event.preventDefault();
         const activeEntry = boundedIndex < 0 ? undefined : entries[boundedIndex];
@@ -222,10 +175,8 @@ export function CommandListPopover(props: CommandListPopoverProps): React.JSX.El
           aria-activedescendant={boundedIndex < 0 ? undefined : rowId(listId, boundedIndex)}
           onKeyDown={onListKeyDown}
         >
-          {/* An EMPTY group is left out rather than drawn with a heading over
-              nothing: a labeled section with no rows asserts a category the filtered
-              catalog does not have. Nothing is filtered by being in a group — every
-              entry reaches exactly one of the two. */}
+          {/* An empty group is left out: a heading over no rows would assert a category the
+              filtered catalog does not have. */}
           {consoleRows.length === 0 ? null : (
             <CommandListGroup
               rows={consoleRows}
@@ -281,24 +232,14 @@ interface CommandListPopoverProps {
 }
 
 /**
- * The DOM id of one row, so `aria-activedescendant` names it.
- *
- * By POSITION and not by the entry's key: a key carries a provider-published name,
- * and a wire-verbatim string can hold whitespace — which an `aria-activedescendant`
- * reference cannot, because the attribute is parsed as a single id.
+ * The DOM id of one row, by position rather than entry key: a provider-published name can hold
+ * whitespace, which an aria-activedescendant id reference cannot.
  */
 function rowId(listId: string, index: number): string {
   return `${listId}-row-${String(index)}`;
 }
 
-/**
- * One group's rows, each carrying the position it holds in the flat sequence.
- *
- * A filter would drop the positions, and a second pass counting inside the group
- * would invent different ones — which is the defect the flat index exists to prevent.
- * The order within a group is the catalog's own; only the partition is this
- * function's.
- */
+/** One group's rows, each keeping its position in the flat sequence; catalog order is kept. */
 function groupRowsOf(
   entries: readonly CommandListEntry[],
   source: CommandListEntry["source"],
@@ -313,15 +254,8 @@ function groupRowsOf(
 }
 
 /**
- * Whether every source that could hold a match has answered.
- *
- * The console's own command registry is local and always settled, so the provider
- * enumeration is the only source with phases and the only one this asks about.
- * `not-checked` counts as answered and not as pending: this composer addresses a
- * session rather than an agent, so no provider was asked and none is coming — the
- * console's own commands are the whole of what could match, and an empty result over
- * them is a finished search. `EnumerationState` says why the provider half is absent
- * beneath it, which is a different sentence rather than a second copy of this one.
+ * Whether every source that could hold a match has answered. `not-checked` counts as answered:
+ * this composer addresses a session, so no provider was asked and none is coming.
  */
 function haveAllSourcesAnswered(enumeration: ProviderCommandReadState): boolean {
   return enumeration.phase === "served" || enumeration.phase === "not-checked";

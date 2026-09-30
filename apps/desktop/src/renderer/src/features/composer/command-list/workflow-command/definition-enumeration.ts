@@ -1,27 +1,8 @@
-// The definitions this session can start, read once and read whole.
-//
-// ONE ENUMERATION FUNCTION, TWO READERS. The accelerator resolves a typed name against
-// this list, and the command list offers candidates from it while the name is
-// still being typed. Written twice they would be two reads of one wire that answer
-// two different questions about one line — and the command list that offered a candidate
-// would stop agreeing with the path that starts it the first time either side's
-// paging or filtering was tuned.
-//
-// THE READ FOLLOWS `nextCursor` TO EXHAUSTION. `workflow.definitionList` is cursor
-// paged, so a resolution matching only the first page reported "no workflow by that
-// name" for every definition past it — a refusal about a name the daemon does carry.
-// The walk is BOUNDED: a cursor the daemon keeps handing back would otherwise be an
-// unbounded loop on a person's keystroke, so the page count is capped and a read that
-// hits the cap answers `complete: false` rather than claiming a finished search. The
-// caller that renders it says what an incomplete list cannot support, exactly as the
-// provider enumeration does with a truncated group.
-//
-// AND IT IS CANCELABLE WITHOUT A SECOND MECHANISM. The walk takes a liveness
-// predicate, so a superseded read stops asking for pages as well as dropping the
-// answer it already has — the pages it would fetch are pages nobody can be shown.
-//
-// THE PAGE READ IS AN ARGUMENT. This module holds the walk and none of the wire: the
-// caller supplies the one call that reads a page.
+// The definitions this session can start, read whole. The line handler resolves a typed name
+// against this list and the command list offers candidates from it, so one walk keeps the
+// two agreeing. `workflow.definitionList` is cursor paged and the walk follows `nextCursor`, capped
+// at a page count so a cursor that never ends cannot loop; a capped read answers
+// `complete: false`. The page read is an argument: this module holds the walk, not the wire.
 
 import type { WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import { COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP } from "../../composer-bounds.js";
@@ -55,15 +36,9 @@ export type WorkflowEnumerationLiveness = () => boolean;
 const ALWAYS_LIVE: WorkflowEnumerationLiveness = () => true;
 
 /**
- * Read every definition this session can start, following the wire's own cursor.
- *
- * A plain function rather than a hook, so the accelerator's dispatch and the
- * command list's candidate source spend ONE implementation: the dispatch has no
- * React tree to read from, and a hook-shaped entry would have forced it to grow a
- * second walk beside this one.
- *
- * A page read that rejects rejects the whole walk: a partial list presented as the
- * answer would resolve a name against definitions the daemon never finished listing.
+ * Read every definition this session can start, following the wire's own cursor. A page read
+ * that rejects rejects the whole walk, since a partial list would resolve a name against
+ * definitions the daemon never finished listing. `isLive` stops the walk between pages.
  */
 export async function readWorkflowDefinitions(
   readPage: ReadWorkflowDefinitionPage,
@@ -74,8 +49,7 @@ export async function readWorkflowDefinitions(
   let cursor: string | undefined = undefined;
   for (let page = 0; page < COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP; page += 1) {
     if (!isLive()) {
-      // Superseded between pages. The answer has nowhere to go, so the walk stops
-      // asking rather than spending the remaining pages to publish nothing.
+      // Superseded between pages: stop asking rather than fetch pages nobody can be shown.
       return { definitions, complete: false };
     }
     const reply = await readPage(cursor === undefined ? { sessionId } : { sessionId, cursor });
@@ -85,8 +59,6 @@ export async function readWorkflowDefinitions(
       return { definitions, complete: true };
     }
   }
-  // The cap stopped the walk with a cursor still outstanding: what is held is a real
-  // partial list, and saying so is what keeps a caller from reporting a finished
-  // search over it.
+  // The cap stopped the walk with a cursor outstanding, so the list is partial.
   return { definitions, complete: false };
 }

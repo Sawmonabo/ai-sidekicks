@@ -1,9 +1,6 @@
-// The discovery list is two labeled groups, and the cursor still walks one sequence.
-//
-// Its own suite rather than more cases in the popover's: those are about WHICH entries
-// reach the list and what a press answers with, and these are about the sectioning
-// drawn over them — which has its own failure, a group that renumbers the rows and
-// leaves the announced row and the activated row disagreeing.
+// The discovery list is two labeled groups, and the cursor still walks one sequence. Its own
+// suite because a group that renumbers the rows would leave the announced row and the
+// activated row disagreeing.
 
 import { describe, expect, it } from "vitest";
 
@@ -75,9 +72,8 @@ describe("CommandListPopover — the list is two labeled groups", () => {
 
     await typeIntoLine(mounted.line, "/");
 
-    // The defect this closes: one flat run left the difference between an act this
-    // window performs and a name it will not send to be inferred from which rows
-    // happen to carry a button — a reading only available after a press.
+    // One flat run left the difference between an act this window performs and a name it will
+    // not send to be inferred from which rows carry a button.
     expect(groupLabels(mounted.container)).toEqual([CONSOLE_GROUP_LABEL, PROVIDER_GROUP_LABEL]);
   });
 
@@ -95,17 +91,14 @@ describe("CommandListPopover — the list is two labeled groups", () => {
     expect(consoleNames).toContain(GROUPED_COMMAND_ID);
     expect(providerNames).toEqual(expect.arrayContaining(["compact", "review"]));
     expect(providerNames).not.toContain(GROUPED_COMMAND_ID);
-    // Grouping partitions and never filters: every option on screen is in exactly one
-    // of the two, so the two halves add back up to the whole list.
+    // Grouping partitions and never filters: every option is in exactly one half.
     expect([...consoleNames, ...providerNames].sort()).toEqual(
       [...optionNames(mounted.container)].sort(),
     );
   });
 
   it("draws no group over an empty half", async () => {
-    // No console command is registered here, so the console half has nothing in it —
-    // and a labeled section with no rows would assert a category the filtered
-    // catalog does not have.
+    // No console command is registered, so a labeled console section would be an empty category.
     const mounted = await mountComposer({
       bridge: bridgeEnumerating(await scenarioBindingGroups()),
       focusedPane: agentPane(composerLeadAgentId()),
@@ -127,8 +120,8 @@ describe("CommandListPopover — the list is two labeled groups", () => {
     const list = await stepIntoList(mounted);
     const names = optionNames(mounted.container);
 
-    // Walking to the last row crosses the group boundary. A group counting from zero
-    // would light a row in its own half while `aria-activedescendant` named another.
+    // Walking to the last row crosses the group boundary; a group counting from zero would
+    // light a row in its own half while `aria-activedescendant` named another.
     for (let step = 1; step < names.length; step += 1) {
       await pressOnList(list, "ArrowDown");
     }

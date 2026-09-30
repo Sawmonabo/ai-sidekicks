@@ -1,8 +1,5 @@
-// The enumeration holder's shared scaffolding.
-//
-// Both suites drive the same holder over the same fixture bridge, because the claim
-// they split is about ONE reading served to more than one reader — and two setups
-// would have made the second reader's case about a second reading.
+// Shared scaffolding for the enumeration suites: one holder over one fixture bridge, so a second
+// reader's case is about the same reading rather than a second one.
 
 import type { ProviderCommandListResult } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -11,18 +8,13 @@ import { WAITING_FOR_INPUT_SCENARIO } from "../../../../../../fixtures/scenarios
 import type { ComposerTarget } from "../composer-target.js";
 import { addressedProviderBinding, type AddressedProviderBinding } from "./command-list-entries.js";
 
+/** The wire method the enumeration calls. */
 export const ENUMERATION_METHOD = "driver.listProviderCommands";
 
 /**
- * The real fixture bridge with a recorder in front of `daemon.call`.
- *
- * The fixture bridge's own helper rather than a spread of this suite's: the
- * daemon-call chokepoint holds that a test outside `bridge/` stands in for a view,
- * and a view reaches the daemon only through `callDaemon`.
- *
- * `parkedEnumerations`, where a case supplies it, collects a resolver for every
- * enumeration call instead of letting it answer — which is the only way to hold one
- * bridge's reply outstanding across a swap to another bridge and then let it land.
+ * The fixture bridge with a recorder in front of `daemon.call`. `parkedEnumerations`, where given,
+ * collects a resolver per enumeration call instead of answering, so one bridge's reply can be held
+ * across a swap to another bridge and then let land.
  */
 export function recordingBridge(
   recorded: RecordedDaemonCall[],
@@ -39,12 +31,7 @@ export function recordingBridge(
   }, WAITING_FOR_INPUT_SCENARIO).bridge;
 }
 
-/**
- * A reply naming one command, in the registered result shape.
- *
- * Named distinctively so a case can tell WHICH bridge answered rather than only that
- * something did — which is the whole claim when a stale reply lands late.
- */
+/** A reply naming one command, named distinctively so a case can tell which bridge answered. */
 export function enumerationReplyNaming(commandName: string): ProviderCommandListResult {
   const binding = { driverName: "claude", providerAccountId: null };
   return {
@@ -60,17 +47,13 @@ export function enumerationReplyNaming(commandName: string): ProviderCommandList
 }
 
 /**
- * Two agent addresses, distinct and shaped the way the wire requires.
- *
- * `ListProviderCommandsRequest` declares `agentId` a UUID, and `callDaemon` parses
- * the REQUEST before it leaves — so an id shaped like a label refuses there and
- * every case below would be reading `request-unsendable` instead of the enumeration
- * it means to assert on. What these cases need of the two ids is only that they
- * differ, which is why they are written here rather than borrowed from a scenario.
+ * Two distinct agent addresses shaped as the wire requires: the request declares `agentId` a UUID
+ * and `callDaemon` parses it before sending, so a label-shaped id refuses as `request-unsendable`.
  */
 export const FIRST_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3301";
 export const SECOND_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3302";
 
+/** A provider-bound composer target addressed at the given agent. */
 export function targetForAgent(agentId: string): ComposerTarget {
   return {
     path: "provider-bound",
@@ -83,17 +66,12 @@ export function targetForAgent(agentId: string): ComposerTarget {
   };
 }
 
-/**
- * The binding the send path's lookup is scoped to.
- *
- * Derived from the same target the hook is driven with rather than written out, so a
- * case cannot accidentally look up under a binding its own composer is not addressed
- * to — which is the thing the lookup is being held to.
- */
+/** The binding the send path's lookup is scoped to, derived from the same target the hook uses. */
 export const ADDRESSED: AddressedProviderBinding = addressedProviderBinding(
   targetForAgent(FIRST_AGENT),
 );
 
+/** The recorded calls that were enumeration requests. */
 export function enumerationCalls(
   recorded: readonly RecordedDaemonCall[],
 ): readonly RecordedDaemonCall[] {

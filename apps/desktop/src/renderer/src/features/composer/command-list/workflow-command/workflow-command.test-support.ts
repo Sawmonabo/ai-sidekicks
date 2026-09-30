@@ -1,8 +1,4 @@
-// One pair of plain stub calls for the whole accelerator's suite.
-//
-// Three suites drive the same two operations — the paged enumeration and the run
-// start — and a stub hand-built beside each would be three answers to what a page and
-// a cursor look like.
+// One pair of stub calls (paged enumeration and run start) shared by the workflow suites.
 
 import type { WorkflowDefinitionId, WorkflowDefinitionSummary } from "@ai-sidekicks/contracts";
 import type { ReadWorkflowDefinitionPage } from "./definition-enumeration.js";
@@ -11,7 +7,6 @@ import type { WorkflowStartOperations, WorkflowStartRequest } from "./start-work
 /** The session every case in this suite addresses. */
 export const WORKFLOW_TEST_SESSION_ID = "session-workflow-start";
 
-/** The cursor page `n` is fetched with. Opaque to the code under test, as on the wire. */
 const PAGE_CURSOR_PREFIX = "page-";
 
 /** How a fixture definition differs from the default one. */
@@ -28,7 +23,7 @@ export interface WorkflowDefinitionPageSeed {
   readonly definitions: readonly WorkflowDefinitionSeed[];
 }
 
-/** One request each of the two operations was called with, in call order. */
+/** The requests each of the two operations received, in call order. */
 export interface WorkflowCalls {
   readonly listed: Parameters<ReadWorkflowDefinitionPage>[0][];
   readonly started: WorkflowStartRequest[];
@@ -68,13 +63,7 @@ export function workflowDefinition(seed: WorkflowDefinitionSeed): WorkflowDefini
   };
 }
 
-/**
- * Stubs for the two workflow operations.
- *
- * The pages are addressed by the cursor the previous page handed back, exactly as the
- * wire's are, so a walk that ignored `nextCursor` reads page one forever here rather
- * than quietly passing.
- */
+/** Stubs for the two workflow operations, paging by the cursor the previous page returned. */
 export function fixtureWorkflowStartOperations(
   options: WorkflowFixtureOptions = {},
 ): WorkflowStartOperations {
@@ -86,8 +75,7 @@ export function fixtureWorkflowStartOperations(
       options.calls?.listed.push(request);
       options.onList?.(request);
       const pageIndex = pageIndexOf(request.cursor);
-      // An endless enumeration answers every cursor by cycling its pages, which is
-      // what a daemon handing back a cursor forever looks like from here.
+      // An endless enumeration cycles its pages, like a daemon handing back a cursor forever.
       const page = options.endless === true ? pages[pageIndex % pages.length] : pages[pageIndex];
       if (page === undefined) {
         throw new Error(`the fixture has no page for cursor ${String(request.cursor)}`);
@@ -109,12 +97,7 @@ export function recordedWorkflowCalls(): WorkflowCalls {
   return { listed: [], started: [] };
 }
 
-/**
- * Which page a cursor names.
- *
- * An absent cursor is the first page; anything this fixture did not mint is a page
- * that does not exist.
- */
+/** Which page a cursor names; an absent cursor is the first page. */
 function pageIndexOf(cursor: string | undefined): number {
   if (cursor === undefined) {
     return 0;

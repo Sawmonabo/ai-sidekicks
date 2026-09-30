@@ -1,15 +1,5 @@
-// Ledger entries for the two folds that read them.
-//
-// Hoisted on the second use: the chip fold and the send-reference fold both need an
-// entry in a named state, and a factory written twice would let the two suites drift
-// into testing two different shapes of the same thing.
-//
-// TWO FACTORIES AND NOT ONE WITH A CAST. The entry union splits on whether a send is
-// still possible from where the entry stands — the sending arm holds the user's
-// bytes and the settled arm has nowhere to put them — so a single factory could only
-// satisfy both by asserting past that split, which would let a case build an entry the
-// staged list can never publish. The split is taken STRUCTURALLY off the union rather than
-// by naming the states again, so a state that changes arms changes these with it.
+// Ledger entries for the chip fold and the send-reference fold. Two factories, split on the
+// union's send-capable arm, so a case cannot build an entry the staged list never publishes.
 
 import type { ArtifactId, SessionAttachmentSummary } from "@ai-sidekicks/contracts";
 
@@ -78,8 +68,7 @@ function commonRecord(
       declaredMediaType: options.declaredMediaType,
     },
     receivedBytes: options.receivedBytes ?? 0,
-    // A stream handle exists from the moment one is opened, which is every state but
-    // the one before the daemon has been asked for anything.
+    // A stream handle exists in every state except before the daemon has been asked anything.
     ingestId: state === "declared" ? undefined : "ingest-1",
     derived: options.derived,
     refusal: options.refusal,

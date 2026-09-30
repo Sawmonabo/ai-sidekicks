@@ -1,11 +1,7 @@
-/*
- * The attachment card and the wrapper `InlineAttachmentCard.tsx` draws around it.
- * `AttachmentCard.tsx` imports this sheet, so every view that draws the card draws
- * it styled.
- */
+/* The attachment card and the wrapper `InlineAttachmentCard.tsx` draws around it. */
 
-/* The attachment card's wrapper. It owns the card's outer spacing so the composer and
-   the transcript row can space it differently without two cards. */
+/* The wrapper owns the card's outer spacing so the composer and the transcript can space it
+   differently. */
 .meridian-attachment-card {
   display: block;
   margin-block-start: var(--meridian-space-2);
@@ -46,8 +42,7 @@
   color: var(--meridian-text-muted);
 }
 
-/* The ingest entry's own measure, not a decorated bar: the element carries decoded byte
-   counts and the reader takes the scaled pair from the line above it. */
+/* The measure is decoded byte counts; the reader takes the scaled pair from the line above. */
 .meridian-attachment__progress {
   inline-size: 100%;
   block-size: 2px;

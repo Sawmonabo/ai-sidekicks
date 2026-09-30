@@ -1,39 +1,8 @@
-// What one chunk acknowledgement establishes, and what it refuses to establish.
-//
-// THE SEAM, IN ONE SENTENCE: this module changes when the daemon's answer to a chunk
-// changes. `AttachmentIngestChunkResponse` is registered as `{ ingestId,
-// receivedBytes }` — the second of those being "spooled running total of DECODED bytes
-// after this chunk", which the same line names as the enforced byte bound — so the
-// answer to "how far is this upload" is the daemon's and never this console's.
-//
-// WHY THE LEDGER MAY NOT ADVANCE BY WHAT IT SENT. Adding the local slice length to a
-// running total would make the progress figure a record of what this client PUT ON THE
-// WIRE rather than of what the daemon SPOOLED. Those are different numbers the moment
-// anything is dropped, replayed, or refused past the point the client noticed. The
-// acknowledgement also names the stream, so a reply belonging to another ingest is
-// detectable rather than charged to whichever upload happened to be awaiting one.
-//
-// AND AN UNUSABLE ACKNOWLEDGEMENT STOPS THE STREAM RATHER THAN BEING ROUNDED OFF. Two
-// answers are unusable, and each of them means the byte accounting the rest of this
-// protocol rests on has stopped being shared:
-//
-//   • A DIFFERENT STREAM. Charging another ingest's total to this one would move this
-//     upload's progress by an amount that has nothing to do with it.
-//   • A TOTAL THAT DID NOT ADVANCE. Every chunk this loop sends carries at least one
-//     byte, so a lawful running total after it is strictly greater than the one before.
-//     A total that regressed contradicts the reply that preceded it, and one that stood
-//     still would leave the loop re-slicing from the same offset for as long as the
-//     daemon kept answering — the ledger IS the offset, so a client that accepted a
-//     standing total would send the same chunk forever. Refusing is what makes the loop
-//     terminate on the daemon's own answer rather than on this client's optimism.
-//
-// The clamp below is the one arm that is not a refusal, and it enforces the rule that a
-// base64 length is never charted as progress. An encoded length is about four thirds of
-// the decoded one, so a total charted from one drives past a bound the caller itself
-// declared — impossible for a decoded count, and therefore the observable signature of
-// having charted the wrong number. It fires the `wire-figure-formatting` tripwire and
-// the figure is clamped, so the bar cannot render past full while the defect is
-// reported.
+// What one chunk acknowledgement establishes, and what it refuses to establish. The reply is
+// `{ ingestId, receivedBytes }` where `receivedBytes` is the spooled running total of decoded
+// bytes, so upload progress is the daemon's answer and never a count of what this client sent.
+// A reply for another stream, or a total that did not advance, is unusable and stops the
+// stream: a standing total would make the loop re-send the same chunk forever.
 
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import type { AttachmentIngestEntry } from "../attachment-shapes.js";
@@ -43,17 +12,13 @@ export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
   "console/repos/attachments/attachment-ingest-acknowledgement.ts";
 
 /**
- * Why the console stopped an ingest on the strength of the daemon's own reply.
- *
- * The console's code and not a daemon one: the daemon's vocabulary describes what the
- * daemon decided, and this is a finding about an answer that cannot be reconciled with
- * what this client sent. It is classified `restart` by the caller rather than mapped
- * through `ingestRefusalDisposition`, because the retry-in-place default assumes a
- * shared offset and that is exactly what has stopped being true.
+ * Why the console stopped an ingest on the strength of the daemon's own reply. It is the
+ * console's code, not a daemon one, and is classified `restart` by the caller because the
+ * retry-in-place default assumes a shared offset.
  */
 export const CHUNK_ACKNOWLEDGEMENT_UNUSABLE_CODE = "chunk-acknowledgement-unusable";
 
-/** The registered `AttachmentIngestChunkResponse`, as this leg reads it. */
+/** The daemon's reply to one chunk, as this leg reads it. */
 export interface ChunkAcknowledgement {
   readonly ingestId: string;
   readonly receivedBytes: number;
@@ -65,11 +30,9 @@ export type ChunkAcknowledgementReading =
   | { readonly status: "unusable"; readonly detail: string };
 
 /**
- * Read one chunk acknowledgement against the stream it was supposed to be for.
- *
- * Pure, exported, and taking the entry beside the id this client sent, so every arm is
- * provable by driving THIS function rather than by reaching into the protocol class or
- * standing in for one.
+ * Read one chunk acknowledgement against the stream it was for. A decoded total past the
+ * declared size means a base64 length was charted, so it fires the `wire-figure-formatting`
+ * tripwire and clamps the figure to the declared size. Pure, so every arm is testable directly.
  */
 export function readChunkAcknowledgement(
   entry: AttachmentIngestEntry,

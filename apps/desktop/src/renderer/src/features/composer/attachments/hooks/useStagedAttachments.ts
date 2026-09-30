@@ -19,23 +19,10 @@ export interface StagedAttachmentsBinding {
 }
 
 /**
- * Bind one staged list to one component's lifetime.
- *
- * THE SUBJECT IS THE BRIDGE AND THE KEY IS THE SESSION, which is what a staged list is
- * scoped to, so the console's own resource seam holds it: `useSubjectScopedResource`
- * opens the staged list on the render that first sees a `(bridge, session)` pair and
- * closes it however that render ended, including a pass React discards. It is also
- * what keeps this module off a second implementation of subject-scoped state.
- *
- * The `port` is read when the staged list opens, so it must stay the same for the life of
- * a `(bridge, session)` pair; a different port does not re-open the staged list.
- *
- * THE SEAM RE-MINTS A CLOSED STAGED LIST. React's StrictMode double-mount runs the seam's
- * cleanup and then this effect's setup again on the SAME committed staged list, and the
- * cleanup terminally disposes the ingest client. Left in place, every file the user
- * chose afterwards would reach a client whose `attach` returns at once: the attachment
- * strip inert, with nothing on screen to say so. The seam's `isClosed`, supplied
- * beside `close`, replaces it, so this effect starts a staged list and does nothing else.
+ * Bind one staged list to one component's lifetime, keyed by the bridge and the session. The
+ * seam re-mints a list that a StrictMode double-mount disposed; otherwise later files would
+ * reach a disposed ingest client and the strip would go inert with nothing on screen to say so.
+ * The `port` is read when the list opens, so a different port does not re-open it.
  */
 export function useStagedAttachments(
   bridge: PlatformBridge,

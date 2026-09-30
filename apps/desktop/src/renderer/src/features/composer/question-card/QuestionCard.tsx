@@ -1,26 +1,9 @@
 // The question card: an agent's question, in the composer where an approval sits.
 //
-// A mount may supply `body` to replace the card. The row's reading comes from
-// `question-reading.ts`; the questions themselves are the record's personal-data half
-// and arrive as their own prop.
-//
-// WHAT THE CARD DRAWS. Every question of the record in its own order: the agent's short
-// header, the question, the summary line where one was sent, the option rows with each
-// description that was sent, and a typed field under every question, because both
-// providers always take typed text and a question may offer no options at all. A secret
-// question draws one masked field instead of the rows and the typed field. The
-// questions are drawn one under another; paging through them is not built here.
-//
-// EVERY ANSWER GOES BACK TOGETHER. A press on an option row marks it and never sends
-// anything by itself. `Answer` stays closed until each question has a marked row, typed
-// text or a secret, then sends one answer per question, in the record's order, in one
-// call. `useQuestionDrafts` holds the drafts and decides which answer each one makes.
-//
-// AN ANSWER IS A SETTLED ACT AND NOT A KEYSTROKE THAT VANISHED. The card draws what
-// became of the answer's reply once: the call is out, the daemon took it, or it was
-// refused and the person's words never left this machine. Nothing here settles the
-// question: it has no timer, and the card closes when the question's attention entry
-// resolves.
+// Draws every question of the record in order, each with its option rows and a typed field
+// (both providers always take typed text); a secret question draws one masked field instead.
+// `Answer` stays closed until every question has an answer, then sends one per question in
+// one call. The card never settles the question itself; a mount may supply `body` instead.
 
 import type { QuestionAnswer, QuestionAskedPersonalData } from "@ai-sidekicks/contracts";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
@@ -48,21 +31,13 @@ export interface QuestionCardBodyProps {
 export interface QuestionCardProps {
   /**
    * A body that replaces the built-in card, or `undefined` while the card draws itself.
-   *
-   * Required and carrying `undefined` rather than optional, so a mount that forgot it is a
-   * compile error at the construction site rather than an absent key that renders
-   * identically to a deliberate "none".
+   * Required rather than optional, so a mount that forgot it fails to compile.
    */
   readonly body: ((props: QuestionCardBodyProps) => React.ReactNode) | undefined;
   readonly question: QuestionReading;
   /** Every question of the record, in its own order. */
   readonly questions: QuestionAskedPersonalData["questions"];
-  /**
-   * Where the answer this card last dispatched has got to.
-   *
-   * Held by the mount rather than here, because the dispatch is a wire call and this
-   * card constructs none.
-   */
+  /** Where the last dispatched answer has got to; held by the mount, which owns the wire call. */
   readonly delivery: AnswerDelivery;
   /** Deliver one answer per question, in the record's order. */
   readonly onAnswer: (answers: QuestionAnswer[]) => void;
@@ -88,9 +63,7 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
       </div>
     );
   }
-  // The two statuses in which no further answer may be dispatched: one is on the wire,
-  // or one has already reached the daemon. A refusal deliberately leaves the controls
-  // live, because a refusal never hides the control that produced it.
+  // No further answer while one is on the wire or taken; a refusal leaves the controls live.
   const isSettling = deliveryStatus === "delivering" || deliveryStatus === "accepted";
   const { answers, drafts } = questionDrafts;
   return (
@@ -98,8 +71,7 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
       className="meridian-input-ask"
       onSubmit={(event) => {
         event.preventDefault();
-        // BOTH CONDITIONS THE BUTTON IS CLOSED ON, so the guard and the affordance
-        // cannot disagree.
+        // The conditions the Answer button is closed on, so guard and affordance agree.
         if (answers !== undefined && !isSettling) {
           props.onAnswer(answers);
         }
@@ -176,12 +148,8 @@ export function QuestionCard(props: QuestionCardProps): React.JSX.Element {
 }
 
 /**
- * What became of the answer this card dispatched, and nothing about the question itself.
- *
- * `unsent` renders nothing at all, which is every question nobody has answered yet. The
- * other three are the console's own report: the call is out, the daemon took it, or the
- * call did not land. `accepted` never says the question is settled; the refusal renders
- * inline under the controls that were used.
+ * Draws what became of the dispatched answer: nothing while `unsent`, otherwise in flight,
+ * taken, or an inline refusal. `accepted` never claims the question is settled.
  */
 function renderDelivery(delivery: AnswerDelivery): React.ReactNode {
   switch (delivery.status) {

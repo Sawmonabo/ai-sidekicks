@@ -1,33 +1,11 @@
-// What the composer says about an act while it travels, held under the address the
-// act was issued at.
+// What the composer shows about an act while it travels, held under the address the act was
+// issued at, and the writers a settlement reaches it by. Everything is held in
+// `useSubjectScopedState` under `(bridge, draftKey)`, so a re-address drops it and a replaced
+// bridge takes it along, rather than hiding it behind a read-time key comparison.
 //
-// Two readings and the writers a settlement reaches them by. Every reading is held in
-// `useSubjectScopedState` under `(bridge, draftKey)`, which re-seeds during the render
-// that first sees a new address. Split from `send-controller.ts` because that hook's
-// job is to BUILD the acts — the router, the latch, the dispatch path, the history
-// walk — and this one's is to say what the composer shows while an act is in flight and
-// what a settlement is allowed to write.
-//
-// THE REFUSAL IS HELD WHERE THE STATUS IS. The refusal answers the act that produced
-// it, and a hook-wide `useState` guarded by a read-time comparison against the current
-// draft key would only HIDE it: the row would still be there, so the return trip would
-// render a refusal minutes old, and a bridge replacement — which retires every call
-// made through the old transport — would leave it standing. Held under `(bridge,
-// draftKey)` like the status, a re-address DROPS it and a replaced bridge takes it
-// with it.
-//
-// THE PER-OPERATION REFUSAL RECORD NEVER LEAVES THIS MODULE. `send-settlement.ts` owns
-// which act a settlement belongs to and which refusal the bar renders; what the composer
-// is handed is the ONE refusal that rule produces. A caller holding the record could
-// read a refusal the render rule would not have shown, which is a second answer to a
-// question that has one — and it is the reason `renderableRefusal` is applied here
-// rather than in the component that renders its result.
-//
-// AND A SETTLEMENT IS ADMITTED BY ITS IDENTITY RATHER THAN BY THE KEY. Both writers
-// take the act's own identity and consult the predicate `use-settlement-identities.ts`
-// publishes, so "which draft does this clear" and "whose refusal may this write" are
-// one question answered once. A settlement whose identity has moved on is DISCARDED
-// where it lands rather than written at an address the composer has left.
+// The per-operation refusal record stays in this module; callers get the one refusal
+// `renderableRefusal` yields. Both writers take the act's identity and consult the predicate
+// from `useSettlementIdentities.ts`, and a settlement whose identity moved on is discarded.
 
 import { useCallback } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -53,12 +31,7 @@ export interface ComposerActState {
   readonly refusal: Refusal | undefined;
   /** Publish what the send path is doing. Dropped once the address has moved. */
   readonly publishStatus: SubjectScopedPublish<SendControllerStatus>;
-  /**
-   * Retire every held refusal, because the person is composing again.
-   *
-   * Leaving one up would make a stale refusal read as a verdict on text nobody has
-   * sent.
-   */
+  /** Retire every held refusal, because the person is composing again. */
   readonly clearRefusals: () => void;
   /** Write one act's settlement, or discard it because its identity has moved on. */
   readonly settle: (
@@ -66,12 +39,8 @@ export interface ComposerActState {
     settledRefusal: Refusal | undefined,
   ) => void;
   /**
-   * Clear the line the act was issued on, but only while that act is still current.
-   *
-   * The draft store is keyed by ADDRESS and not by visit, so on a return trip the
-   * captured key names a different draft with the same name: an unconditional clear
-   * erased text the person typed on the second visit to answer a send made on the
-   * first.
+   * Clear the line the act was issued on, only while that act is current. The draft store is
+   * keyed by address, not visit, so an unconditional clear would erase text typed since.
    */
   readonly clearSentDraft: (identity: ComposerSettlementIdentity, sentDraftKey: string) => void;
 }

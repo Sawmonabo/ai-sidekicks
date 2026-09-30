@@ -1,6 +1,6 @@
-// One chip's line, held to the rules the composer's chip and the transcript's attachment
-// card must not answer differently: whose name is on it, which reading is the truth, what a refusal
-// recommends, and which acts an entry in this state actually offers.
+// One chip's line, held to the rules the chip and the transcript card must not answer
+// differently: whose name is on it, which reading is the truth, what a refusal recommends,
+// and which acts an entry in this state offers.
 
 import { describe, expect, it } from "vitest";
 
@@ -8,7 +8,7 @@ import { INGEST_ABANDON_COPY } from "./attachment-policy.js";
 import { composerAttachmentChip } from "./composer-attachment-chip.js";
 import { derivedTruth, sendingEntry, settledEntry } from "./ingest-entry.test-support.js";
 
-/** The instant a staged list published at. Fixed, so nothing here reads a clock. */
+/** Fixed, so nothing here reads a clock. */
 const PUBLISHED_AT = 1_000_000;
 
 describe("the composer attachment chip", () => {
@@ -44,8 +44,7 @@ describe("the composer attachment chip", () => {
     );
     expect(chip.name).toBe("meeting-notes.md");
     expect(chip.nameIsDeclared).toBe(false);
-    // The DERIVED length, because that is what the daemon found: a chip still showing
-    // 400 after the finding arrived would report the caller's word as the manifest's.
+    // The derived length, not the declared 400: the caller's word must not stand as the manifest's.
     expect(chip.sizeTitle).toBe("420");
   });
 
@@ -65,8 +64,7 @@ describe("the composer attachment chip", () => {
         PUBLISHED_AT,
       ).progressFraction,
     ).toBeUndefined();
-    // An empty payload has no progress to draw, and dividing by its length would put a
-    // figure about nothing on the chip.
+    // An empty payload has no progress to draw; dividing by its length would invent a figure.
     expect(
       composerAttachmentChip(
         sendingEntry("ingesting", { byteLength: 0, receivedBytes: 0 }),
@@ -116,8 +114,7 @@ describe("the composer attachment chip", () => {
   });
 
   it("stays neutral for a file past the byte bound, because the upload is still attempted", () => {
-    // The two-hue rule: color is identity and attention, and a bound the daemon owns
-    // is neither — a hue here would report a verdict the console has not been given.
+    // Color means identity and attention, and a bound the daemon owns is neither.
     const chip = composerAttachmentChip(
       sendingEntry("declared", { byteLength: 1024 * 1024 * 1024 }),
       PUBLISHED_AT,
@@ -127,8 +124,7 @@ describe("the composer attachment chip", () => {
   });
 
   it("negative control: an ordinary attachment is not reported past the byte bound", () => {
-    // Without this, an `isPastByteAllowance` hard-wired to `true` would pass the case
-    // above and put the warning on every chip in the strip.
+    // Without this, an `isPastByteAllowance` hard-wired to `true` would pass the case above.
     expect(
       composerAttachmentChip(sendingEntry("declared", { byteLength: 1024 }), PUBLISHED_AT)
         .isPastByteAllowance,

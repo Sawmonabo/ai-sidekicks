@@ -1,10 +1,6 @@
-// What a view is told, and the one rule that can be proved rather than intended.
-//
-// The two instants are the subject: a ceiling and a stall are both answers that MOVE,
-// and the module that answers them takes the instant rather than reading a clock, which
-// is exactly what makes them assertable at all. The progress figure moved out with the
-// function that produces it — the running total is the daemon's, so its cases live in
-// `attachment-ingest-acknowledgement.test.ts`.
+// The ceiling and the stall are answers that move, so the module takes the instant rather than
+// reading a clock, which makes them assertable. The progress figure's cases live in
+// `services/attachment-ingest-acknowledgement.test.ts`.
 
 import { SESSION_ATTACHMENT_UNRESOLVED_CAUSES } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -21,11 +17,10 @@ import {
   type SettledAttachmentIngestState,
 } from "./attachment-shapes.js";
 
-/** One entry that has sent nothing, declaring a decoded total of 300 bytes. */
+/** One entry that has sent nothing, declaring `byteLength` decoded bytes. */
 function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngestEntry {
   return {
-    // Spread, because a source IS the two members an entry carries about what it was
-    // handed: the declaration and the bytes it describes.
+    // Spread because a source is the two members an entry carries: the declaration and bytes.
     ...attachmentSourceFrom({
       localId: "attachment-1",
       declaredName: "notes.md",
@@ -43,11 +38,8 @@ function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngest
 }
 
 /**
- * The same attachment once its ingest has stopped: metadata, and no payload member.
- *
- * Written out rather than spread from the fixture above, because the settled arm has
- * nowhere to put a `Blob` — a spread of a sending entry does not compile here, which
- * is the release rule holding a test fixture to the same shape it holds the ledger to.
+ * The same attachment once its ingest has stopped: metadata and no payload member. Written out
+ * rather than spread, since a spread of a sending entry does not compile against the settled arm.
  */
 function settledEntry(state: SettledAttachmentIngestState): AttachmentIngestEntry {
   return {
@@ -75,8 +67,7 @@ describe("unresolved attachment presentation — totality, and the one cause wit
   });
 
   it("gives every cause but the deleted one a remedy, and that one none", () => {
-    // The design's own asymmetry: five causes lift and one does not, and blanking the
-    // difference would imply a way back that is not there.
+    // Five causes lift and one does not; blanking the difference would imply a way back.
     expect(UNRESOLVED_ATTACHMENT_PRESENTATION.deleted.remedy).toBeUndefined();
     const withRemedy = SESSION_ATTACHMENT_UNRESOLVED_CAUSES.filter(
       (cause) => UNRESOLVED_ATTACHMENT_PRESENTATION[cause].remedy !== undefined,

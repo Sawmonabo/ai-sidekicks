@@ -1,22 +1,8 @@
-// The two wire calls a resolved send makes, and how each one settles.
+// The two wire calls a resolved send makes, and how each reply settles. The calls are supplied
+// by the caller, so this module reaches no bridge and a rejected call propagates.
 //
-// Split from `send-router.ts` because resolution and dispatch are two different
-// jobs with two different failure modes. Resolution is pure — it reads text and a
-// target and answers what WOULD happen — while everything here has already left the
-// process and is reading what came back. Keeping them in one module made the router
-// a file where half the reader's questions ("can this text be sent?") and the other
-// half ("did it arrive?") were answered in the same breath.
-//
-// TWO PATHS RATHER THAN ONE WITH A FLAG, because the two settle differently and a
-// flag would have made that a branch nobody sets. `run.queueCreate` answers with a
-// queued item, which is the confirmation. And `run.intervene` answers with a
-// LIFECYCLE STATE that may say the run declined the message — an answer that is
-// still not a delivered directive.
-//
-// THE CALLS ARE AN ARGUMENT. Whoever holds the wire supplies `queueCreate` and
-// `intervene` as one `ComposerSendCalls`, so this module reaches no bridge, catches
-// nothing, and a rejected call propagates to the caller of the send. What this module
-// adds is the settlement each reply means.
+// The paths differ: `run.queueCreate` answering is the confirmation, while `run.intervene`
+// answers with a lifecycle state that may say the run declined the message.
 
 import type {
   InterventionRequestPayload,
@@ -37,11 +23,8 @@ export interface ComposerSendCalls {
 }
 
 /**
- * Dispatch one new turn.
- *
- * The queued item is deliberately not KEPT. Nothing in the composer addresses a
- * queue item — the shelf reads the queue from its own subscription — so the answer
- * is the confirmation itself and not a member to carry forward.
+ * Dispatch one new turn. The queued item is not kept: the shelf reads the queue from its own
+ * subscription, so the answer is only the confirmation.
  */
 export async function dispatchQueuedTurn(
   calls: ComposerSendCalls,
@@ -52,11 +35,8 @@ export async function dispatchQueuedTurn(
 }
 
 /**
- * Dispatch one steer, and READ what came back.
- *
- * The version is kept from EVERY response — a `rejected` response carries the run's
- * current version too, which is what lets the next attempt guard itself without a
- * re-read the console has no projection to perform.
+ * Dispatch one steer and read what came back. The run version is kept from every response,
+ * a rejected one included, so the next attempt is guarded without a re-read.
  */
 export async function dispatchIntervention(
   calls: ComposerSendCalls,
@@ -75,16 +55,9 @@ export async function dispatchIntervention(
 }
 
 /**
- * Whether an intervention state means the composed text reached the run.
- *
- * A total switch over the registered union rather than a list, so a seventh state has
- * to be classified rather than falling into whichever arm was written last. The
- * intervention state transitions are what decide each one: `requested` and `accepted`
- * are admissions the daemon will act on, `applied` is the provider confirming the
- * effect, and `degraded` is the orchestration layer having fallen back — the message
- * traveled on all four. Only `rejected` (refused before dispatch) and `expired` (the
- * version guard, or the run moving between accept and apply) leave the user's
- * words unsent, and those are the two that keep the draft.
+ * Whether an intervention state means the composed text reached the run. Total over the
+ * union, so a new state must be classified. `requested`, `accepted`, `applied` and `degraded`
+ * all delivered the message; `rejected` and `expired` did not, and keep the draft.
  */
 function isInterventionAdmitted(state: InterventionState): boolean {
   switch (state) {

@@ -1,25 +1,14 @@
-// The requested resource, as the structured value the reply carries.
-//
-// HOISTED OUT OF `ApprovalCard.tsx` ON ITS SECOND USE. The card shows this behind a
-// disclosure, and the provider-ask framing shows the same value inline — for a
-// permission ask the resource IS the question, so putting it behind a click would
-// ask someone to approve an action they have to expand to read. Two renderings of
-// one value, and one implementation of it: a second copy would drift the first time
-// one of them grew an arm, and the sentence below — which is copy, not a value —
-// would then exist twice in two wordings.
-//
-// The member is required on the wire, so "no descriptor" is not a state a conformant
-// row can be in — a row missing it never parses and is counted unreadable instead.
-// What IS reachable is a descriptor carrying no members at all, and that is said in
-// as many words rather than rendered as a blank panel.
+// The requested resource as a structured value. The card shows it behind a disclosure and the
+// provider-ask framing shows it inline, so one renderer serves both. The member is required on
+// the wire, so the reachable empty case is a descriptor with no members, which is said in words.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { formatWireDescriptor } from "@renderer/lib/wire-figures.js";
-
+/** The wire descriptor of what an approval asks to act on. */
 export interface ApprovalResourceProps {
   readonly descriptor: Readonly<Record<string, unknown>>;
 }
-
+/** The descriptor's members as term/value pairs, or a sentence when it has none. */
 export function ApprovalResource(props: ApprovalResourceProps): React.JSX.Element {
   const entries = formatWireDescriptor(props.descriptor);
   if (entries.length === 0) {

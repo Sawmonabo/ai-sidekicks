@@ -1,16 +1,7 @@
-// What this message is carrying, beside the line it is being written on.
-//
-// THE STRIP IS ABSENT WHEN NOTHING IS ATTACHED. A composer with no attachments has no
-// attachment strip, and an empty row reserving space would be a permanent reminder of a
-// thing nobody has done.
-//
-// THE COUNT IS RENDERED AND THE DAEMON DECIDES. The daemon refuses the whole staged list at
-// acceptance and the bound is operator-tunable, so the running count is a figure a person
-// reads and never a gate this strip closes: the eleventh file is handed to the daemon
-// exactly as the first is.
-//
-// THE READY COUNT IS STATED WHERE THE ARTIFACTS ARE: how many settled artifacts the
-// strip holds that a message can reference.
+// What a message is carrying, beside the line it is written on. Absent when nothing is attached.
+// The running count is a figure, never a gate: the daemon refuses an over-long staged list at
+// acceptance and the bound is operator-tunable, so the eleventh file is handed over like the
+// first.
 
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { formatCount } from "@renderer/lib/wire-figures.js";
@@ -39,9 +30,7 @@ export function AttachmentStrip(props: AttachmentStripProps): React.JSX.Element 
   const fill = stagedAttachmentsFill(entries.length);
   const reference = composeSendAttachmentReference(entries);
   return (
-    // A `section` and not a `div`: `aria-label` on a generic element names nothing. A
-    // landmark takes the name, and the strip is one, a standing region beside the
-    // message line.
+    // A `section` because `aria-label` on a generic element names nothing.
     <section
       className={
         props.isDraggingFiles

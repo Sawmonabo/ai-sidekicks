@@ -1,9 +1,5 @@
-// One address, one key — and two addresses never one key.
-//
-// The failure the second claim catches is silent and specific: two composer
-// addresses collapsing onto one key means the text a person wrote for one target
-// reappears under another, which reads as the console having retargeted their
-// message rather than as a bug.
+// One address gives one key, and two addresses never share one: a collision would show the
+// text written for one target under another.
 
 import { describe, expect, it } from "vitest";
 
@@ -11,11 +7,8 @@ import type { ComposerSessionTarget, ComposerRunTarget } from "../composer-targe
 import { composerDraftKey } from "./draft-key.js";
 
 /**
- * The axes a case varies, named one by one.
- *
- * Not `Partial<ComposerTarget>` spread over a complete object: under this package's
- * `exactOptionalPropertyTypes` that turns every required member optional, so the
- * helper would stop proving it builds a real target at all.
+ * The axes a case varies. Not `Partial<ComposerTarget>` spread over a complete object:
+ * `exactOptionalPropertyTypes` would make every required member optional.
  */
 interface TargetAxes {
   readonly sessionId?: string;
@@ -44,8 +37,7 @@ function runTarget(axes: TargetAxes = {}): ComposerRunTarget {
 
 describe("composerDraftKey — the address the chip names", () => {
   it("keys a provider-bound composer on the agent, not the run it happens to steer", () => {
-    // The steered run moves as the daemon starts and settles turns. Keying on it
-    // would empty the line mid-sentence every time a turn ended.
+    // The steered run moves as turns start and settle; keying on it would empty the line.
     const sameAgentLaterRun = runTarget({ targetRunId: "run-9" });
     expect(composerDraftKey(runTarget())).toBe(composerDraftKey(sameAgentLaterRun));
   });
@@ -69,8 +61,7 @@ describe("composerDraftKey — the address the chip names", () => {
   });
 
   it("never gives a session address and a run address the same key", () => {
-    // The discriminator leads the key, so the two arms' key spaces are disjoint by
-    // construction rather than by the identifiers happening to differ.
+    // The discriminator leads the key, so the key spaces are disjoint by construction.
     expect(composerDraftKey(sessionTarget())).not.toBe(composerDraftKey(runTarget()));
   });
 });

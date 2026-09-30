@@ -1,10 +1,6 @@
-// The composer's trailing rail: the context meter. The attachment strip is not mounted
-// until the composer has an ingest port to hand its staged list.
-//
-// The rail selects the session's timeline once and folds it to the newest context reading
-// of the ADDRESSED RUN. The address is an input to the fold, not a session-wide sweep, so
-// two agents running at once each report their own run's fullness. A composer addressed to
-// the session and not to a run asks the fold for nothing.
+// The composer's trailing rail: the context meter, folded from the session timeline for the
+// addressed run so two agents running at once each report their own run's fullness. A composer
+// addressed to the session and not to a run asks the fold for nothing.
 
 import { useMemo } from "react";
 import type { ComposerProps } from "@renderer/registries/composer/composer-registry.js";
@@ -18,12 +14,9 @@ import { newestContextWindowReading } from "../context-ring/context-window-readi
 import "./ComposerToolbar.css";
 
 /**
- * The one selector, at module scope so its identity is stable across renders.
- *
- * It returns a STORED reference — the timeline array itself — which is what makes
- * the store's `Object.is` comparison a pointer check. A selector that mapped or
- * filtered here would rebuild an array every notification and re-render the rail on
- * every event in the session.
+ * The one selector, at module scope so its identity is stable. It returns the stored timeline
+ * array itself, so the store's `Object.is` check is a pointer check; a mapped array would re-render
+ * the rail on every event.
  */
 const selectTimeline = (state: SessionStoreState): readonly ProjectedSessionEvent[] =>
   state.timeline;
@@ -32,8 +25,7 @@ const selectTimeline = (state: SessionStoreState): readonly ProjectedSessionEven
 export function ComposerToolbar(props: ComposerProps): React.JSX.Element {
   const timeline = useSessionStore(props.sessionStore, selectTimeline);
   const address = useComposerAddress(props.sessionStore, props.focusedPane);
-  // Folded AFTER the address, because the address is an input: the reading this
-  // composer reports is the addressed run's own.
+  // Folded after the address, which is an input to the fold.
   const addressedRunId =
     address.target.path === "provider-bound" ? address.target.targetRunId : undefined;
   const contextReading = useMemo(

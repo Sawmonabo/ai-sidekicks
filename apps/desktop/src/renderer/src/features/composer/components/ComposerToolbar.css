@@ -1,8 +1,5 @@
-/* The composer's accessory rail.
- *
- * Quiet chrome around one dense strip. Everything here is a figure, so the rules are
- * about ALIGNMENT, never about ornament: the meter is a hairline and is never colored
- * by how full it is. */
+/* The composer's accessory rail: quiet chrome around one strip of figures. The meter is a hairline
+   and is never colored by how full it is. */
 
 .meridian-composer__rail {
   display: flex;
@@ -26,9 +23,7 @@
   letter-spacing: 0.04em;
 }
 
-/* A hairline, not a gauge. The bar is a reading and the figures beside it are the
-   number — a tall bar would make the picture the primary and the figure the gloss,
-   which inverts the provenance the mono type is carrying. */
+/* A hairline, not a gauge: the figures beside the bar are the number, not the bar. */
 .meridian-context-ring__track {
   position: relative;
   display: block;
@@ -59,8 +54,7 @@
   color: var(--meridian-text-muted);
 }
 
-/* The window's own provenance, beside the figures. Muted: it qualifies the bar
-   rather than competing with it. */
+/* The window's provenance, beside the figures; muted so it qualifies the bar. */
 .meridian-context-ring__source {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);

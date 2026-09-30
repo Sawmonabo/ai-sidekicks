@@ -1,10 +1,6 @@
-// The command list, driven through the whole composer: when it opens, what it
-// offers, and what a selection does to the line.
-//
-// Mounted as `MessageComposer` rather than as the popover alone, because the claim
-// is about a composition. A test that rendered the popover over a textarea of its
-// own would prove the popover works against a textarea and nothing about the
-// composer.
+// The command list, driven through the whole composer: when it opens, what it offers, and what
+// a selection does to the line. Mounted as `MessageComposer` because the claim is about the
+// composition, not the popover over a textarea of its own.
 
 import { act, fireEvent } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -74,12 +70,9 @@ describe("CommandList", () => {
 
     await mounted.rerenderAt({ kind: "transcript" });
 
-    // The draft store is keyed by the composer's ADDRESS, so re-addressing does not
-    // carry text under a target the person did not write it for — the line the
-    // popover watches is empty again, and a command list that outlived the
-    // slash that opened it would be offering entries against a line that has none.
-    // That the enumeration itself is discarded rather than filtered is
-    // `provider-command-read.test.tsx`'s claim, where the read is driven directly.
+    // The draft store is keyed by the composer's address, so re-addressing does not carry text
+    // under another target and the line the popover watches is empty again. That the
+    // enumeration is discarded is asserted in `useProviderCommandEnumeration.test.ts`.
     expect(mounted.line.value).toBe("");
     expect(mounted.container.querySelector(".meridian-command-discovery")).toBeNull();
   });
@@ -119,9 +112,8 @@ describe("CommandList", () => {
   });
 
   it("waits for the enumeration before saying nothing matches", async () => {
-    // The negative control is the assertion itself: the superseded branch rendered
-    // the empty sentence the moment the filter came back empty, so it asserted a
-    // finished search beside a line saying the provider half was still being read.
+    // The empty sentence must not render the moment the filter comes back empty, which would
+    // assert a finished search while the provider half is still being read.
     const mounted = await mountComposer({
       bridge: bridgeHoldingTheEnumeration(),
       focusedPane: agentPane(composerLeadAgentId()),
@@ -239,8 +231,8 @@ describe("CommandList", () => {
       focusedPane: agentPane(composerLeadAgentId()),
     });
 
-    // Registered AFTER the mount, exactly as the frame registers this window's own
-    // commands: from an effect that runs once the tree is up.
+    // Registered after the mount, as the frame registers this window's commands: from an
+    // effect that runs once the tree is up.
     commandRegistry.register({
       id: TEST_COMMAND_ID,
       title: "A late console act",
@@ -324,25 +316,21 @@ describe("CommandList", () => {
 describe("MessageComposer — the enumeration it owns has a lifetime", () => {
   it("closes the holder when the composer comes down", async () => {
     // The holder owns an open read and the generation that supersedes one, so it is a
-    // RESOURCE. Held in a `useMemo` it had no disposal at all — nothing ever called
-    // `close`, so a read outstanding when the composer unmounted stayed outstanding
-    // and its reply landed in a holder nobody held. `useMemo` is not a lifetime for a
-    // second reason besides: React may discard a memoized value and re-run the
-    // factory, which would mint a second holder beside a first that is still open.
+    // resource. Held in a `useMemo` nothing would call `close`, and React may discard a
+    // memoized value and re-run the factory, minting a second holder beside an open one.
     const closed = vi.spyOn(ProviderCommandEnumeration.prototype, "close");
     const mounted = await mountComposer({
       bridge: recordingBridge([]),
       focusedPane: agentPane(composerLeadAgentId()),
     });
-    // Opened, so there is something to release: a holder that never read has nothing
-    // outstanding and would close silently whether the disposal ran or not.
+    // Opened, so there is something to release; a holder that never read closes silently.
     await typeIntoLine(mounted.line, "/");
     expect(mounted.container.querySelector('[role="listbox"]')).not.toBeNull();
     closed.mockClear();
 
     mounted.unmount();
 
-    // The negative control: under `useMemo` this is zero, on every teardown.
+    // Under `useMemo` this is zero on every teardown.
     expect(closed).toHaveBeenCalled();
     closed.mockRestore();
   });

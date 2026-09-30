@@ -1,20 +1,11 @@
-// Giving a spool back: the one call that is not part of the upload.
-//
-// SPLIT FROM `attachment-ingest-machine.ts` ON THE SEAM THE TWO ACTUALLY HAVE. The
-// client owns what is SENT while a stream is still going: three legs, a ledger offset,
-// a refusal a card renders, and a continuation that re-reads after every await. This
-// module owns what is ASKED BACK once a stream has stopped, and every rule here is the
-// opposite of the ones in `attachment-ingest-stream.ts`: the call is fire-and-forget
-// rather than awaited, and its answer reaches no entry and no card.
-//
-// CANCEL IS ABANDONMENT, AND THE COPY SAYS SO. There is no cancel call in the ingest
-// trio. A user who stops an upload stops SENDING; the daemon's abandoned-spool reaper
-// claims the bytes afterwards. The abort is asked for best-effort and the caller states
-// the honest outcome either way.
+// Giving a spool back: the one call that is not part of the upload. There is no cancel call in
+// the ingest trio, so stopping an upload only stops sending and the daemon's abandoned-spool
+// reaper claims the bytes later. The abort is best-effort and fire-and-forget, and its answer
+// reaches no entry and no card.
 
 import type { AttachmentIngestPort } from "./attachment-ingest-answer.js";
 
-/** The abort leg. */
+/** Asks the daemon, best-effort, to give back the spool of a stopped stream. */
 export class AttachmentSpoolReclaimer {
   readonly #port: Pick<AttachmentIngestPort, "abort">;
 
@@ -23,15 +14,9 @@ export class AttachmentSpoolReclaimer {
   }
 
   /**
-   * Ask for a spool back, best-effort, for a stream the daemon actually opened.
-   *
-   * FIRED AND NOT AWAITED, because every caller is synchronous and terminal: a staged list
-   * that waited on a best-effort abort would hold a closed composer open for an answer
-   * nobody is left to render. Nothing catches it, so a rejection surfaces as the page's
-   * unhandled rejection.
-   *
-   * An absent ingest id is a stream the daemon never opened, so there is nothing to
-   * ask back and the absence is handled here rather than at four call sites.
+   * Ask for a spool back for a stream the daemon actually opened; an absent ingest id means
+   * it never did, so there is nothing to ask. Fired and not awaited, because every caller is
+   * synchronous and terminal; a rejection surfaces as the page's unhandled rejection.
    */
   public request(ingestId: string | undefined): void {
     if (ingestId === undefined) {

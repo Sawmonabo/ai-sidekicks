@@ -1,18 +1,7 @@
-// The composer's message line: the draft field, and what needs only the draft.
-//
-// THE LINE'S TEXT IS THE DRAFT STORE'S. The composer is handed a window-lifetime store and
-// this line neither owns the body nor copies it: it reads the addressed key, writes
-// every edit back, and re-reads on every write, so a remount or a re-address finds the
-// text where it was left.
-//
-// ENTER SENDS NOTHING HERE. The line takes no calls, so it swallows Enter — the key
-// neither reaches the daemon nor puts a newline into the line — and the draft stays as
-// typed with nothing drawn. Sending is `SendButton.tsx`'s, which takes the two daemon
-// calls a send makes as an argument.
-//
-// The component renders and does nothing else: a text field over the draft, the
-// neutralization card the addressed run's failure detail asks for, and the focus ask a
-// view elsewhere in the window can make.
+// The composer's message line: the draft field, and what needs only the draft. The text is the
+// draft store's: this line reads the addressed key and writes every edit back, so a remount or
+// re-address finds the text where it was left. Enter is swallowed here (no newline, no send);
+// sending is `SendButton.tsx`'s.
 
 import { useCallback, useEffect, useRef } from "react";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
@@ -48,11 +37,8 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
     address.target.path === "provider-bound" ? address.target.providerFailureDetail : undefined,
   );
 
-  // The line's other direction. A view elsewhere in the window tells a person to send
-  // a message; this is what makes that sentence actionable from where they are
-  // standing. The ask carries nothing, so what focusing means stays this component's
-  // decision, and an ask that arrives while no composer is mounted reaches nobody
-  // rather than queueing.
+  // Lets a view elsewhere in the window ask for the caret. The ask carries nothing, and one
+  // arriving while no composer is mounted reaches nobody.
   const lineRef = useRef<HTMLTextAreaElement | null>(null);
   useEffect(
     () =>
@@ -71,8 +57,7 @@ export function DraftLine(props: ComposerProps): React.JSX.Element {
         placeholder={composeDraftPlaceholder()}
         value={text}
         rows={1}
-        // The growth cap: the line grows to it and then scrolls inside its own box,
-        // so the transcript above keeps its room.
+        // Grow to the cap, then scroll inside the box so the transcript keeps its room.
         style={{ maxHeight: `calc(${String(COMPOSER_DRAFT_MAX_ROWS)} * 1.5em)` }}
         onChange={onChange}
         onKeyDown={onKeyDown}

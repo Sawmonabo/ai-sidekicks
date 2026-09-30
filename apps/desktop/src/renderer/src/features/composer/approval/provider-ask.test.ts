@@ -1,9 +1,4 @@
-// The one reading that decides whether an approval is a provider's permission ask.
-//
-// Tested alone, over hand-built entities, because that is what the function takes: a
-// stored entity and nothing else. The projector's own test proves the entity carries
-// what the wire sent, and the pane's proves the framing reaches the card — this one
-// proves the rule between them.
+// Tested alone over hand-built entities: the rule between the projector and the pane.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,8 +24,7 @@ describe("reading a provider ask off a stored approval", () => {
     expect(providerAskFor(undefined)).toBeUndefined();
     expect(providerAskFor(approvalEntity(undefined))).toBeUndefined();
     expect(providerAskFor(approvalEntity({ category: "file_write" }))).toBeUndefined();
-    // A wrong-typed or empty `askId` is not an ask id, and rendering "as ask ." is
-    // worse than rendering the ordinary card.
+    // A wrong-typed or empty `askId` is not an ask id; "as ask ." is worse than the plain card.
     expect(providerAskFor(approvalEntity({ askId: "" }))).toBeUndefined();
     expect(providerAskFor(approvalEntity({ askId: 7 }))).toBeUndefined();
   });

@@ -1,4 +1,4 @@
-// The tripwire reading: it fires on the fixed form and on nothing else.
+// The tripwire reading fires on the fixed form and on nothing else.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,9 +19,8 @@ describe("readTextNeutralization — the fixed form, read the way the wire says 
   });
 
   it("separates an unread arm from the wire's own `unknown` arm", () => {
-    // The wire's `unknown` is a driver SAYING it could not attribute the text; an
-    // unrecognized arm is the console failing to read one. Collapsing them would
-    // report a statement the driver never made.
+    // The wire's `unknown` is a driver saying it could not attribute the text; an unrecognized
+    // arm is the console failing to read one.
     expect(
       readTextNeutralization("driver.text_neutralization_failed origin=elsewhere")?.origin,
     ).toBeUndefined();
@@ -31,9 +30,8 @@ describe("readTextNeutralization — the fixed form, read the way the wire says 
   });
 
   it("does not fire on the other producer of the same wire member", () => {
-    // The negative control the whole reading rests on: `providerFailureDetail` also
-    // carries free-form resume-failure prose, and a substring match would classify
-    // this as a neutralization trip.
+    // `providerFailureDetail` also carries free-form prose, and a substring match would
+    // classify this as a trip.
     expect(
       readTextNeutralization(
         "provider endpoint returned 410 Gone while resuming; driver.text_neutralization_failed was not the cause",

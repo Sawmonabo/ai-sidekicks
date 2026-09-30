@@ -1,68 +1,16 @@
-// The Send button's behavior, so the button itself only renders.
+// Builds the send controller for one addressed composer, so `SendButton.tsx` only renders.
 //
-// This package's structure rules put every construction, subscription, and
-// derivation in a class or a hook. The router is a class and the history walk is a
-// class; this hook is where they are BUILT and where the interaction state that
-// binds them lives, which leaves `SendButton.tsx` as markup over one value.
+// Status and refusal are held per address by `useComposerActState.ts`; the in-flight latch is
+// claimed under `(bridge, addressedOperationKey(draftKey, visit, operation))` before the await
+// and released in `finally`. The latch is not the status: a handler reads `status` from its
+// own render, so two Enter presses in one frame would both read `idle`. The visit
+// (`useSettlementIdentities.ts`) is carried by the latch claim, the attempt register and the
+// settlement identity, so a return to an earlier address does not find a latch held by a parked
+// call. A late settlement releases exactly the key it claimed, but its reading is dropped.
 //
-// THE STATES ARE OBSERVABLE. Idle and Sending are `status`: Sending marks the control
-// busy — deliberately, so a second press cannot queue a second turn.
-// Refused is `refusal`. Sent is the wire's own row appearing in the transcript rather
-// than a row this hook draws, which is why there is no `sent` member here to render.
-//
-// EVERY OPERATION STATE IS KEYED TO THE ADDRESS THE ACT WAS ISSUED AT, and the latch is
-// not the status. `status` is what the button RENDERS, and a handler reading it sees
-// the value from the render that produced it — so two Enter presses in one frame would
-// both read `idle` and both dispatch. Neither is hook-wide: a send still traveling for
-// one target does not hold the composer when the person re-addresses it. Both halves
-// are keyed through the holders `console/bridge/` publishes rather than through
-// anything local: the console's one `GenerationLatch` holds the claim under
-// `(bridge, addressedOperationKey(draftKey, visit, operation))`, claimed before the
-// await and released in `finally`, and `use-composer-act-state.ts` beside this file
-// holds `status` under `(bridge, draftKey)`, reset during the render that first sees a
-// new address.
-//
-// THE VISIT IS WHAT KEEPS THE LATCH AND THE STATUS SAYING THE SAME THING. The holder
-// re-seeds on every re-address, including a return to a target the composer has been
-// on before; a latch keyed on the draft key alone would not, so on the return trip
-// the button would render `idle` over a claim still held by the earlier visit's parked
-// call and Send would do nothing. `useSettlementIdentities.ts` owns that serial and
-// says why it is the composer's mirror of the holder's own addressing epoch; every
-// keyed thing here carries it — the latch claim, the newest-attempt register, and the
-// settlement identity — so the three agree by construction rather than by three
-// authors remembering the same rule. Their dispositions for a late settlement differ,
-// deliberately: it releases exactly the key it claimed even after the composer has
-// moved on, while the READING it would have published is dropped — that reading
-// describes an act at an address this composer has left.
-//
-// THE HISTORY WALK IS PER ADDRESS FOR THE SAME REASON. A single history for the life
-// of the mounted button would carry an address's sent messages, and any walk in
-// progress, into the next address the button is rebound to.
-// `SentMessageHistories` keys them on the same draft key, so the composer walks
-// the history of the target it is addressed to and no other.
-//
-// WHAT THE BUTTON READS WHILE AN ACT TRAVELS IS ITS OWN MODULE. The status and the
-// refusal the button renders are two holders under one address, and
-// `use-composer-act-state.ts` beside this file owns them together with the writers a
-// settlement reaches them by. This hook BUILDS the acts — the router, the latch, the
-// dispatch path, the history walk — and READS that state; the two jobs have different
-// lifetimes and different failure modes, and one file answering both is a file where
-// neither is legible. `send-settlement.ts` owns which act a settlement belongs to, and
-// `use-settlement-identities.ts` owns whether that act is still the one on screen.
-//
-// THE COMPARAND LEDGER OUTLIVES THE ROUTER, and it has to. The router is memoized on
-// the command zone's predicates, and those change identity whenever the addressed
-// target does — which is on every store notification, a landed steer's own run rows
-// included. A ledger inside the router would therefore be emptied between exactly
-// the two steers it exists to bridge, so this hook holds it and hands it in, the way
-// it holds the per-address histories.
-//
-// THE UNSENT BODY LIVES IN THE SUPPLIED `DraftStore` AND NOWHERE ELSE. The
-// session screen hands the composer a window-lifetime store, keyed per address; a
-// `useState` string here would be a second home for the same text, and the two
-// differ exactly where it matters — a remount loses the local copy, and a prop-only
-// address change keeps it, so the person's words reappear under a target they did
-// not write them for.
+// The history walk and the comparand ledger are held here: the ledger must outlive the router,
+// which is rebuilt whenever the addressed target changes, and the unsent body lives only in
+// the supplied `DraftStore`.
 
 import { useCallback, useMemo, useRef } from "react";
 
@@ -79,13 +27,7 @@ import { ComposerSendRouter } from "../send-router.js";
 import { AnsweredRunVersions } from "../answered-run-versions.js";
 import type { SendController, SendControllerDependencies } from "../send-controller-contract.js";
 
-/**
- * What a recognized command with nowhere to run says.
- *
- * Names the state rather than the wiring: a person cannot act on "no executor was
- * supplied", and can act on knowing their text is still there and the command did
- * not run.
- */
+/** What a recognized command with nowhere to run says; the text is still in the line. */
 const NO_EXECUTOR_DETAIL =
   "That command was recognized but nothing here can run it, so nothing happened. Your message is still in the line.";
 
@@ -100,8 +42,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
     recognizeClientCommand,
     recognizeProviderCommand,
   } = dependencies;
-  // Allocated on first use rather than on every render, which a bare initializer
-  // would do and then discard.
+  // Allocated on first use, not on every render.
   const runVersionsRef = useRef<AnsweredRunVersions | null>(null);
   const runVersions = (runVersionsRef.current ??= new AnsweredRunVersions());
   const router = useMemo(
@@ -114,33 +55,24 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
       }),
     [calls, runVersions, recognizeClientCommand, recognizeProviderCommand],
   );
-  // Claimed before the await and released in `finally`, so every settlement — sent,
-  // intercepted, refused, or a rejected call — releases the round on exactly one path
-  // rather than on the arms an author remembered.
+  // Claimed before the await and released in `finally`, so every settlement releases the round
+  // on one path.
   const operationLatch = useGenerationLatch();
 
   const draftKey = composerDraftKey(target);
-  // Which stay at this address the composer is on, and which attempt of each act is
-  // the newest. Its own module because it is a different job with a different
-  // lifetime: nothing there reaches a wire or renders anything.
+  // Which stay at this address the composer is on, and the newest attempt of each act.
   const {
     visit,
     issue: issueSettlementIdentity,
     isCurrent,
   } = useSettlementIdentities(bridge, draftKey);
-  // What the button renders while an act is traveling, held under the address that act
-  // was issued at, and the two writers a settlement reaches it by. Its own module
-  // because it is a different job with a different lifetime: nothing there reaches a
-  // wire, and every reading in it is dropped by a re-address or a replaced bridge.
+  // What the button renders while an act travels, held under the address it was issued at.
   const { status, refusal, publishStatus, clearRefusals, settle, clearSentDraft } =
     useComposerActState(bridge, draftKey, draftStore, isCurrent);
 
-  // The one reading of this key, shared with the discovery popover watching the same
-  // line: two subscriptions written twice are two answers to what the person typed.
+  // Shared with the discovery popover watching the same line.
   const { text, read: readDraftText } = useComposerDraftText(draftStore, draftKey);
-  // The walk back through what was sent from this address, and the record a settled
-  // send writes into. Its own module because it is a different job with a different
-  // lifetime — nothing there reaches the wire and nothing there can refuse.
+  // The walk back through what was sent from this address, and the record a send writes into.
   const { history, recallOlder, recallNewer } = useSentMessageRecall(
     draftStore,
     draftKey,
@@ -150,9 +82,7 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
   const changeText = useCallback(
     (next: string) => {
       draftStore.write(draftKey, next);
-      // A refusal answers the act that produced it, so the next edit clears it:
-      // leaving it up would make a stale refusal read as a verdict on text nobody has
-      // sent.
+      // A refusal answers the act that produced it, so the next edit clears it.
       clearRefusals();
     },
     [draftStore, draftKey, clearRefusals],
@@ -160,30 +90,23 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
 
   const send = useCallback(async () => {
     const body = readDraftText();
-    // Claimed for THIS address, so a message already going to another target is no
-    // reason to refuse this one. A second press at this address is silent rather
-    // than refused: the person pressed Send for the message that is already going,
-    // and a refusal card would report a failure where the only thing that happened
-    // is that they were early.
+    // Claimed for this address, so a send going to another target does not block this one. A
+    // second press here is silent: the message is already going.
     const latchKey = addressedOperationKey(draftKey, visit, "send");
     const claim = operationLatch.claim(bridge, latchKey);
     if (claim === undefined) {
       return;
     }
     publishStatus("sending");
-    // Captured BEFORE the await, so what settles is measured against the address the
-    // person sent from rather than the one they are looking at when it lands.
+    // Captured before the await, so what settles is measured against the address sent from.
     const identity = issueSettlementIdentity("send");
     try {
       const outcome = await router.send(body, target);
       switch (outcome.status) {
         case "sent":
           history.recordSent(body);
-          // THE DRAFT CLEARS ONLY WHERE THE SETTLEMENT IS STILL THE ONE ON SCREEN.
-          // The draft store is keyed by ADDRESS and not by visit, so on a return
-          // trip the captured key names a different draft with the same name: an
-          // unconditional clear would erase text the person typed on the second visit
-          // to answer a send made on the first.
+          // Clear only where the settlement is still current: the draft store is keyed by
+          // address, not visit, so a return trip would erase text typed on the second visit.
           clearSentDraft(identity, draftKey);
           settle(identity, undefined);
           return;
@@ -197,21 +120,17 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
             text: body.trim(),
           });
           if (settled.status === "refused") {
-            // The line is kept: the command did not run, and the text is the one
-            // thing the person would otherwise have to retype to try again.
+            // Kept: the text is what the person would otherwise retype.
             settle(identity, settled.refusal);
             return;
           }
           if (settled.status === "not-run") {
-            // Kept for the same reason, and said nothing about: the command reads
-            // its arguments off this line and nothing here can perform it.
+            // Kept too: the command reads its arguments off this line.
             settle(identity, undefined);
             return;
           }
-          // A registered command never composes into a message: the line is
-          // cleared because the act happened, and nothing was sent — and on the
-          // same terms as the sent arm, so a command settling after the composer
-          // has left and returned does not erase what was typed since.
+          // A command never composes into a message: the line clears because the act happened,
+          // on the same terms as the sent arm.
           clearSentDraft(identity, draftKey);
           settle(identity, undefined);
           return;
@@ -221,10 +140,8 @@ export function useSendController(dependencies: SendControllerDependencies): Sen
           return;
       }
     } finally {
-      // The round released is the one this act claimed, which is what lets a
-      // settlement arriving after a re-address free the address it was issued at
-      // rather than the one on screen. The reading is published through this
-      // address's own publisher, so it lands only while that address is current.
+      // Releases the round this act claimed even after a re-address; the reading is published
+      // through this address's publisher, so it lands only while the address is current.
       claim.settle(() => {
         publishStatus("idle");
       });

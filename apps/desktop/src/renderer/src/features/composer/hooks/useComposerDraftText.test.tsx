@@ -47,9 +47,8 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
   });
 
   it("reads at call time, so a handler is never answering with a stale render's text", () => {
-    // Why the reader comes back beside the value: the popover's dismissal records the
-    // text it was dismissed AT, and a handler closing over the rendered value would
-    // key that dismissal to a string the person has already typed past.
+    // The popover's dismissal records the text it was dismissed at; a handler closing over the
+    // rendered value would key it to a string the person has typed past.
     const draftStore = new DraftStore({
       maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT,
     });
@@ -65,7 +64,7 @@ describe("useComposerDraftText — one subscription, two ways to take it", () =>
     );
     const readerFromFirstRender = latest.read;
 
-    // Written WITHOUT a re-render, which is the interval a handler runs in.
+    // Written without a re-render, which is the interval a handler runs in.
     draftStore.write(KEY, "typed since");
 
     expect(readerFromFirstRender()).toBe("typed since");

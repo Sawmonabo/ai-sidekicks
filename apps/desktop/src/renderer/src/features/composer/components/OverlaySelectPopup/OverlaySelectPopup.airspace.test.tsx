@@ -1,6 +1,5 @@
-// The select popup's airspace, driven through a real mount: opening it puts exactly its
-// own popup in the window's airspace, with no backdrop, and closing it takes that back
-// out.
+// Opening the select popup puts exactly its own popup in the window's airspace, with no backdrop;
+// closing takes it back out. Driven through a real mount.
 
 import { render } from "@testing-library/react";
 import { Select } from "@base-ui/react/select";
@@ -23,8 +22,7 @@ function renderSelect(open: boolean): React.JSX.Element {
 
 describe("OverlaySelectPopup's airspace", () => {
   it("registers its popup alone on open and releases it on close", () => {
-    // One rectangle and no backdrop: an anchored popup that claimed the whole window
-    // would hide every native view in it.
+    // An anchored popup that claimed the whole window would hide every native view in it.
     const registry = airspaceRegistryFor(document);
     const before = registry.registeredCount;
     const mounted = render(renderSelect(false));

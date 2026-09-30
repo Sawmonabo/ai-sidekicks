@@ -1,11 +1,6 @@
-// The comparand reconciliation, asserted in both directions.
-//
-// The rule is not "keep the answer" and not "trust the projection" — it is that
-// each of the two leads the other in a different situation, so the newer wins. A
-// ledger that got either direction wrong would be silent: one pins every later steer
-// to a stale version and the daemon refuses it, the other never advances past the
-// projection and the daemon refuses that. Both look like "steering stopped working".
-
+// Comparand reconciliation in both directions: the answer leads after a native steer and the
+// projection leads after an ordinary progression, so the newer wins. Either direction wrong
+// looks like "steering stopped working" with no other symptom.
 import { describe, expect, it } from "vitest";
 
 import { AnsweredRunVersions } from "./answered-run-versions.js";
@@ -19,17 +14,16 @@ describe("AnsweredRunVersions — the newer of the two readings", () => {
   });
 
   it("answers the recorded version where it leads the projection", () => {
-    // The applied native steer: the run version moved and no state event carried it,
-    // so the projection is behind and the answer is the only fresh reading.
+    // An applied native steer moves the run version with no state event, so only the answer
+    // is fresh.
     const ledger = new AnsweredRunVersions();
     ledger.record(RUN_ID, 8);
     expect(ledger.comparandFor(RUN_ID, 7)).toBe(8);
   });
 
   it("negative control: answers the projection where the projection leads", () => {
-    // The run advances through its own state stream with no control pressed. A
-    // ledger that preferred what it had recorded would pin every later call to the
-    // version its last settlement saw, and a refusal carries no way back.
+    // The run advances through its state stream with no steer; preferring the recorded
+    // answer would pin every later call to the last settlement's version.
     const ledger = new AnsweredRunVersions();
     ledger.record(RUN_ID, 8);
     expect(ledger.comparandFor(RUN_ID, 40)).toBe(40);
@@ -42,14 +36,12 @@ describe("AnsweredRunVersions — the newer of the two readings", () => {
   });
 
   it("invents nothing for a run with neither reading", () => {
-    // The caller then refuses to dispatch. A zero here would be a stale-replay guard
-    // the console supplied instead of one the daemon verified.
+    // The caller then refuses to dispatch: a zero would be a guard the console invented.
     expect(new AnsweredRunVersions().comparandFor(RUN_ID, undefined)).toBeUndefined();
   });
 
   it("never walks a run's comparand backwards", () => {
-    // Two interventions can settle out of order. The counter is monotonic per run,
-    // so the older answer is the stale one wherever they disagree.
+    // Two interventions can settle out of order; the counter is monotonic per run.
     const ledger = new AnsweredRunVersions();
     ledger.record(RUN_ID, 12);
     ledger.record(RUN_ID, 9);

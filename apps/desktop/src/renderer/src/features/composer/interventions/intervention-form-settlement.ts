@@ -1,11 +1,5 @@
-// What an answer to one dispatch MEANS to the form that raised it.
-//
-// Split from `SteerBox.tsx` because it is a second job: that file
-// renders a form and decides what to send, and this one reads the two answers the
-// form can get back — the console's admission verdict at dispatch time, and the
-// daemon's own settled state afterwards — into the three things the form does with
-// them. No JSX here, so every arm is drivable from a test with no rendered tree at
-// all, which is what the exhaustive tails below are worth.
+// Reads what a dispatch answer means to the steer form: the admission verdict and the daemon's
+// settled state become three form outcomes. No JSX, so each arm is testable directly.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import type { RunControlOutcome } from "../run-controls/services/run-control-dispatch.js";
@@ -15,13 +9,9 @@ import type { RunControlAdmissionRefusal } from "../run-controls/hooks/useRunCon
 export const RUN_INTERVENTION_REFUSAL_ORIGIN = "run-intervention";
 
 /**
- * What one settled dispatch means to the form that raised it.
- *
- * Three arms rather than landed-or-not, because the two that keep the form open
- * offer different next moves: a refusal is retried by confirming again, while an
- * intervention the daemon has RECORDED and not yet applied would be a second
- * intervention if it were confirmed twice — so that arm latches the confirm and
- * leaves cancel as the way out.
+ * What one settled dispatch means to the form. A refusal is retried by confirming again; an
+ * intervention recorded and not yet applied would be doubled by a second confirm, so that arm
+ * latches the confirm and leaves cancel as the way out.
  */
 export type InterventionFormSettlement =
   | { readonly kind: "landed" }
@@ -29,26 +19,19 @@ export type InterventionFormSettlement =
   | { readonly kind: "recorded"; readonly notice: Refusal };
 
 /**
- * Read one settled dispatch the way this form has to act on it.
- *
- * The daemon's own `state` decides, never the presence of a result: `applied` and
- * `degraded` are the two the intervention landed on, and this form's job there is
- * only to get out of the way. Every other arm keeps the body, and the code a person
- * sees is the daemon's own: `rejectionReason` where the wire sent one, and the wire's
- * state otherwise. Nothing here paraphrases a wire code into console prose.
+ * Reads one settled dispatch as the form must act on it. The daemon's `state` decides, never
+ * the presence of a result: `applied` and `degraded` landed; every other arm keeps the body
+ * and shows the daemon's own code (`rejectionReason`, else the state).
  */
 export function readInterventionFormSettlement(
   outcome: RunControlOutcome,
 ): InterventionFormSettlement {
   if (outcome.kind === "acknowledged") {
-    // Only pause and resume are acknowledged, and this form sends neither; an
-    // acknowledgment reads as landed.
+    // Only pause and resume are acknowledged and this form sends neither; read as landed.
     return { kind: "landed" };
   }
   const { response } = outcome;
-  // Switched on a local rather than on `outcome.response.state` so the exhaustive
-  // tail below still has a value to hand `unreadableSettlement`: narrowing the
-  // RESPONSE to `never` would leave its `state` unreadable in that branch.
+  // Switched on a local so the exhaustive tail still has a readable value to pass on.
   const settledState = response.state;
   switch (settledState) {
     case "applied":
@@ -87,12 +70,7 @@ export function readInterventionFormSettlement(
   }
 }
 
-/**
- * What a refused admission says, in this form's own words.
- *
- * Total over the closed refusal set, so a second reason fails to compile here rather
- * than reaching a user as an empty sentence beside a form that did nothing.
- */
+/** What a refused admission says in the form's words; total over the closed reason set. */
 export function admissionRefusal(reason: RunControlAdmissionRefusal): Refusal {
   return refuse(RUN_INTERVENTION_REFUSAL_ORIGIN, reason, ADMISSION_REFUSAL_DETAIL[reason]);
 }
@@ -101,10 +79,7 @@ export function admissionRefusal(reason: RunControlAdmissionRefusal): Refusal {
 const REJECTED_DETAIL =
   "The background service did not apply this. What you typed is still here — change what it asks for and confirm again, or cancel to close without sending.";
 
-/**
- * The `satisfies never` tail. A seventh intervention state fails to compile here
- * rather than falling through to a form that neither closes nor says why.
- */
+/** The exhaustive tail: a new intervention state fails to compile here. */
 function unreadableSettlement(state: never): InterventionFormSettlement {
   const unreadable = state satisfies never;
   return {

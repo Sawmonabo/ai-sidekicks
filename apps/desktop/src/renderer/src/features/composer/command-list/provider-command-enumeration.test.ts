@@ -1,9 +1,6 @@
-// One reading, two readers, and the binding a reading belongs to.
-//
-// Split along the seam the read module was. Every entry carries the binding it was
-// read under, and that binding is part of the reading's identity: a Claude-enumerated
-// command is never offered to a Codex agent, so a second reader on the same holder
-// gets the same reading and a different bridge is a different one.
+// One reading, two readers, and the binding a reading belongs to. A command enumerated under one
+// binding is never offered to another agent, so a second reader on the holder gets the same
+// reading and a different bridge is a different one.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -28,9 +25,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
-    // Two observers of one holder: the popover, which opens the reading, and the
-    // send path, which only reads it. On the pre-holder tree each zone owned its own
-    // hook and this counted two.
+    // Two observers of one holder: the popover opens the reading, the send path only reads it.
     renderHook(() =>
       useProviderCommandEnumeration({
         enumeration,
@@ -81,8 +76,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
-    // Nothing is named before the reading lands: the send path says what it said
-    // before this holder existed rather than guessing at an answer in flight.
+    // Nothing is named before the reading lands, so the send path keeps its own answer.
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeUndefined();
 
     renderHook(() =>
@@ -100,8 +94,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
     const published = enumeration.publishedEntryNamed("compact", ADDRESSED);
     expect(published?.source).toBe("provider");
     expect(published?.name).toBe("compact");
-    // A name the provider did not publish stays unnamed, so the send path keeps its
-    // own vocabulary for one it has never heard of.
+    // A name the provider did not publish stays unnamed.
     expect(enumeration.publishedEntryNamed("frame.goToSettings", ADDRESSED)).toBeUndefined();
   });
 
@@ -128,8 +121,7 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
       rerender(false);
     });
 
-    // The lifetime ends with the command list: what is left is a reading nobody has, not
-    // a list held for the next time somebody types a slash.
+    // The lifetime ends with the command list; nothing is held for the next slash.
     expect(enumeration.snapshot().phase).toBe("not-checked");
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeUndefined();
   });
@@ -137,10 +129,8 @@ describe("ProviderCommandEnumeration — one reading, two readers", () => {
 
 describe("ProviderCommandEnumeration — the bridge is part of which binding this is", () => {
   it("re-reads when the bridge is replaced under the same session and agent", async () => {
-    // `PlatformBridgeProvider` can swap its bridge while the composer stays addressed
-    // where it was. A key of session and agent alone reads that as "nothing moved" and
-    // serves the previous wire's catalog, which is exactly the routing invariant the
-    // enumeration exists to keep.
+    // The bridge can be swapped while the composer stays addressed where it was; a key of
+    // session and agent alone would serve the previous wire's catalog.
     const recorded: RecordedDaemonCall[] = [];
     const firstBridge = recordingBridge(recorded);
     const secondBridge = recordingBridge(recorded);
@@ -162,7 +152,6 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
 
     rerender(secondBridge);
 
-    // Discarded the instant the wire changed, exactly as a re-address discards.
     expect(result.current.phase).toBe("not-loaded");
     await act(async () => {
       await crossMacrotaskBoundary();
@@ -172,9 +161,8 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
   });
 
   it("drops a reply from the bridge that has been replaced", async () => {
-    // The second half of the same defect: the outstanding read was guarded by a key
-    // the swap did not move, so the old wire's catalog could land ON TOP of the new
-    // one's after the command list had already been re-served.
+    // The outstanding read was guarded by a key the swap did not move, so the old wire's catalog
+    // could land on top of the new one's.
     const recorded: RecordedDaemonCall[] = [];
     const parkedOnFirstBridge: ((reply: unknown) => void)[] = [];
     const firstBridge = recordingBridge(recorded, parkedOnFirstBridge);
@@ -200,7 +188,6 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
     });
     expect(enumeration.publishedEntryNamed("compact", ADDRESSED)).toBeDefined();
 
-    // The replaced wire answers only now.
     await act(async () => {
       parkedOnFirstBridge[0]?.(enumerationReplyNaming("only-on-the-replaced-bridge"));
       await crossMacrotaskBoundary();
@@ -213,8 +200,6 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
   });
 
   it("negative control: the same bridge at the same address asks nothing a second time", async () => {
-    // Without this the two cases above would hold over a holder that re-read on every
-    // render, which is a different defect wearing the same green.
     const recorded: RecordedDaemonCall[] = [];
     const bridge = recordingBridge(recorded);
     const enumeration = new ProviderCommandEnumeration();
@@ -241,16 +226,7 @@ describe("ProviderCommandEnumeration — the bridge is part of which binding thi
   });
 });
 
-/**
- * The read's own lifetime: it ends with the command list that opened it.
- *
- * The command list owns an enumeration — the popover that opened it closes, or the
- * composer addresses another agent — so its round's signal reaches `callDaemon` and the
- * read itself ends rather than merely being ignored. Two claims, and they are separable:
- * that the signal REACHES `callDaemon`, which its own pre-send guard makes
- * observable in what the bridge was asked; and that a reply landing after the close is
- * never published, which the round's settlement decides.
- */
+/** The read ends with the command list that opened it: its round's signal reaches `callDaemon`. */
 describe("settleEnumeration — the round's signal reaches callDaemon", () => {
   it("puts nothing on the wire for a line that is already over", async () => {
     const recorded: RecordedDaemonCall[] = [];
@@ -265,8 +241,8 @@ describe("settleEnumeration — the round's signal reaches callDaemon", () => {
       overLine.signal,
     );
 
-    // `callDaemon`'s own pre-send guard, which is only reachable if the signal was passed
-    // to it at all — so the empty record is the evidence the parameter is wired.
+    // `callDaemon`'s pre-send guard is reachable only if the signal was passed, so an empty record
+    // is the evidence.
     expect(enumerationCalls(recorded)).toHaveLength(0);
     expect(settled.phase === "refused" ? settled.refusal.code : undefined).toBe("read-abandoned");
   });
@@ -307,14 +283,12 @@ describe("ProviderCommandEnumeration — closing ends the read in flight", () =>
     await act(async () => {
       await crossMacrotaskBoundary();
     });
-    // Held, so the read is genuinely in flight when the command list goes.
     expect(enumerationCalls(recorded)).toHaveLength(1);
     expect(enumeration.snapshot().phase).toBe("not-loaded");
 
     await act(async () => {
       rerender(false);
     });
-    // The provider answers only now, to a command list that has gone.
     await act(async () => {
       parkedWhileTheListIsOpen[0]?.(enumerationReplyNaming("answered-after-the-close"));
       await crossMacrotaskBoundary();
@@ -325,8 +299,6 @@ describe("ProviderCommandEnumeration — closing ends the read in flight", () =>
   });
 
   it("negative control: the same held reply lands while the command list is still open", async () => {
-    // Without this the case above would hold over a holder that published nothing at
-    // all, which is the same green for the opposite defect.
     const recorded: RecordedDaemonCall[] = [];
     const parkedWhileTheListIsOpen: ((reply: unknown) => void)[] = [];
     const bridge = recordingBridge(recorded, parkedWhileTheListIsOpen);

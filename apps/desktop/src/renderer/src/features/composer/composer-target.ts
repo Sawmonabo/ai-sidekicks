@@ -1,13 +1,7 @@
-// Where a composed message goes: the session, or an agent's running turn.
-//
-// The address is a projection of what the daemon has said. Nothing here guesses, and
-// nothing renders a value the wire has not supplied, so the resolver lives apart from
-// the components: a derivation inside a render body is one nobody can drive from a test.
-//
-// THE WIRE-READ FIELDS ARE `undefined`-ABLE ON PURPOSE. Each feature registers its own
-// projector for the `agent` and `run` partitions, and the registry that takes them is built
-// above the composer, so the resolver can answer with an incomplete target. That is
-// the honest answer; defaulting a missing field is how a console starts asserting facts
+// Where a composed message goes: the session, or an agent's running turn. The address is a
+// projection of what the daemon has said, kept out of components so it can be driven from a test.
+// The wire-read fields are `undefined`-able because each feature registers its own projector, so
+// the resolver can answer with an incomplete target; defaulting a missing field would assert facts
 // nobody established.
 
 import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
@@ -16,13 +10,7 @@ import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
-/**
- * The two paths a composed message can travel: the session, or a bound provider.
- *
- * Closed, declared once, union derived — the whole of the `/` rule branches on this
- * discriminant, so a third path added to a hand-written union while this tuple
- * stayed at two would be a path the escape rules never heard of.
- */
+/** The two paths a composed message can travel; the union is derived so a third is not missed. */
 export const COMPOSER_SEND_PATHS = ["session-message", "provider-bound"] as const;
 
 /** One send path. Derived from the enumeration, never restated. */
@@ -41,33 +29,23 @@ export interface ComposerRunTarget {
   readonly agentId: string;
   /**
    * The bound driver's wire-verbatim registry name, `undefined` when the wire has not said.
-   *
-   * Provider commands are filtered to this driver: the capability reply names one report
-   * per driver and the console holds one binding per agent, so a target that could not
-   * name the driver would have to intersect every report.
+   * Provider commands are filtered to this driver.
    */
   readonly driverName: string | undefined;
   readonly targetRunId: string;
   /**
-   * The optimistic-concurrency comparand (`RunStateChangeEvent.runVersion`).
-   *
-   * `run.intervene` requires it and fails closed, so `undefined` is a refusal to
-   * dispatch and never a zero: sending `0` would be a stale-replay guard the caller
-   * supplied rather than one the daemon verified.
+   * The optimistic-concurrency comparand (`RunStateChangeEvent.runVersion`). `run.intervene`
+   * fails closed without it, so `undefined` refuses dispatch and is never sent as `0`.
    */
   readonly expectedRunVersion: number | undefined;
   /**
-   * The run terminal's `providerFailureDetail`, wire-verbatim.
-   *
-   * Carried rather than interpreted here: it has two producers on the wire — prose
-   * from the resume-failure path and one fixed form from the outbound-frame
-   * neutralization tripwire — and reading which is `neutralization-tripwire.ts`'s
-   * one job. Splitting the read from the carry keeps this module free of a second
-   * parser for a shape one contract comment governs.
+   * The run terminal's `providerFailureDetail`, wire-verbatim. Carried, not interpreted here:
+   * `draft-line/text-neutralization.ts` reads it.
    */
   readonly providerFailureDetail: string | undefined;
 }
 
+/** Where a composed message goes: the session or a bound agent's run. */
 export type ComposerTarget = ComposerSessionTarget | ComposerRunTarget;
 
 /** What `resolveComposerTarget` is given. All of it comes from the composer's props. */
@@ -82,15 +60,9 @@ export interface ComposerTargetInput {
 }
 
 /**
- * Resolve what this send is addressed to.
- *
- * The provider-bound path is taken ONLY when the focused pane names an agent AND
- * that agent has a run this store has seen whose state still admits a steer, so a send
- * never has no target and never guesses the target run. Everything else goes to the
- * session, which needs no guess to reach.
- *
- * `addressed-run.ts` owns the second condition and says why an agent whose only
- * runs have settled addresses the session rather than a run nothing can be sent to.
+ * Resolve what this send is addressed to. The provider-bound path is taken only when the focused
+ * pane names an agent that has a run whose state still admits a steer (`addressed-run.ts`);
+ * everything else goes to the session.
  */
 export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarget {
   const agentRef = focusedRefOfKind(input.focusedPane, "agent");
@@ -111,13 +83,8 @@ export function resolveComposerTarget(input: ComposerTargetInput): ComposerTarge
 }
 
 /**
- * The entity of one kind a focused pane names, or `undefined` when it names another.
- *
- * The `in` check is the narrowing and not a defensive guard: `PaneAddress` is
- * a union over pane kind, and a session-scoped arm carries no `entity` MEMBER at all
- * rather than one holding `undefined`. So a pane addressed at `transcript`, `browser`,
- * or `terminal` names no entity by construction, and this reads that fact off the
- * address rather than dereferencing a member three arms do not have.
+ * The entity of one kind a focused pane names, or `undefined` when it names another. The `in`
+ * check narrows: session-scoped pane arms carry no `entity` member at all.
  */
 function focusedRefOfKind(
   pane: PaneAddress | undefined,

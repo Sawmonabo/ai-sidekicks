@@ -1,16 +1,7 @@
 // When a pane's refusal becomes the whole session screen's, and when it stays the pane's.
-//
-// Three claims, and the second is the one a re-render would break silently: a pane
-// whose read refuses on every retry re-renders under an unchanged refusal, and a hook
-// that raised on every render would put a banner back the moment a person dismissed
-// it. The first claim is the rule itself — only the codes the remedy table calls
-// banners escalate — and the third is its negative control.
-//
-// AND THE SECOND CLAIM IS ABOUT THE CONDITION, NOT THE OBJECT. A retry does not hand
-// the same refusal VALUE back — every producer in this console mints a fresh one per
-// failed read — so the two cases at the end of `how often it escalates` are the pair
-// that decides the rule: an equal refusal stays dismissed and a changed one comes
-// back. Either one alone is satisfiable by a wrong hook.
+// Only banner-class codes escalate; a retry re-renders under an unchanged refusal (producers
+// mint a fresh object each time), so an equal refusal stays dismissed and a changed one comes
+// back. Either case alone is satisfiable by a wrong hook.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -41,8 +32,7 @@ describe("which refusals reach the frame", () => {
   });
 
   it("leaves a pane's own refusal in the pane", () => {
-    // Escalating everything would put one pane's read failure across a session screen
-    // where every other pane is fine.
+    // Escalating everything would put one pane's read failure across the whole session screen.
     const frameStore = new WindowStore();
 
     renderHook(() => {
@@ -78,8 +68,7 @@ describe("which refusals reach the frame", () => {
 
 describe("how often it escalates", () => {
   it("does not raise the banner again while the refusal is unchanged", () => {
-    // The behavior that matters: dismiss stays dismissed under a pane that keeps
-    // re-rendering with the same failed read.
+    // A dismissal stays dismissed under a pane that keeps re-rendering the same failed read.
     const frameStore = new WindowStore();
     const rendered = renderHook(() => {
       useRefusalBannerEscalation(frameStore, GONE_SESSION);
@@ -115,12 +104,8 @@ describe("how often it escalates", () => {
   });
 
   it("keeps the banner dismissed when a retry mints an equal refusal", () => {
-    // The defect this exists for. The approvals reader allocates a fresh refusal on
-    // every failed refresh — including the window-focus retries the read triggers
-    // arm — so a hook keyed on object identity re-raised on each one and dismissal
-    // lasted until the next retry. The condition has not changed, so nothing new is
-    // being told to anybody, and a banner that keeps coming back is one people stop
-    // reading.
+    // Producers allocate a fresh refusal per failed refresh, so a hook keyed on object identity
+    // would re-raise each time. The condition is unchanged, so nothing new is being told.
     const frameStore = new WindowStore();
     const rendered = renderHook(
       ({ refusal }: { refusal: Refusal }) => {
@@ -142,9 +127,8 @@ describe("how often it escalates", () => {
   });
 
   it("raises again when the retry reports a different condition under the same code", () => {
-    // The other arm of the same rule, and the negative control on the one above: a
-    // hook that suppressed on the CODE alone would swallow this, and the person
-    // would never be told the sentence had changed.
+    // The other arm, and the negative control for the case above: a hook that suppressed on the
+    // code alone would never tell the person the sentence changed.
     const frameStore = new WindowStore();
     const rendered = renderHook(
       ({ refusal }: { refusal: Refusal }) => {

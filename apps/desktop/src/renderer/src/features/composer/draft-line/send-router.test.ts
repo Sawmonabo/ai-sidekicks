@@ -1,9 +1,6 @@
-// Resolution: what a body and a target WOULD do, before anything is sent.
-//
-// Send is a router rather than a verb, which is the claim every case here reads:
-// the same text resolves differently by target, a slash line resolves the same at a
-// running turn as on an idle line, an enumerated provider entry is named rather than
-// sent, and the text that reaches the daemon is the text the user wrote.
+// Resolution: what a body and a target would do before anything is sent. The same text routes
+// differently by target, slash lines resolve alike on both, a provider entry is named rather
+// than sent, and the daemon receives the user's own text.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -53,16 +50,15 @@ describe("ComposerSendRouter — Send is a router, not a verb", () => {
 
     expect(outcome.status).toBe("refused");
     expect(outcome.status === "refused" && outcome.refusal.code).toBe("run-version-unread");
-    // The negative control for the clean send above: nothing reached the wire, so
-    // the refusal is a refusal and not a send that also complained.
+    // Nothing reached the wire, so the refusal is not a send that also complained.
     expect(call).not.toHaveBeenCalled();
   });
 });
 
 describe("ComposerSendRouter — the slash prefix", () => {
   it("resolves a slash line at a running turn as it does on an idle line", () => {
-    // A recognized console word is intercepted and a published provider name is named
-    // in a refusal, on both targets: the running turn adds no rule of its own.
+    // A registered word is intercepted and a published provider name is refused, on both
+    // targets.
     const router = routerWith(vi.fn(), ["compact"], ["review"]);
     for (const line of ["/compact now", "/review"]) {
       expect(router.resolve(line, RUN_TARGET)).toStrictEqual(router.resolve(line, SESSION_TARGET));
@@ -117,8 +113,7 @@ describe("ComposerSendRouter — the slash prefix", () => {
 
 describe("ComposerSendRouter — an enumerated provider entry is named, never sent", () => {
   it("refuses a typed provider command as the discovery entry it is", async () => {
-    // The popover listed `review`, so the send path names the entry the person typed
-    // rather than treating it as text.
+    // The popover listed `review`, so the send path names it rather than treating it as text.
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call, [], ["review"]).send("/review", RUN_TARGET);
 
@@ -146,8 +141,7 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
   });
 
   it("runs a console command whose name the provider also published", async () => {
-    // The console's own registry answers first: a name this client can run is run,
-    // and the discovery arm is what a name it cannot run falls through to.
+    // The console's registry answers first; the discovery arm is for names it cannot run.
     const call = vi.fn().mockResolvedValue({});
     const outcome = await routerWith(call, ["compact"], ["compact"]).send(
       "/compact",
@@ -172,10 +166,9 @@ describe("ComposerSendRouter — an enumerated provider entry is named, never se
 });
 
 describe("ComposerSendRouter — the daemon receives the text the user wrote", () => {
-  // Indentation and a trailing blank line, both load-bearing: this is what a pasted
-  // block and a deliberately separated Markdown paragraph look like. The negative
-  // control in every case is the dispatched params rather than the resolution label,
-  // because two routers can resolve to the same arm and send different bytes.
+  // Indentation and a trailing blank line are load-bearing (a pasted block, a Markdown
+  // paragraph break). The dispatched params are asserted, since two routers can resolve to the
+  // same arm and send different bytes.
   const INDENTED_BODY = "  if (ready) {\n    ship();\n  }\n\n";
 
   it("queues a session message byte-identical, indentation and blank line included", async () => {
@@ -211,8 +204,7 @@ describe("ComposerSendRouter — the daemon receives the text the user wrote", (
   });
 
   it("sends an indented line beginning with a slash as the prose it is", async () => {
-    // A command opens its line, so pasted code whose first non-blank character is a
-    // slash is prose.
+    // A command opens its line, so an indented leading slash is prose.
     const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
     const outcome = await routerWith(call, ["help"]).send("  /help me read this", SESSION_TARGET);
 
@@ -252,9 +244,8 @@ describe("ComposerSendRouter — one router, and identifiers the wire would acce
     await router.send("one message", SESSION_TARGET);
 
     expect(resolution.outcome).toBe("new-turn");
-    // The negative control for "one router": the request the pure resolution built
-    // is byte-identical to the one the dispatch sent. A second resolution path —
-    // the composer building its own request beside `resolve` — fails here.
+    // The request the pure resolution built is byte-identical to the one dispatched; a second
+    // resolution path fails here.
     expect(call.mock.calls[0]?.[1]).toStrictEqual(
       resolution.outcome === "new-turn" ? resolution.request : undefined,
     );

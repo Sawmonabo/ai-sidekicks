@@ -1,10 +1,6 @@
-// The stream ceiling, held to its registered wire source, and the stall disclosure held
-// inside it.
-//
-// The ceiling is not the renderer's decision: the daemon enforces it, and the wire
-// registers it with a default and the range an operator may move it inside. A copy that
-// drifted LOOSER than its source is the failure that matters — it would promise a stream
-// the daemon then ends — so it is held to its registered source rather than to itself.
+// The stream ceiling is the daemon's, registered on the wire with a default and an operator
+// range. A copy drifting looser than its source would promise a stream the daemon then ends, so
+// it is held to the registered range.
 
 import { describe, expect, it } from "vitest";
 
@@ -36,16 +32,13 @@ describe("attachment caps — against their wire sources", () => {
   }
 
   it("negative control: the range predicate rejects a bound looser than its source", () => {
-    // Without this, a predicate that answered true unconditionally would pass every
-    // case above over a cap ten times its registered ceiling.
+    // Without this a predicate answering true unconditionally would pass every case above.
     expect(isInsideRange(2 * 1024 * 1024 * 1024, 1024 * 1024, 1024 * 1024 * 1024)).toBe(false);
     expect(isInsideRange(0, 1, 50)).toBe(false);
   });
 
   it("discloses the stream ceiling well before the stream reaches it", () => {
-    // The disclosure exists to tell a person the stream is bounded while there
-    // is still time to act. At or above the ceiling it would fire on a stream the
-    // daemon has already terminated, which is a disclosure with nothing to disclose.
+    // At or above the ceiling it would fire on a stream the daemon already terminated.
     expect(INGEST_STALL_DISCLOSURE_MS).toBeLessThan(INGEST_STREAM_LIFETIME_CEILING_MS);
   });
 });

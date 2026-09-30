@@ -1,8 +1,5 @@
-// What picking a candidate does, and what the list says when it has nothing to offer.
-//
-// The negative control that makes the empty claim mean anything: a walk the page cap
-// cut short answers no question about what is missing, so "nothing matches" is
-// withheld under it.
+// What picking a candidate does and what the list says when it has nothing to offer. A walk the
+// page cap cut short withholds "nothing matches", which is the control for the empty claim.
 
 import { fireEvent, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";

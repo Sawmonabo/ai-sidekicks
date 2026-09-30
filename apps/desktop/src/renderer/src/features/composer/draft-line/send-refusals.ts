@@ -1,45 +1,21 @@
-// The composer's refusal vocabulary, and the two ways a refusal reaches the composer.
-//
-// Split from `send-router.ts` because it is a second job: that module decides which
-// wire call a send resolves to, and this one decides what the console says when it
-// resolves to none. The split is what keeps either file readable, and it gives the
-// composer's views one import for the vocabulary they render without pulling in the router.
-//
-// TWO PRODUCERS, ONE SHAPE. A composer-side refusal is minted here from the closed
-// code set below; a daemon-side one is the daemon's own, and this module does not
-// read a rejection to build it. Every call the composer makes goes through
-// `callDaemon`, which normalizes a rejection once for the whole console
-// (`core/wire-rejection.ts`) — so a rejection reader here would be a second reading
-// of one seam, and the code `session.not_found` arrived under would become whichever
-// word this file chose. What survives is the one refusal the daemon ANSWERED with:
-// `run.intervene` settles with a lifecycle state, and a state that declined the
-// message is a refusal nothing rejected. Both leave as `core/refusal.ts`'s one
-// `Refusal`, so `primitives/Refusal` renders either without knowing which it
-// got.
+// The composer's refusal vocabulary. A composer-side refusal is minted here from a closed code
+// set; a daemon-side one is the daemon's own. Rejections are normalized once by `callDaemon`,
+// so nothing here reads one, and the only daemon refusal built here is an intervention answered
+// with a declining lifecycle state.
 
 import type { InterventionState } from "@ai-sidekicks/contracts";
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 
-/** The subsystem name every refusal the composer itself raises carries. */
+/** Origin of every refusal the composer itself raises. */
 export const COMPOSER_REFUSAL_ORIGIN = "composer";
 
-/**
- * The subsystem name a carried daemon rejection carries.
- *
- * Named separately and deliberately: a refusal that surfaces three layers from
- * where it was raised still names its author, and a daemon rule rendered under the
- * composer's own origin would read as the console's decision.
- */
+/** Origin of a carried daemon rejection, so a daemon rule never reads as the console's decision. */
 export const DAEMON_REFUSAL_ORIGIN = "daemon";
 
 /**
- * Why the composer refused, before the wire was reached.
- *
- * Closed: another reason is a decision, and each of these carries copy of its own.
- * None is a governance id, and each reaches a person only through
- * `primitives/Refusal`, which puts the code in mono beside the sentence — so the
- * code is what somebody pastes into a search and `detail` is what they act on.
+ * Why the composer refused before reaching the wire. Closed: each code carries its own copy,
+ * and it is shown in mono beside the sentence, so people paste it into a search.
  */
 export const COMPOSER_REFUSAL_CODES = [
   "empty-message",
@@ -49,7 +25,7 @@ export const COMPOSER_REFUSAL_CODES = [
   "provider-command-discovery-only",
 ] as const;
 
-/** One composer refusal code. Derived, so the vocabulary is declared exactly once. */
+/** One composer refusal code, derived from `COMPOSER_REFUSAL_CODES`. */
 export type ComposerRefusalCode = (typeof COMPOSER_REFUSAL_CODES)[number];
 
 /** Mint one composer-side refusal. */
@@ -66,15 +42,9 @@ export function unparseableIdentifier(subject: string): Refusal {
 }
 
 /**
- * The refusal for an intervention the daemon answered and did not admit.
- *
- * DAEMON-ORIGIN, because the daemon is who declined it. The code field carries the
- * response's own machine-readable `rejectionReason` where it sent one — that member is
- * the cause, and a refusal code is rendered in mono — and the lifecycle state where it
- * did not, which is the daemon's own word for what happened and never a category this
- * console invented. The sentence beside it is about the user's TEXT rather than
- * about the daemon's rule: what the console knows and the daemon does not is that the
- * line still holds the message.
+ * The refusal for an intervention the daemon answered and did not admit. Daemon-origin; the
+ * code is the response's `rejectionReason` when sent, else the lifecycle state. The sentence
+ * speaks of the user's text, which the line still holds.
  */
 export function interventionNotApplied(
   state: InterventionState,

@@ -1,13 +1,6 @@
-// One offer reading behind both the card's answers and the pane's palette rows.
-//
-// A refusal the shared remedy table marks `settled` means the request was answered
-// somewhere else, so every further press earns the same refusal and the next
-// projection read drops the record entirely. The card withdraws its two buttons on
-// that, and the palette has to withdraw the two rows for the same record in the same
-// breath — which is why `approval/approval-offer.ts` is ONE function that both
-// call rather than two that happen to agree. This suite is the proof of the pair:
-// the card and the row builder are asserted against the same record and the same
-// refusal, so a change that withdraws one and not the other is red here.
+// The card and the palette rows are asserted against the same record and refusal, so a change
+// that withdraws one and not the other is red here. A `settled` refusal means the request was
+// answered elsewhere.
 
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -40,9 +33,7 @@ function rowsFor(refusalForRecord: Refusal): ApprovalCommandInput {
 
 describe("a refusal that settles the request takes the answers off the card", () => {
   it("withdraws both actions once somebody else answered", () => {
-    // `approval.already_resolved` is settled: pressing Approve again can only be
-    // refused again, and a card that keeps offering it is offering an act that
-    // cannot work.
+    // Settled: pressing Approve again can only be refused again.
     renderCard(
       pendingRecord(),
       false,
@@ -54,9 +45,7 @@ describe("a refusal that settles the request takes the answers off the card", ()
   });
 
   it("keeps the answers where the refusal leaves the same act admissible", () => {
-    // The negative control: a refusal is not by itself a reason to take a control
-    // away, and withdrawing on every one would strand a person on a retryable
-    // failure.
+    // Negative control: withdrawing on every refusal would strand a person on a retryable failure.
     renderCard(
       pendingRecord(),
       false,
@@ -79,9 +68,7 @@ describe("a refusal that settles the request takes the answers off the card", ()
 
 describe("the palette withdraws exactly where the card does", () => {
   it("offers neither a card action nor a palette row once the request is settled", () => {
-    // The pair. Before one shared reading, the card withdrew and the palette did
-    // not — so a request somebody else had answered kept two rows, and pressing one
-    // sent a decision about a request that was no longer waiting.
+    // The pair: the card and the palette must withdraw together.
     renderCard(pendingRecord(), false, ALREADY_RESOLVED);
 
     expect(screen.queryByRole("toolbar", { name: "Answer this request" })).toBeNull();

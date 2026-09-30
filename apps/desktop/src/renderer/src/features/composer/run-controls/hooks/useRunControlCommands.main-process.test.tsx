@@ -18,15 +18,12 @@ import { type RunControlDispatchState } from "./useRunControlDispatch.js";
 
 const PAUSE_COMMAND_ID = `runs.pause.${RUN_ID}`;
 
-/** The gated control declared, so every control this run offers is contributed. */
 const CAPABLE = capabilityReadout([["claude", ["steer"]]], [[RUN_ID, "claude"]]);
 
-/** The ids of every row a running run contributes, in the order the strip offers them. */
 const CONTRIBUTED_COMMAND_IDS = ["pause", "interrupt", "steer"].map(
   (control) => `runs.${control}.${RUN_ID}`,
 );
 
-/** The hook under a tree that contributes for one running run and nothing else. */
 function RunningRunCommandContributor(props: {
   readonly dispatchState: RunControlDispatchState;
 }): React.JSX.Element {

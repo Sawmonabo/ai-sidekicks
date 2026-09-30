@@ -1,12 +1,6 @@
-// The usage fold, asserted where it decides something.
-//
-// Three claims are worth a unit here, because each one is a place the console could
-// quietly start asserting a figure the daemon never sent: a context payload missing
-// half of the count pair yields NO reading rather than a 0% one, a context reading
-// is the ADDRESSED run's or it is nobody's, and so is a compaction boundary.
-//
-// Every clean assertion below has a negative control beside it, because a narrowing
-// that accepted everything would pass both.
+// The usage fold: a half count pair yields no reading, and a reading or compaction boundary
+// belongs to the addressed run or to nobody. Each clean assertion has a negative control beside
+// it, since a narrowing that accepted everything would pass both.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,8 +21,6 @@ function event(
   payload: Readonly<Record<string, unknown>>,
 ): ProjectedSessionEvent {
   return {
-    // The event's own identifier, composed from the position so two rows of one
-    // session never share one.
     id: `event-${String(sequence)}`,
     sessionId: SESSION_ID,
     sequence,
@@ -39,7 +31,6 @@ function event(
 }
 
 describe("newestContextWindowReading — the registered members, and a pair or nothing", () => {
-  /** One reading's worth of the registered payload, addressed at the first run. */
   function windowRow(
     sequence: number,
     payload: Readonly<Record<string, unknown>>,
@@ -70,9 +61,8 @@ describe("newestContextWindowReading — the registered members, and a pair or n
   });
 
   it("negative control: the fixture's own member names read as no payload at all", () => {
-    // `usagePercent`, `tokenCount`, and `maxTokens` are names no registered payload
-    // carries, so a narrowing built on them could never match a daemon-sent row; this
-    // case fails if one is introduced.
+    // Names no registered payload carries: a narrowing built on them could never match a
+    // daemon-sent row.
     const reading = newestContextWindowReading(
       [windowRow(1, { usagePercent: 62, tokenCount: 124_000, maxTokens: 200_000 })],
       FIRST_RUN,
@@ -81,9 +71,6 @@ describe("newestContextWindowReading — the registered members, and a pair or n
   });
 
   it("negative control: one half of the count pair yields nothing rather than a 0%", () => {
-    // The counts travel as a pair. A numerator with no denominator would render as
-    // 0% of an unknown window, which is a confident answer to a question the row
-    // did not answer.
     const reading = newestContextWindowReading(
       [windowRow(1, { windowUsedTokens: 124_000 })],
       FIRST_RUN,
@@ -138,7 +125,7 @@ describe("newestContextWindowReading — the registered members, and a pair or n
 });
 
 describe("newestContextWindowReading — one run's fullness and never the session's", () => {
-  /** Two runs metered in one session, the SECOND run's row the newer of the two. */
+  /** Two metered runs; the second run's row is the newer one. */
   const TWO_METERED_RUNS: readonly ProjectedSessionEvent[] = [
     event(3, CONTEXT_WINDOW_EVENT_KIND, {
       runId: FIRST_RUN,
@@ -153,24 +140,21 @@ describe("newestContextWindowReading — one run's fullness and never the sessio
   ];
 
   it("answers each addressed run with its own reading", () => {
-    // A fold over the newest row anywhere in the session would report the second run's
-    // 90% to a composer addressed to the first.
+    // A fold over the newest row anywhere would report the second run's 90% to the first.
     expect(newestContextWindowReading(TWO_METERED_RUNS, FIRST_RUN)?.usagePercent).toBe(20);
     expect(newestContextWindowReading(TWO_METERED_RUNS, SECOND_RUN)?.usagePercent).toBe(90);
   });
 
   it("negative control: the newest row in the session is the second run's", () => {
-    // Without this the case above would hold over a fold that answered the OLDEST
-    // row for everyone, which is a different wrong answer with the same shape.
+    // Without this, the case above would also pass a fold that answered the oldest row.
     const sequences = TWO_METERED_RUNS.map((row) => row.sequence);
     expect(Math.max(...sequences)).toBe(12);
     expect(newestContextWindowReading(TWO_METERED_RUNS, FIRST_RUN)?.usagePercent).not.toBe(90);
   });
 
   it("reads no fullness from a row carrying no readable run", () => {
-    // `runId` is optional on the registered shape, so an unattributed row is one the
-    // wire admits. Counting it as the addressed run's would be the fabrication this
-    // fold exists to end, in the other direction.
+    // `runId` is optional on the wire, so unattributed rows exist; counting one as the
+    // addressed run's would be a fabrication.
     expect(
       newestContextWindowReading(
         [
@@ -197,7 +181,7 @@ describe("newestContextWindowReading — one run's fullness and never the sessio
 });
 
 describe("newestContextWindowReading — a compaction supersedes the last update", () => {
-  /** A full window measured at 90%, which is what a stale reading looks like. */
+  /** 90% full: the stale figure a compaction must supersede. */
   function nearlyFull(sequence: number): ProjectedSessionEvent {
     return event(sequence, CONTEXT_WINDOW_EVENT_KIND, {
       runId: FIRST_RUN,
@@ -223,9 +207,8 @@ describe("newestContextWindowReading — a compaction supersedes the last update
     expect(reading).toStrictEqual({
       usagePercent: 20,
       windowUsedTokens: 40_000,
-      // The window the superseded update measured. A compaction shrinks the
-      // conversation, not the window, so the denominator is the one fact worth
-      // carrying across the boundary.
+      // The window the superseded update measured: a compaction shrinks the conversation, not
+      // the window.
       windowMaxTokens: 200_000,
       windowSource: "provider_reported",
       exceeded: undefined,
@@ -234,22 +217,17 @@ describe("newestContextWindowReading — a compaction supersedes the last update
   });
 
   it("negative control: without the boundary the pre-compaction figure stands", () => {
-    // A fold over update rows only would leave the meter at 90% after the provider had
-    // compacted to a fifth of that.
     const reading = newestContextWindowReading([nearlyFull(4)], FIRST_RUN);
     expect(reading?.usagePercent).toBe(90);
   });
 
   it("reads no ratio at all from a boundary that carried no count", () => {
-    // The wire's other arm: unknown until the next update. A meter left at the
-    // pre-compaction figure would be the console asserting a fullness the daemon
-    // has told it is stale.
+    // The wire's other arm: unknown until the next update, so no stale figure may linger.
     expect(newestContextWindowReading([nearlyFull(4), compacted(9)], FIRST_RUN)).toBeUndefined();
   });
 
   it("drops the exhaustion flag the superseded update carried", () => {
-    // `exceeded` is a statement about a window state the compaction is the wire's
-    // own evidence has ended, so it is never carried forward.
+    // A compaction ends the window state `exceeded` reported, so it is not carried forward.
     const reading = newestContextWindowReading(
       [
         event(4, CONTEXT_WINDOW_EVENT_KIND, {
@@ -289,8 +267,7 @@ describe("newestContextWindowReading — a compaction supersedes the last update
   });
 
   it("negative control: an OLDER boundary supersedes nothing", () => {
-    // Without this the case above would hold over a fold that let any boundary in
-    // the run's history blank a reading taken after it.
+    // Without this, the case above would pass a fold where any past boundary blanks later readings.
     const reading = newestContextWindowReading(
       [compacted(2, { postCompactionTokens: 1_000 }), nearlyFull(4)],
       FIRST_RUN,
@@ -300,8 +277,7 @@ describe("newestContextWindowReading — a compaction supersedes the last update
   });
 
   it("reads no ratio where the boundary is the only row this run has", () => {
-    // The pair rule again: a post-compaction numerator with no window ever reported
-    // is a numerator with no denominator.
+    // A post-compaction count with no reported window has no denominator.
     expect(
       newestContextWindowReading([compacted(9, { postCompactionTokens: 40_000 })], FIRST_RUN),
     ).toBeUndefined();

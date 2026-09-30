@@ -1,11 +1,6 @@
-// That the enumeration is read WHOLE, and that a walk nobody is waiting for stops.
-//
-// The defect these cases were written against is silent by construction: a resolution
-// that matched only the first page answered "no workflow this session can start is
-// named X" for every definition past it — a refusal about a name the daemon does
-// carry, and one a person can only disprove by opening another view. So the
-// negative control is not "an assertion failed" but "the fixture's second page went
-// unread", which is why the fixture pages by CURSOR rather than by call count.
+// The enumeration is read whole, and a walk nobody is waiting for stops. Matching only the first
+// page refused names past it, so the fixture pages by cursor, not by call count, and the control
+// is a second page that went unread.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,8 +36,7 @@ describe("readWorkflowDefinitions", () => {
 
     expect(namesOf(enumeration)).toStrictEqual(["nightly", "release", "deploy"]);
     expect(enumeration.complete).toBe(true);
-    // The cursors were the daemon's, carried back untouched: a walk that minted its
-    // own would page through something the wire never offered.
+    // The cursors are the daemon's, carried back untouched.
     expect(calls.listed.map((request) => request.cursor)).toStrictEqual([
       undefined,
       "page-1",
@@ -51,8 +45,7 @@ describe("readWorkflowDefinitions", () => {
   });
 
   it("negative control: a first-page-only read misses the later definition", async () => {
-    // The shape the defect had. Reading one page and stopping leaves `release`
-    // unfound, and the accelerator then refuses a name the session can start.
+    // Reading one page and stopping leaves `release` unfound.
     const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }, { definitions: [{ name: "release" }] }],
     });
@@ -65,7 +58,6 @@ describe("readWorkflowDefinitions", () => {
     expect(firstPageOnly.definitions.map((definition) => definition.name)).toStrictEqual([
       "nightly",
     ]);
-    // And the whole walk, over the same stub, finds it.
     expect(
       namesOf(
         await readWorkflowDefinitions(operations.readDefinitionPage, WORKFLOW_TEST_SESSION_ID),
@@ -74,8 +66,7 @@ describe("readWorkflowDefinitions", () => {
   });
 
   it("rejects the whole read when any page rejects", async () => {
-    // A partial list presented as the answer would resolve a typed name against
-    // definitions the daemon never finished listing.
+    // A partial list would resolve a typed name against definitions never fully listed.
     const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }],
       onList: (request) => {
@@ -104,8 +95,7 @@ describe("readWorkflowDefinitions", () => {
       WORKFLOW_TEST_SESSION_ID,
     );
 
-    // Bounded: a cursor the daemon keeps handing back is otherwise an unbounded loop
-    // on a person's keystroke.
+    // Bounded: a cursor handed back forever would otherwise loop on a keystroke.
     expect(calls.listed).toHaveLength(COMPOSER_WORKFLOW_DEFINITION_PAGE_CAP);
     expect(enumeration.complete).toBe(false);
   });
@@ -118,8 +108,7 @@ describe("readWorkflowDefinitions", () => {
       endless: true,
       calls,
       onList: () => {
-        // Superseded between pages, the way a typed keystroke supersedes the read
-        // that was in flight for the previous one.
+        // Superseded between pages, as a keystroke supersedes the read in flight.
         isLive = false;
       },
     });
@@ -135,9 +124,7 @@ describe("readWorkflowDefinitions", () => {
   });
 
   it("negative control: the same endless port pages to the cap when nothing supersedes it", async () => {
-    // Without the liveness guard the walk above would have spent every page the cap
-    // allows, so the one-call assertion is a claim about cancellation rather than
-    // about the fixture running out of pages.
+    // Without the liveness guard the walk would spend every page the cap allows.
     const calls = recordedWorkflowCalls();
     const operations = fixtureWorkflowStartOperations({
       pages: [{ definitions: [{ name: "nightly" }] }],

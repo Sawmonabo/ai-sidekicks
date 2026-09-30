@@ -1,27 +1,8 @@
-// The context-window meter: how full the conversation is.
-//
-// Always visible at every level, and labeled "conversation" rather than "budget"
-// or "usage" — the word is load-bearing. A per-run spend budget is a different
-// figure with a different owner, and a meter that said "usage" beside a composer
-// would be read as money by half the people who saw it.
-//
-// THREE THINGS IT WILL NOT DO.
-//
-//   • It never redraws from a prediction. The bar is the last reading the daemon
-//     sent, so a long message being typed moves nothing until a reading arrives.
-//   • It never changes color or adds a sentence with fullness. The meter is one figure
-//     and one bar, and a meter that acted on a threshold would be the console
-//     deciding for the room.
-//   • It never renders a partial reading. `usage.context_window_update` has no
-//     registered payload variant, so a payload missing a member yields no reading
-//     at all and this renders the "not checked" absence — which is a different
-//     fact from an empty conversation and is rendered differently.
-//
-// AND IT SAYS WHERE ITS NUMBERS CAME FROM. The registered row carries its own
-// provenance, which changes what the bar MEANS: a window size the provider reported is
-// a measurement, and one taken from a model default or estimated is the console's best
-// available guess. So the meter draws the same bar and states the grade beside it
-// rather than presenting different kinds of reading as one.
+// The context-window meter: how full the conversation is. Labeled "conversation", not "budget" or
+// "usage", which would read as money. The bar is the last reading the daemon sent, never a
+// prediction, and never changes color or adds a sentence with fullness. A payload missing a member
+// yields no reading, rendered as the "not checked" absence. It states the provenance grade beside
+// the bar, since a provider-reported window is a measurement and a default or estimate is a guess.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { ContextWindowReading } from "./context-window-reading.js";

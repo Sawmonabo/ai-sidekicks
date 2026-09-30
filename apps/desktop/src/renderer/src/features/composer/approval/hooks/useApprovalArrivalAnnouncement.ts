@@ -1,8 +1,4 @@
-// A newly pending card is announced, and focus is taken only from the composer.
-//
-// The rule it keeps belongs to the composition that mounts the cards rather than to any
-// one card, and it is a subscription with a remembered set, so it lives in a hook rather
-// than in a render body.
+// Announces a newly pending card, and moves focus to it only when the composer had focus.
 
 import { useEffect, useRef, useState } from "react";
 
@@ -14,16 +10,9 @@ import { findApprovalCardAction } from "../components/ApprovalCard.js";
 const COMPOSER_ROOT_SELECTOR = ".meridian-composer";
 
 /**
- * Announce a newly pending card, and move focus only when the composer had it.
- *
- * The focus rule is the sharp half, and it has two parts. WHETHER focus moves is a
- * question about where focus already is: a person typing in the composer is looking
- * at the work and has asked for nothing else, while a person reading a diff, or
- * mid-sentence in a field this pane knows nothing about, has not. WHERE it moves is
- * a question about which record arrived — the announcement names that record, so
- * landing the caret on an older card's button describes one request and hands over
- * another. Both the pane root and the record are named rather than assumed: a
- * document-wide query for the first action in DOM order answers with neither.
+ * Announces a newly pending card and moves focus to its action only when the composer had it.
+ * Focus lands on the arrived record's own card, found within `cardRootRef`, because the
+ * announcement names that record and a document-wide query could land on an older card.
  *
  * @consumedBy the approval card's arrival focus
  */
@@ -57,8 +46,7 @@ export function useApprovalArrivalAnnouncement(
     if (!(focused instanceof HTMLElement) || focused.closest(COMPOSER_ROOT_SELECTOR) === null) {
       return;
     }
-    // Scoped to this pane, because a pane layout may hold a second one and its cards are
-    // no more this arrival's than an older card of this pane's is.
+    // Scoped to this pane, since a pane layout may hold a second one.
     const action = findApprovalCardAction(cardRootRef.current ?? document, first.id);
     action?.focus();
   }, [pending, cardRootRef]);

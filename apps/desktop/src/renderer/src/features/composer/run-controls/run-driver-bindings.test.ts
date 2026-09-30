@@ -1,10 +1,6 @@
 // The join that gives a run a driver, and the ways it refuses to invent one.
-//
-// The claim worth a unit is the one the node-scoped capability read cannot make:
-// `driver.listCapabilities` names no run, so on a machine with both drivers
-// installed every run's gated controls depended on this join existing. The negative
-// controls are the halves that must contribute nothing rather than a default — a run
-// whose agent no row brings into the session, and a row that names another session.
+// `driver.listCapabilities` names no run, so the join is what binds gated controls to a driver;
+// a run whose agent no row brings in, and a row naming another session, contribute nothing.
 
 import { describe, expect, it } from "vitest";
 
@@ -18,7 +14,6 @@ const LEAD_AGENT_ID = "019b7a33-3300-7a6e-8110-d1a4c1150301";
 const OTHER_AGENT_ID = "019b7a33-3300-7a6e-8120-d1a4c1150302";
 const DEFINITION_RUN_ID = "019b7a33-3300-740e-8120-d1a4c1150312";
 
-/** One run row as the run partition holds it, with the agent its creation named. */
 function runBoundTo(runId: string, agentId: string | undefined): StoredEntity {
   return {
     kind: "run",
@@ -94,8 +89,7 @@ describe("the run-to-driver join", () => {
   });
 
   it("negative control: a birth record naming another session binds nothing", () => {
-    // A payload naming another session is a claim about another store. Reading it
-    // here would bind this session's run to a driver named somewhere else.
+    // A payload naming another session is a claim about another store.
     const strayBeat = leadCreatedBeat({
       sessionId: SESSION_ID,
       payloadSessionId: OTHER_SESSION_ID,
@@ -109,8 +103,8 @@ describe("the run-to-driver join", () => {
   });
 
   it("negative control: a beat of another kind carrying a lead binds nothing", () => {
-    // Without this, a fold that read a lead off any payload that happened to spell one
-    // would pass every case above.
+    // Without this, a fold that read a lead off any payload spelling one would pass the
+    // cases above.
     const bindings = foldRunDriverBindings(partitionOf(runBoundTo("run-one", LEAD_AGENT_ID)), [
       { ...CODEX_LEAD, kind: "run.provider_initialized" },
     ]);

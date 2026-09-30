@@ -11,8 +11,7 @@ describe("the edge offsets are what let an arrow recall at all", () => {
   });
 
   it("declines a selection and a caret in the middle", () => {
-    // A person selecting from the start is not at the start edge in the sense that
-    // matters: ArrowUp there extends or collapses their selection.
+    // ArrowUp with a selection extends or collapses it, so that is not the start edge.
     expect(caretAtStart({ selectionStart: 0, selectionEnd: 4, textLength: 9 })).toBe(false);
     expect(caretAtEnd({ selectionStart: 4, selectionEnd: 4, textLength: 9 })).toBe(false);
   });

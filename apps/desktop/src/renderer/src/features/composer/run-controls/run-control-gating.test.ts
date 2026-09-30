@@ -1,10 +1,5 @@
-// What the capability read does and does not decide, per run.
-//
-// The claim under test is that one driver's declaration never answers for another
-// driver's run. It is asserted on the pure resolvers rather than through a tree,
-// because the rule is arithmetic over a reply and a rendered row would put a
-// component between the assertion and it — the pane's own suite covers the
-// rendering half.
+// What the capability read decides per run: one driver's declaration never answers for another
+// driver's run. Asserted on the pure resolvers; the pane's own suite covers rendering.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,8 +7,6 @@ import {
   readingForRun,
   withRunDriverBindings,
 } from "@renderer/store/driver-capabilities/driver-capability-readings.js";
-// The declaring modules rather than the public entry: both names are read only from
-// this suite, and an entry export no production module imports is a dead export.
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import { definitionAgentQueuedBeat, leadCreatedBeat } from "./agent-entry-beats.test-support.js";
@@ -58,15 +51,13 @@ describe("capability gating resolves the run's own bound driver", () => {
   });
 
   it("negative control: the session-wide intersection would have hidden both", () => {
-    // The wrong rule, spelled out so the two cases above fail on it rather than
-    // passing over a gate that never had the defect.
+    // The wrong rule, spelled out so the cases above fail on it.
     const reports = [declaredFlags(["steer"]), declaredFlags([])];
     expect(reports.every((report) => report.steer)).toBe(false);
   });
 
   it("resolves every run to the only driver a single-report reply admits", () => {
-    // One driver reported for the session is the only binding any run in it can
-    // hold, so this is a resolution rather than a guess.
+    // One driver reported for the session is the only binding any run in it can hold.
     const capabilities = readout([["claude", ["steer"]]]);
     expect(readingForRun(capabilities, CLAUDE_RUN, "steer")).toBe("declared");
   });
@@ -93,8 +84,7 @@ describe("an unnameable binding says so rather than guessing", () => {
   });
 
   it("negative control: an ungated control is offered through every one of those arms", () => {
-    // Without this the cases above would pass over a gate that hid everything, and
-    // would prove nothing about the one flag that is actually gated.
+    // Without this the cases above would pass over a gate that hid everything.
     for (const capabilities of [
       undefined,
       readout([
@@ -109,10 +99,8 @@ describe("an unnameable binding says so rather than guessing", () => {
   });
 });
 
-// Where the binding comes from. The two blocks above are handed one; this one builds
-// it out of a session the way the pane does, because a readout with an empty map
-// loses every run's gated controls on a node with both drivers installed, however
-// loudly its own driver declared them.
+// Where the binding comes from: this block builds it from a session as the pane does, since
+// an empty map loses every run's gated controls on a node with both drivers installed.
 describe("the session's own projection is what names a run's driver", () => {
   const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
   const LEAD_AGENT = "019b7a33-3300-7a6e-8110-d1a4c1150301";
@@ -135,9 +123,8 @@ describe("the session's own projection is what names a run's driver", () => {
   }
 
   it("gates each run on its own agent's driver in one session running both", () => {
-    // A Codex lead, and a Claude agent started from its saved definition by its run's
-    // creation. The Claude run is not the lead's, and its driver declared steer, so it
-    // is offered steer; the lead's Codex run is refused it by its own driver.
+    // A Codex lead and a Claude agent started from its saved definition: each run is gated
+    // by its own driver.
     const bindings = foldRunDriverBindings(
       runsBoundTo([CODEX_RUN, LEAD_AGENT], [CLAUDE_RUN, OTHER_AGENT]),
       [
@@ -153,18 +140,15 @@ describe("the session's own projection is what names a run's driver", () => {
     );
     const capabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), bindings);
 
-    // The Codex run's own driver declared steer absent, which is a DECLARATION
-    // rather than an absence of one — and the Claude run, whose driver declared it,
-    // is offered it.
+    // The Codex driver declared steer absent, which is a declaration, not an absence of one.
     expect(readingForRun(capabilities, CODEX_RUN, "steer")).toBe("undeclared");
     expect(isControlOffered("steer", capabilities, CODEX_RUN)).toBe(false);
     expect(isControlOffered("steer", capabilities, CLAUDE_RUN)).toBe(true);
   });
 
   it("withholds the control for a run whose agent no row brings into the session, and says which fact that is", () => {
-    // Three answers and they are three different facts. This is `undefined` — the
-    // console cannot say — and never the `false` the case above asserts, so a row
-    // whose binding is unknown is never reported as a driver that declined.
+    // `undefined` (the console cannot say) is a different fact from the `false` above; an
+    // unknown binding is never reported as a driver that declined.
     const bindings = foldRunDriverBindings(runsBoundTo([CODEX_RUN, OTHER_AGENT]), [
       leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "claude" }),
     ]);
@@ -175,8 +159,7 @@ describe("the session's own projection is what names a run's driver", () => {
   });
 
   it("negative control: with no join, a two-driver node names no run's driver at all", () => {
-    // An empty binding map, spelled out so the case above fails on it rather than
-    // passing over a resolution that never had the defect.
+    // An empty binding map, spelled out so the case above fails on it.
     const unjoined = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), new Map());
     expect(isControlOffered("steer", unjoined, CLAUDE_RUN)).toBe(false);
   });

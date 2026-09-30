@@ -1,8 +1,5 @@
-// The card's three arms, and the conflations `AttachmentCard.tsx` forbids between them.
-//
-// Each describe below is one arm plus the arm it must not be mistaken for: the derived
-// truth must displace the declaration rather than sit beside it, and the unresolved
-// marker must name a cause and a remedy rather than a generic failure.
+// The card's three arms: derived truth displaces the declaration, and the unresolved marker
+// names a cause and a remedy.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -20,10 +17,7 @@ import {
 
 const NOW_MILLISECONDS = 1_000;
 
-/**
- * One in-flight entry. The SENDING arm, because every case here renders a card with a
- * control on it, and the two controls exist only while an upload can still move.
- */
+/** One in-flight entry in the sending state, the only state that carries both controls. */
 function entry(
   overrides: Partial<SendingAttachmentIngestEntry> = {},
 ): SendingAttachmentIngestEntry {
@@ -60,8 +54,7 @@ describe("attachment card — in flight", () => {
   });
 
   it("renders the declared filename as text and never as a path it rebuilt", () => {
-    // The caller's original name survives as metadata only. The card shows it and
-    // joins it to nothing — a traversal-shaped declaration is just characters here.
+    // The original name survives as metadata only; a traversal-shaped declaration is just text.
     const { container } = render(
       <AttachmentCard
         reading={{ kind: "ingesting", entry: entry() }}
@@ -82,8 +75,7 @@ describe("attachment card — in flight", () => {
   });
 
   it("negative control: a fresh upload does not disclose the ceiling", () => {
-    // Without this, the case above would pass over a card that always showed it, which
-    // would make the disclosure noise rather than a signal.
+    // Without this, the case above would pass over a card that always showed the ceiling.
     const { container } = render(
       <AttachmentCard
         reading={{ kind: "ingesting", entry: entry() }}
@@ -146,8 +138,7 @@ describe("attachment card — the derived truth displaces the declaration", () =
   });
 
   it("negative control: the resolved arm carries no progress element", () => {
-    // A completed attachment charting progress would be reporting a stream that is
-    // over, and the two arms would become indistinguishable at a glance.
+    // A completed attachment charting progress would report a stream that is over.
     const { container } = render(
       <AttachmentCard
         reading={{
@@ -211,8 +202,7 @@ describe("attachment card — the media type is shown from either reading", () =
   }
 
   it("shows the derived type where the client declared none", () => {
-    // A paste, and any client that omits `File.type`, arrives with no declaration —
-    // and that is exactly the payload whose derived signature is worth reporting.
+    // A paste, or any client that omits `File.type`, arrives with no declared type.
     const text = renderCard(
       entry({
         declared: attachmentSourceFrom({
@@ -239,8 +229,7 @@ describe("attachment card — the media type is shown from either reading", () =
   });
 
   it("negative control: neither reading present renders no media type at all", () => {
-    // Without this the cases above would pass over a card that always drew a chip,
-    // which would put an empty label on every attachment whose type nobody knows.
+    // Without this, a card that always drew a chip would pass the cases above.
     const { container } = render(
       <AttachmentCard
         reading={{
@@ -284,11 +273,8 @@ describe("attachment card — the label and the face name one artifact", () => {
   }
 
   it("labels a completed ingest with the same name the card shows", () => {
-    // The bug, exercised: `complete` is a state of an entry rather than a second
-    // reading, so the card stays on the in-flight arm — and the face had switched to
-    // the daemon's normalized name while the label was still reading the declaration.
-    // On an attachment whose name normalization changed, a screen-reader user heard a
-    // different artifact from a sighted one.
+    // `complete` is a state of an entry, not a second reading, so the card stays on the
+    // in-flight arm; the label must follow the face to the daemon's normalized name.
     const { container } = render(
       <AttachmentCard
         reading={{ kind: "ingesting", entry: completedEntry("passwd.txt") }}
@@ -302,8 +288,7 @@ describe("attachment card — the label and the face name one artifact", () => {
   });
 
   it("negative control: before derivation both read the declaration", () => {
-    // Without this, a label hard-wired to the derived member would pass the case above
-    // and name nothing at all on the arm every attachment starts in.
+    // Without this, a label hard-wired to the derived member would pass the case above.
     const { container } = render(
       <AttachmentCard
         reading={{ kind: "ingesting", entry: entry() }}

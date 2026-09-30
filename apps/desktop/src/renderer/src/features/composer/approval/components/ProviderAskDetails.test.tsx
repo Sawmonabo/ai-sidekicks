@@ -1,9 +1,5 @@
-// The framing itself: what it says beyond the card.
-//
-// The pane's own file proves the framing reaches the right card and no other; this
-// one proves what is IN it — the provenance sentence and the requested resource
-// rendered inline rather than behind the card's disclosure. Both are claims about one
-// component's output, so they are checked over one component.
+// What the framing says beyond the card: the provenance sentence and the requested resource
+// rendered inline rather than behind the card's disclosure.
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -22,9 +18,7 @@ describe("what the framing says beyond the card", () => {
     expect(container.querySelector(".meridian-approval-ask__origin")?.textContent).toContain(
       "ask-force-push",
     );
-    // Inline, above the action row, because for a permission ask the resource is the
-    // whole question — and rendered through the one module the card's disclosure
-    // uses, so the two placements cannot say different things.
+    // Inline, above the action row: for a permission ask the resource is the whole question.
     const inline = container.querySelector(".meridian-approval-ask__input");
     expect(inline?.textContent).toContain("git push --force origin feature/rebased");
   });

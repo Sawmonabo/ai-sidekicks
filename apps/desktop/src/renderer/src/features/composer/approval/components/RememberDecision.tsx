@@ -1,18 +1,7 @@
-// The remembered-rule control: whether to remember an approval, and for how far.
-//
-// THE POLICY IS IN FRONT OF THE PERSON BEFORE THEY ANSWER. The rule a remembered
-// approval mints covers exactly the subject the daemon derived from the ask — a
-// command's program and first subcommand, a network request's host, a written file's
-// name — and each reach the control offers names that subject in its own label,
-// `Always allow <subject> this session`. The person chooses only
-// the reach: this session, or every session on this project. The daemon refuses a
-// subject that differs from its own derivation, so the control offers no way to type
-// one.
-//
-// Its own module rather than more of `ApprovalCard.tsx`: this is a second
-// responsibility — composing one request member — rather than more of the card's. The
-// class names stay the card's block, because this renders inside the card and shares
-// its disclosure styling.
+// The remembered-rule control: whether to remember an approval, and for how far. The rule covers
+// exactly the subject the daemon derived from the ask, and the person chooses only the reach
+// (this session or every session on the project). The daemon refuses a differing subject, so the
+// control offers no way to type one.
 
 import {
   REMEMBERED_SCOPE_KINDS,
@@ -39,6 +28,7 @@ export const IDLE_REMEMBERED_RULE_INTENT: RememberedRuleIntent = {
   kind: "session",
 };
 
+/** The current intent, the subject the rule covers, and the change callback. */
 export interface RememberDecisionProps {
   readonly intent: RememberedRuleIntent;
   /** The subject the daemon derived from the ask, which the rule covers. */
@@ -46,11 +36,7 @@ export interface RememberDecisionProps {
   readonly onChange: (intent: RememberedRuleIntent) => void;
 }
 
-/**
- * The allow rule this intent composes for an approval, or nothing at all.
- *
- * The pattern is the subject the card showed, echoed as the daemon derived it.
- */
+/** The allow rule this intent composes for an approval, or `undefined` when not remembering. */
 export function rememberedScopeFor(
   intent: RememberedRuleIntent,
   subject: string,
@@ -61,6 +47,7 @@ export function rememberedScopeFor(
   return { kind: intent.kind, pattern: subject, sense: "allow" };
 }
 
+/** The disclosure that lets a person remember an approval, and the reach of the rule. */
 export function RememberDecision(props: RememberDecisionProps): React.JSX.Element {
   const { intent, subject, onChange } = props;
 
@@ -89,9 +76,7 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
         </label>
         <Select.Root
           value={intent.kind}
-          // The library types a clear as `null`; there is no cleared state here, so a
-          // null is the current kind kept rather than a third value the request would
-          // have to represent.
+          // The library types a clear as `null`; there is no cleared state, so null keeps the kind.
           onValueChange={(kind: RememberedScopeKind | null) => {
             if (kind !== null) {
               onChange({ ...intent, kind });
@@ -105,9 +90,8 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           >
             <Select.Value />
           </Select.Trigger>
-          {/* The anchored list is the primitive's, which is what puts it in the
-              window's airspace: a card that mounted its own portal would be a popup a
-              native browser-pane view paints over. */}
+          {/* The primitive anchors the list in the window's airspace; a card-owned portal would be
+              painted over by a native browser-pane view. */}
           <OverlaySelectPopup className="meridian-approval-card__scope-popup">
             {REMEMBERED_SCOPE_KINDS.map((kind) => (
               <Select.Item className="meridian-approval-card__scope-item" key={kind} value={kind}>

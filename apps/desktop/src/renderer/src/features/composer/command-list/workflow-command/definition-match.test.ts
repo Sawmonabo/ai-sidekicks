@@ -1,8 +1,5 @@
-// Two readings of one name: what STARTS, and what is offered while it is typed.
-//
-// Both live in one module because the command list that offers a candidate and the path
-// that starts it must agree on what a name matches; these cases hold that agreement
-// by driving the two functions over the same definitions.
+// Two readings of one name, driven over the same definitions so the command list and the start
+// path agree on what a name matches.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,9 +19,7 @@ describe("matchWorkflowDefinition", () => {
   });
 
   it("does not start a longer definition off a shorter typed name", () => {
-    // The mistake an accelerator must not make: a run is not a search result, and
-    // starting `deploy-production` for somebody who typed `deploy` is not undoable
-    // by typing more.
+    // A run is not undoable by typing more, so `deploy` must not start `deploy-production`.
     expect(matchWorkflowDefinition([DEPLOY_PRODUCTION], "deploy")).toStrictEqual({
       status: "none",
     });
@@ -68,14 +63,12 @@ describe("workflowDefinitionCandidates", () => {
   });
 
   it("offers everything for a verb typed with no name after it", () => {
-    // A person who typed the verb and nothing else is asking what there is.
     expect(workflowDefinitionCandidates([NIGHTLY, DEPLOY], undefined)).toHaveLength(2);
     expect(workflowDefinitionCandidates([NIGHTLY, DEPLOY], "")).toHaveLength(2);
   });
 
   it("negative control: the candidate reading is a PREFIX where the match is exact", () => {
-    // The two readings answer differently on the same input, which is why they are
-    // two functions: `deploy` offers both and starts neither.
+    // The readings differ on the same input: `deploy` offers both and starts neither.
     expect(workflowDefinitionCandidates([DEPLOY_PRODUCTION], "deploy")).toHaveLength(1);
     expect(matchWorkflowDefinition([DEPLOY_PRODUCTION], "deploy").status).toBe("none");
   });

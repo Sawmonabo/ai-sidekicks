@@ -1,8 +1,4 @@
-// The enumeration hook: when it reads, when it does not, and what it hands back.
-//
-// The command list's own view of the holder. An enumeration is a live read held as
-// driver-session state rather than a stored registry, so what this asserts is when a
-// read is issued at all and what a reader sees while one is in flight.
+// The enumeration hook: when a read is issued at all and what a reader sees while one is in flight.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -84,8 +80,7 @@ describe("useProviderCommandEnumeration", () => {
 
     rerender(SECOND_AGENT);
 
-    // Discarded the instant the address changed: the previous agent's groups are
-    // gone before the new read has answered.
+    // The previous agent's groups are gone before the new read answers.
     expect(result.current.phase).toBe("not-loaded");
     await act(async () => {
       await crossMacrotaskBoundary();

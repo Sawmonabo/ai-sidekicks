@@ -1,27 +1,7 @@
-// One approval, one card, two answers.
-//
-// The Approvals View renders pending approval cards — category, requesting agent,
-// summary of action, target scope, remembered-rule option — which is what this card
-// carries. THAT THE REMEMBERING POLICY IS VISIBLE BEFORE THE ANSWER IS GIVEN is this
-// component's own rule, because no committed document states it: an opt-in whose
-// consequence is disclosed after the click is not an opt-in. Three properties this
-// component keeps:
-//
-//   • **Two answers.** The contract's decision is `approved` or `rejected`, and
-//     the card sends one of the two.
-//   • **The opt-in is off, and an untouched control sends nothing.** The remembered
-//     rule rides the approve path only, and `rememberedScope` is omitted from the
-//     payload entirely rather than sent as a falsy member. Where the ask may not carry
-//     a standing allow the control is absent. The control that composes it is
-//     `RememberDecision.tsx`, co-located: it is a second responsibility.
-//   • **Scope is never widened.** The answer names no scope of its own, so the daemon
-//     applies the one the ask was raised with.
-//
-// The action row is a `toolbar` walked with arrows and with `h`/`l`, and both suppress
-// the page scroll they would otherwise cause. Base UI supplies the disclosure under
-// Meridian tokens — `@base-ui/react` is the one adopted widget library and ships zero
-// CSS; the row itself is two ordinary buttons, because a library button would add
-// weight without adding behavior a `<button>` does not already have.
+// One approval, one card, two answers (approve or reject). The remembering policy is visible
+// before the answer, and an untouched remember control omits `rememberedScope` from the payload.
+// The answer names no scope, so the daemon applies the one the ask was raised with.
+// The action row is a `toolbar` walked with arrows and `h`/`l`, both suppressing page scroll.
 
 import type {
   ApprovalDecision,
@@ -51,6 +31,7 @@ import {
 
 import "./ApprovalCard.css";
 
+/** One approval record, whether its answer is in flight, and how the last one was refused. */
 export interface ApprovalCardProps {
   readonly record: ApprovalProjectionRow;
   /** True while this record's own resolve call is in flight. */
@@ -59,9 +40,8 @@ export interface ApprovalCardProps {
   readonly refusal: Refusal | undefined;
   readonly onResolve: (request: ApprovalResolveRequest) => void;
   /**
-   * Extra body between the header and the action row — where a provider's permission
-   * ask is framed: the ask is recorded as this approval and belongs to this view rather
-   * than to the transcript.
+   * Extra body between the header and the action row, where a provider's permission ask is
+   * framed.
    */
   readonly children?: React.ReactNode;
 }
@@ -69,33 +49,20 @@ export interface ApprovalCardProps {
 /** The action row's members, in the order the arrows walk them. */
 const ACTION_ORDER = ["approve", "reject"] as const;
 
-/**
- * The one member of {@link ACTION_ORDER} that carries the accent, because a card
- * carries one filled primary action and no more. Named here rather than compared inline so the row
- * cannot grow a second filled control without this line moving.
- */
+/** The one action that carries the accent: a card has one filled primary action. */
 const PRIMARY_ACTION: (typeof ACTION_ORDER)[number] = "approve";
 
 /**
- * The attribute a card carries its record's identity on, and the class its actions
- * wear. Both sides of one seam live here: the card writes them and
- * {@link findApprovalCardAction} reads them, so neither can be renamed alone.
+ * The attribute a card carries its record's id on; the card writes it and
+ * {@link findApprovalCardAction} reads it.
  */
 const APPROVAL_CARD_ID_ATTRIBUTE = "data-approval-id";
 
 const APPROVAL_CARD_ACTION_CLASS = "meridian-approval-card__action";
 
 /**
- * The first action of ONE card, found by the record it belongs to.
- *
- * Here rather than at a caller because the selector is this component's own markup.
- * A caller reaching for the first action in DOM order gets an older card's button
- * whenever more than one is rendered — which is the whole reason a caller needs to
- * name a record at all.
- *
- * The identity is compared as a string rather than interpolated into a selector: an
- * approval id is a wire value, and a value that reaches a query as syntax is a value
- * that can be malformed there.
+ * The first action of the card for `approvalRequestId`, or `undefined`. The id is compared as a
+ * string, never interpolated into a selector, because it is a wire value.
  *
  * @consumedBy the approval arrival announcement
  */
@@ -120,16 +87,13 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   const actionRowRef = useRef<HTMLDivElement>(null);
   const [rememberedGrantIntent, setRememberedGrantIntent] = useState(IDLE_REMEMBERED_RULE_INTENT);
 
-  // The one offer reading, shared with this pane's palette rows: a refusal that
-  // SETTLED this request takes the two actions off the card rather than leaving them
-  // pressable, and takes the same two rows out of the palette in the same breath.
-  // See `approval/approval-offer.ts` for why it is one function and not two.
+  // The offer reading shared with the palette rows: a refusal that settled this request takes
+  // the actions off the card and the same two rows out of the palette.
   const answerable = isApprovalAnswerable(record, props.refusal);
 
   const answer = useCallback(
     (decision: ApprovalDecision) => {
-      // The opt-in rides the approve path only, and an untouched control omits the
-      // member rather than sending one the daemon would have to interpret.
+      // The opt-in rides the approve path only; an untouched control omits the member.
       const remembered =
         decision === "approved"
           ? rememberedScopeFor(rememberedGrantIntent, record.subject)
@@ -144,8 +108,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
     if (step === 0) {
       return;
     }
-    // Suppressed deliberately: an arrow inside a toolbar is a movement, and letting
-    // it also scroll the pane moves the row out from under the person using it.
+    // An arrow in a toolbar is a movement; letting it also scroll would move the row away.
     event.preventDefault();
     const buttons = [...(actionRowRef.current?.querySelectorAll("button") ?? [])];
     const focusedAt = buttons.findIndex((button) => button === document.activeElement);
@@ -157,9 +120,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
     <article
       className="meridian-approval-card"
       aria-labelledby={titleId}
-      // The written form of `APPROVAL_CARD_ID_ATTRIBUTE` above; a JSX attribute
-      // name is syntax and cannot be the constant itself. The pane's focus test
-      // fails the moment the two stop agreeing, which is what holds them together.
+      // A JSX attribute name is syntax, so this spells out `APPROVAL_CARD_ID_ATTRIBUTE`.
       data-approval-id={record.id}
     >
       <header className="meridian-approval-card__head">
@@ -195,8 +156,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
         <div className="meridian-approval-card__fact">
           <dt>Requested</dt>
           <dd>
-            {/* The clock reading is what a person reads; `title` carries the exact
-                instant the daemon sent, because a formatted figure never hides it. */}
+            {/* `title` carries the exact instant the daemon sent. */}
             <WireFigure value={formatClockTime(record.createdAt)} title={record.createdAt} />
           </dd>
         </div>
@@ -259,10 +219,7 @@ export function ApprovalCard(props: ApprovalCardProps): React.JSX.Element {
   );
 }
 
-/**
- * The classes one action wears: the block, the shared action button at its regular
- * size, and a face — the filled accent on the primary action, the outline on the rest.
- */
+/** The classes one action wears: the shared action button, then the accent fill or the outline. */
 function actionClassName(action: (typeof ACTION_ORDER)[number]): string {
   const base = `${APPROVAL_CARD_ACTION_CLASS} meridian-action-button meridian-action-button--regular`;
   return action === PRIMARY_ACTION

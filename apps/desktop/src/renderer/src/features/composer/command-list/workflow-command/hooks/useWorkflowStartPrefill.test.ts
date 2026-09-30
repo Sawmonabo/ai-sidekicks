@@ -1,15 +1,6 @@
-// That the palette entry never eats an unsent message.
-//
-// `DraftStore.write` replaces a key's whole text and keeps no history, so the palette
-// row that typed the directive unconditionally destroyed whatever a person had
-// written — one row away from another in a list, with nothing between the press and
-// the loss and no way back. The cases below hold both halves: an empty line is
-// prefilled outright, and a line with something in it is not written to at all until
-// somebody says so.
-//
-// Driven through the REAL registry, because the act is reached by pressing a palette
-// row: a case that called `run()` off the hook's own array would prove the function
-// works and nothing about what the palette runs.
+// The palette entry never eats an unsent message: an empty line is prefilled outright and a line
+// with text is not written to until the person says so. Driven through the real registry, since
+// the act is reached by pressing a palette row.
 
 import { act, renderHook } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -27,7 +18,6 @@ import { decideWorkflowStartPrefill, useWorkflowStartPrefill } from "./useWorkfl
 
 const DRAFT_KEY = "composer:workflow-start-prefill";
 
-/** The composer's line, mounted with its palette entry contributed. */
 function mountComposerLine(initialText?: string) {
   const draftStore = new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT });
   if (initialText !== undefined) {
@@ -37,21 +27,18 @@ function mountComposerLine(initialText?: string) {
   return { draftStore, rendered };
 }
 
-/** Press the palette row, exactly as the palette does: through the registry. */
 function pressPaletteRow(): void {
   act(() => {
     readComposerCommands(DEFAULT_ROUTE).invoke(WORKFLOW_COMMAND_ROOT);
   });
 }
 
-/** What the line holds now. */
 function lineText(draftStore: DraftStore): string | undefined {
   return draftStore.read(DRAFT_KEY)?.text;
 }
 
 afterEach(() => {
-  // The hook releases its registration on unmount, but a case that threw mid-act would
-  // otherwise leave this window's registry holding the row for the next one.
+  // Release the registration even if a case threw mid-act, so the next case starts clean.
   commandRegistry.unregister(WORKFLOW_COMMAND_ROOT);
 });
 
@@ -61,15 +48,13 @@ describe("decideWorkflowStartPrefill", () => {
   });
 
   it("prefills a line holding only whitespace", () => {
-    // Blankness is decided by trimming, which is a question about the text rather
-    // than an edit of it — the same reading the send router makes.
+    // Blankness is decided by trimming, without editing the text.
     expect(decideWorkflowStartPrefill("   \n  ")).toStrictEqual({ status: "prefill" });
   });
 
   it("raises an explicit decision over unsent text, carrying the text itself", () => {
     expect(decideWorkflowStartPrefill("  ship the parser fix  ")).toStrictEqual({
       status: "confirm-replace",
-      // The user's own bytes, untrimmed: what is preserved is what they typed.
       displacedText: "  ship the parser fix  ",
     });
   });
@@ -86,8 +71,7 @@ describe("the palette entry", () => {
   });
 
   it("negative control: it does not write over unsent text, and names what would go", () => {
-    // The defect. An unconditional write left this line reading
-    // `/workflow start ` with the message gone and nothing to recover it from.
+    // An unconditional write left `/workflow start ` with the message gone.
     const { draftStore, rendered } = mountComposerLine("ship the parser fix");
 
     pressPaletteRow();
@@ -121,9 +105,7 @@ describe("the palette entry", () => {
   });
 
   it("reads the line at press time rather than at render time", () => {
-    // What the write must not destroy is whatever is in the line when the row is
-    // pressed; a value closed over at render is a value from before the last
-    // keystroke.
+    // The text at press time is what must survive, not a value closed over at render.
     const { draftStore, rendered } = mountComposerLine();
     act(() => {
       draftStore.write(DRAFT_KEY, "typed after this line rendered");
@@ -139,8 +121,7 @@ describe("the palette entry", () => {
     mountComposerLine();
 
     expect(commandRegistry.get(WORKFLOW_COMMAND_ROOT)?.title).toBe("Start a workflow");
-    // The superseded dotted id is nobody's command: the palette, the recognizer, and
-    // the keyboard page all name the root.
+    // The palette, recognizer and keyboard page all name the root, not a dotted id.
     expect(commandRegistry.has("workflow.start")).toBe(false);
   });
 });

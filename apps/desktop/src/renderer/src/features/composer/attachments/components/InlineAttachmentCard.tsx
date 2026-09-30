@@ -1,15 +1,6 @@
-// The attachment card a transcript row carries.
-//
-// An attachment belongs to the turn that carried it and sits in its declared position, which
-// is what a card inside the row is, and why this is a card and not a pane.
-//
-// One body, not two: the card this draws is the same component the attachment strip
-// renders, `AttachmentCard.tsx`, so the two cannot drift in the details an unresolved marker
-// is read for.
-//
-// The inline card registry hands over `InlineCardAttachmentRef`, an opaque `attachmentId`
-// and nothing else, and no bridge, so this body makes no read. It draws the card when
-// its caller supplies a reading, and the reference it was given when not.
+// The attachment card a transcript row carries. It draws the same `AttachmentCard` the strip
+// does, so an unresolved marker reads identically. The registry hands over only an opaque
+// `attachmentId` and no bridge, so this body makes no read of its own.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { AttachmentInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
@@ -17,12 +8,8 @@ import type { AttachmentReading } from "../attachment-shapes.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 
 /**
- * What the card renders, as the two shapes it has.
- *
- * A union rather than two optional members, because the instant is meaningless without the
- * reading it is about and the pair must arrive together. Whatever supplies the reading
- * supplies the instant it was taken at, from its own clock; a card that captured
- * `Date.now()` at mount would compare a moment against progress stamped after it.
+ * Either a bare reference or a reference with its reading. The reading and the instant arrive
+ * together, from the producer's own clock: an instant captured at mount would predate progress.
  */
 export type InlineAttachmentCardProps =
   | {
@@ -39,10 +26,8 @@ export type InlineAttachmentCardProps =
     };
 
 /**
- * The attachment card when a reading is supplied, and the attachment id when not.
- *
- * The bare id is named by the reference's attachment id, so it has an accessible name before a
- * reading arrives; the attachment card names itself.
+ * The attachment card when a reading is supplied, otherwise the attachment id named by the
+ * reference, so it has an accessible name before a reading arrives.
  */
 export function InlineAttachmentCard(props: InlineAttachmentCardProps): React.JSX.Element {
   if (props.reading !== undefined) {
