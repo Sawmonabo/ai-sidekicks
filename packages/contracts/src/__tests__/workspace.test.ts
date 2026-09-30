@@ -85,7 +85,7 @@ describe("WorkspaceListResponseSchema (health + binding state)", () => {
 const parseCapabilitiesRequest = (request: Record<string, unknown>) =>
   WorkspaceExecutionModeCapabilitiesReadRequestSchema.safeParse(request);
 
-describe("WorkspaceExecutionModeCapabilitiesReadRequestSchema (exactly-one scope refinement)", () => {
+describe("the capabilities read takes exactly one scope id", () => {
   it("accepts a MOUNT-scoped read — what could a workspace on this mount do", () => {
     expect(parseCapabilitiesRequest({ repoMountId: REPO_MOUNT_ID }).success).toBe(true);
   });

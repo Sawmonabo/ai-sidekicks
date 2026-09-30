@@ -263,7 +263,7 @@ describe("WorktreeStatusRead (the switcher's one read, keyed by the project's fo
     );
   });
 
-  it("carries the repo-root row, each tree's figures, the fetch age and the form's suggestion", () => {
+  it("accepts a full status read: root row, tree figures, fetch age, suggestion", () => {
     expect(
       WorktreeStatusReadResponseSchema.safeParse(buildWorktreeStatusReadResponse()).success,
     ).toBe(true);
