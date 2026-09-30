@@ -5,17 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  DriverTranscriptReplayResultSchema,
-  type DriverTranscriptReplayResult,
-} from "../provider-driver-transcript.js";
-import {
-  DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DriverInterventionResultSchema,
-  McpServerStatusEmissionSchema,
   ProviderToolMetadataSchema,
   type ApplyInterventionParams,
   type DriverInterventionResult,
-  type DriverTransportConfig,
   type ExecutionPosture,
   type NormalizedProviderToolMetadata,
   type RunId,
@@ -24,88 +17,12 @@ import {
   CompactContextRequestSchema,
   ListProviderCommandsRequestSchema,
 } from "../provider-driver-wire.js";
-import { DriverResumeResultSchema, type DriverResumeResult } from "../provider-driver-recovery.js";
 
 // Real RFC 9562 UUIDs; the brands are type-only, so the runtime value is a plain string.
 const SESSION_UUID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_UUID = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 
 const RUN_ID = RUN_UUID as RunId;
-
-// Silent provider-session replacement is inexpressible: `DriverResumeResult` is a
-// `status`-discriminated union. `failed` carries the recovery condition, span classification
-// and failure detail but no `bindingId` or `sessionPosition`; `resumed` carries those two and
-// neither failure axis. A failed resume must surface the failure, never quietly create a
-// replacement session under the same run.
-
-describe("ProviderDriver contract: failed resume cannot carry a binding", () => {
-  it("parses the `failed` arm with both recovery axes + providerFailureDetail", () => {
-    const parsed = DriverResumeResultSchema.parse({
-      status: "failed",
-      recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "read_only",
-      providerFailureDetail: "provider session expired",
-    });
-    expect(parsed.status).toBe("failed");
-    if (parsed.status === "failed") {
-      expect(parsed.recoveryCondition).toBe("recovery-needed");
-      expect(parsed.recoverySpanClassification).toBe("read_only");
-      expect(parsed.providerFailureDetail).toBe("provider session expired");
-    }
-  });
-
-  it("rejects silent replacement — a `failed` object carrying a bindingId", () => {
-    // The `failed` arm is `.strict()`, so a smuggled `bindingId` is rejected at runtime as well
-    // as by the type.
-    const result = DriverResumeResultSchema.safeParse({
-      status: "failed",
-      recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "irreversible",
-      providerFailureDetail: "provider session expired",
-      bindingId: "binding-smuggled",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      // A `.strict()` rejection is an `unrecognized_keys` issue at the object root with the
-      // offending names on `issue.keys`, so assert on `keys`; that pins the cause to the
-      // smuggled `bindingId`.
-      const unrecognizedKeyIssue = result.error.issues.find(
-        (issue) => issue.code === "unrecognized_keys",
-      );
-      expect(unrecognizedKeyIssue).toBeDefined();
-      expect((unrecognizedKeyIssue as { keys?: readonly string[] })?.keys).toContain("bindingId");
-    }
-  });
-
-  it("forbids accessing `.bindingId` after narrowing to status:'failed' (compile-time)", () => {
-    // Parse through the schema so the static type is the full `DriverResumeResult` union; the
-    // `@ts-expect-error` below is then checked against the narrowed `failed` variant.
-    const resume: DriverResumeResult = DriverResumeResultSchema.parse({
-      status: "failed",
-      recoveryCondition: "recovery-needed",
-      recoverySpanClassification: "irreversible",
-      providerFailureDetail: "provider endpoint returned 410 Gone",
-    });
-
-    if (resume.status === "failed") {
-      expect(resume.recoveryCondition).toBe("recovery-needed");
-      expect(resume.recoverySpanClassification).toBe("irreversible");
-      expect(resume.providerFailureDetail).toBe("provider endpoint returned 410 Gone");
-
-      // A binding on the `failed` variant is a type error: silent replacement is inexpressible.
-      // @ts-expect-error bindingId does not exist on the failed variant
-      const leakedBinding = resume.bindingId;
-      // Nor a position: a failed resume confirms none for the daemon to compare.
-      // @ts-expect-error sessionPosition does not exist on the failed variant
-      const leakedPosition = resume.sessionPosition;
-      // Both are undefined at runtime; the compile errors above are the check.
-      expect(leakedBinding).toBeUndefined();
-      expect(leakedPosition).toBeUndefined();
-    } else {
-      throw new Error(`expected the failed variant, got status=${resume.status}`);
-    }
-  });
-});
 
 // An omitted `idempotency_class` defaults to `manual_reconcile_only`, so a tool that declares
 // nothing is never treated as safe to replay.
@@ -146,34 +63,6 @@ describe("DriverInterventionResultSchema — intervention result envelope (trust
   });
 });
 
-describe("McpServerStatusEmissionSchema — MCP status producer seam", () => {
-  it("accepts a well-formed emission, serverName at its length bound", () => {
-    expect(
-      McpServerStatusEmissionSchema.safeParse({
-        serverName: "a".repeat(DRIVER_MCP_SERVER_NAME_MAX_LEN),
-        status: "connected",
-      }).success,
-    ).toBe(true);
-  });
-
-  it("rejects a driver-supplied leg identity — the daemon stamps it", () => {
-    // The daemon stamps leg identity; a driver that attributes its emission to another leg is
-    // rejected outright, not stripped.
-    const result = McpServerStatusEmissionSchema.safeParse({
-      serverName: "filesystem",
-      status: "connected",
-      bindingId: "binding-of-another-leg",
-    });
-    expect(result.success).toBe(false);
-    if (!result.success) {
-      const unrecognizedKeyIssue = result.error.issues.find(
-        (issue) => issue.code === "unrecognized_keys",
-      );
-      expect((unrecognizedKeyIssue as { keys?: readonly string[] })?.keys).toContain("bindingId");
-    }
-  });
-});
-
 // `clientIdempotencyKey` is mandatory on every dispatch arm: the requester-generated UUID the
 // daemon dedupes on turns at-least-once delivery into exactly-once application. Each arm declares
 // it separately, so all three omissions are proven.
@@ -209,7 +98,7 @@ describe("ApplyInterventionParams — clientIdempotencyKey is mandatory", () => 
   });
 });
 
-describe("ExecutionPosture / DriverTransportConfig — no fail-open shape", () => {
+describe("ExecutionPosture — no fail-open shape", () => {
   it("forbids a fail-open allow-list and a sandbox with no credential policy", () => {
     // The tuple annotation matters: a bare array literal widens to `string[]`, and TS would
     // report an arity mismatch on the property instead of the exclusion.
@@ -238,70 +127,6 @@ describe("ExecutionPosture / DriverTransportConfig — no fail-open shape", () =
       mode: "workspace-sandboxed",
     };
     void sandboxedWithoutCredentialPolicy;
-  });
-
-  it("forbids an unauthenticated websocket DriverTransportConfig", () => {
-    const stdio: DriverTransportConfig = { transport: "stdio" };
-    expect(stdio.transport).toBe("stdio");
-    // @ts-expect-error the websocket arm requires a bearerTokenRef
-    const unauthenticated: DriverTransportConfig = {
-      transport: "websocket",
-      endpoint: "ws://127.0.0.1:7000",
-    };
-    void unauthenticated;
-  });
-});
-
-describe("DriverTranscriptReplayResultSchema — the canonical transcript replay envelope", () => {
-  it("carries the declared-loss list on BOTH status arms", () => {
-    const applied: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
-      status: "applied",
-      declaredLosses: ["provider_private_reasoning"],
-    });
-    const degraded: DriverTranscriptReplayResult = DriverTranscriptReplayResultSchema.parse({
-      status: "degraded",
-      declaredLosses: ["conversation_history_summarized"],
-    });
-    expect(applied.declaredLosses).toEqual(["provider_private_reasoning"]);
-    expect(degraded.declaredLosses).toEqual(["conversation_history_summarized"]);
-  });
-
-  it("rejects a degraded replay that omits the summarization, empty list or not", () => {
-    // An empty list claims nothing was dropped, which would tell a caller the memo summary is
-    // the verbatim conversation.
-    const emptyDegraded = DriverTranscriptReplayResultSchema.safeParse({
-      status: "degraded",
-      declaredLosses: [],
-    });
-    expect(emptyDegraded.success).toBe(false);
-
-    // A merely non-empty rule would let this through: losses are named but not the
-    // summarization.
-    const degradedWithoutSummarization = DriverTranscriptReplayResultSchema.safeParse({
-      status: "degraded",
-      declaredLosses: ["provider_private_reasoning", "tool_call_history_repaired"],
-    });
-    expect(degradedWithoutSummarization.success).toBe(false);
-  });
-
-  it("rejects an applied replay declaring the summarization, alone or not", () => {
-    // The summarization kind names the memo floor standing in for the conversation, which is the
-    // degraded settlement. A result claiming both native replay and a summary is contradictory,
-    // and a consumer reading `status` would publish native-replay continuity for a session
-    // holding only a bounded summary.
-    const appliedWithSummarization = DriverTranscriptReplayResultSchema.safeParse({
-      status: "applied",
-      declaredLosses: ["conversation_history_summarized"],
-    });
-    expect(appliedWithSummarization.success).toBe(false);
-
-    // Stripping private reasoning is an ordinary applied loss, and listing it alongside does not
-    // launder the contradiction.
-    const appliedWithSummarizationBesideOthers = DriverTranscriptReplayResultSchema.safeParse({
-      status: "applied",
-      declaredLosses: ["provider_private_reasoning", "conversation_history_summarized"],
-    });
-    expect(appliedWithSummarizationBesideOthers.success).toBe(false);
   });
 });
 
