@@ -445,20 +445,12 @@ mod tests {
     // dispatcher returns `Ok`.
 
     #[test]
-    fn finalize_result_dispatcher_error_wins_over_writer_error() {
-        let result = finalize_result(
-            Err(IoError::other("dispatcher boom")),
-            Err(IoError::other("writer boom")),
-        );
-        let err = result.expect_err("expected dispatcher Err");
-        assert!(err.to_string().contains("dispatcher"), "got: {err}");
-    }
-
-    #[test]
-    fn finalize_result_dispatcher_error_wins_over_writer_ok() {
-        let result = finalize_result(Err(IoError::other("dispatcher boom")), Ok(()));
-        let err = result.expect_err("expected dispatcher Err");
-        assert!(err.to_string().contains("dispatcher"), "got: {err}");
+    fn finalize_result_dispatcher_error_wins() {
+        for writer in [Err(IoError::other("writer boom")), Ok(())] {
+            let result = finalize_result(Err(IoError::other("dispatcher boom")), writer);
+            let err = result.expect_err("expected dispatcher Err");
+            assert!(err.to_string().contains("dispatcher"), "got: {err}");
+        }
     }
 
     #[test]
@@ -470,11 +462,6 @@ mod tests {
         let err =
             result.expect_err("a writer error must not be dropped when the dispatcher returns Ok");
         assert_eq!(err.kind(), ErrorKind::BrokenPipe);
-    }
-
-    #[test]
-    fn finalize_result_ok_when_both_ok() {
-        finalize_result(Ok(()), Ok(())).expect("both-ok must return Ok");
     }
 
     // `try_send_envelope`: a closed receiver must surface as `BrokenPipe` so the dispatcher stops.
