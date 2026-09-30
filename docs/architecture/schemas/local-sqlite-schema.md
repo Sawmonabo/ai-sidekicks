@@ -204,7 +204,7 @@ CREATE TABLE interventions (
   id                     TEXT PRIMARY KEY,
   target_run_id          TEXT NOT NULL,
   type                   TEXT NOT NULL
-                         CHECK(type IN ('steer', 'interrupt', 'cancel')),
+                         CHECK(type IN ('steer', 'interrupt', 'cancel', 'faster_model_retry')),
   state                  TEXT NOT NULL DEFAULT 'requested'
                          CHECK(state IN ('requested', 'accepted', 'applied', 'rejected', 'degraded', 'expired')),
   payload                TEXT NOT NULL DEFAULT '{}', -- JSON: type-specific NON-PII fields only — a steer's directive text never rides this column (it encrypts into pii_payload; Spec-003 §Required Behavior at-rest split, which covers steer content)

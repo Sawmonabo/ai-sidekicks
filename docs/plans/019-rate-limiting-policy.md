@@ -9,7 +9,7 @@
 | **Author(s)** | `Claude Opus 4.7` |
 | **Spec** | [Spec-019: Rate Limiting Policy](../specs/019-rate-limiting-policy.md) |
 | **Required ADRs** | [ADR-014: tRPC Control-Plane API](../decisions/014-trpc-control-plane-api.md); [ADR-020: V1 Deployment Model And OSS License](../decisions/020-v1-deployment-model-and-oss-license.md); [ADR-015: V1 Feature Scope Definition](../decisions/015-v1-feature-scope-definition.md); [ADR-010: Tokens, Passkeys And The Remote Channel](../decisions/010-tokens-passkeys-and-the-remote-channel.md) |
-| **Dependencies** | the shipped control-plane host (the stable tRPC middleware-mount surface consumed here; `wrangler.toml` deployment config extended); [Plan-028](./028-remote-control.md) (the relay's per-frame admission seam, consumed on the Workers path); Plan-016 (`AuthenticatedIdentityContext` — the `ctx.userId` producer for identity resolution). Non-blocking context, not dependencies: Plan-006 daemon-IPC scope exclusion (§Non-Goals); the Plan-018 metric-name doc contract (CP-019-4 — no code consumed); Plan-028's self-host relay node as a downstream consumer (see §Cross-Plan Obligations) |
+| **Dependencies** | the shipped control-plane host (the stable tRPC middleware-mount surface consumed here; `wrangler.toml` deployment config extended); [Plan-028](./028-remote-control.md) (the relay's per-frame admission seam, consumed on the Workers path); Plan-016 (the authenticated `UserId` its tokens carry as `sub`, read as `ctx.userId` for identity resolution). Non-blocking context, not dependencies: Plan-006 daemon-IPC scope exclusion (§Non-Goals); the Plan-018 metric-name doc contract (CP-019-4 — no code consumed); Plan-028's self-host relay node as a downstream consumer (see §Cross-Plan Obligations) |
 | **Cross-Plan Deps** | Cross-Plan Dependency Graph |
 
 ## Goal
@@ -47,7 +47,7 @@ The plan builds on:
 
 - The control plane's stable middleware-mount surface (PASETO middleware + router host) that `rateLimitProcedure` mounts onto (CP-019-1).
 - [Plan-028](./028-remote-control.md) Phase 3's per-frame admission seam on the relay (CP-019-5). It gates the **Workers** half of Phase 3 WS wiring only; the self-host path is wired on the self-host relay node and does not wait on it (D-019-2).
-- Plan-016's `AuthenticatedIdentityContext` (the `ctx.userId` producer).
+- Plan-016's authenticated `UserId`, which its tokens carry as `sub` (`ctx.userId`).
 
 ## Target Areas
 
@@ -386,7 +386,7 @@ The phase builds on the shipped contracts package.
 - **T21.3-3 — `middleware/rate-limit.ts`.** `rateLimitProcedure` per §API And Transport Changes: typed identity pair (D-019-14), tier from auth state (D-019-4), observe-mode pass-through (D-019-16), 25%-threshold header attachment + degraded suppression, 429 with the canonical envelope. Unit tests: identity fallback chain (user → ip; missing IP on anonymous endpoint → 400); tier never caller-supplied; observe mode emits telemetry and never denies; header policy rows (remaining < 25% of limit → headers attach; remaining ≥ 25% → none; degraded → none; 429 → every header).
   - **Spec coverage:** Spec-019 §Default Behavior (threshold-approach headers, remaining < 25%), Spec-019 §Overflow Response (429; Retry-After; standard headers), Spec-019 §Rate Limit Tiers (tier from auth state)
   - **Verifies invariant:** I-019-1, I-019-7
-  - **Consumes:** `checkAdmission` ← T21.3-2; the CP-019-1 mount surface ← the control-plane host (§Preconditions); `AuthenticatedIdentityContext` (`ctx.userId`) ← Plan-016.
+  - **Consumes:** `checkAdmission` ← T21.3-2; the CP-019-1 mount surface ← the control-plane host (§Preconditions); the authenticated `UserId` (`ctx.userId`, its tokens' `sub`) ← Plan-016.
 - **T21.3-4 — `middleware/ws-rate-limit.ts`.** `wsRateLimit` per §API And Transport Changes: the device's in-memory `ws.message` quota (`DeviceFrameQuota`: a sliding 60-second count per live device connection, 6,000 frames, a 60-second pause after a trip, freed with the connection); one in-band `rate_limited` frame (shape from T21.1-4, `retryAfter: 60`) at the first refused frame of a pause and none after it; the connection is never closed for the quota; observe-mode pass-through (D-019-16; factory-provided `mode`); a machine connection's frames are never counted; single-signal outcome contract (caller performs the send). Unit tests: the 6,001st device frame in 60 s → frame outcome + connection-stays-open; the next frames in the pause → dropped with no frame; the first frame after the pause → admitted; a machine connection sending 10,000 frames → all admitted; observe mode → `{ proceed: true }` over quota with the trip still recorded; a closed connection frees its count; the hook reads only the connection's side and device id and the frame's time.
   - **Spec coverage:** Spec-019 §WebSocket Overflow Response (the device quota, its refusal frame and pause), Spec-019 §Canonical Endpoint Group Registry (ws.message registry row), Spec-019 AC5
   - **Verifies invariant:** I-019-1, I-019-5

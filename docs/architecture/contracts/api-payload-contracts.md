@@ -144,7 +144,7 @@ type RunFailureCategory =
   | "refused"; // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run Lifecycle)
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
-type InterventionType = "steer" | "interrupt" | "cancel"; // Spec-003 §Required Behavior; the same arms as ApplyInterventionParams (Plan-004 T1.8). Undo is `session.restore`, never an intervention
+type InterventionType = "steer" | "interrupt" | "cancel" | "faster_model_retry"; // Spec-003 §Required Behavior and Spec-004 §Required Behavior; ApplyInterventionParams (Plan-004 T1.8) carries the first three, and the daemon carries out `faster_model_retry` itself. Undo is `session.restore`, never an intervention
 type InterventionState = "requested" | "accepted" | "applied" | "rejected" | "degraded" | "expired";
 
 type ApprovalCategory =
@@ -634,7 +634,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `session.memoryRead` | Inspector `Memory` section: the memory paths and the account's own store | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.36; [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-6-4 |
 | `session.modeUpdate {sessionId, mode: build \| plan}` | The Build or Plan mode chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.33 |
 | `session.mute {sessionId}` and `session.unmute {sessionId}` → `{}`, events `session.muted {sessionId, at}` and `session.unmuted {sessionId, at}`; `muted` on `session.list` and `session.read` entries | Mute and unmute a session's notifications; held by the daemon, seen by every device | [Spec-017](../../specs/017-notifications-and-attention-model.md), [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-017](../../plans/017-notifications-and-attention-model.md) |
-| event `session.notice` of kind `provider_warning` {source: warning \| deprecation, text, details?} | The working line's `⚠ N warnings` word and its list, in Codex's own words; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| event `session.notice` of kind `provider_warning` {sessionId, kind, source: warning \| deprecation, text, details?} | The working line's `⚠ N warnings` word and its list, in Codex's own words; no flow row | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
 | `session.overviewRead {afterRevision}` → `{revision, sessions: [{id, title, provider, state, agents: [{name, provider, state}]}], remoteControl: {state}}` | The terminal pane's read: every session with its agents and Remote Control's state, answered when anything moves | [Spec-001](../../specs/001-session-core.md), [ADR-037](../../decisions/037-claude-code-mods-are-an-optional-terminal-bridge.md) | [Plan-001](../../plans/001-session-core.md) T6.14 |
 | `session.permissionLevelUpdate {sessionId, level: readonly \| ask \| reviewed \| sandboxed \| yolo}` → `{sessionId, level}` | The permission level chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md) | [Plan-010](../../plans/010-approvals-permissions-and-trust-boundaries.md) T3.12 |
 | `session.pin` and `session.unpin`, events `session.pinned` and `session.unpinned` | Pin and unpin a session inside its group, pin order kept; held by the daemon | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.6 |
@@ -1816,7 +1816,8 @@ interface InterruptRunParams {
 // Behavior): the daemon dedupes on it (replay-or-conflict), and it rides
 // through to the driver so provider-remote invocations that honor dedupe keys receive
 // it (the `compensable` propagation pattern, Spec-004 §Tool Metadata). Same field set
-// as the steer / interrupt / cancel arms of the InterventionRequestPayload union below. Undo is not
+// as the steer / interrupt / cancel arms of the InterventionRequestPayload union below; its fourth arm,
+// `faster_model_retry`, never reaches the driver, because the daemon carries it out. Undo is not
 // an intervention: it is `session.restore`, whose conversation leg reaches the driver through
 // `rewindConversation` ([Spec-013 §Interfaces And Contracts](../../specs/013-persistence-recovery-and-replay.md#interfaces-and-contracts)).
 type ApplyInterventionParams =
@@ -2432,6 +2433,7 @@ interface RunSafetyBufferingUpdatedPayload {
 // `details` are kept beside it. Recorded so the working line's warnings count and its list survive
 // a reload; it draws no flow row. `configWarning` and `guardianWarning` are not this kind.
 interface SessionNoticeProviderWarning {
+  sessionId: SessionId;
   kind: "provider_warning";
   source: "warning" | "deprecation";
   text: string; // Codex's own words
@@ -3160,6 +3162,17 @@ type InterventionRequestPayload =
       expectedRunVersion: number;
       clientIdempotencyKey: string;
       reason?: string;
+    }
+  | {
+      // Codex's retry on the faster model its safety check names (Spec-004 §Required Behavior): the
+      // daemon interrupts the turn, forks the conversation to just before it and sends the same message
+      // again on `model`. A turn that is no longer the latest, or whose reply has started, is `rejected`.
+      type: "faster_model_retry";
+      targetRunId: RunId;
+      expectedRunVersion: number;
+      clientIdempotencyKey: string;
+      expectedTurnId: string;
+      model: string;
     };
 
 // On an idempotent replay (same clientIdempotencyKey, identical payload) this response is
@@ -3208,7 +3221,7 @@ interface InterventionResponseBase {
   rejectionReason?: string; // machine-readable cause on a `rejected` OUTCOME, which is a normal `run.intervene` response and not a JSON-RPC transport error, so the CLI renders WHY (e.g. `driver.capability_unsupported`). A request-admission refusal (e.g. `intervention.idempotency_conflict`, 422) is a JsonRpcError that produces no intervention row, so it never rides here. Replay-durable: the cause persists in the intervention row's own `rejection_reason` column (Plan-003 T1.4 DDL), so an idempotent replay reconstructs the SAME machine-readable reason from that column, never fabricating one.
 }
 type InterventionRequestResponse = InterventionResponseBase & {
-  interventionType: "steer" | "interrupt" | "cancel";
+  interventionType: InterventionType;
   result?: Record<string, unknown>;
 };
 

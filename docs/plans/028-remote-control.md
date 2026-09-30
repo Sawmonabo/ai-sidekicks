@@ -204,6 +204,8 @@ The relay runs behind a TLS front rather than terminating TLS itself: Caddy v2 o
 
 On the Compose relay a server-name router sits in front of Caddy on `:443`, so a shared port's address (`https://<port>-<machine label>.<relay's domain>/`) passes through by its server name to the machine, which ends TLS itself; each machine has a wildcard name under the person's domain, and the relay writes the DNS challenge record (`runtimenode.certificateChallengeSet`, in `packages/contracts/src/runtime-node.ts`) only for a machine that proves its key: the request carries the machine identity key's signature (`machineSignature`) over the canonical `{nodeId, challengeValue}`, checked against `runtime_nodes.public_key`, and the record stands for the minutes of a challenge. In the web client `Open` first fetches a one-time ticket over the channel (`preview.portTicketIssue {port}`), good for 60 seconds, which the machine trades for a cookie scoped to that address (`HttpOnly`, `Secure`, `SameSite=Lax`) that lives until the port stops being shared or the device is revoked; a request without it gets a plain 404. Caddy takes `ACME_PROFILE`, empty by default. The Workers relay cannot pass TLS through and TLS is never ended at Cloudflare, so there the web client has no shared ports and says so.
 
+**The machine's certificate client.** The machine holds its shared-port name's certificate and ends TLS itself, so the client that obtains that certificate runs in the daemon: it obtains the certificate with a maintained ACME client library, answering the DNS challenge through `runtimenode.certificateChallengeSet`. Choosing the library is this task's acceptance, recorded in this plan with what was considered and what decided it.
+
 The relay process and its Postgres are measured under the named workload — one person, their machines and their devices, on one relay — against the budget in [deployment-topology §Infrastructure Requirements](../architecture/deployment-topology.md#infrastructure-requirements); the baseline is recorded in the PR that lands this phase, and measured again after each relay change that affects it.
 
 **Done when**
@@ -217,6 +219,7 @@ The relay process and its Postgres are measured under the named workload — one
 - The banner prints on every start and names every active override.
 - A Postgres server offering weak auth, or an unverifiable certificate, is refused at startup rather than connected to.
 - A shared port opens in a browser tab at its machine's address, and the relay's view of the connection holds no plaintext.
+- The daemon obtains its shared-port name's certificate through the chosen ACME client library, answering the DNS challenge through `runtimenode.certificateChallengeSet`, and the library choice is recorded.
 - The relay process and its Postgres, measured under the named workload, fit the deployment-topology budget, and the baseline is recorded.
 
 ## Cross-Plan Obligations
