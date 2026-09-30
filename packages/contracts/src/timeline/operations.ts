@@ -1,6 +1,6 @@
-// The four paged and streamed timeline operations' request/response pairs:
-// `TimelineRead`, `TimelineSubscribe`, `ReasoningSurfaceRead`, `ChildRunExpand`,
-// and the frame budget every paged timeline reply shares.
+// The three paged timeline operations' request/response pairs:
+// `TimelineRead`, `ReasoningSurfaceRead`, `ChildRunExpand`, and the frame
+// budget every paged timeline reply shares.
 //
 // This module APPLIES them; it decides nothing.
 //
@@ -8,13 +8,10 @@
 // ONE ROW SCHEMA, TWO CARRIERS
 // ----------------------------------------------------------------------------
 //
-// `TimelineReadResponse.entries`, the `timeline.subscribe` stream, and
-// `ChildRunExpandResponse.entries` are all `TimelineRow` — the SAME
-// `TimelineRowSchema` instance, not three structurally-equal copies. That is
-// the whole of ' "live subscription payloads and replay windows use the same
-// row schema so reconnect recovery does not require projection translation":
-// a replay row and a live row are indistinguishable to a parser because
-// there is only one parser.
+// `TimelineReadResponse.entries` and `ChildRunExpandResponse.entries` are
+// both `TimelineRow` — the SAME `TimelineRowSchema` instance, not two
+// structurally-equal copies. A row from either read is indistinguishable to a
+// parser because there is only one parser.
 //
 // ----------------------------------------------------------------------------
 // EVERY PAGED REPLY IS BOUNDED BY THE FRAME IT WILL BECOME
@@ -40,13 +37,6 @@
 // stop. The producer stops at whichever of the row limit and the byte budget
 // trips first and sets `hasMore` accordingly; the schema is what makes that
 // obligation enforceable rather than merely documented.
-//
-// This bounds the three PAGED replies. It does not bound one
-// `timeline.subscribe` emission, which is a single row on its own
-// `$/subscription/notify` frame: a row large enough to blow a frame by itself
-// is an oversized projected event payload, and `session.subscribe` has carried
-// that exposure since it shipped. Bounding it is a decision about the event
-// envelope and the framer, not one a page budget may make on their behalf.
 //
 // ----------------------------------------------------------------------------
 // The `ReasoningSurfaceReadRequest` principal: no wire member, by design
@@ -75,7 +65,6 @@
 import { z } from "zod";
 
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
-import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "../jsonrpc-streaming.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunStateSchema, type RunState } from "../run-control.js";
 import {
@@ -343,9 +332,9 @@ export const TimelineReadRequestSchema: z.ZodType<TimelineReadRequest, TimelineR
  * THE CURSOR IS PERMITTED, NOT FORBIDDEN, ON THE TERMINAL ARM. The two members
  * answer different questions — `hasMore` says whether unread rows remain,
  * `nextCursor` says where this window ended — and they are not contradictory
- * on a final page. also requires `TimelineSubscribe` to "support live append
- * plus replay recovery", and a client that has just read to the end and now
- * wants to subscribe from exactly there needs precisely that position.
+ * on a final page. A client that has just read to the end and now opens the
+ * session's live stream from exactly there (`session.subscribe` with
+ * `afterCursor`) needs precisely that position.
  * Forbidding it would make a caller re-derive the position from the last row,
  * or re-read the final window, to recover something the producer already held.
  */
@@ -408,48 +397,6 @@ export const TimelineReadResponseSchema: z.ZodType<TimelineReadResponse> = z
     requirePageToRideOneFrame(response.entries, "entries", issueContext);
     requireNondecreasingSequence(response.entries, "entries", issueContext);
   });
-
-// ---------------------------------------------------------------------------
-// TimelineSubscribe
-// ---------------------------------------------------------------------------
-
-/**
- * A live subscription with replay catch-up from `afterCursor` ("if live
- * delivery gaps occur, the client must request replay from the canonical event
- * source").
- *
- * Resumption is by `afterCursor` alone; the stream carries no `lastEventId`.
- */
-export interface TimelineSubscribeRequest {
-  sessionId: SessionId;
-  afterCursor?: EventCursor | undefined;
-}
-
-export const TimelineSubscribeRequestSchema: z.ZodType<
-  TimelineSubscribeRequest,
-  TimelineSubscribeRequest
-> = z
-  .object({
-    sessionId: SessionIdSchema,
-    afterCursor: EventCursorSchema.optional(),
-  })
-  .strict();
-
-/**
- * `timeline.subscribe`'s init ack — an ALIAS SEAM over the canonical generic
- * `SubscribeAckResponse`, the same shape `SessionSubscribeResponse` takes and
- * for the same reason: today the ack is exactly `{ subscriptionId }`, and the
- * seam exists so a future timeline-specific divergence stays localized here.
- *
- * The ack is what the method's registered result schema validates; the ROW
- * union is what each emission carries. The canonical registry table's response
- * column names the emission type (`TimelineRow`) because that is the wire fact
- * a client cares about — see `TIMELINE_METHOD_DESCRIPTORS` in `./methods.js`,
- * where both are bound to the method side by side.
- */
-export type TimelineSubscribeResponse = SubscribeAckResponse;
-export const TimelineSubscribeResponseSchema: z.ZodType<TimelineSubscribeResponse> =
-  SubscribeAckResponseSchema;
 
 // ---------------------------------------------------------------------------
 // ReasoningSurfaceRead
@@ -674,7 +621,7 @@ export interface ChildRunExpandResponseBase {
   parentRunId: RunId;
   state: RunState;
   /**
-   * The SAME `TimelineRow` union the read window and the live stream carry — a
+   * The SAME `TimelineRow` union the read window carries — a
    * child run's rows are timeline rows, not a third shape a consumer would
    * have to translate.
    */

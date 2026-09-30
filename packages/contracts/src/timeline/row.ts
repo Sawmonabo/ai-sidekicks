@@ -1,8 +1,7 @@
 // The `TimelineRow` discriminated union: the single row shape every timeline
-// surface returns, on read windows, on `childRunExpand`, and on the live
-// subscribe stream alike.
+// surface returns, on read windows and on `childRunExpand` alike.
 //
-// This module APPLIES all three; it decides none of them. Adding, removing,
+// This module APPLIES the shape; it decides none of it. Adding, removing,
 // or renaming a member is a doc edit first.
 //
 // ----------------------------------------------------------------------------
@@ -33,11 +32,11 @@
 // Parse cost
 // ----------------------------------------------------------------------------
 //
-// A row is parsed once per subscription delivery, so every arm here is a flat
+// Every row a read returns is parsed, so every arm here is a flat
 // `z.object().strict()` over scalar checks. The one cross-field refinement in
 // the file is the boundary arm's three-way agreement check — three comparisons,
 // no allocation, no iteration — and it runs only on `rollback_boundary` rows,
-// which are one row per accepted rollback rather than one per delivery.
+// which are one row per accepted rollback rather than one per row read.
 import { z } from "zod";
 
 import {
@@ -734,10 +733,10 @@ const timelineRollbackBoundaryArmSchema = z
   });
 
 /**
- * The row union every timeline surface returns — `TimelineReadResponse.entries`,
- * the `timeline.subscribe` stream, and `ChildRunExpandResponse.entries` are all
- * `TimelineRow`. Genuinely discriminated on the literal `kind`: consumers narrow
- * structurally, never by probing the free-form `type` and never by casting.
+ * The row union every timeline surface returns — `TimelineReadResponse.entries`
+ * and `ChildRunExpandResponse.entries` are both `TimelineRow`. Genuinely
+ * discriminated on the literal `kind`: consumers narrow structurally, never by
+ * probing the free-form `type` and never by casting.
  */
 export type TimelineRow = TimelineRollbackBoundary | RunScopedTimelineEntry | TimelineEntry;
 

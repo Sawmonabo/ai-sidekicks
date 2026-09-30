@@ -1,12 +1,8 @@
-// Shared subscribe-init ordering barrier for streaming JSON-RPC handlers.
+// The subscribe-init ordering barrier for streaming JSON-RPC handlers.
 //
 // Ownership: this file sits at the `ipc/` substrate root rather than under
-// `handlers/` because it is shared substrate — two namespaces bind streaming
-// handlers through it, and a copy per namespace is exactly the drift this
-// module exists to prevent. owns the directory and the streaming primitive;
-// this module is authored and hoisted on its second consumer, per the repo's
-// structure rule that a helper needed by a second module is extracted at
-// that second use rather than duplicated.
+// `handlers/` because it is streaming substrate beside the streaming
+// primitive, not one namespace's helper.
 //
 // Invariant it implements (canonical text):
 //   * The subscribe-init response `{ subscriptionId }` reaches the wire
@@ -91,7 +87,7 @@ export interface SubscriptionAckBarrier<EmissionType> {
  * Build a barrier over `producer`.
  *
  * `methodName` prefixes the diagnostic a failed emission logs. It is the wire
- * method name (`session.subscribe`, `timeline.subscribe`) so an operator
+ * method name (`session.subscribe`) so an operator
  * reading the daemon's output can tell which surface produced the bad value.
  *
  * FAILURE POSTURE, IDENTICAL ON BOTH SIDES OF THE GATE. `producer.next` throws

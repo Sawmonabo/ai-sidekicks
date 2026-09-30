@@ -8,7 +8,7 @@
 //     namespace plan owns its own registrations).
 //
 // ----------------------------------------------------------------------------
-// Why a binder and not four `registry.register(...)` calls
+// Why a binder and not one `registry.register(...)` call per method
 // ----------------------------------------------------------------------------
 //
 // `MethodRegistry.register` takes the method NAME and its two schemas as
@@ -39,36 +39,13 @@
 // `jsonrpc-registry.ts`).
 //
 // ----------------------------------------------------------------------------
-// Why the subscription binds through its own function
-// ----------------------------------------------------------------------------
-//
-// `timeline.subscribe` has TWO schemas: the init ack the registry validates a
-// handler's resolved value against, and the per-emission `TimelineRow` every
-// `$/subscription/notify` frame carries. The contracts registry states both
-// (`TimelineSubscriptionMethodBinding.emissionSchema`), but a handler bound the
-// same way a query is would consume only the first — it receives the
-// `StreamingPrimitive` itself and calls `createSubscription<T>(transportId,
-// anySchema)` with a schema of its own choosing. Its ack still validates. Its
-// emissions are then whatever that schema admits, and the canonical registry
-// table's response column becomes a claim nothing checks.
-//
-// So the query binder is TYPED to refuse the subscription
-// (`TimelineQueryMethodName` excludes it), and `registerTimelineSubscription`
-// is the only way to bind it. That binder calls `createSubscription` itself,
-// passing the descriptor's own `emissionSchema`, and hands the caller a
-// `LocalSubscriptionProducer<TimelineRow>` — a producer whose `next()`
-// validates against `TimelineRowSchema` before any frame leaves the daemon
-// (streaming analog). A Phase-2 producer cannot emit a non-`TimelineRow`
-// value, because it never gets to choose the schema.
-//
-// ----------------------------------------------------------------------------
 // Which handlers live here
 // ----------------------------------------------------------------------------
 //
 // `timeline.bodyRead` is answered here, from the stored event and its sealed
 // body ({@link registerTimelineBodyRead}). Every other method is bound by the
 // service that answers it — the timeline projection, the reasoning surface, the
-// child-run summaries, the session search — through the binders below, and none
+// child-run summaries, the session search — through `registerTimelineMethod`, and none
 // is bound before its service exists: a placeholder handler would put a method
 // on the wire that answers nothing, which a client cannot distinguish from a
 // method that answers wrongly.
@@ -82,29 +59,18 @@ import {
   TIMELINE_READ_METHOD,
   TIMELINE_REASONING_SURFACE_READ_METHOD,
   TIMELINE_SEARCH_METHOD,
-  TIMELINE_SUBSCRIBE_METHOD,
 } from "@ai-sidekicks/contracts";
 import type {
   Handler,
-  HandlerContext,
-  LocalSubscriptionProducer,
   MethodRegistry,
   SessionId,
+  TimelineMethodName,
   TimelineMethodRequest,
   TimelineMethodResponse,
-  TimelineQueryMethodName,
-  TimelineRow,
-  TimelineSubscribeRequest,
-  TimelineSubscribeResponse,
-  ZodType,
 } from "@ai-sidekicks/contracts";
 
 import type { SessionContentReader, StoredEventContentRow } from "../../events/content-read.js";
 import { RegistryDispatchError } from "../registry.js";
-import {
-  createSubscriptionAckBarrier,
-  type AckBarrierProducer,
-} from "../subscription-ack-barrier.js";
 
 // ----------------------------------------------------------------------------
 // Request correlation: the checks no schema can perform
@@ -167,14 +133,14 @@ interface RequestCorrelationViolation {
 
 /**
  * The per-method request-correlation check, keyed by method so each arm is
- * typed against its own request and response rather than against the four-way
- * union.
+ * typed against its own request and response rather than against the union of
+ * every method's.
  *
  * The mapped type is indexed by the same generic the binder carries, so the
  * lookup in {@link registerTimelineMethod} correlates without a cast — the
  * same property `TIMELINE_METHOD_DESCRIPTORS` relies on.
  */
-type TimelineRequestCorrelationCheck<MethodName extends TimelineQueryMethodName> = (
+type TimelineRequestCorrelationCheck<MethodName extends TimelineMethodName> = (
   request: TimelineMethodRequest<MethodName>,
   result: TimelineMethodResponse<MethodName>,
 ) => readonly RequestCorrelationViolation[];
@@ -257,7 +223,7 @@ const refusePageOverRequestedCeiling = (
 };
 
 const TIMELINE_REQUEST_CORRELATION_CHECKS: {
-  readonly [MethodName in TimelineQueryMethodName]: TimelineRequestCorrelationCheck<MethodName>;
+  readonly [MethodName in TimelineMethodName]: TimelineRequestCorrelationCheck<MethodName>;
 } = {
   [TIMELINE_READ_METHOD]: (request, result) => {
     if (!Array.isArray(result?.entries)) {
@@ -417,7 +383,7 @@ const TIMELINE_REQUEST_CORRELATION_CHECKS: {
  *
  * There is deliberately no schema slot. The schemas are not an input.
  */
-export interface TimelineMethodRegistration<MethodName extends TimelineQueryMethodName> {
+export interface TimelineMethodRegistration<MethodName extends TimelineMethodName> {
   readonly method: MethodName;
   /**
    * It is GUARANTEED a request that already passed the canonical request
@@ -450,22 +416,18 @@ export interface TimelineMethodRegistration<MethodName extends TimelineQueryMeth
  * fails to compile rather than failing on the wire.
  *
  * @throws RegistryRegistrationError synchronously on a duplicate registration
- *   All four `timeline.*` names are lowercase-root camelCase-tail and pass
+ *   Every `timeline.*` name is lowercase-root camelCase-tail and passes
  *   that gate; the registry test in `../__tests__/timeline-methods.test.ts`
  *   asserts it against the real `MethodRegistryImpl` rather than against the
  *   regex alone.
  *
- * Mutating flag: every timeline operation is a read — three idempotent `query`
- * rows and one `subscription` — so all four register `mutating: false` and pass
+ * Mutating flag: every timeline operation is an idempotent `query` read, so
+ * each registers `mutating: false` and passes
  * the version-mismatch gate when `DaemonHelloAck.compatible === false`, per the
  * read-only-continues rule. The flag comes from the canonical descriptor, so no
  * caller can raise it.
- *
- * `MethodName` is the QUERY subset. `timeline.subscribe` is refused at compile
- * time and binds through {@link registerTimelineSubscription}, which is the
- * only place its per-emission schema is consumed.
  */
-export function registerTimelineMethod<MethodName extends TimelineQueryMethodName>(
+export function registerTimelineMethod<MethodName extends TimelineMethodName>(
   registry: MethodRegistry,
   registration: TimelineMethodRegistration<MethodName>,
 ): void {
@@ -493,7 +455,7 @@ export function registerTimelineMethod<MethodName extends TimelineQueryMethodNam
   };
   // The one reconciliation point. `descriptor` is correctly typed per key, but
   // TypeScript cannot correlate a generic indexed access across three argument
-  // positions at once, so it widens each to the four-way union. The cast asserts
+  // positions at once, so it widens each to the union of every method's. The cast asserts
   // what the map's own type already guarantees — schemas and handler share the
   // key `registration.method` — and it is confined to this single call, which is
   // why the identity test asserts the REGISTERED schemas are the canonical
@@ -503,223 +465,6 @@ export function registerTimelineMethod<MethodName extends TimelineQueryMethodNam
     descriptor.requestSchema,
     descriptor.responseSchema,
     correlatedHandler as Handler<unknown, unknown>,
-    { mutating: descriptor.mutating },
-  );
-}
-
-/**
- * Raised when a subscription producer emits a row belonging to a session other
- * than the one the subscribe request named.
- *
- * WHY THIS IS NOT A `RegistryDispatchError`. The query-side scope refusal has
- * a wire envelope to land in — the reply has not been sent yet. This one does
- * not: the init ack settled the moment the subscription was accepted, and an
- * emission arrives on a `$/subscription/notify` frame that carries no error
- * channel at all. So the failure takes the barrier's posture for a bad
- * emission instead — cancel the subscription, log a prefixed tripwire, stop —
- * which is the same treatment a row that fails `TimelineRowSchema` already
- * gets, and for the same reason: the value is a daemon-side defect, the wire
- * client is innocent, and the transport's other subscriptions must keep
- * working. It is thrown from inside the producer the barrier drives precisely
- * so that posture applies without restating it here.
- */
-export class TimelineSubscriptionScopeError extends Error {
-  readonly emittedSessionId: string;
-  readonly subscribedSessionId: string;
-
-  constructor(emittedSessionId: string, subscribedSessionId: string) {
-    super(
-      `emitted row sessionId ${JSON.stringify(emittedSessionId)} does not match the subscribed ` +
-        `session ${JSON.stringify(subscribedSessionId)}: forwarding it would mix another ` +
-        "session's history into this client's live view under a subscription id it trusts",
-    );
-    this.name = "TimelineSubscriptionScopeError";
-    this.emittedSessionId = emittedSessionId;
-    this.subscribedSessionId = subscribedSessionId;
-  }
-}
-
-/**
- * The one capability `registerTimelineSubscription` needs from the Phase-2
- * streaming primitive, stated structurally rather than by importing the class.
- *
- * `StreamingPrimitive` satisfies this by shape, so the bootstrap orchestrator
- * passes the real instance unchanged; a test passes a recorder. Narrowing to
- * the single method also states the boundary: this binder allocates a
- * subscription and does nothing else with the primitive — it does not cancel
- * transports, does not reach the per-transport index, and cannot.
- */
-interface TimelineSubscriptionFactory {
-  createSubscription<EmissionType>(
-    transportId: number,
-    valueSchema: ZodType<EmissionType>,
-  ): LocalSubscriptionProducer<EmissionType>;
-}
-
-/**
- * What a caller supplies to bind `timeline.subscribe`.
- *
- * There is deliberately no emission-schema slot, for the same reason
- * {@link TimelineMethodRegistration} has no request/response slots: the schema
- * is not an input. It is read from the canonical descriptor, which is what
- * makes the `TimelineRow` guarantee hold against a producer that would rather
- * emit something else.
- */
-export interface TimelineSubscriptionRegistration {
-  /** The primitive instance the bootstrap orchestrator shares across handlers. */
-  readonly streamingPrimitive: TimelineSubscriptionFactory;
-  /**
-   * Wire the timeline projection into the producer.
-   *
-   * Called once per accepted subscribe request, with the parsed request, a
-   * producer that accepts `TimelineRow` and nothing else, and the handler
-   * context. Implementations replay from `request.afterCursor` when present
-   * and then live-tail, calling `producer.next(row)` for each row.
-   *
-   * A throw — session not found, an invalid cursor, a permission refusal —
-   * cancels the just-allocated subscription before it propagates, so a failed
-   * setup does not leave an entry stranded on the primitive's maps until the
-   * transport closes. The registry's `dispatch()` wrapper then maps the
-   * throw.
-   */
-  readonly attachProjection: (
-    request: TimelineSubscribeRequest,
-    producer: LocalSubscriptionProducer<TimelineRow>,
-    context: HandlerContext,
-  ) => void | Promise<void>;
-}
-
-/**
- * Bind `timeline.subscribe` onto the supplied registry, fixing the emission
- * schema from the canonical descriptor.
- *
- * The ack this returns is `{ subscriptionId }` — the shared
- * `SubscribeAckResponse` floor, validated by the descriptor's response schema
- * like any other result. Every subsequent row rides
- * `$/subscription/notify` and is validated against the descriptor's
- * `emissionSchema` inside `producer.next(...)` before the frame is written.
- *
- * SCOPE IS THIS BINDER'S TOO. Every emitted row must name the session the
- * subscribe request named. `TimelineRowSchema` cannot enforce that — it never
- * sees the request — so a projection that accidentally attached to the wrong
- * session emits structurally valid rows that pass validation and then travel
- * under a subscription id the client trusts, mixing another session's history
- * into its live view with nothing anywhere reporting a fault. The gate sits
- * below the barrier so a cross-session row is refused with the same
- * cancel-log-stop posture a schema-invalid row gets; see
- * {@link TimelineSubscriptionScopeError} for why it cannot be a wire error.
- *
- * ORDERING IS THIS BINDER'S, NOT THE CALLER'S. requires the init ack to land
- * before the first notification for that subscription. The producer handed to
- * `attachProjection` is a GATED facade over the real one: every `next` and
- * `complete` routes through the shared subscribe-init barrier
- * (`../subscription-ack-barrier.ts`), which buffers until the ack has been
- * written. Placing the barrier here rather than obliging `attachProjection` to
- * hold the line is deliberate — a projection cannot observe when its own
- * subscribe response reached the socket, so an obligation stated on that
- * member would be unverifiable by the party asked to meet it, and the failure
- * it guards is SILENT: a pre-ack frame hits the SDK's unknown-id drop branch,
- * so the rows vanish with no error raised anywhere. The facade also means a
- * Phase-2 projection cannot bypass the barrier by holding the producer it was
- * given.
- *
- * @throws RegistryRegistrationError synchronously on a duplicate registration
- */
-export function registerTimelineSubscription(
-  registry: MethodRegistry,
-  registration: TimelineSubscriptionRegistration,
-): void {
-  const descriptor = TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD];
-  const handler: Handler<TimelineSubscribeRequest, TimelineSubscribeResponse> = async (
-    request,
-    context,
-  ) => {
-    const transportId = context.transportId;
-    if (transportId === undefined) {
-      // Per-connection streaming state needs a transport identity. A missing
-      // one is a bootstrap or direct-call defect rather than a client protocol
-      // violation, so it maps to an internal error — the posture
-      // `registerSessionSubscribe` takes for the same condition.
-      throw new Error(
-        `${descriptor.method}: handler requires a transport identity on the handler context; ` +
-          "per-connection subscription state cannot be allocated without one",
-      );
-    }
-    // The emission schema comes from the descriptor and from nowhere else.
-    // This is the line the whole binder exists for.
-    const producer = registration.streamingPrimitive.createSubscription<TimelineRow>(
-      transportId,
-      descriptor.emissionSchema,
-    );
-    // The scope gate sits BELOW the barrier rather than beside it: the barrier
-    // drives this producer, so a cross-session row throws from inside the
-    // barrier's own try/catch and takes the identical cancel-log-stop posture a
-    // schema-invalid row takes. Placing the check above the barrier instead
-    // would let the throw escape into whichever turn the upstream event source
-    // runs on — an unhandled rejection on the live path, and a check-phase
-    // throw on the replay flush.
-    const scopedProducer: AckBarrierProducer<TimelineRow> = {
-      subscriptionId: producer.subscriptionId,
-      next(row: TimelineRow): void {
-        // SHAPE FIRST, SCOPE SECOND, for the same reason the query-side check
-        // gives: a value carrying no `sessionId` string is not a `TimelineRow`
-        // at all, and the descriptor's emission schema inside `producer.next`
-        // is what says so — with the offending path and the real reason.
-        // Comparing `undefined` against the subscribed session here would
-        // report every malformed emission as a scope violation and bury the
-        // schema failure that actually explains it.
-        if (typeof row?.sessionId === "string" && row.sessionId !== request.sessionId) {
-          throw new TimelineSubscriptionScopeError(row.sessionId, request.sessionId);
-        }
-        producer.next(row);
-      },
-      cancel(): void {
-        producer.cancel();
-      },
-    };
-    const barrier = createSubscriptionAckBarrier(scopedProducer, descriptor.method);
-    // The gated facade. `next` and `complete` are ordered against the ack;
-    // `cancel` and `onCancel` pass straight through, because teardown must not
-    // wait on a response the caller may never get — a projection that fails
-    // during setup has to be able to drain the entry it allocated.
-    const gatedProducer: LocalSubscriptionProducer<TimelineRow> = {
-      subscriptionId: producer.subscriptionId,
-      next(row: TimelineRow): void {
-        barrier.emit(row);
-      },
-      complete(): void {
-        barrier.deferUntilAck(() => {
-          producer.complete();
-        });
-      },
-      cancel(): void {
-        producer.cancel();
-      },
-      onCancel(fn: () => void): void {
-        producer.onCancel(fn);
-      },
-    };
-    try {
-      await registration.attachProjection(request, gatedProducer, context);
-    } catch (attachFailure) {
-      // Atomicity: drain the entry this call allocated before the failure
-      // escapes, so a refused subscribe leaves nothing behind on the
-      // primitive's per-transport index. The barrier is never released on this
-      // path, so nothing it buffered is ever scheduled or emitted.
-      producer.cancel();
-      throw attachFailure;
-    }
-    // Release AFTER a successful attach and BEFORE the return: the flush is
-    // scheduled onto the check phase, which runs after the microtask that
-    // writes this response.
-    barrier.release();
-    return { subscriptionId: producer.subscriptionId };
-  };
-  registry.register(
-    descriptor.method,
-    descriptor.requestSchema,
-    descriptor.responseSchema,
-    handler as Handler<unknown, unknown>,
     { mutating: descriptor.mutating },
   );
 }

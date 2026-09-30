@@ -132,12 +132,9 @@ import {
   TIMELINE_RUN_ATTRIBUTION_PAYLOAD_KEYS,
   TIMELINE_RUN_LIFECYCLE_CATEGORY,
   TIMELINE_RUN_SCOPED_EVENT_TYPES,
-  TIMELINE_SUBSCRIBE_METHOD,
   TimelineReadRequestSchema,
   TimelineReadResponseSchema,
   TimelineRowSchema,
-  TimelineSubscribeRequestSchema,
-  TimelineSubscribeResponseSchema,
   TimelineBodyReadRequestSchema,
   TimelineBodyReadResponseSchema,
   TimelinePatchReadRequestSchema,
@@ -156,7 +153,6 @@ const OTHER_SESSION_ID = "7a2d0b7f-2e3c-4b4d-9e6f-1b2c3d4e5f60";
 const RUN_ID = "11111111-2222-4333-8444-555555555555";
 const OTHER_RUN_ID = "22222222-3333-4444-8555-666666666666";
 const PARENT_RUN_ID = "33333333-4444-4555-8666-777777777777";
-const SUBSCRIPTION_ID = "55555555-6666-4777-8888-999999999999";
 const TIMESTAMP = "2026-09-01T12:00:00.000Z";
 
 /** The members every arm carries — spread into each fixture below. */
@@ -959,10 +955,10 @@ describe("ReasoningSurfaceReadResponse availability", () => {
 });
 
 // ----------------------------------------------------------------------------
-// TimelineRead / TimelineSubscribe / ChildRunExpand
+// TimelineRead / ChildRunExpand
 // ----------------------------------------------------------------------------
 
-describe("timeline read window and live stream", () => {
+describe("timeline read window and child-run expansion", () => {
   const cursor = "seq-42";
 
   it("a read window round-trips, with `hasMore` separate from `nextCursor`", () => {
@@ -1007,10 +1003,10 @@ describe("timeline read window and live stream", () => {
     // reversal is the finding. The two members answer different questions —
     // `hasMore` whether unread rows remain, `nextCursor` where this window
     // ended — so they do not contradict on a final page. A client that has
-    // just read to the end and now wants `timeline.subscribe` to "support live
-    // append plus replay recovery" from exactly there needs that position, and
-    // forbidding it would make the client re-derive it or re-read the window
-    // to recover something the producer already held.
+    // just read to the end and now opens the session's live stream
+    // (`session.subscribe` with `afterCursor`) from exactly there needs that
+    // position, and forbidding it would make the client re-derive it or
+    // re-read the window to recover something the producer already held.
     expectRoundTrip(TimelineReadResponseSchema, {
       entries: [],
       hasMore: false,
@@ -1060,32 +1056,6 @@ describe("timeline read window and live stream", () => {
     expect(TimelineReadRequestSchema.safeParse({ sessionId: SESSION_ID, limit: 1.5 }).success).toBe(
       false,
     );
-  });
-
-  it("the subscribe request declares no second resumption channel", () => {
-    expectRoundTrip(TimelineSubscribeRequestSchema, { sessionId: SESSION_ID, afterCursor: cursor });
-    // The timeline resumes by `afterCursor` alone; a `lastEventId` member would
-    // be a second way to say the same thing.
-    expect(
-      TimelineSubscribeRequestSchema.safeParse({ sessionId: SESSION_ID, lastEventId: cursor })
-        .success,
-    ).toBe(false);
-    expectRoundTrip(TimelineSubscribeResponseSchema, { subscriptionId: SUBSCRIPTION_ID });
-  });
-
-  it("P12 — ONE row schema parses a read-window row and a live-stream row", () => {
-    // The reconnect-recovery guarantee: a replay row and a live row are
-    // indistinguishable to a parser because there is exactly one parser. The
-    // assertion is on schema IDENTITY, not on two structurally-equal parses.
-    expect(TIMELINE_METHOD_DESCRIPTORS[TIMELINE_SUBSCRIBE_METHOD].emissionSchema).toBe(
-      TimelineRowSchema,
-    );
-    const window = TimelineReadResponseSchema.parse({
-      entries: [rollbackBoundaryRow],
-      hasMore: false,
-    }) as { entries: TimelineRow[] };
-    const live = TimelineRowSchema.parse(rollbackBoundaryRow);
-    expect(window.entries[0]).toStrictEqual(live);
   });
 
   it("child-run expansion carries the same row union, with the same continuation", () => {

@@ -141,8 +141,9 @@ type _ContinuingWindowRequiresCursor = AssertExtends<
  * On the terminal arm it is OPTIONAL — present as a key, never required.
  *
  * Both halves are load-bearing and neither implies the other. The key must
- * exist, because a final page is exactly where a client switches to
- * `timeline.subscribe` and needs the position it stopped at. It must not be
+ * exist, because a final page is exactly where a client opens the session's
+ * live stream (`session.subscribe` with `afterCursor`) and needs the position
+ * it stopped at. It must not be
  * required, because a producer that has nothing more to say is not obliged to
  * mint one.
  */
