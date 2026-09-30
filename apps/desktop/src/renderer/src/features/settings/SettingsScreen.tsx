@@ -10,7 +10,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { useMainProcessState } from "@renderer/store/window/hooks/useMainProcessState.js";
 import { useOpenSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
-import { settingsSelection } from "@renderer/routing/route-readers.js";
+import { settingsRoute, settingsSelection } from "@renderer/routing/route-readers.js";
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { matchSettingsPages, type SettingsPageRegistry } from "./settings-pages.js";
 import type { SettingsPageContext } from "./types.js";
@@ -53,7 +53,7 @@ export function SettingsScreen(props: SettingsScreenProps): React.JSX.Element {
 
   const openPage = useCallback(
     (section: SettingsPageId): void => {
-      context.frameStore.navigate({ kind: "settings", page: section });
+      context.frameStore.navigate(settingsRoute(section, undefined));
     },
     [context.frameStore],
   );
