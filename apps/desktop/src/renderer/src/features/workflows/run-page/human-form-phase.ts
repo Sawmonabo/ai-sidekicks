@@ -8,6 +8,8 @@ import type { HumanFormPhase } from "./human-form-mount.js";
  *
  * A run read may omit `phaseRunId` and `formRevision`; a resolution composed with either
  * guessed would look answerable and fail to submit, so the card says so instead.
+ *
+ * @consumedBy the run page's parked-on-a-person card
  */
 export const UNADDRESSABLE_HUMAN_WAIT_DETAIL =
   "This run did not report the handle this phase's form is answered through, so the form cannot be opened here.";

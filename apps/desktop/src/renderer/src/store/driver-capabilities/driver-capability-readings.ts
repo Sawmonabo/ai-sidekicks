@@ -12,6 +12,8 @@ import type { DeclaredDriverFlags, DriverCapabilityReadout } from "./driver-capa
  *
  * Joined at the consumer, not in the per-bridge cache, which holds no session. The readout is
  * returned untouched where there is nothing to join, so a caller compares the same pointer.
+ *
+ * @consumedBy the run controls' Interrupt and Interrupt everything
  */
 export function withRunDriverBindings(
   readout: DriverCapabilityReadout | undefined,

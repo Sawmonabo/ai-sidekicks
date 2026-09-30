@@ -50,6 +50,8 @@ export function settingsSelection(route: AppRoute): string | undefined {
 /**
  * The settings address for one page, scoped to a selection where the caller has one.
  * Omits the `selection` key when there is none, which the parse round trip depends on.
+ *
+ * @consumedBy opening a Settings page at one selection, such as one device
  */
 export function settingsRoute(page: string, selection: string | undefined): AppRoute {
   return selection === undefined

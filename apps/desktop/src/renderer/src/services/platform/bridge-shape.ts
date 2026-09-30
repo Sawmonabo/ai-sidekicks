@@ -64,6 +64,8 @@ const BRIDGE_SIGNAL_MEMBERS: Readonly<
  * renderer a plain object graph, so own keys are every member, while the prototype chain would add
  * `Object`'s members. It takes `PlatformBridge`, not `unknown`, and describes without deciding
  * whether the description is acceptable.
+ *
+ * @consumedBy the check that the fixture bridge has the live bridge's shape
  */
 export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
   const shape = new Map<string, readonly string[]>();
@@ -79,6 +81,8 @@ export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
 /**
  * Every way two shapes differ, one sentence each; empty means identical. Sentences rather than a
  * boolean so a failed assertion names the namespace or member that moved.
+ *
+ * @consumedBy the check that the fixture bridge has the live bridge's shape
  */
 export function diffBridgeShapes(
   left: LabeledBridgeShape,

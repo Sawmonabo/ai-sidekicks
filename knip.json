@@ -116,6 +116,9 @@
         // Scripted diff patches kept as the fixtures' test data, read by no module until the Review
         // pane's diff read lands.
         "fixtures/data/repos-diff-patches.ts",
+        // The menu that registers its airspace over the Preview page, for a session row's More
+        // menu and the right-click that draws from the same list.
+        "src/renderer/src/components/OverlayPopups/OverlayMenuPopup.tsx",
         // The anchored popover that registers its airspace over the Preview page, for the worktree
         // popover and the context ring's compaction popover.
         "src/renderer/src/components/OverlayPopups/OverlayPopoverPopup.tsx",
@@ -135,10 +138,19 @@
         "src/renderer/src/features/agents/pane/hooks/useChildRunDisclosure.ts",
         // An approval card takes focus when it arrives.
         "src/renderer/src/features/composer/approval/hooks/useApprovalArrivalAnnouncement.ts",
+        // The composer's attachment strip: one chip per staged file, its size, and the refusal
+        // naming a file and the limit it hit.
+        "src/renderer/src/features/composer/attachments/AttachmentChip.tsx",
+        "src/renderer/src/features/composer/attachments/AttachmentStrip.tsx",
+        "src/renderer/src/features/composer/attachments/attachment-bounds.ts",
+        "src/renderer/src/features/composer/attachments/composer-attachment-chip.ts",
+        // The definitions a `/workflow start` name autocompletes over.
+        "src/renderer/src/features/composer/command-list/workflow-command/components/WorkflowStartCandidates.tsx",
         // An agent's question card.
         "src/renderer/src/features/composer/question-card/BoundQuestionCard.tsx",
         // Interrupt and Interrupt everything on the run controls.
         "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
+        "src/renderer/src/features/composer/run-controls/run-driver-bindings.ts",
         // The inspector's Artifacts section and its rows.
         "src/renderer/src/features/inspector/artifacts/components/ArtifactRow.tsx",
         "src/renderer/src/features/inspector/artifacts/components/ArtifactsSection.tsx",
@@ -160,6 +172,15 @@
         "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
         "src/renderer/src/services/daemon/session-reads.ts",
+        // Which provider each agent runs on, for the run controls' Interrupt and Interrupt
+        // everything.
+        "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",
+        // Reading what the providers support again once a session's stream is repaired.
+        "src/renderer/src/services/driver-capabilities/useDriverCapabilityRepairRead.ts",
+        // The window's one attention read, for the rail's bell, its Notifications list and the
+        // sessions list.
+        "src/renderer/src/store/attention/AttentionProvider.tsx",
+        "src/renderer/src/store/attention/hooks/useAttention.ts",
         // The operating-system notification permission fold, which moves to main beside the
         // notification poster.
         "src/renderer/src/features/settings/pages/notifications/os-notification-delivery.ts",
@@ -168,6 +189,12 @@
         "src/renderer/src/features/settings/pages/providers/import/provider-import-panel-mount.ts",
         // A footnote's definition at the foot of its reply.
         "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx",
+        // A run's detail, its steps waiting on a person with the form each opens, and the
+        // version chain the run header's pinned-version chip reads.
+        "src/renderer/src/features/workflows/run-page/components/RunDetailMountPoint.tsx",
+        "src/renderer/src/features/workflows/run-page/components/RunParks.tsx",
+        "src/renderer/src/features/workflows/run-page/hooks/useHumanFormSelection.ts",
+        "src/renderer/src/features/workflows/run-page/hooks/useWorkflowVersionChain.ts",
         // A run's page refreshing live.
         "src/renderer/src/features/workflows/run-page/hooks/useWorkflowRunLiveRefresh.ts"
       ]

@@ -29,7 +29,11 @@ export function readQueueItemCreateRequest(candidate: unknown): QueueItemCreateR
   return parsed.success ? parsed.data : undefined;
 }
 
-/** The interrupt the wire admits, or `undefined` where the request did not compose. */
+/**
+ * The interrupt the wire admits, or `undefined` where the request did not compose.
+ *
+ * @consumedBy the client-facing driver interrupt
+ */
 export function readInterruptRunParams(candidate: unknown): InterruptRunParams | undefined {
   const parsed = InterruptRunParamsSchema.safeParse(candidate);
   return parsed.success ? parsed.data : undefined;

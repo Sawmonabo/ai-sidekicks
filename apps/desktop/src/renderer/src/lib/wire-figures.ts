@@ -255,6 +255,8 @@ export function formatPercent(fraction: number, locale?: string): string {
  * currency with a finer minor unit (KWD, BHD, TND) keeps its own three, and a sub-unit amount
  * keeps four since a token price is not the cent it rounds to. The sub-unit test is on the
  * absolute value, so a refund and a charge of the same size share a column width.
+ *
+ * @consumedBy the session's spend figure
  */
 export function formatMoney(amount: number, currency: string, locale?: string): string {
   if (!Number.isFinite(amount)) {

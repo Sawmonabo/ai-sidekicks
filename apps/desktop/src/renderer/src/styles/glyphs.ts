@@ -113,6 +113,8 @@ export type GlyphName = (typeof GLYPH_NAMES)[number];
  * Whether a string names a glyph in the set. A view that maps a wire value onto a glyph renders
  * the unrecognized shape when this is false, rather than indexing the face map and drawing
  * nothing. Reads the array so it can live below `components/`.
+ *
+ * @consumedBy an agent definition's icon, read from its saved file
  */
 export function isGlyphName(value: string): value is GlyphName {
   return (GLYPH_NAMES as readonly string[]).includes(value);
