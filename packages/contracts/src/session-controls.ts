@@ -22,12 +22,11 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
-import { MCP_SERVER_STATUS_SEVERITY_ORDER } from "./mcp.js";
+import { MCP_SERVER_STATUS_SEVERITY_ORDER, McpServerNameSchema } from "./mcp.js";
 import type { MethodDescriptor, SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
-  DRIVER_MCP_SERVER_NAME_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   ProviderCommandEntrySchema,
@@ -178,8 +177,6 @@ export const SessionAutoCompactUpdateResponseSchema: z.ZodType<SessionAutoCompac
 // Tool servers
 // --------------------------------------------------------------------------
 
-const mcpServerNameSchema = wireFreeFormString(DRIVER_MCP_SERVER_NAME_MAX_LEN, "serverName");
-
 /**
  * One tool server this session was started with. `enabled` is the session's own
  * switch; `pendingUntilNextTurn` says a switch flipped mid-turn waits for the next
@@ -206,7 +203,7 @@ export const SessionMcpServerListSchema: z.ZodType<SessionMcpServerList> = z
     servers: z.array(
       z
         .object({
-          serverName: mcpServerNameSchema,
+          serverName: McpServerNameSchema,
           status: z.literal(MCP_SERVER_STATUS_SEVERITY_ORDER),
           reason: composedTextSchema.optional(),
           enabled: z.boolean(),
@@ -228,7 +225,7 @@ export const SessionMcpServerUpdateRequestSchema: z.ZodType<
   SessionMcpServerUpdateRequest,
   SessionMcpServerUpdateRequest
 > = z
-  .object({ sessionId: SessionIdSchema, serverName: mcpServerNameSchema, enabled: z.boolean() })
+  .object({ sessionId: SessionIdSchema, serverName: McpServerNameSchema, enabled: z.boolean() })
   .strict();
 
 /** The switch as the session now holds it. */
@@ -239,7 +236,7 @@ export interface SessionMcpServerUpdateResponse {
 }
 /** Parses a {@link SessionMcpServerUpdateResponse}. */
 export const SessionMcpServerUpdateResponseSchema: z.ZodType<SessionMcpServerUpdateResponse> = z
-  .object({ sessionId: SessionIdSchema, serverName: mcpServerNameSchema, enabled: z.boolean() })
+  .object({ sessionId: SessionIdSchema, serverName: McpServerNameSchema, enabled: z.boolean() })
   .strict();
 
 /** Lists what one working server offers, for `Attach a resource…`. */
@@ -251,7 +248,7 @@ export interface SessionMcpResourceListRequest {
 export const SessionMcpResourceListRequestSchema: z.ZodType<
   SessionMcpResourceListRequest,
   SessionMcpResourceListRequest
-> = z.object({ sessionId: SessionIdSchema, serverName: mcpServerNameSchema }).strict();
+> = z.object({ sessionId: SessionIdSchema, serverName: McpServerNameSchema }).strict();
 
 /** One resource as the server describes it. */
 export interface SessionMcpResource {
@@ -273,7 +270,7 @@ export interface SessionMcpResourceListResponse {
 export const SessionMcpResourceListResponseSchema: z.ZodType<SessionMcpResourceListResponse> = z
   .object({
     sessionId: SessionIdSchema,
-    serverName: mcpServerNameSchema,
+    serverName: McpServerNameSchema,
     resources: z.array(
       z
         .object({
@@ -323,7 +320,7 @@ export const SessionProviderCommandListSchema: z.ZodType<SessionProviderCommandL
       .array(
         z
           .object({
-            serverName: mcpServerNameSchema,
+            serverName: McpServerNameSchema,
             name: composedTextSchema,
             title: composedTextSchema.optional(),
             description: composedTextSchema.optional(),

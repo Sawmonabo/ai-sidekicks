@@ -17,12 +17,9 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
-import {
-  ArtifactIdSchema,
-  DRIVER_MCP_SERVER_NAME_MAX_LEN,
-  type ArtifactId,
-} from "./provider-driver.js";
-import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
+import { McpServerNameSchema } from "./mcp.js";
+import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
+import { SessionIdSchema, type SessionId } from "./session.js";
 
 // --------------------------------------------------------------------------
 // Staging limits
@@ -209,7 +206,7 @@ export const SessionAttachmentAddRequestSchema: z.ZodType<
             .object({
               kind: z.literal("mcpResource"),
               clientStagingId: z.uuid(),
-              serverName: wireFreeFormString(DRIVER_MCP_SERVER_NAME_MAX_LEN, "serverName"),
+              serverName: McpServerNameSchema,
               uri: z.string().min(1),
             })
             .strict(),
