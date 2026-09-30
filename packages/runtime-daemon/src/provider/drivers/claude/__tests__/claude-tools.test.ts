@@ -1,12 +1,13 @@
-// Claude tool metadata: an absent or unrecognized idempotency class, and any MCP self-claim,
-// floors at `manual_reconcile_only`, because recovery re-executes a tool its class calls safe.
-// MCP task handles and server status are read from untrusted provider output.
+// Claude tool metadata: only the pure local reads are idempotent, and an absent or unrecognized
+// class or any MCP self-claim floors at `manual_reconcile_only`, because recovery re-executes a
+// tool its class calls safe. MCP task handles and server status come from untrusted output.
 
 import { describe, expect, it } from "vitest";
 
 import type { ProviderToolMetadata } from "@ai-sidekicks/contracts";
 
 import {
+  CLAUDE_TOOL_CATALOG,
   classifyMcpDiscoveredTool,
   closeToolIdempotencyClass,
   extractMcpTaskId,
@@ -45,6 +46,24 @@ describe("Claude tool metadata — the conservative default", () => {
       closeToolIdempotencyClass({ name: "Read", idempotency_class: "idempotent" })
         .idempotency_class,
     ).toBe("idempotent");
+  });
+});
+
+describe("Claude tool catalog", () => {
+  it("annotates exactly the pure local reads as idempotent", () => {
+    // `idempotent` means a pure read; adding a name here lets recovery re-execute that tool.
+    const idempotent = CLAUDE_TOOL_CATALOG.filter(
+      (tool) => tool.idempotency_class === "idempotent",
+    ).map((tool) => tool.name);
+    expect(idempotent.slice().sort()).toStrictEqual(["Glob", "Grep", "Read"]);
+  });
+
+  it("floors every effectful tool, including the plausible-but-unproven ones", () => {
+    for (const name of ["Bash", "Write", "Edit", "WebFetch", "WebSearch", "TodoWrite", "Task"]) {
+      const entry = CLAUDE_TOOL_CATALOG.find((tool) => tool.name === name);
+      expect(entry, `${name} must be cataloged`).toBeDefined();
+      expect(entry?.idempotency_class, `${name} must floor`).toBe("manual_reconcile_only");
+    }
   });
 });
 

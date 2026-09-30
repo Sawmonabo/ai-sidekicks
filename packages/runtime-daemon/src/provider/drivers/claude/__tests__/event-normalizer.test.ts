@@ -1,13 +1,19 @@
-// Claude inbound frames: the run terminals, permission asks and questions a person must answer,
-// the fail-closed refusal of an unmapped kind, and the typed usage-limit signal read off the
-// retry frame.
+// Claude inbound frames against the pinned wire vectors in `__fixtures__/`, so a re-pin that moves
+// a subtype fails here; the run terminals and the asks a person must answer; the fail-closed
+// refusal of an unmapped kind; and the typed usage-limit signal read off the retry frame.
 
 import { describe, expect, it } from "vitest";
 
 import {
+  CLAUDE_CONTROL_REQUEST_SUBTYPES,
+  CLAUDE_CONTROL_REQUEST_SUBTYPES_ABSENT_AT_PIN,
+} from "../__fixtures__/control-request-subtype-census.js";
+import {
+  CLAUDE_ADJACENT_STREAM_SUBTYPES,
+  CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM,
   CLAUDE_RESULT_SUBTYPES,
   CLAUDE_RESULT_SUBTYPE_CARRYING_RESULT_FIELD,
-} from "../__fixtures__/result-subtypes.js";
+} from "../__fixtures__/stream-surface-census.js";
 import {
   UnknownClaudeWireFrameError,
   classifyClaudeFrameFamilyForRouting,
@@ -40,6 +46,25 @@ function buildControlRequestFrame(subtype: string): {
 } {
   return { type: "control_request", request: { subtype } };
 }
+
+describe("pinned control-request subtypes", () => {
+  it("normalizes every recorded subtype without reaching the unknown seam", () => {
+    for (const subtype of CLAUDE_CONTROL_REQUEST_SUBTYPES) {
+      const frame = buildControlRequestFrame(subtype);
+      const frameKind = composeClaudeWireFrameKind(frame.type, frame.request.subtype);
+      const normalization = normalizeClaudeWireFrame(frameKind);
+      expect(normalization.channel).toBe("control-request");
+    }
+  });
+
+  it("refuses the three control subtypes the pinned build does not register", () => {
+    for (const subtype of CLAUDE_CONTROL_REQUEST_SUBTYPES_ABSENT_AT_PIN) {
+      expect(() => normalizeClaudeWireFrame(`control_request/${subtype}`)).toThrow(
+        UnknownClaudeWireFrameError,
+      );
+    }
+  });
+});
 
 describe("control-request asks", () => {
   it("maps a permission frame to approval.requested and an elicitation to question.asked", () => {
@@ -99,6 +124,34 @@ describe("run terminals", () => {
       const normalization = expectNormalized(normalizeClaudeWireFrame(`result/${subtype}`));
       expect(normalization.eventType).toBe("run.failed");
       expect(normalization.normalizedKind).toBe("error");
+    }
+  });
+});
+
+describe("pinned stream surface", () => {
+  it("maps system/api_error onto the same event as system/api_retry", () => {
+    const [fromKind, toKind] = CLAUDE_API_ERROR_TO_API_RETRY_MAPPING_ARM;
+    const from = expectNormalized(normalizeClaudeWireFrame(fromKind));
+    const to = expectNormalized(normalizeClaudeWireFrame(toKind));
+    expect(from.family).toBe(to.family);
+    expect(from.eventType).toBe(to.eventType);
+    expect(from.normalizedKind).toBe(to.normalizedKind);
+    expect(to.eventType).toBe("usage.api_retry");
+  });
+
+  it("maps the two dispositioned adjacent subtypes and refuses the four undispositioned ones", () => {
+    expect(CLAUDE_ADJACENT_STREAM_SUBTYPES).toHaveLength(6);
+    const dispositioned = ["rate_limit_event", "compact_boundary"];
+    for (const subtype of CLAUDE_ADJACENT_STREAM_SUBTYPES) {
+      const frameKind = composeClaudeWireFrameKind("system", subtype);
+      if (dispositioned.includes(subtype)) {
+        const normalization = expectNormalized(normalizeClaudeWireFrame(frameKind));
+        expect(normalization.family).toBe("usage_telemetry");
+      } else {
+        // Present at the pin but in no disposition table (command_lifecycle, queued_notification,
+        // the model-refusal pair): they reach the unknown-frame seam rather than being guessed.
+        expect(() => normalizeClaudeWireFrame(frameKind)).toThrow(UnknownClaudeWireFrameError);
+      }
     }
   });
 });

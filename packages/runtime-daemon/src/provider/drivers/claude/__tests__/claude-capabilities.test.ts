@@ -1,10 +1,14 @@
-// Claude capability declaration: the reporter refuses a below-floor, unparseable or foreign build
-// before any declaration reaches the writer, reads the model catalog from the provider's recorded
-// `list_models` reply, and declares `transcript_replay` from the probe, failing closed.
+// Claude capability declaration: the declared flag matrix; a reporter that admits any build at or
+// above the floor and refuses a below-floor, unparseable or foreign one before the writer sees it;
+// the model catalog read from the recorded `list_models` reply; and the probed `transcript_replay`.
 
 import { describe, expect, it } from "vitest";
 
-import type { DriverCliVersionReport, GetCapabilitiesResult } from "@ai-sidekicks/contracts";
+import type {
+  DriverCapabilityFlag,
+  DriverCliVersionReport,
+  GetCapabilitiesResult,
+} from "@ai-sidekicks/contracts";
 
 import {
   RecordingCapabilityProbeTransport,
@@ -17,6 +21,7 @@ import {
 import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
+  DriverCliVersionUnparseableError,
 } from "../../../capability-refresh.js";
 import type { SpawnedProviderVersionReading } from "../../../version-gate.js";
 import {
@@ -54,13 +59,37 @@ function makeReporter(
   return new ClaudeCapabilityReporter({
     readSpawnedVersion: async () => claudeReading(await readCliVersion()),
     // The default double answers every probed subtype and refuses the negative control; the probe
-    // itself is tested in
-    // `provider/__tests__/capability-probe.test.ts`.
+    // itself is tested in `provider/__tests__/capability-probe.test.ts`.
     probe: probe.exchange,
     // Silent: these assertions are about the declaration, not the diagnostics.
     diagnostics: makeSilentDriverDiagnostics(),
   });
 }
+
+describe("Claude capability declaration", () => {
+  it("declares the capability matrix values exactly", () => {
+    // The annotation makes this total: a flag added to the union breaks at compile time.
+    const matrix: Record<DriverCapabilityFlag, boolean> = {
+      resume: true,
+      steer: false,
+      interactive_requests: true,
+      mcp: true,
+      tool_calls: true,
+      reasoning_stream: true,
+      model_mutation: true,
+      structured_output: true,
+      rollback: true,
+      session_goals: false,
+      callback_tools: true,
+      subagents: true,
+      transcript_replay: false,
+      context_compaction: true,
+      provider_commands: true,
+      output_speed: true,
+    };
+    expect(CLAUDE_CAPABILITY_FLAGS).toStrictEqual(matrix);
+  });
+});
 
 describe("getCapabilities()", () => {
   it("reports flags, contract version, tools, and the CLI version", async () => {
@@ -129,6 +158,26 @@ describe("Claude CLI-version floor", () => {
       DriverCliVersionBelowFloorError,
     );
     expect(sink.calls).toHaveLength(0);
+  });
+
+  it("admits a build exactly at the floor and any newer build, above the pin included", async () => {
+    const atFloor = makeReporter(() =>
+      Promise.resolve({ raw: "2.1.234 (Claude Code)", semver: "2.1.234" }),
+    );
+    await expect(atFloor.getCapabilities()).resolves.toBeDefined();
+
+    const aboveMeasured = makeReporter(() => Promise.resolve({ raw: "3.0.0", semver: "3.0.0" }));
+    await expect(aboveMeasured.getCapabilities()).resolves.toBeDefined();
+  });
+
+  it("refuses a non-canonical reading fail-closed as unparseable", async () => {
+    // Reachable only through an untyped boundary; the gate still answers with a typed error.
+    const reporter = makeReporter(() =>
+      Promise.resolve({ raw: "Claude Code (unknown)", semver: "unknown" }),
+    );
+    await expect(reporter.getCapabilities()).rejects.toBeInstanceOf(
+      DriverCliVersionUnparseableError,
+    );
   });
 });
 

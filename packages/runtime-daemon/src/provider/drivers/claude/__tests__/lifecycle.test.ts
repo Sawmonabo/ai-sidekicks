@@ -12,7 +12,7 @@ import {
   type ExecutionPosture,
   type SubagentPolicy,
 } from "@ai-sidekicks/contracts";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import { TextNeutralizationRefusedError } from "../../outbound-frame.js";
@@ -21,7 +21,11 @@ import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { MemoDeliveryCoordinator } from "../../../transcript/memo-delivery.js";
-import { TranscriptReconstitutionRouter } from "../../../transcript/transcript-reconstitution.js";
+import {
+  memoSettlementAsReplayResult,
+  TranscriptReconstitutionRouter,
+  type NativeReplayDisposition,
+} from "../../../transcript/transcript-reconstitution.js";
 import { MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS } from "../../../transcript/failure-mapping.js";
 import {
   PostReplayAssertionFailedError,
@@ -136,6 +140,36 @@ const TRUSTED_POSTURE: ExecutionPosture = {
   networkAccess: "full",
   writableRoots: ["/workspace"],
 };
+
+const RESUME_FAILURE_MECHANISMS: ReadonlyArray<{
+  readonly label: string;
+  readonly arrange: (harness: LifecycleHarness) => Promise<void> | void;
+}> = [
+  {
+    label: "transport rejection",
+    arrange: (harness) => {
+      harness.transport.resumeFailure = new Error("claude exited before init");
+    },
+  },
+  {
+    label: "identity divergence",
+    arrange: (harness) => {
+      harness.transport.announcedProviderSessionId = "provider-session-fresh";
+    },
+  },
+  {
+    label: "contract-invalid resumed arm",
+    arrange: (harness) => {
+      harness.transport.resumedSessionPosition = -1;
+    },
+  },
+  {
+    label: "resume beside a live session",
+    arrange: async (harness) => {
+      await harness.lifecycle.createSession(buildCreateSessionParams());
+    },
+  },
+];
 
 describe("ClaudeSessionLifecycle.createSession", () => {
   it("pins the provider session id it minted and returns it as the resume handle", async () => {
@@ -367,6 +401,27 @@ describe("ClaudeSessionLifecycle.resumeSession", () => {
     expect(result.providerFailureDetail).not.toContain("\u0000");
     expect(result.providerFailureDetail).toMatch(/\S/);
   });
+
+  it.each(RESUME_FAILURE_MECHANISMS)(
+    "issues no createSession call on a failed resume ($label)",
+    async ({ arrange }) => {
+      const harness = buildHarness();
+      await arrange(harness);
+      // Spied after arrangement so the live-session mechanism's own setup call is not counted.
+      const createSessionSpy = vi.spyOn(harness.lifecycle, "createSession");
+      const spawnCountBeforeResume = harness.transport.spawnRequests.length;
+
+      const result = await harness.lifecycle.resumeSession({
+        sessionId: TEST_SESSION_ID,
+        resumeHandle: "provider-session-earlier",
+      });
+
+      expect(result.status).toBe("failed");
+      expect(createSessionSpy).not.toHaveBeenCalled();
+      // The spy sees only the driver's own entry point, so assert the spawn count directly too.
+      expect(harness.transport.spawnRequests).toHaveLength(spawnCountBeforeResume);
+    },
+  );
 });
 
 describe("ClaudeSessionLifecycle.startRun", () => {
@@ -2326,6 +2381,36 @@ describe("ClaudeSessionLifecycle provider-bound text path", () => {
     // The wire bytes carry the sentinel; the author's bytes do not.
     expect(channel.sentWireTexts).toStrictEqual(["\n/status please"]);
     expect(channel.sentAuthoredTexts).toStrictEqual(["/status please"]);
+  });
+
+  it("neutralizes queue-admitted content too, which re-enters through the same path", async () => {
+    // Run-opening and queue-admitted content both reach the provider through `startRun`; a second
+    // run on the live session is the shape a queue admission takes.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "first turn");
+    channel.terminalFrameBody = CLAUDE_ORDINARY_TURN_RESULT_FRAME;
+    channel.emitStreamFrame("result/success");
+
+    harness.runDispatchResolver.dispatchByRunId.set(TEST_SECOND_RUN_ID, {
+      sessionId: TEST_SESSION_ID,
+      openingText: "/status please",
+    });
+    await harness.lifecycle.startRun({ ...buildStartRunParams(), runId: TEST_SECOND_RUN_ID });
+
+    expect(channel.sentWireTexts).toStrictEqual(["first turn", "\n/status please"]);
+    expect(channel.sentAuthoredTexts).toStrictEqual(["first turn", "/status please"]);
+  });
+
+  it("leaves the daemon's own record of the text untouched", async () => {
+    // The dispatch record is the daemon-owned value the persisted event row, the replayed
+    // timeline and any rollback target are built from, and the driver never writes back to it.
+    const harness = buildHarness();
+    const channel = await startRunWith(harness, "/status please");
+
+    const dispatch = harness.runDispatchResolver.dispatchByRunId.get(TEST_RUN_ID);
+    expect(dispatch?.openingText).toBe("/status please");
+    expect(dispatch?.openingText).toBe(channel.sentAuthoredTexts[0]);
+    expect(channel.sentWireTexts[0]).not.toBe(dispatch?.openingText);
   });
 
   it("ignores an exempt origin smuggled onto the dispatch record", async () => {
@@ -4520,6 +4605,58 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     expect(double.seededPositions).toStrictEqual([1, 2]);
   });
 
+  it("settles a replay-interior refusal on the memo floor with ONE reconstitution", async () => {
+    const double = seedingDouble({ answers: SEEDED_BODIES, refuseAtPosition: 2 });
+    const harness = harnessWithSurface(double);
+
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toThrow(/abandoned and must not be reused/);
+
+    // Two callers recovering from the same refusal (the run's failure path and a retrying
+    // caller) must between them start no second native reconstitution.
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+    await expect(
+      harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] }),
+    ).rejects.toBeInstanceOf(ReplayTargetAbandonedError);
+
+    expect(double.seededPositions.filter((position) => position === 1)).toHaveLength(1);
+    expect(double.seededPositions).toStrictEqual([1]);
+
+    // The settlement the user is owed is the memo floor's, never a silently applied replay.
+    const coordinator = new MemoDeliveryCoordinator({
+      readTurnsForMarkerReconciliation: () => Promise.resolve([]),
+      sendMemoTurn: () => Promise.resolve(),
+    });
+    const settlement = await new TranscriptReconstitutionRouter(coordinator).route(
+      { outcome: "refused" },
+      {
+        projection: {
+          sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+          runId: "33333333-3333-4333-8333-333333333333" as RunId,
+          builtAtPosition: 4,
+          turns: [
+            {
+              position: 1,
+              role: "user",
+              segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
+            },
+          ],
+        },
+        target: coordinator.establishTarget({ providerSessionId: "claude-session-79" }),
+        budget: {
+          targetContextWindowTokens: 200_000,
+          budgetFraction: 0.1,
+          protectedTailToolExchangeCount: 1,
+        },
+      },
+    );
+    expect(settlement.route).toBe("memo");
+    expect(double.seededPositions).toStrictEqual([1]);
+  });
+
   it("abandons a target whose delivery was AMBIGUOUS, rather than retrying it", async () => {
     const double = seedingDouble({ answers: SEEDED_BODIES, ambiguousAtPosition: 2 });
     const harness = harnessWithSurface(double);
@@ -4566,5 +4703,65 @@ describe("ClaudeSessionLifecycle.replayTranscript", () => {
     await expect(
       harnessWithSurface(double).lifecycle.replayTranscript({ target: TARGET, frames: [] }),
     ).rejects.toThrow(/nothing to reconstitute/);
+  });
+
+  it("routes a `transcript_replay: false` refusal to the memo floor, reported degraded", async () => {
+    const harness = harnessWithSurface(null);
+    let disposition: NativeReplayDisposition = {
+      outcome: "applied",
+      declaredLosses: [],
+    };
+    try {
+      await harness.lifecycle.replayTranscript({ target: TARGET, frames: [...TRANSCRIPT] });
+    } catch (error: unknown) {
+      expect(error).toBeInstanceOf(ClaudeTranscriptReplayUnsupportedError);
+      disposition = { outcome: "unavailable" };
+    }
+    expect(disposition).toStrictEqual({ outcome: "unavailable" });
+
+    const deliveredTurns: string[] = [];
+    const coordinator = new MemoDeliveryCoordinator({
+      readTurnsForMarkerReconciliation: () => Promise.resolve([...deliveredTurns]),
+      sendMemoTurn: (outboundFrame) => {
+        deliveredTurns.push(outboundFrame.frame.wireText);
+        return Promise.resolve();
+      },
+    });
+    const settlement = await new TranscriptReconstitutionRouter(coordinator).route(disposition, {
+      projection: {
+        sessionId: "22222222-2222-4222-8222-222222222222" as SessionId,
+        runId: "33333333-3333-4333-8333-333333333333" as RunId,
+        builtAtPosition: 4,
+        turns: [
+          {
+            position: 1,
+            role: "user",
+            segments: [{ kind: "text", position: 1, text: "summarize the fold" }],
+          },
+          {
+            position: 2,
+            role: "assistant",
+            segments: [{ kind: "text", position: 2, text: "identity map, strip, repair, render" }],
+          },
+        ],
+      },
+      target: coordinator.establishTarget({ providerSessionId: TARGET.providerSessionId }),
+      budget: {
+        targetContextWindowTokens: 200_000,
+        budgetFraction: 0.1,
+        protectedTailToolExchangeCount: 1,
+      },
+    });
+
+    expect(settlement.route).toBe("memo");
+    if (settlement.route !== "memo") {
+      throw new Error("unreachable");
+    }
+    const reported = memoSettlementAsReplayResult(settlement.memo);
+    expect(reported.status).toBe("degraded");
+    // The schema requires this on a `degraded` result; it tells the user the conversation was
+    // summarized.
+    expect(reported.declaredLosses).toContain("conversation_history_summarized");
+    expect(deliveredTurns).toHaveLength(1);
   });
 });
