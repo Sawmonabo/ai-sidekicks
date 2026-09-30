@@ -30,11 +30,14 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-/** Package root (`apps/desktop/`), the spawn's `cwd`. */
+/** Package root (`apps/desktop/`); the sibling GC harness spawns with it as `cwd` too. */
 export const PACKAGE_ROOT: string = path.resolve(__dirname, "../..");
 
 /** The `electron-vite build` main entry the spawn loads. */
 export const MAIN_ENTRY: string = path.join(PACKAGE_ROOT, "out/main/index.js");
+
+/** The `electron-vite build` preload entry. */
+export const PRELOAD_ENTRY: string = path.join(PACKAGE_ROOT, "out/preload/index.cjs");
 
 /** Absolute path to the `electron` launcher shim, so the spawn does not depend on `$PATH`. */
 export const ELECTRON_BIN: string = path.join(PACKAGE_ROOT, "node_modules/.bin/electron");
