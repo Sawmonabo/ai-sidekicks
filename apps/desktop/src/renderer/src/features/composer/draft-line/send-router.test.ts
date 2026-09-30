@@ -1,6 +1,7 @@
 // Resolution: what a body and a target would do before anything is sent. The same text routes
-// differently by target, a registered slash command is intercepted, a provider entry is named
-// rather than sent, and the daemon receives the user's own text.
+// differently by target, a registered slash command is intercepted, a slash word on no list and a
+// doubled slash are sent as typed, a provider entry is named rather than sent, and the daemon
+// receives the user's own text.
 
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -62,6 +63,30 @@ describe("ComposerSendRouter — the slash prefix", () => {
 
     expect(outcome).toStrictEqual({ status: "intercepted", commandName: "compact" });
     expect(call).not.toHaveBeenCalled();
+  });
+
+  it("sends a slash word on no list as typed on a new turn", async () => {
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
+    const outcome = await routerWith(call).send("/compact now", SESSION_TARGET);
+
+    expect(outcome).toStrictEqual({ status: "sent", path: "session-message" });
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "/compact now",
+    });
+  });
+
+  it("sends a doubled slash exactly as typed, spacing included", async () => {
+    // There is no escape: a doubled slash names no command and goes out untouched.
+    const call = vi.fn().mockResolvedValue(QUEUE_CREATED);
+    await routerWith(call, ["not-a-command"]).send("//not-a-command  \n", SESSION_TARGET);
+
+    expect(call).toHaveBeenCalledWith("run.queueCreate", {
+      sessionId: SESSION_ID,
+      clientIdempotencyKey: PINNED_REQUEST_UUID,
+      content: "//not-a-command  \n",
+    });
   });
 });
 
