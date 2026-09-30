@@ -136,8 +136,8 @@ export function isFixtureOnlyModule(moduleId: string): boolean {
 }
 
 // Annotated rather than inferred: `isolatedDeclarations` is repo-wide, and
-// `src/main/services/renderer-scheme.test.ts` imports this module (it asserts the dev server emits
-// the same policy as the protocol handler), so it is part of a checked program.
+// `tests/budget/release-absence.test.ts` imports this module (it reads `isFixtureOnlyModule`), so
+// it is part of a checked program.
 const electronViteConfig: ElectronViteConfigFnObject = defineConfig(({ mode }) => {
   // `--mode=smoke` builds ship the probe; the default build tree-shakes it out. See the header.
   const isSmokeBuild = mode === "smoke";

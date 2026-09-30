@@ -211,9 +211,9 @@ function invariantBlock(): string {
   for (const [tokenName, durationMs] of Object.entries(MOTION_DURATIONS_MS)) {
     lines.push(declaration(tokenName, `${durationMs}ms`));
   }
-  // One settle easing, the spring the motion rules ask for, sampled at build time: `motion.ts`
-  // carries the emitted `linear()` and `motion.test.ts` holds it to the sampler. Nothing
-  // computes a spring at runtime, and it is emitted under the name every stylesheet reads.
+  // One settle easing, the spring the motion rules ask for: `motion.ts` carries it written out as
+  // a `linear()`, so nothing computes a spring at runtime. It is emitted under the name every
+  // stylesheet reads.
   lines.push(declaration("ease-settle", CHROME_SETTLE_EASING));
 
   return lines.join("\n");

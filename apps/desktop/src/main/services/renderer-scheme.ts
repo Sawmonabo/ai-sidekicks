@@ -26,10 +26,7 @@ export const RENDERER_INDEX_URL = "sidekicks-renderer://app/index.html";
 // directive the dev transport widens, so it is a constant of its own.
 const RENDERER_CONNECT_SRC = "connect-src 'self'";
 
-/**
- * Every directive except `connect-src`, in emitted order. Both transports share it verbatim,
- * which the parity test in `renderer-scheme.test.ts` asserts.
- */
+/** Every directive except `connect-src`, in emitted order. Both transports share it verbatim. */
 const RENDERER_POLICY_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
   "script-src 'self'",

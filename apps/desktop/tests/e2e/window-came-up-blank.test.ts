@@ -61,8 +61,7 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       // `parsePaneAddress`, the console's one admission point for an untyped address, and a
       // segment naming no kind is refused there. It is also the stronger end-to-end subject, since
       // a mistyped hash is something a person does while a reserved arm is reachable only through
-      // a composition mistake. The reserved arms stay pinned where a registry with no descriptor
-      // can drive them: `PaneHarnessScreen.test.tsx` and `app/router.test.tsx`.
+      // a composition mistake.
       //
       // Both address segments are required by the route's grammar, and the session is the
       // scenario's own, readable, which gets the store open and the route as far as the harness.

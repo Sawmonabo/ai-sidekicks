@@ -1,9 +1,8 @@
 // The live bridge: the only module that reads `window.desktopBridge`, and the one reader of the
 // fixture launch the preload exposes beside it. Everything above takes a `PlatformBridge` from
 // context so the fixture is substitutable, and a lint rule in `eslint.config.mjs` bans the direct
-// read elsewhere. That the two bridges have the same shape is checked at runtime by
-// `bridge-shape.test.ts`. A preload that did not run is a real state, so `readInstalledBridge`
-// returns `undefined` and the caller renders a stated failure instead of a blank window.
+// read elsewhere. A preload that did not run is a real state, so `readInstalledBridge` returns
+// `undefined` and the caller renders a stated failure instead of a blank window.
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { DESKTOP_BRIDGE_NAMESPACES } from "./bridge-shape.js";
 import { FIXTURE_LAUNCH_GLOBAL, type FixtureLaunch } from "@shared/fixture-launch.js";

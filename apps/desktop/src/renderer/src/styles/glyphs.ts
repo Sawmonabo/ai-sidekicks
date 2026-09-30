@@ -33,8 +33,7 @@ export const GLYPH_VIEWBOX_SIZE = 16;
 /**
  * Stroke width every glyph is drawn at, in {@link GLYPH_VIEWBOX_SIZE} units. A ratio rather than
  * a per-collection number: a borrowed face drawn in a larger box carries the same share of it, so
- * the set reads as one weight. `vitest/icon-compilation.ts` does the arithmetic and
- * `components/Glyph/glyph-icons.test.ts` reads the ratio back off every compiled face.
+ * the set reads as one weight. `vitest/icon-compilation.ts` does the arithmetic.
  */
 export const GLYPH_STROKE_WIDTH = 1.5;
 
@@ -44,7 +43,7 @@ export const GLYPH_DEFAULT_SIZE = 16;
 // The icon scale is a token so that tightening the icons by a pixel moves every glyph together.
 // The three steps are named for the density they belong to, and each is strictly below
 // `GLYPH_DEFAULT_SIZE`, the standalone size, because a glyph inside a row, chip or chrome is
-// subordinate to the text beside it. `glyphs.test.ts` asserts both properties.
+// subordinate to the text beside it.
 
 /** Inside a dense gutter or a numeric column — the smallest step the set reads at. */
 export const GLYPH_SIZE_DENSE = 10;

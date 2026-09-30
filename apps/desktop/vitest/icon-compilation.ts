@@ -61,9 +61,7 @@ const TABLER_ICON_PACKAGE = "@iconify-json/tabler";
 /**
  * The box Tabler draws in: `@iconify-json/tabler@1.2.38` declares `width: 24, height: 24` at the
  * set level and no icon overrides it. It is a constant because the scale needs a number before any
- * icon loads (`iconCustomizer` is given a collection and a name, never the icon's geometry), and
- * `components/Glyph/glyph-icons.test.ts` reads the compiled `viewBox` off every face, so a set
- * that moved its box fails there.
+ * icon loads (`iconCustomizer` is given a collection and a name, never the icon's geometry).
  */
 const TABLER_VIEWBOX_SIZE = 24;
 

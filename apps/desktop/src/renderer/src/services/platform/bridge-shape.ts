@@ -1,8 +1,8 @@
 // The bridge's shape, read at runtime. The fixture bridge must carry the preload's namespaces
 // exactly. Types cover most of that, since both bridges are `PlatformBridge`, but the live bridge
 // is an object graph handed across `contextBridge` by a preload this program does not compile
-// with, so this is the runtime check. Its readers are the "did the preload run" probe in
-// `live-bridge.ts` and `bridge-shape.test.ts`.
+// with, so this is the runtime check. `live-bridge.ts` reads its namespace list to tell whether the
+// preload ran.
 //
 // A shape maps each namespace to its member names, each with its `typeof`, and data members count
 // as much as methods. The `typeof` separates a missing member from one that is there with the
