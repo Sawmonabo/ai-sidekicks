@@ -22,7 +22,9 @@ export type IngestRefusalDisposition = (typeof INGEST_REFUSAL_DISPOSITIONS)[numb
  * contract's refusal codes so a renamed code fails to compile. An unrecognized code takes
  * retry-in-place.
  */
+/** The daemon code for an invalid ingest stream, which takes restart. */
 export const INGEST_STREAM_INVALID_CODE: ArtifactRefusalCode = "artifact.ingest_stream_invalid";
+/** The daemon code for a full ingest capacity, which takes wait-and-retry. */
 export const INGEST_CAPACITY_EXHAUSTED_CODE: ArtifactRefusalCode =
   "artifact.ingest_capacity_exhausted";
 

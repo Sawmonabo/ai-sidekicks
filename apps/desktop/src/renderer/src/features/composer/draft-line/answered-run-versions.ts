@@ -4,6 +4,7 @@
 // Neither reading is always fresher, so the larger (both are monotonic per run) is used, and a
 // run with neither reading has no comparand rather than an invented zero.
 
+/** The newest run version the daemon has answered for each run, used as the steer comparand. */
 export class AnsweredRunVersions {
   readonly #answeredByRunId = new Map<string, number>();
 

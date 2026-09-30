@@ -51,6 +51,7 @@ export function enumerationReplyNaming(commandName: string): ProviderCommandList
  * and `callDaemon` parses it before sending, so a label-shaped id refuses as `request-unsendable`.
  */
 export const FIRST_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3301";
+/** A second agent id, so a case can address a different agent. */
 export const SECOND_AGENT = "019b7a11-1100-7a6e-8110-ada11a5a3302";
 
 /** A provider-bound composer target addressed at the given agent. */

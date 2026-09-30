@@ -10,6 +10,7 @@ import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
 import { RefusalRemedyContent } from "@renderer/components/Refusal/RefusalRemedyContent.js";
 
+/** Props for `RefusalWithRemedy`. */
 export interface RefusalWithRemedyProps {
   readonly refusal: Refusal;
   /**

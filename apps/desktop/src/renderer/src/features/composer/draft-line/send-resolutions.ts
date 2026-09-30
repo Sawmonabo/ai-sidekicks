@@ -29,11 +29,13 @@ export interface ComposerClientCommandResolution {
   readonly commandName: string;
 }
 
+/** The refusal arm: Send is refused, carrying the refusal to show. */
 export interface ComposerRefusedResolution {
   readonly outcome: "refused";
   readonly refusal: Refusal;
 }
 
+/** What Send resolves to: one of the four arms. */
 export type ComposerSendResolution =
   | ComposerNewTurnResolution
   | ComposerSteerResolution
