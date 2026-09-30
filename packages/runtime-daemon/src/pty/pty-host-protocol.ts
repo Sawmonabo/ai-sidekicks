@@ -17,7 +17,7 @@
 export type PtySignal = "SIGINT" | "SIGTERM" | "SIGKILL" | "SIGHUP";
 
 /** Which standard stream a `DataFrame` carries. */
-export type DataStream = "stdout" | "stderr";
+type DataStream = "stdout" | "stderr";
 
 /**
  * Spawn a new PTY session. The daemon's `spawn-cwd-translator` rewrites `cwd` before this reaches
@@ -47,7 +47,7 @@ export interface SpawnResponse {
 }
 
 /** Adjust the PTY window dimensions for an existing session. */
-export interface ResizeRequest {
+interface ResizeRequest {
   kind: "resize_request";
   session_id: string;
   rows: number;
@@ -58,7 +58,7 @@ export interface ResizeRequest {
  * Reply to a `ResizeRequest`. `error` is set when the handler failed, most often `UnknownSession`
  * because the session exited before the sidecar dispatched the request.
  */
-export interface ResizeResponse {
+interface ResizeResponse {
   kind: "resize_response";
   session_id: string;
   /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
@@ -66,7 +66,7 @@ export interface ResizeResponse {
 }
 
 /** Write payload to a session's stdin; `bytes` is base64-encoded on the wire. */
-export interface WriteRequest {
+interface WriteRequest {
   kind: "write_request";
   session_id: string;
   /** Base64-encoded raw bytes. */
@@ -77,7 +77,7 @@ export interface WriteRequest {
  * Reply to a `WriteRequest`. `error` is set when the handler failed: `UnknownSession` (the session
  * exited) or `WriterUnavailable` (the per-session writer was already taken).
  */
-export interface WriteResponse {
+interface WriteResponse {
   kind: "write_response";
   session_id: string;
   /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
@@ -89,7 +89,7 @@ export interface WriteResponse {
  * intended mapping is `SIGINT` to `CTRL_C_EVENT`, `SIGTERM` to `CTRL_BREAK_EVENT` then
  * `taskkill /T /F` on timeout, and `SIGKILL` or `SIGHUP` to `taskkill /T /F` directly.
  */
-export interface KillRequest {
+interface KillRequest {
   kind: "kill_request";
   session_id: string;
   signal: PtySignal;
@@ -101,7 +101,7 @@ export interface KillRequest {
  * often `UnknownSession` because the session exited while the daemon's request was in flight,
  * a race the daemon cannot avoid.
  */
-export interface KillResponse {
+interface KillResponse {
   kind: "kill_response";
   session_id: string;
   /** Present only when the sidecar's handler failed; the daemon rejects the awaiting request. */
@@ -124,17 +124,17 @@ export interface ExitCodeNotification {
 }
 
 /** Liveness probe. It has no correlation field; a response matches the oldest pending ping. */
-export interface PingRequest {
+interface PingRequest {
   kind: "ping_request";
 }
 
 /** Reply to a `PingRequest`. */
-export interface PingResponse {
+interface PingResponse {
   kind: "ping_response";
 }
 
 /** Asynchronous stdout or stderr chunk from the sidecar; `bytes` is base64-encoded on the wire. */
-export interface DataFrame {
+interface DataFrame {
   kind: "data_frame";
   session_id: string;
   stream: DataStream;

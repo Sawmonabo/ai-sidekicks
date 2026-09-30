@@ -1,3 +1,4 @@
+import type { SpawnRequest } from "../pty/pty-host-protocol.js";
 // Rewrites a spawn request so the PTY's cwd is a stable directory instead of a worktree.
 //
 // On Windows the OS locks the cwd of a spawned process for the process's lifetime, so deleting or
@@ -9,8 +10,6 @@
 // Call it once per spawn, just before `PtyHost.spawn`. A second call would wrap the request
 // again, and the module does not detect that: a marker would either ride the wire or collide
 // with the `cwd-env` strategy.
-
-import type { SpawnRequest } from "@ai-sidekicks/contracts";
 
 /**
  * How the worktree path is carried once `cwd` is replaced.

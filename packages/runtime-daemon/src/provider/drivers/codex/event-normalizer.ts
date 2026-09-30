@@ -13,15 +13,14 @@
 //   emits an `unmapped_wire_kind` diagnostic instead. Neither drops the frame silently.
 
 import {
-  EVENT_DISPOSITION_BY_KIND,
   SESSION_EVENT_TYPES,
   type EventCategory,
-  type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 import type { DriverDiagnosticRecord, DriverDiagnosticsEmitter } from "../../driver-diagnostics.js";
 import type { ChildThreadAnnouncement, ThreadFrameFamilyClass } from "../../thread-frame-router.js";
 import type { CodexToolName } from "./tools.js";
+import type { NormalizedEventKind } from "../../event-disposition.js";
 
 /**
  * Which server-originated JSON-RPC root a frame arrives on: a `server-request` must be answered, a
@@ -550,9 +549,9 @@ export type CodexFrameEmissionRoute =
   | { readonly route: "diagnostic"; readonly record: DriverDiagnosticRecord };
 
 /**
- * The driver core's entry point; never throws. A method outside the census, a kind whose interim
- * `typePending` literal has not landed, or a target without a registered payload variant emits a
- * `DriverDiagnosticRecord` and routes to `diagnostic`, never to an envelope.
+ * The driver core's entry point; never throws. A method outside the census or a target without a
+ * registered payload variant emits a `DriverDiagnosticRecord` and routes to `diagnostic`, never to
+ * an envelope.
  */
 export function resolveCodexFrameEmissionRoute(
   nativeMethod: string,
@@ -575,21 +574,6 @@ export function resolveCodexFrameEmissionRoute(
   }
   if (normalization.disposition === "not-evented") {
     return { route: "not-evented", normalization };
-  }
-  if (normalization.normalizedKind !== null) {
-    const registryDisposition = EVENT_DISPOSITION_BY_KIND.get(normalization.normalizedKind);
-    if (registryDisposition !== undefined && registryDisposition.typePending !== undefined) {
-      const record: DriverDiagnosticRecord = {
-        provider: "codex",
-        kind: "unmapped_wire_kind",
-        rawWireType: nativeMethod,
-        dispositionReason:
-          "interim typePending kind whose SessionEventType literal has not landed; routed to the diagnostic branch until the census amendment lands its literal",
-        details: { normalizedKind: normalization.normalizedKind },
-      };
-      diagnostics.emit(record);
-      return { route: "diagnostic", record };
-    }
   }
   if (normalization.emissionReadiness === "payload-variant-pending") {
     const record: DriverDiagnosticRecord = {

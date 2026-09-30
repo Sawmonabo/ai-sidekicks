@@ -15,11 +15,10 @@
 // Env reader, warn sink and both factories are injectable through `PtyHostSelectorDeps`, so tests
 // cover the whole grammar without real env, console or `node-pty`.
 
-import type { PtyHost } from "@ai-sidekicks/contracts";
-
 import { NodePtyHost } from "./node-pty-host.js";
 import { createRustSidecarPtyHost } from "./rust-sidecar-pty-host.js";
 import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
+import type { PtyHost } from "./pty-host.js";
 
 // --------------------------------------------------------------------------
 // Public types

@@ -3,11 +3,7 @@
  * notifications, and the process or socket underneath.
  */
 
-import {
-  CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME,
-  type PtyHost,
-  type SpawnRequest,
-} from "@ai-sidekicks/contracts";
+import { CODEX_APP_SERVER_BIN_ENVIRONMENT_NAME } from "@ai-sidekicks/contracts";
 import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../spawn-env.js";
 import {
   type CodexDiagnosticSink,
@@ -49,6 +45,8 @@ import {
   normalizeProviderFailureDetail,
 } from "./session-errors.js";
 import { isPlainObject } from "./record-readers.js";
+import type { SpawnRequest } from "../../../pty/pty-host-protocol.js";
+import type { PtyHost } from "../../../pty/pty-host.js";
 
 const DEFAULT_STARTUP_TIMEOUT_MS = 30_000;
 

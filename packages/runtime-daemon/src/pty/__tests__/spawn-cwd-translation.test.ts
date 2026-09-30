@@ -18,8 +18,7 @@ import { describe, expect, it, vi } from "vitest";
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
-
-import type { Envelope, SpawnRequest } from "@ai-sidekicks/contracts";
+import type { Envelope, SpawnRequest } from "../pty-host-protocol.js";
 
 // ----------------------------------------------------------------------------
 // Fake child and helpers. They repeat the ones in `rust-sidecar-pty-host.test.ts`, which keeps its

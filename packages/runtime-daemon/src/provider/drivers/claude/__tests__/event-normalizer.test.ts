@@ -5,13 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  EVENT_DISPOSITION_BY_KIND,
-  NORMALIZED_EVENT_KINDS,
   SESSION_EVENT_CATEGORY_BY_TYPE,
   SESSION_EVENT_TYPES,
   TOOL_ACTIVITY_EVENT_TYPES,
   type EventCategory,
-  type NormalizedEventKind,
   type SessionEventType,
 } from "@ai-sidekicks/contracts";
 
@@ -60,6 +57,11 @@ import {
   classifyClaudeUsageLimitSignal,
 } from "../usage-limit-signal.js";
 import { ClaudeTerminalEmissionGate, type ClaudeTerminalRunFrame } from "../turn-evidence.js";
+import {
+  EVENT_DISPOSITION_BY_KIND,
+  NORMALIZED_EVENT_KINDS,
+  type NormalizedEventKind,
+} from "../../../event-disposition.js";
 
 // Local helpers
 

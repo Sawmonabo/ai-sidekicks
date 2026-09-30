@@ -90,10 +90,6 @@ class CrashBudget {
     this.timestamps.push(now);
     return this.timestamps.length >= this.limit;
   }
-
-  public currentWindowSize(): number {
-    return this.timestamps.length;
-  }
 }
 
 /**

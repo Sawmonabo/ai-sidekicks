@@ -160,12 +160,12 @@ export const CODEX_ROUTED_SERVER_REQUEST_METHODS: readonly string[] = Object.fre
 ]);
 
 /**
- * Why no callback-tool registration is attempted: `dynamicTools` is experimental-only in
- * `ThreadStartParams` (`codex-cli 0.150.1`: 15 properties, 26 under `--experimental`), and
- * `experimentalApi` would also un-dormant experimental frames the normalizer does not expect.
+ * Why a Codex session's callback tools are withheld: they reach Codex only as the daemon's
+ * per-session MCP `url` entry, never as `ThreadStartParams.dynamicTools`, and this daemon offers
+ * no such entry.
  */
 export const CODEX_CALLBACK_TOOL_REGISTRATION_UNAVAILABLE_DETAIL: string =
-  "ThreadStartParams.dynamicTools is experimental-generation-only at the pin and this driver negotiates experimentalApi: false, so no provider-side callback-tool registration is reachable";
+  "callback tools reach Codex only through the daemon's per-session MCP url entry, and this daemon offers none, so the registry is withheld";
 
 /** One inbound ask, as the daemon-side responder sees it. */
 export interface CodexInboundServerRequest {

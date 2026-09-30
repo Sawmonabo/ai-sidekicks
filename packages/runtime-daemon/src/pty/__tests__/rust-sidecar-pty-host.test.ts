@@ -32,7 +32,7 @@ import {
 } from "../sidecar-binary-path.js";
 
 import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
-import type { Envelope } from "@ai-sidekicks/contracts";
+import type { Envelope } from "../pty-host-protocol.js";
 
 // ----------------------------------------------------------------------------
 // Fake child process — minimal shape mirroring node:child_process.

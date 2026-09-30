@@ -14,7 +14,7 @@ import type {
   TranslateSpawnCwdInput,
   WrappingShell,
 } from "../spawn-cwd-translator.js";
-import type { SpawnRequest } from "@ai-sidekicks/contracts";
+import type { SpawnRequest } from "../../pty/pty-host-protocol.js";
 
 // ----------------------------------------------------------------------------
 // Test fixtures

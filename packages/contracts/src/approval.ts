@@ -19,8 +19,22 @@ import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
 import { NodeIdSchema, type NodeId } from "./node-id.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
-import { SessionIdSchema, UserIdSchema, type SessionId, type UserId } from "./session.js";
+import {
+  FILE_PATH_MAX_LEN,
+  SessionIdSchema,
+  UserIdSchema,
+  wireFreeFormString,
+  type SessionId,
+  type UserId,
+} from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
+
+/**
+ * An ask's target scope, free text such as a command or a path. Bounded by the longest wire
+ * string, a file path, and refused empty, blank or with a NUL byte.
+ */
+const approvalScopeSchema = (fieldLabel: string): z.ZodString =>
+  wireFreeFormString(FILE_PATH_MAX_LEN, fieldLabel);
 
 // Ids
 
@@ -324,7 +338,7 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     runId: RunIdSchema,
     requestedBy: z.string().min(1),
     category: ApprovalCategorySchema,
-    scope: z.string(),
+    scope: approvalScopeSchema("ApprovalProjectionRow.scope"),
     resourceDescriptor: z.record(z.string(), z.unknown()),
     subject: z.string().min(1),
     reason: z.string().min(1).optional(),
@@ -505,7 +519,7 @@ export const ApprovalRequestedPayloadSchema: z.ZodType<ApprovalRequestedPayload>
     runId: RunIdSchema,
     approvalRequestId: ApprovalRequestIdSchema,
     category: ApprovalCategorySchema,
-    scope: z.string(),
+    scope: approvalScopeSchema("ApprovalRequestedPayload.scope"),
     requestedBy: z.string().min(1),
     resourceDescriptor: z.record(z.string(), z.unknown()),
     askId: z.string().min(1).optional(),
@@ -530,7 +544,7 @@ export const ApprovalResolvedPayloadSchema: z.ZodType<ApprovalResolvedPayload> =
     runId: RunIdSchema,
     approvalRequestId: ApprovalRequestIdSchema,
     category: ApprovalCategorySchema,
-    scope: z.string(),
+    scope: approvalScopeSchema("ApprovalResolvedPayload.scope"),
     approver: UserIdSchema,
     effectiveScope: z.string(),
     clientResolutionId: z.uuid(),
@@ -552,7 +566,7 @@ export const ApprovalCanceledPayloadSchema: z.ZodType<ApprovalCanceledPayload> =
     runId: RunIdSchema,
     approvalRequestId: ApprovalRequestIdSchema,
     category: ApprovalCategorySchema,
-    scope: z.string(),
+    scope: approvalScopeSchema("ApprovalCanceledPayload.scope"),
   })
   .strict();
 
@@ -579,7 +593,7 @@ export const ApprovalRememberedPayloadSchema: z.ZodType<ApprovalRememberedPayloa
     runId: RunIdSchema,
     approvalRequestId: ApprovalRequestIdSchema,
     category: ApprovalCategorySchema,
-    scope: z.string(),
+    scope: approvalScopeSchema("ApprovalRememberedPayload.scope"),
     approver: UserIdSchema,
     nodeId: NodeIdSchema,
     ruleId: RememberedRuleIdSchema,
@@ -606,7 +620,7 @@ export const ApprovalRuleRevokedPayloadSchema: z.ZodType<ApprovalRuleRevokedPayl
   .object({
     sessionId: SessionIdSchema,
     category: ApprovalCategorySchema,
-    scope: z.string(),
+    scope: approvalScopeSchema("ApprovalRuleRevokedPayload.scope"),
     ruleId: RememberedRuleIdSchema,
     invalidationTrigger: InvalidationTriggerSchema,
     runId: RunIdSchema.optional(),
