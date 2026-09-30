@@ -32,34 +32,40 @@ import {
 } from "../canonical-transcript.js";
 import {
   ContradictoryReplayDispositionError,
+  TranscriptReconstitutionRouter,
+  memoSettlementAsReplayResult,
+  renderReconstitutionDisclosure,
+  type ReconstitutionSettlement,
+} from "../transcript-reconstitution.js";
+import {
   DEFAULT_PROTECTED_TAIL_TOOL_EXCHANGE_COUNT,
   EstablishedMemoTarget,
   MEMO_CONTINUITY_MARKER_PREFIX,
-  MemoDeliveryCoordinator,
-  MemoDeliveryNotEstablishedError,
   MemoProjection,
-  TranscriptReconstitutionRouter,
   UnownedMemoTargetError,
   defaultMemoBudgetPolicy,
   deriveMemoIdentityKey,
-  memoSettlementAsReplayResult,
   partitionIntoExchanges,
-  readDeliveredMemoDeclaredLosses,
   renderMemoContinuityMarker,
-  renderReconstitutionDisclosure,
-  targetTurnsCarryAttributableMemoMarker,
-  targetTurnsCarryMemoMarker,
   type MemoBudgetPolicy,
+  type MemoRendering,
+  type MemoTargetIdentity,
+  type TranscriptExchange,
+} from "../memo-projection.js";
+import {
+  MemoDeliveryCoordinator,
+  MemoDeliveryNotEstablishedError,
   type MemoDeliveryRequest,
   type MemoDeliverySettlement,
   type MemoOutboundFrame,
-  type MemoRendering,
   type MemoSendSettlementBarrier,
   type MemoTargetGateway,
-  type MemoTargetIdentity,
-  type ReconstitutionSettlement,
-  type TranscriptExchange,
-} from "../memo-projection.js";
+} from "../memo-delivery.js";
+import {
+  readDeliveredMemoDeclaredLosses,
+  targetTurnsCarryAttributableMemoMarker,
+  targetTurnsCarryMemoMarker,
+} from "../memo-marker-reader.js";
 
 const SESSION_ID: SessionId = "session-memo-projection" as SessionId;
 const RUN_ID: RunId = "run-memo-projection" as RunId;

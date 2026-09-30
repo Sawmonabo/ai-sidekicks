@@ -21,12 +21,12 @@ import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";
 import type { MeteredUsageDelta } from "../../../usage-delta-accountant.js";
 import { buildProviderSpawnEnv, hostEnvNameMatchForPlatform } from "../../../spawn-env.js";
+import { MemoDeliveryCoordinator } from "../../../transcript/memo-delivery.js";
 import {
-  MemoDeliveryCoordinator,
   TranscriptReconstitutionRouter,
   memoSettlementAsReplayResult,
   type NativeReplayDisposition,
-} from "../../../transcript/memo-projection.js";
+} from "../../../transcript/transcript-reconstitution.js";
 import { MAX_DEFINITELY_UNSENT_DISPATCH_ATTEMPTS } from "../../../transcript/failure-mapping.js";
 import {
   PostReplayAssertionFailedError,
