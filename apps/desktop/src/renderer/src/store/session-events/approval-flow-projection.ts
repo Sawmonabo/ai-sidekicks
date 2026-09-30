@@ -1,72 +1,43 @@
 // The `approval` partition's projector: approval-flow events folded into approval
 // entities.
 //
-// WHY IT EXISTS. `store/session/entities/entities.ts` has declared an `approval` partition
-// since it was written and nothing projected into it, so `session.subscribe` carried every
-// `approval.*` beat into the timeline and none of them reached the partition a pane
-// reads. The members that live on the EVENT and on no read went nowhere at all —
-// `askId` above all, which the approval-flow event category registers on
-// `approval.requested` exactly when the request originates from a provider
-// permission ask. The projection read carries no marker of that origin, so a
-// console with no fold here cannot tell a provider's mid-run permission ask from a
-// request some caller made directly, and renders both as the same card.
+// WHY IT EXISTS. `store/session/entities/entities.ts` declares an `approval` partition,
+// and `session.subscribe` carries every `approval.*` event into the timeline. This fold
+// is what puts each ask into the partition a pane reads, together with the members that
+// live on the event and on no read: `askId` above all, which `approval.requested` carries
+// when the ask came from a provider's own permission prompt.
 //
-// WHY IT LIVES BESIDE THE RUN FOLD. `run-lifecycle-projector.ts` states the two
-// constraints that decide a projector's home: it reads WIRE member names, which the
-// session store's entities deliberately do not, and it is REGISTERED by the composition
-// root, so no one feature can own it. Both hold here: the approvals service already
-// narrows this wire's reads at one boundary (`services/approvals/approval-records.ts`),
-// and the composition registers this fold under the composer's name, because the pane
-// that reads the result is the composer's.
+// WHY IT LIVES BESIDE THE RUN FOLD. It reads wire member names, which the session
+// store's entities deliberately do not, and the composition root registers it under the
+// composer's name, because the pane that reads the result is the composer's.
 //
-// WHAT IT DERIVES RATHER THAN DECLARES
+// EACH EVENT IS READ THROUGH ITS OWN CONTRACT SCHEMA. The stream decoder parses every
+// event through the tolerant envelope, so a payload reaches this fold unexamined. Each
+// `approval.*` type has one strict payload schema in `@ai-sidekicks/contracts`, and the
+// fold parses the payload with the schema its type names. A payload that schema refuses
+// is not folded at all: a half-read ask would draw a card for an action nobody can see.
 //
-// The kinds it claims are read from `SESSION_EVENT_CATEGORY_BY_TYPE`, never from a
-// list written here: a hand list is how a console silently stops projecting the day
-// the taxonomy grows a ninth approval event. The category is not quite the claim,
-// though, and the subtraction is named rather than silent — see
-// `APPROVAL_FLOW_EVENT_KINDS` below.
+// STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set the entity's state
+// and leave the row where it is: history is a read, and what the pane lists is the
+// pane's decision.
 //
-// WHAT IT READS OFF A PAYLOAD, AND WHERE THAT LIST COMES FROM
-//
-// `packages/contracts` registers no approval payload variant at all —
-// `SessionEventSchema` carries none, which `approval-vocabulary.ts` says in as many
-// words — so there is no registered shape to derive a member union from. The list
-// comes from the approval-flow event category, which fixes the payload at
-// `{sessionId, runId?, approvalRequestId?, askId?, category, scope, requestedBy?,
-// resourceDescriptor?, approver?, effectiveScope?, nodeId?, rememberedScope?,
-// ruleId?, invalidationTrigger?}`, and from the approval payload
-// contracts, which say which of them each variant carries. So
-// the tables below are PER TYPE, on `run-lifecycle-projector.ts`'s precedent and for
-// its reason: `approver` is a member of a resolution and of nothing else, and
-// `invalidationTrigger` is a member of a revocation and of nothing else, so one flat
-// table would read either off whichever beat happened to spell it — a body member
-// with no registration behind it.
-//
-// PARSED THROUGH ZOD, which is the approvals code's own boundary idiom rather than a second
-// one: `approval-records.ts` narrows the two READS through zod schemas, and a member
-// reader table written here would be a second implementation of "did the payload
-// supply a value of the right shape" for the same wire. A wrong-typed member reads
-// as ABSENT rather than as itself, and an absent member is left off the body
-// entirely, because the store's merge is a spread and a present-but-`undefined` key
-// erases what an earlier event established.
-//
-// STATE IS MARKED, NEVER DELETED. A resolution and a cancellation set the entity's
-// state and leave the row where it is: history is a read, and what the pane lists is
-// the pane's decision. The state values come from `approval-vocabulary.ts`'s closed
-// five, so this module mints no sixth spelling of a vocabulary the console already
-// declares once.
-//
-// A PROJECTOR IS PURE, and that decides the malformed case exactly as it does for
-// the run fold: an approval beat whose payload names no `approvalRequestId` yields
-// NO mutation rather than a throw or a report. It names no entity to key on, the
-// event is still admitted, and the timeline is the ledger that records it arrived.
-// `approval.rule_revoked` reaches that path on purpose — a trust-triggered
-// revocation carries no in-flight request.
+// A PROJECTOR IS PURE. A beat that names another session, one whose payload its schema
+// refuses, and a rule revocation that names no ask (a project detached, a server's trust
+// withdrawn) each yield no mutation rather than a throw. The event is still admitted,
+// and the timeline is the ledger that records it arrived.
 
-import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
-import type { SessionEventType } from "@ai-sidekicks/contracts";
-import { z } from "zod";
+import {
+  ApprovalCanceledPayloadSchema,
+  ApprovalRememberedPayloadSchema,
+  ApprovalRequestedPayloadSchema,
+  ApprovalResolvedPayloadSchema,
+  ApprovalRuleRevokedPayloadSchema,
+  type ApprovalRequestId,
+  type ApprovalState,
+  type SessionEventType,
+  type SessionId,
+  type ZodType,
+} from "@ai-sidekicks/contracts";
 
 import { payloadNamesSession } from "@renderer/lib/wire-session-attribution.js";
 import type {
@@ -75,20 +46,16 @@ import type {
   EntityProjector,
   EntityProjectorTable,
 } from "../session/entities/entities.js";
-import { type ApprovalState } from "@renderer/lib/approval-vocabulary.js";
 
 /**
- * The category's events that are not an approval request's, named rather than quietly
- * filtered.
+ * The category's events that are not an ask's, named rather than quietly filtered.
  *
  * `moderation.review_flagged`, the three `plan.*` kinds, and the reviewer's block and
  * its one-time allowance (`approval.reviewer_denied`, `approval.denial_overridden`,
  * keyed on the denial) are registered under `approval_flow` and carry no
- * `approvalRequestId`. Claiming one here would take the
- * kind off the board for the feature that renders it, and this fold would answer
- * nothing for it anyway, since it names no approval to key on. `Extract`ed from the
- * census rather than typed `string`, so a rename upstream fails to compile here
- * instead of silently widening the claim.
+ * `approvalRequestId`. Claiming one here would take the kind off the board for the
+ * feature that renders it. `Extract`ed from the census rather than typed `string`, so a
+ * rename upstream fails to compile here.
  */
 type NonRequestApprovalCategoryKind = Extract<
   SessionEventType,
@@ -100,201 +67,58 @@ type NonRequestApprovalCategoryKind = Extract<
   | "approval.denial_overridden"
 >;
 
-const NON_REQUEST_APPROVAL_CATEGORY_KINDS: readonly NonRequestApprovalCategoryKind[] = [
-  "moderation.review_flagged",
-  "plan.proposed",
-  "plan.accepted",
-  "plan.handed_off",
-  "approval.reviewer_denied",
-  "approval.denial_overridden",
-];
-
 /**
- * The event kinds this projector claims, derived from the shipped taxonomy.
- *
- * Filtered from the census by CATEGORY and then by the `approval.` namespace, so the
- * set is whatever the contract says it is at build time and the subtraction is the
- * kinds named above. The co-located test holds the difference to exactly those, so
- * another kind landing in the category under some other namespace fails there rather
- * than being dropped by a prefix nobody re-read.
- */
-export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CATEGORY_BY_TYPE]
-  .filter(
-    ([eventType, category]) =>
-      category === "approval_flow" &&
-      !NON_REQUEST_APPROVAL_CATEGORY_KINDS.some((kind) => kind === eventType),
-  )
-  .map(([eventType]) => eventType);
-
-/**
- * The six `approval.*` kinds, as a type.
- *
- * Extracted from the census union by namespace rather than written out, so the type
- * and the runtime set above are two readings of one source: a seventh `approval.*`
- * kind added to the taxonomy lands in this union and fails the `satisfies` on both
- * tables below until someone classifies it.
+ * The ask's `approval.*` kinds, as a type. Extracted from the census union, so a new
+ * `approval.*` kind fails the `satisfies` on the table below until it is classified.
  */
 type ApprovalEventKind = Exclude<
   Extract<SessionEventType, `approval.${string}`>,
   NonRequestApprovalCategoryKind
 >;
 
-/**
- * The state each kind announces, or `undefined` for a kind that announces none.
- *
- * Total over the six by `satisfies`, and typed against `approval-vocabulary.ts`'s
- * closed five so a state invented here fails to compile rather than reaching a card
- * that renders it as an unrecognized token.
- *
- * The two `undefined` arms are decisions rather than gaps. `approval.remembered`
- * records that a resolution minted a standing rule — the request was already
- * approved, and writing a state for it would restate one transition as two — and
- * `approval.rule_revoked` is about the rule rather than about the request, so it
- * never moves the request's own state. Writing `undefined` for either is what keeps
- * the state a projector NAMES equal to the state its kind announces: the entity
- * upsert omits the member entirely rather than carrying a present `undefined`, which
- * the store's spread merge would read as an erasure of the last transition.
- */
-const APPROVAL_STATE_BY_EVENT_KIND = {
-  "approval.requested": "pending",
-  "approval.approved": "approved",
-  "approval.rejected": "rejected",
-  "approval.canceled": "canceled",
-  "approval.remembered": undefined,
-  "approval.rule_revoked": undefined,
-} as const satisfies Readonly<Record<ApprovalEventKind, ApprovalState | undefined>>;
-
-/** How one member is read out of an untyped payload. */
-type WireMemberSchema = z.ZodType<string> | z.ZodType<Readonly<Record<string, unknown>>>;
-
-/** One member's schema: a non-empty wire string, carried verbatim. */
-const wireStringMember: z.ZodType<string> = z.string().min(1);
-
-/**
- * One member's schema: a structured wire value, carried WHOLE and unparsed.
- *
- * `resourceDescriptor` and `rememberedScope` are registered objects the console
- * renders through its own consumers — `formatWireDescriptor` and the vocabulary's
- * scope classifier — and re-validating their interiors here would be a second
- * reading of shapes those consumers already own.
- */
-const wireObjectMember: z.ZodType<Readonly<Record<string, unknown>>> = z.record(
-  z.string(),
-  z.unknown(),
-);
-
-/**
- * The members any `approval.*` payload may carry, whatever its kind.
- *
- * Three, and the subtraction from the registered shape is worth reading: `sessionId`
- * rides the envelope and is checked against it rather than carried, and
- * `approvalRequestId` is the entity's own id. Carrying either onto the body would be
- * a second spelling of something the entity already holds, which the co-located test
- * refuses.
- */
-const SHARED_APPROVAL_BODY_MEMBERS: Readonly<Record<string, WireMemberSchema>> = Object.freeze({
-  /** The canonical category, wire-verbatim. Classified at render, never here. */
-  category: wireStringMember,
-  /** What was ASKED for. The reply's second scope, `effectiveScope`, is per-type. */
-  scope: wireStringMember,
-  /** The run that raised it, absent on a trust-triggered revocation. */
-  runId: wireStringMember,
-});
-
-/**
- * The members each kind registers ALONE, and the schema that carries each one.
- *
- * Total over the six by `satisfies`. Every entry is a member the approval payload
- * contracts' per-variant refinement names for that variant and for no other, and a
- * member the shared table already carries would be a second spelling of it — which the
- * co-located test refuses outright rather than leaving to review.
- */
-const APPROVAL_BODY_MEMBERS_BY_EVENT_KIND = {
-  // The request pair, plus the member that makes a provider permission ask legible
-  // as one: `askId` is the originating ask's identifier and reaches the console on
-  // this payload and on no read.
-  "approval.requested": {
-    requestedBy: wireStringMember,
-    resourceDescriptor: wireObjectMember,
-    askId: wireStringMember,
-  },
-  // The resolution pair: who answered, and the scope that took effect — never
-  // broader than what was requested.
-  "approval.approved": { approver: wireStringMember, effectiveScope: wireStringMember },
-  "approval.rejected": { approver: wireStringMember, effectiveScope: wireStringMember },
-  // A cancellation carries nothing the request did not already establish. The
-  // empty table is the registration, not an omission.
-  "approval.canceled": {},
-  // The full rule projection, so a peer or a replay rebuilds the standing grant:
-  // the grantor, the node the grant is bound to, the binding itself, and the rule's
-  // own id.
-  "approval.remembered": {
-    approver: wireStringMember,
-    nodeId: wireStringMember,
-    rememberedScope: wireObjectMember,
-    ruleId: wireStringMember,
-  },
-  // A revocation names the rule and why it died. It reaches an approval entity only
-  // where the payload also names the request the rule was minted from.
-  "approval.rule_revoked": { ruleId: wireStringMember, invalidationTrigger: wireStringMember },
-} as const satisfies Readonly<
-  Record<ApprovalEventKind, Readonly<Record<string, WireMemberSchema>>>
->;
-
-/** The per-type table for a kind that registers no members of its own. */
-const NO_KIND_MEMBERS: Readonly<Record<string, WireMemberSchema>> = Object.freeze({});
-
-/**
- * Fold one approval-flow event into the approval it names.
- *
- * Pure and total: it reads the event and answers with mutations, and every path
- * through it answers — a payload naming another session and a payload it cannot key
- * on each answer with none.
- */
-export const projectApprovalFlowEvent: EntityProjector = (
-  event: ProjectedSessionEvent,
-): readonly EntityMutation[] => {
-  const payload = event.payload;
-  // First, and for every kind at once: the beat is folded into the store it was
-  // delivered into, so a payload that names another session names an entity this
-  // store must not hold. `sessionId` is a REQUIRED member of the registered shape,
-  // so an omission is malformed rather than terse — which is the arm
-  // `lib/wire-session-attribution.ts` names `payloadNamesSession`, and the rule is
-  // held there rather than here because several folds make the same claim.
-  if (!payloadNamesSession(payload, event.sessionId)) {
-    return [];
-  }
-  const approvalRequestId = wireStringMember.safeParse(payload["approvalRequestId"]);
-  if (!approvalRequestId.success) {
-    return [];
-  }
-  const announcedState = approvalStateFor(event.kind);
-  const body = readApprovalEntityBody(event.kind, payload);
-  return [
-    {
-      operation: "upsert",
-      entity: {
-        kind: "approval",
-        id: approvalRequestId.data,
-        // Present only where the kind announces one. A spread merge treats a present
-        // `undefined` as an erasure, so a rule beat must not clear the state the
-        // request's own transition established.
-        ...(announcedState === undefined ? {} : { state: announcedState }),
-        touchedAt: event.occurredAt,
-        ...(event.actorId === undefined ? {} : { attributedTo: event.actorId }),
-        ...(body === undefined ? {} : { body }),
-      },
-    },
-  ];
+/** The members every ask payload shares: the session it belongs to and, mostly, the ask. */
+type ApprovalEventPayload = {
+  readonly sessionId: SessionId;
+  readonly approvalRequestId?: ApprovalRequestId | undefined;
 };
 
+/** How one kind is read: the schema its payload parses with, and the state it announces. */
+interface ApprovalEventReading {
+  readonly schema: ZodType<ApprovalEventPayload>;
+  readonly state: ApprovalState | undefined;
+}
+
 /**
- * The projector registry the composer feature claims its kinds with.
+ * Each kind's reading. Total over the ask's kinds by `satisfies`.
  *
- * One function under every kind rather than one per kind: the fold is the same for
- * all six, and six near-copies is how a seventh gets a subtly different one.
+ * `approval.remembered` and `approval.rule_revoked` announce no state: the first records
+ * the rule a resolution minted, after the ask was already approved, and the second is
+ * about the rule rather than the ask. The entity upsert then omits `state` entirely,
+ * because the store's spread merge would read a present `undefined` as an erasure of the
+ * last transition.
  */
-export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = buildApprovalFlowProjectors();
+const APPROVAL_EVENT_READINGS = {
+  "approval.requested": { schema: ApprovalRequestedPayloadSchema, state: "pending" },
+  "approval.approved": { schema: ApprovalResolvedPayloadSchema, state: "approved" },
+  "approval.rejected": { schema: ApprovalResolvedPayloadSchema, state: "rejected" },
+  "approval.canceled": { schema: ApprovalCanceledPayloadSchema, state: "canceled" },
+  "approval.remembered": { schema: ApprovalRememberedPayloadSchema, state: undefined },
+  "approval.rule_revoked": { schema: ApprovalRuleRevokedPayloadSchema, state: undefined },
+} as const satisfies Readonly<Record<ApprovalEventKind, ApprovalEventReading>>;
+
+/** The event kinds this projector claims: the ask's `approval.*` kinds. */
+export const APPROVAL_FLOW_EVENT_KINDS: readonly string[] = Object.keys(APPROVAL_EVENT_READINGS);
+
+/**
+ * The projector registry the composer feature claims its kinds with, one fold per kind
+ * over that kind's reading.
+ */
+export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = Object.fromEntries(
+  Object.entries(APPROVAL_EVENT_READINGS).map(([eventKind, reading]) => [
+    eventKind,
+    approvalFlowProjector(reading),
+  ]),
+);
 
 /**
  * The owner the approval-flow kinds are registered under, so a conflicting claim names
@@ -302,69 +126,37 @@ export const APPROVAL_FLOW_PROJECTORS: EntityProjectorTable = buildApprovalFlowP
  */
 export const APPROVAL_FLOW_PROJECTOR_OWNER = "composer";
 
-function buildApprovalFlowProjectors(): EntityProjectorTable {
-  const projectors: Record<string, EntityProjector> = {};
-  for (const eventKind of APPROVAL_FLOW_EVENT_KINDS) {
-    projectors[eventKind] = projectApprovalFlowEvent;
-  }
-  return projectors;
-}
-
 /**
- * The state this kind announces, or `undefined` for one that announces none.
+ * Fold one kind's events into the ask each names.
  *
- * `Object.hasOwn` rather than an indexed read: the kind arrives wire-verbatim, so
- * `"constructor"` reaches this lookup exactly as a real kind does and an indexed
- * read would answer it with something off `Object.prototype`.
+ * The body carries the parsed payload minus `sessionId`, which the envelope already
+ * states, and `approvalRequestId`, which is the entity's own id.
  */
-function approvalStateFor(eventKind: string): ApprovalState | undefined {
-  return Object.hasOwn(APPROVAL_STATE_BY_EVENT_KIND, eventKind)
-    ? APPROVAL_STATE_BY_EVENT_KIND[eventKind as ApprovalEventKind]
-    : undefined;
-}
-
-/**
- * The body members this payload names, or `undefined` when it names none.
- *
- * Walks the two tables rather than reading members by name, so the set the body
- * carries and the set the corpus registers cannot come apart. A member neither table
- * names is not read at all — it is absent from both, so it never reaches the body
- * however the payload spells it.
- */
-function readApprovalEntityBody(
-  eventKind: string,
-  payload: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> | undefined {
-  const body: Record<string, unknown> = {};
-  for (const members of [SHARED_APPROVAL_BODY_MEMBERS, kindMembersFor(eventKind)]) {
-    for (const [member, schema] of Object.entries(members)) {
-      const parsed = schema.safeParse(payload[member]);
-      if (parsed.success) {
-        body[member] = parsed.data;
-      }
+function approvalFlowProjector(reading: ApprovalEventReading): EntityProjector {
+  return (event: ProjectedSessionEvent): readonly EntityMutation[] => {
+    if (!payloadNamesSession(event.payload, event.sessionId)) {
+      return [];
     }
-  }
-  return Object.keys(body).length === 0 ? undefined : body;
+    const parsed = reading.schema.safeParse(event.payload);
+    if (!parsed.success) {
+      return [];
+    }
+    const { sessionId: _sessionId, approvalRequestId, ...body } = parsed.data;
+    if (approvalRequestId === undefined) {
+      return [];
+    }
+    return [
+      {
+        operation: "upsert",
+        entity: {
+          kind: "approval",
+          id: approvalRequestId,
+          ...(reading.state === undefined ? {} : { state: reading.state }),
+          touchedAt: event.occurredAt,
+          ...(event.actorId === undefined ? {} : { attributedTo: event.actorId }),
+          body,
+        },
+      },
+    ];
+  };
 }
-
-/** The per-type members this kind registers, or none for a kind that registers none. */
-function kindMembersFor(eventKind: string): Readonly<Record<string, WireMemberSchema>> {
-  return Object.hasOwn(APPROVAL_BODY_MEMBERS_BY_EVENT_KIND, eventKind)
-    ? APPROVAL_BODY_MEMBERS_BY_EVENT_KIND[eventKind as ApprovalEventKind]
-    : NO_KIND_MEMBERS;
-}
-
-/**
- * The member tables, as data, so a test can hold the claims they make.
- *
- * Exported as one value rather than two, because every claim about them is a claim
- * about the PAIR — that no member is spelled in both, that the entity's own identity
- * is in neither, and that the per-type table is total over the claimed kinds.
- */
-export const APPROVAL_BODY_MEMBER_TABLES: {
-  readonly shared: Readonly<Record<string, WireMemberSchema>>;
-  readonly byEventKind: Readonly<Record<string, Readonly<Record<string, WireMemberSchema>>>>;
-} = Object.freeze({
-  shared: SHARED_APPROVAL_BODY_MEMBERS,
-  byEventKind: APPROVAL_BODY_MEMBERS_BY_EVENT_KIND,
-});

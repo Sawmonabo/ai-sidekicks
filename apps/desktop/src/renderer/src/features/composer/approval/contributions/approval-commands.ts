@@ -1,15 +1,14 @@
 // The approval card's acts as palette rows: which rows exist, and what answering sends.
 //
 // Every operator action is palette-reachable, and the card holds two: approve a
-// pending request and reject it. Each dispatches the SAME call its on-screen control
-// does, through the same reader and the same mutation hook, so a palette press goes
-// in-flight on the card and settles into the card's own refusal.
+// pending request and reject it. Each sends the SAME answer its on-screen control
+// does, built by `approvalAnswer` and handed to the same `resolve`, so a palette press
+// goes in-flight on the card and settles into the card's own refusal.
 //
-// APPROVE AND REJECT CARRY WHAT THE CARD CARRIES AND NOTHING MORE. The request is
-// `{ approvalRequestId, decision, effectiveScope: record.requestedScope }`, which
-// is the card's own payload with the remembered-rule member deliberately absent: a
-// remembered grant is a policy the user has to SEE before it is minted, and a palette
-// row shows no policy. The scope is the requested one, never wider.
+// APPROVE AND REJECT CARRY WHAT THE CARD CARRIES AND NOTHING MORE. The request is the
+// card's own answer (`approvalAnswer`) with the remembered-rule member deliberately
+// absent: a remembered rule is a policy the person has to SEE before it is minted, and
+// a palette row shows no policy.
 //
 // EVERY ROW READS ITS CONTROL'S OWN OFFER RULE — the same function, never a mirror
 // of it. `isApprovalAnswerable` decides whether a record's two answers are offered
@@ -19,12 +18,10 @@
 // has withdrawn: a settled refusal takes the two buttons off the card and the two rows
 // out of the palette in one reading, and there is no second expression to drift.
 
+import type { ApprovalProjectionRow, ApprovalResolveRequest } from "@ai-sidekicks/contracts";
+
 import { type Refusal } from "@renderer/lib/refusal.js";
-import {
-  type ApprovalRecord,
-  type ApprovalResolveRequest,
-} from "@renderer/services/approvals/approval-records.js";
-import { isApprovalAnswerable } from "../approval-offer.js";
+import { approvalAnswer, isApprovalAnswerable } from "../approval-offer.js";
 
 /** The owner these rows are contributed under. One live at a time. */
 export const APPROVAL_COMMAND_OWNER = "approval-card";
@@ -33,14 +30,14 @@ export const APPROVAL_COMMAND_OWNER = "approval-card";
 export interface ApprovalCommandRow {
   readonly kind: "approve" | "reject";
   /** The record answered. */
-  readonly record: ApprovalRecord;
+  readonly record: ApprovalProjectionRow;
   readonly title: string;
 }
 
 /** What the rows act on, read at invoke time rather than captured. */
 export interface ApprovalCommandInput {
   /** The records waiting on a decision, exactly as the pending list renders them. */
-  readonly pending: readonly ApprovalRecord[];
+  readonly pending: readonly ApprovalProjectionRow[];
   /** Records with a resolve in flight. Their controls are disabled, so no row. */
   readonly resolvingApprovalIds: ReadonlySet<string>;
   /**
@@ -72,16 +69,12 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
     rows.push({
       kind: "approve",
       record,
-      title: namesTheRecord
-        ? `Approve request ${record.approvalRequestId}`
-        : "Approve the pending request",
+      title: namesTheRecord ? `Approve request ${record.id}` : "Approve the pending request",
     });
     rows.push({
       kind: "reject",
       record,
-      title: namesTheRecord
-        ? `Reject request ${record.approvalRequestId}`
-        : "Reject the pending request",
+      title: namesTheRecord ? `Reject request ${record.id}` : "Reject the pending request",
     });
   }
   return rows;
@@ -91,24 +84,20 @@ export function approvalCommandRows(input: ApprovalCommandInput): readonly Appro
  * Perform one contributed act.
  *
  * A record the read no longer returns as pending is not answered: it has been
- * resolved, expired, or canceled since the row was contributed, and answering it
+ * resolved or canceled since the row was contributed, and answering it
  * would send a decision about a request that is no longer waiting. The row leaves
  * the palette on the next contribution; a press that lands in the gap does nothing.
  */
 export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalCommandInput): void {
-  const recordId = row.record.approvalRequestId;
-  const live = input.pending.find((candidate) => candidate.approvalRequestId === recordId);
+  const recordId = row.record.id;
+  const live = input.pending.find((candidate) => candidate.id === recordId);
   // Re-read at invoke time and not trusted from contribution time: the same
   // reading the row was built from, because a settled refusal can land in the gap
   // between the row being contributed and the key being pressed.
   if (live === undefined || !offersAnAnswer(live, input)) {
     return;
   }
-  input.resolve({
-    approvalRequestId: live.approvalRequestId,
-    decision: row.kind === "approve" ? "approved" : "rejected",
-    effectiveScope: live.requestedScope,
-  });
+  input.resolve(approvalAnswer(live, row.kind === "approve" ? "approved" : "rejected", undefined));
 }
 
 /**
@@ -118,12 +107,9 @@ export function performApprovalCommand(row: ApprovalCommandRow, input: ApprovalC
  * disabled rather than absent, and a row for a disabled button is a row that does
  * nothing — and the rest is the card's own reading, called rather than restated.
  */
-function offersAnAnswer(record: ApprovalRecord, input: ApprovalCommandInput): boolean {
-  if (input.resolvingApprovalIds.has(record.approvalRequestId)) {
+function offersAnAnswer(record: ApprovalProjectionRow, input: ApprovalCommandInput): boolean {
+  if (input.resolvingApprovalIds.has(record.id)) {
     return false;
   }
-  return isApprovalAnswerable(
-    record,
-    input.resolveRefusalByApprovalId.get(record.approvalRequestId),
-  );
+  return isApprovalAnswerable(record, input.resolveRefusalByApprovalId.get(record.id));
 }

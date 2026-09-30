@@ -12,7 +12,6 @@
 // request body — so this reads an untyped value against closed sets and refuses what
 // does not fit, at the boundary where the text crosses in. A pane consumes the ANSWER,
 // here a parsed body or a reason, and never the reading that produced one.
-// `services/approvals/approval-records.ts` makes the same call for the same reason.
 //
 // WHAT THE FILE IS. YAML, and one dialect of it. The definition file form gives a
 // definition exactly one canonical file form and

@@ -25,7 +25,6 @@
 }
 
 .meridian-remembered-rules__line,
-.meridian-remembered-rules__detail,
 .meridian-remembered-rules__confirm {
   display: flex;
   flex-wrap: wrap;
@@ -34,7 +33,6 @@
   min-width: 0;
 }
 
-.meridian-remembered-rules__detail,
 .meridian-remembered-rules__confirm-copy {
   margin: 0;
   color: var(--meridian-text-muted);

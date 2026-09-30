@@ -38,9 +38,7 @@ export function useApprovalCommands(input: ApprovalCommandInput): void {
   // screen invoking what that discarded pass saw.
   const inputRef = useLatestRef(input);
 
-  const signature = rows
-    .map((row) => `${row.kind} ${row.record.approvalRequestId} ${row.title}`)
-    .join("|");
+  const signature = rows.map((row) => `${row.kind} ${row.record.id} ${row.title}`).join("|");
   // Built from THIS render's rows rather than through a ref. The memo runs during the
   // render whose signature changed, which is before that render's layout effect has
   // refreshed anything, so a ref read here would build this render's commands out of
@@ -59,7 +57,7 @@ function buildApprovalCommand(
   row: ApprovalCommandRow,
   inputRef: React.RefObject<ApprovalCommandInput>,
 ): CommandDefinition {
-  const recordId = row.record.approvalRequestId;
+  const recordId = row.record.id;
   return {
     id: `approvals.${row.kind}.${recordId}`,
     title: row.title,

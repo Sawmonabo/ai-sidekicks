@@ -6,8 +6,10 @@
 
 import { describe, expect, it, vi } from "vitest";
 
-import { type ApprovalRecord } from "@renderer/services/approvals/approval-records.js";
+import type { ApprovalProjectionRow } from "@ai-sidekicks/contracts";
+
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import { isAcceptedAnswer, pendingRecord } from "../approval-record.test-support.js";
 import {
   approvalCommandRows,
   performApprovalCommand,
@@ -17,19 +19,9 @@ import {
 const FIRST_REQUEST = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";
 const SECOND_REQUEST = "4a7c2d3e-5f60-4172-8384-0b5c6d7e8f90";
 
-/** A pending record carrying the members the rows and the request actually read. */
-function pendingRecord(approvalRequestId: string): ApprovalRecord {
-  return {
-    approvalRequestId,
-    runId: "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061",
-    category: "file_write",
-    state: "pending",
-    requestedBy: "agent-ada",
-    requestedScope: "session",
-    resourceDescriptor: { path: "src/index.ts" },
-    createdAt: "2026-09-02T09:00:00.000Z",
-    updatedAt: "2026-09-02T09:00:00.000Z",
-  };
+/** The pending ask with the id named. */
+function pendingAsk(id: string): ApprovalProjectionRow {
+  return pendingRecord({ id });
 }
 
 /** The refusal that says somebody else answered: `settled` in the shared table. */
@@ -44,7 +36,7 @@ function alreadyResolved(approvalRequestId: string): ReadonlyMap<string, Refusal
 
 function inputFor(overrides: Partial<ApprovalCommandInput> = {}): ApprovalCommandInput {
   return {
-    pending: [pendingRecord(FIRST_REQUEST)],
+    pending: [pendingAsk(FIRST_REQUEST)],
     resolvingApprovalIds: new Set<string>(),
     resolveRefusalByApprovalId: new Map<string, Refusal>(),
     resolve: () => undefined,
@@ -62,7 +54,7 @@ describe("the rows the approval card contributes", () => {
 
   it("names the record once there are two waiting", () => {
     const rows = approvalCommandRows(
-      inputFor({ pending: [pendingRecord(FIRST_REQUEST), pendingRecord(SECOND_REQUEST)] }),
+      inputFor({ pending: [pendingAsk(FIRST_REQUEST), pendingAsk(SECOND_REQUEST)] }),
     );
 
     expect(rows.map((row) => row.title)).toEqual([
@@ -105,9 +97,9 @@ describe("the rows the approval card contributes", () => {
 });
 
 describe("what answering from the palette sends", () => {
-  it("sends the requested scope and mints no remembered rule", () => {
+  it("sends the card's own answer and mints no remembered rule", () => {
     const resolve = vi.fn();
-    const record = pendingRecord(FIRST_REQUEST);
+    const record = pendingAsk(FIRST_REQUEST);
 
     performApprovalCommand(
       { kind: "approve", record, title: "Approve the pending request" },
@@ -117,15 +109,16 @@ describe("what answering from the palette sends", () => {
     expect(resolve).toHaveBeenCalledWith({
       approvalRequestId: FIRST_REQUEST,
       decision: "approved",
-      effectiveScope: "session",
+      clientResolutionId: expect.any(String),
     });
+    expect(isAcceptedAnswer(resolve.mock.calls[0]?.[0])).toBe(true);
   });
 
   it("sends the rejected decision on the reject row", () => {
     const resolve = vi.fn();
 
     performApprovalCommand(
-      { kind: "reject", record: pendingRecord(FIRST_REQUEST), title: "Reject the pending request" },
+      { kind: "reject", record: pendingAsk(FIRST_REQUEST), title: "Reject the pending request" },
       inputFor({ resolve }),
     );
 
@@ -139,7 +132,7 @@ describe("what answering from the palette sends", () => {
     const resolve = vi.fn();
 
     performApprovalCommand(
-      { kind: "approve", record: pendingRecord(FIRST_REQUEST), title: "Approve" },
+      { kind: "approve", record: pendingAsk(FIRST_REQUEST), title: "Approve" },
       inputFor({ resolve, resolveRefusalByApprovalId: alreadyResolved(FIRST_REQUEST) }),
     );
 
@@ -150,7 +143,7 @@ describe("what answering from the palette sends", () => {
     const resolve = vi.fn();
 
     performApprovalCommand(
-      { kind: "approve", record: pendingRecord(SECOND_REQUEST), title: "Approve" },
+      { kind: "approve", record: pendingAsk(SECOND_REQUEST), title: "Approve" },
       inputFor({ resolve }),
     );
 

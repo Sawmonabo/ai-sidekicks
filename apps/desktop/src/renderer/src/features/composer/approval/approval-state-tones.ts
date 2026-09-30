@@ -1,5 +1,6 @@
+import type { ApprovalState } from "@ai-sidekicks/contracts";
+
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
-import type { ApprovalState } from "@renderer/lib/approval-vocabulary.js";
 
 /**
  * The chip tone a state wears.
@@ -13,6 +14,5 @@ export const APPROVAL_STATE_TONES: Readonly<Record<ApprovalState, ChipTone>> = {
   pending: "attention",
   approved: "accent",
   rejected: "neutral",
-  expired: "neutral",
   canceled: "neutral",
 };

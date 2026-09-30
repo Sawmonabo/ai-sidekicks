@@ -656,19 +656,31 @@ export default [
   },
   // `zod` where a module owns the data it validates, never a contracts schema. The schema
   // form validates a person's answers against a workflow's input schema, which is not a
-  // wire read. The approval projection still parses event payloads in the store until
-  // the event contracts land; then the parse moves to `services/` and it leaves this list.
+  // wire read.
   {
-    files: [
-      "src/renderer/src/features/workflows/schema-form/json-schema-validator.ts",
-      "src/renderer/src/store/session-events/approval-flow-projection.ts",
-    ],
+    files: ["src/renderer/src/features/workflows/schema-form/json-schema-validator.ts"],
     rules: {
       "no-restricted-imports": [
         "error",
         {
           paths: RENDERER_RESTRICTED_PATHS,
           patterns: [...RENDERER_RESTRICTED_PATTERNS, CONTRACTS_SCHEMA_IMPORT],
+        },
+      ],
+    },
+  },
+  // A contracts schema and no `zod` of its own: the approval fold reads each approval
+  // event's payload through that event's contract schema, because the stream decoder
+  // passes payloads through unexamined and a half-read ask would draw a card for an
+  // action nobody can see. The store may not import `services/`, so the read sits here.
+  {
+    files: ["src/renderer/src/store/session-events/approval-flow-projection.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: RENDERER_RESTRICTED_PATHS,
+          patterns: [...RENDERER_RESTRICTED_PATTERNS, ZOD_IMPORT],
         },
       ],
     },

@@ -16,33 +16,16 @@ import { render } from "@testing-library/react";
 import { useMemo, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
-import {
-  type ApprovalRecord,
-  type ApprovalResolveRequest,
-} from "@renderer/services/approvals/approval-records.js";
+import type { ApprovalResolveRequest } from "@ai-sidekicks/contracts";
+
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { SuspendsWhenAsked, abandonOneRenderPass } from "@test/helpers/abandoned-pass.js";
+import { PENDING_APPROVAL_ID, pendingRecord } from "../approval-record.test-support.js";
 import { type ApprovalCommandInput } from "../contributions/approval-commands.js";
 import { useApprovalCommands } from "./useApprovalCommands.js";
 
-const PENDING_REQUEST = "3f6b1c2d-4e5f-4061-8273-9a4b5c6d7e8f";
-const APPROVE_COMMAND_ID = `approvals.approve.${PENDING_REQUEST}`;
-
-/** The one waiting record both renders offer an answer for. */
-function pendingRecord(): ApprovalRecord {
-  return {
-    approvalRequestId: PENDING_REQUEST,
-    runId: "b3f0a1c2-4d5e-4f60-8a71-9c2d3e4f5061",
-    category: "file_write",
-    state: "pending",
-    requestedBy: "agent-ada",
-    requestedScope: "session",
-    resourceDescriptor: { path: "src/index.ts" },
-    createdAt: "2026-09-02T09:00:00.000Z",
-    updatedAt: "2026-09-02T09:00:00.000Z",
-  };
-}
+const APPROVE_COMMAND_ID = `approvals.approve.${PENDING_APPROVAL_ID}`;
 
 function inputResolvingThrough(
   resolve: (request: ApprovalResolveRequest) => void,
@@ -106,9 +89,9 @@ describe("the approvals palette rows answer through the committed render", () =>
     expect(abandonedResolve).not.toHaveBeenCalled();
     expect(committedResolve).toHaveBeenCalledTimes(1);
     expect(committedResolve.mock.calls[0]?.[0]).toStrictEqual({
-      approvalRequestId: PENDING_REQUEST,
+      approvalRequestId: PENDING_APPROVAL_ID,
       decision: "approved",
-      effectiveScope: "session",
+      clientResolutionId: expect.any(String),
     });
   });
 

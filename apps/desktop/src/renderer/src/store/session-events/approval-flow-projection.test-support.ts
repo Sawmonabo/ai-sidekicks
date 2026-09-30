@@ -1,9 +1,8 @@
 // The approval-flow suites' shared scaffolding: wire-shaped approval events.
 //
-// Both suites fold events the registered schemas accept, because the whole point of
-// the fold is that it reads a payload through a member table rather than by sniffing
-// — so an event built two ways in two files would let one suite assert against a
-// shape the other could not produce.
+// Both suites fold events the contract's payload schemas accept, because the fold
+// parses each payload with its kind's schema — so an event built two ways in two files
+// would let one suite assert against a shape the other could not produce.
 
 import { APPROVAL_FLOW_PROJECTORS } from "./approval-flow-projection.js";
 import { APPROVAL_REQUEST_SCENARIO } from "../../../../../fixtures/scenarios/approval-request.js";
