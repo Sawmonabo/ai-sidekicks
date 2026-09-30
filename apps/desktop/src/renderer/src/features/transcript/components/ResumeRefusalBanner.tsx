@@ -7,6 +7,7 @@ import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { useTimelineResume } from "@renderer/store/session/hooks/useSessionInitialized.js";
 import { type SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 
+/** Props for `ResumeRefusalBanner`. */
 export interface ResumeRefusalBannerProps {
   readonly registry: SessionStoreRegistry;
   readonly sessionId: string;

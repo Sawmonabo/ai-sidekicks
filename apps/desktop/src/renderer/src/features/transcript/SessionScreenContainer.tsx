@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 
 import "./transcript.css";
 
+/** Props for `SessionScreenContainer`. */
 export interface SessionScreenContainerProps {
   readonly children: ReactNode;
 }

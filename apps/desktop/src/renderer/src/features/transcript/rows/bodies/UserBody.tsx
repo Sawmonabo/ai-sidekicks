@@ -6,6 +6,7 @@ import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { HydratedRowProps } from "../hydrated-row-props.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 
+/** Props for `UserBody`. */
 export interface UserBodyProps {
   readonly row: HydratedRowProps["row"];
   readonly footnotes: HydratedRowProps["footnotes"];
