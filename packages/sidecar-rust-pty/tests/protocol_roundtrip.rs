@@ -1,7 +1,8 @@
-//! Wire-format tests for the daemon-to-sidecar protocol that the TS mirror in `packages/contracts`
-//! depends on: `kind` is a top-level snake_case key on every envelope, `bytes` fields travel as
-//! base64 strings, a `None` error is absent while a `None` signal code is `null`, and a payload
-//! written the way the TS producer writes it deserializes.
+//! Wire-format tests for the daemon-to-sidecar protocol that the daemon's TS mirror
+//! (`runtime-daemon/src/pty/pty-host-protocol.ts`) depends on: `kind` is a top-level snake_case
+//! key on every envelope, `bytes` fields travel as base64 strings, a `None` error is absent while a
+//! `None` signal code is `null`, and a payload written the way the TS producer writes it
+//! deserializes.
 
 use serde_json::{json, Value};
 use sidecar_rust_pty::protocol::{
@@ -200,8 +201,8 @@ fn envelope_kind_is_top_level_snake_case() {
 
 #[test]
 fn hand_rolled_spawn_request_json_deserializes_to_envelope() {
-    // A hand-built payload as the TS producer writes it (mirroring `pty-host-protocol.ts` in
-    // `packages/contracts`): top-level `kind` and payload fields at the same depth.
+    // A hand-built payload as the TS producer writes it (mirroring the daemon's
+    // `pty-host-protocol.ts`): top-level `kind` and payload fields at the same depth.
     let raw = json!({
         "kind": "spawn_request",
         "command": "ls",

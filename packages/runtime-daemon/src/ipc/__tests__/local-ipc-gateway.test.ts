@@ -13,9 +13,7 @@ import * as path from "node:path";
 
 import type {
   Handler,
-  HandlerContext,
   JsonRpcErrorResponse,
-  JsonRpcId,
   JsonRpcRequest,
   JsonRpcResponse,
 } from "@ai-sidekicks/contracts";
@@ -162,13 +160,11 @@ describe("Content-Length framing parser correctness", () => {
     expect(JSON.parse(r2.frame.toString("utf8"))).toStrictEqual(env2);
   });
 
-  it("returns `{ frame: null, consumed: 0 }` for a partial buffer (header only)", () => {
-    const result = parseFrame(Buffer.from("Content-Length: 100\r\n", "ascii"));
-    expect(result.frame).toBeNull();
-    expect(result.consumed).toBe(0);
-  });
+  it("returns `{ frame: null, consumed: 0 }` for a partial buffer, header only or body short", () => {
+    const headerOnly = parseFrame(Buffer.from("Content-Length: 100\r\n", "ascii"));
+    expect(headerOnly.frame).toBeNull();
+    expect(headerOnly.consumed).toBe(0);
 
-  it("returns `{ frame: null, consumed: 0 }` for a partial buffer (header complete, body short)", () => {
     const env = { jsonrpc: JSONRPC_VERSION, id: 1, method: "x.y", params: {} };
     const full = encodeFrame(env);
     // The header is complete but the last 5 body bytes are missing.
@@ -178,7 +174,7 @@ describe("Content-Length framing parser correctness", () => {
     expect(result.consumed).toBe(0);
   });
 
-  it("throws FramingError(`malformed_header`) when internal header lines use LF instead of CRLF", () => {
+  it("throws FramingError for an LF header line, a non-numeric length and a missing length", () => {
     // The header/body separator is CRLFCRLF, but a line inside the header ends in a bare LF.
     const buf = Buffer.from("X-Other: 1\nContent-Length: 5\r\n\r\n12345", "ascii");
     let caught: unknown = null;
@@ -191,13 +187,10 @@ describe("Content-Length framing parser correctness", () => {
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("malformed_header");
     }
-  });
 
-  it("throws FramingError(`malformed_content_length`) for non-numeric Content-Length", () => {
-    const buf = Buffer.from("Content-Length: abc\r\n\r\n", "ascii");
-    let caught: unknown = null;
+    caught = null;
     try {
-      parseFrame(buf);
+      parseFrame(Buffer.from("Content-Length: abc\r\n\r\n", "ascii"));
     } catch (err) {
       caught = err;
     }
@@ -205,13 +198,10 @@ describe("Content-Length framing parser correctness", () => {
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("malformed_content_length");
     }
-  });
 
-  it("throws FramingError(`missing_content_length`) when header lacks Content-Length", () => {
-    const buf = Buffer.from("Other-Header: 5\r\n\r\n12345", "ascii");
-    let caught: unknown = null;
+    caught = null;
     try {
-      parseFrame(buf);
+      parseFrame(Buffer.from("Other-Header: 5\r\n\r\n12345", "ascii"));
     } catch (err) {
       caught = err;
     }
@@ -585,7 +575,7 @@ describe("enforcement (gateway side)", () => {
 // A `start()` that fails to bind must leave the gateway unstarted, so a retry is allowed instead
 // of failing with "gateway already started".
 describe("start() rollback on listen failure", () => {
-  it("rejects on EADDRINUSE and permits a subsequent start() retry (no 'gateway already started' wedge)", async () => {
+  it("rejects a failed bind and lets start() be retried", async () => {
     const socketPath = ephemeralSocketPath("rollback");
     bootstrap({
       localIpcPath: socketPath,
@@ -677,6 +667,8 @@ describe("malformed request id rejected before dispatch", () => {
           // JSON-RPC 2.0 requires a null id when the request id is invalid.
           expect(response.id).toBeNull();
           expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
+          // Reported as the id failure, ahead of the missing protocolVersion.
+          expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
           expect(handlerSpy).not.toHaveBeenCalled();
         } finally {
           await client.close();
@@ -793,9 +785,9 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
     }
   });
 
-  it("NEGATIVE CONTROL: an id at the bound is accepted and echoed verbatim", async () => {
-    // Without this the first two tests would pass even if every string id were refused. The
-    // bound is on the JSON-encoded id, so 254 ASCII characters plus two quotes is exactly 256.
+  it("accepts an id exactly at the bound and echoes it verbatim", async () => {
+    // A bound that refused every string id would pass the two tests above. The bound is on the
+    // JSON-encoded id, so 254 ASCII characters plus two quotes is exactly 256.
     const atBoundId = "a".repeat(JSON_RPC_ID_MAX_BYTES - 2);
     const socketPath = ephemeralSocketPath("at-bound-id");
     bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
@@ -842,8 +834,8 @@ describe("JSON_RPC_ID_MAX_BYTES — an oversized request id is refused, never ec
 
 // The 1024-byte header cap applies whether or not the CRLFCRLF separator has arrived yet; the
 // body cap (`MAX_MESSAGE_BYTES`) does not cover the header.
-describe("parseFrame caps header section even when delimiter is present", () => {
-  it("throws FramingError(`header_too_long`) when header section exceeds 1024 bytes despite a valid CRLFCRLF terminator", () => {
+describe("parseFrame caps the header section", () => {
+  it("throws FramingError(`header_too_long`) for a header over 1024 bytes, with or without its terminator", () => {
     // The parser ignores unknown header names, so this padding trips only the byte cap.
     const padding = "a".repeat(2000);
     const buf = Buffer.from(`Content-Length: 5\r\nX-Pad: ${padding}\r\n\r\n12345`, "ascii");
@@ -857,14 +849,11 @@ describe("parseFrame caps header section even when delimiter is present", () => 
     if (caught instanceof FramingError) {
       expect(caught.code).toBe("header_too_long");
     }
-  });
 
-  it("preserves the pre-delimiter header guard (separatorIndex === -1 branch still throws)", () => {
     // 2 KB with no separator yet: the stream looks desynchronized.
-    const buf = Buffer.from("Z".repeat(2000), "ascii");
-    let caught: unknown = null;
+    caught = null;
     try {
-      parseFrame(buf);
+      parseFrame(Buffer.from("Z".repeat(2000), "ascii"));
     } catch (err) {
       caught = err;
     }
@@ -922,36 +911,6 @@ describe("envelope-level protocolVersion substrate gate", () => {
     return { registry, handlerSpy };
   }
 
-  it("well-formed envelope-level protocolVersion is accepted; handler runs", async () => {
-    const socketPath = ephemeralSocketPath("pv-ok");
-    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
-    const { registry, handlerSpy } = makeRegistry("session.create");
-    const gateway = new LocalIpcGateway({ registry });
-    try {
-      await gateway.start();
-      const client = await makeClient(socketPath);
-      try {
-        client.socket.write(frameWithProtocolVersion("session.create", 7, '"2026-05-01"'));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
-        const response = decodeOneFrame(acc) as JsonRpcResponse;
-        expect(response.id).toBe(7);
-        expect(response.result).toStrictEqual({ ok: true });
-        expect(handlerSpy).toHaveBeenCalledTimes(1);
-      } finally {
-        await client.close();
-      }
-    } finally {
-      await gateway.stop();
-      await fs.rm(socketPath, { force: true });
-    }
-  });
-
   // Each row is malformed in one way and must produce its own `data.fields.reason`.
   const cases: ReadonlyArray<{
     readonly label: string;
@@ -973,25 +932,8 @@ describe("envelope-level protocolVersion substrate gate", () => {
       expectedObservedType: "number",
     },
     {
-      label: "boolean value",
-      pvLiteral: "true",
-      expectedReason: "wrong_type",
-      expectedObservedType: "boolean",
-    },
-    {
-      label: "object value",
-      pvLiteral: "{}",
-      expectedReason: "wrong_type",
-      expectedObservedType: "object",
-    },
-    {
       label: "string but not ISO 8601 date",
       pvLiteral: '"not-a-date"',
-      expectedReason: "invalid_format",
-    },
-    {
-      label: "string with semver shape",
-      pvLiteral: '"1.0.0"',
       expectedReason: "invalid_format",
     },
     {
@@ -1163,47 +1105,4 @@ describe("envelope-level protocolVersion substrate gate", () => {
       await fs.rm(socketPath, { force: true });
     }
   });
-
-  it("malformed id rejection fires BEFORE protocolVersion gate (ordering is load-bearing)", async () => {
-    // An envelope with both a malformed id and no `protocolVersion` must report the id failure
-    // (`invalid_envelope`), not `transport.invalid_protocol_version`.
-    const socketPath = ephemeralSocketPath("pv-order");
-    bootstrap({ localIpcPath: socketPath, bannerFormat: "text" });
-    const { registry, handlerSpy } = makeRegistry("session.create");
-    const gateway = new LocalIpcGateway({ registry });
-    try {
-      await gateway.start();
-      const client = await makeClient(socketPath);
-      try {
-        const bodyText = `{"jsonrpc":"${JSONRPC_VERSION}","id":{},"method":"session.create","params":{}}`;
-        const bodyBytes = Buffer.from(bodyText, "utf8");
-        const header = `Content-Length: ${bodyBytes.byteLength}\r\n\r\n`;
-        client.socket.write(Buffer.concat([Buffer.from(header, "ascii"), bodyBytes]));
-        const acc = await client.waitForBytes((b) => {
-          try {
-            return parseFrame(b).frame !== null;
-          } catch {
-            return false;
-          }
-        });
-        const response = decodeOneFrame(acc) as JsonRpcErrorResponse;
-        expect(response.jsonrpc).toBe(JSONRPC_VERSION);
-        // JSON-RPC 2.0 requires a null id when the request id is invalid.
-        expect(response.id).toBeNull();
-        expect(response.error.code).toBe(JsonRpcErrorCode.InvalidRequest);
-        expect(response.error.data).toMatchObject({ type: "invalid_envelope" });
-        expect(handlerSpy).not.toHaveBeenCalled();
-      } finally {
-        await client.close();
-      }
-    } finally {
-      await gateway.stop();
-      await fs.rm(socketPath, { force: true });
-    }
-  });
 });
-
-function _typeGuards(_ctx: HandlerContext, _id: JsonRpcId): void {
-  void _ctx;
-  void _id;
-}

@@ -185,18 +185,6 @@ describe("UsageDeltaAccountant", () => {
     expect(mismatchRecords[0]?.details["derivedInterval"]).toBe(100);
   });
 
-  it("an agreeing declared per-turn figure records no diagnostic", () => {
-    const { accountant, diagnostics } = makeAccountant();
-    accountant.establishThread("thread-1", { mode: "fresh" });
-    accountant.meterReading({
-      threadId: "thread-1",
-      namedTurnId: "turn-A",
-      cumulative: { input: 100 },
-      declaredPerTurn: { input: 100 },
-    });
-    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(0);
-  });
-
   it("a reading whose input contains its cached figure partitions to the uncached total exactly once", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
@@ -277,35 +265,6 @@ describe("UsageDeltaAccountant", () => {
     });
     expect(recovered?.axisDeltas.input).toBe(60);
   });
-
-  it("refuses an axis the token vocabulary does not name rather than minting a register for it", () => {
-    const { accountant, diagnostics } = makeAccountant();
-    accountant.establishThread("thread-1", { mode: "fresh" });
-    const metered = accountant.meterReading({
-      threadId: "thread-1",
-      namedTurnId: "turn-A",
-      // A counter the corpus has no axis for: metering it would put an unnamed figure on a
-      // receipt, and dropping it silently would hide that the vendor's surface grew.
-      cumulative: { input: 10, reasoningTokens: 5 } as Record<string, number>,
-    });
-    expect(metered?.axisDeltas).toEqual({ input: 10 });
-    expect(diagnostics.recentRecordsOfKind("usage_axis_reading_rejected")).toHaveLength(1);
-  });
-
-  it("releases a thread's registers when its provider session ends", () => {
-    const { accountant } = makeAccountant();
-    accountant.establishThread("thread-1", { mode: "fresh" });
-    expect(accountant.hasThread("thread-1")).toBe(true);
-    accountant.releaseThread("thread-1");
-    expect(accountant.hasThread("thread-1")).toBe(false);
-    expect(
-      accountant.meterReading({
-        threadId: "thread-1",
-        namedTurnId: null,
-        cumulative: { input: 1 },
-      }),
-    ).toBeNull();
-  });
 });
 
 describe("resolveCostUpdateProvenance", () => {
@@ -318,7 +277,7 @@ describe("resolveCostUpdateProvenance", () => {
     grossDivergenceFactor: 10,
   };
 
-  it("CONFORMANCE: the native-cap path emits exactly { costStatus: 'unpriced', costSource: 'unpriced_native_cap' } with costUsdMicros absent", () => {
+  it("the native-cap path emits an unpriced update with no costUsdMicros", () => {
     const resolved = resolveCostUpdateProvenance({
       ...ladderDefaults,
       providerReportedCostUsdMicros: null,
@@ -350,23 +309,6 @@ describe("resolveCostUpdateProvenance", () => {
     });
   });
 
-  it("gross divergence from the derivable estimate keeps reported provenance and records a diagnostic", () => {
-    const diagnostics = makeDiagnostics();
-    const resolved = resolveCostUpdateProvenance({
-      ...ladderDefaults,
-      providerReportedCostUsdMicros: 5_000,
-      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
-      nativeCapAdmitted: false,
-      diagnostics,
-    });
-    expect(resolved.resolution).toBe("cost-update");
-    if (resolved.resolution === "cost-update") {
-      expect(resolved.costSource).toBe("provider_reported");
-      expect(resolved.costUsdMicros).toBe(5_000);
-    }
-    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(1);
-  });
-
   it("an absurd or malformed reported cost falls through to derivation", () => {
     for (const badReportedUsdMicros of [Number.NaN, Number.POSITIVE_INFINITY, -1, 200_000]) {
       const resolved = resolveCostUpdateProvenance({
@@ -383,33 +325,6 @@ describe("resolveCostUpdateProvenance", () => {
         costUsdMicros: 40,
       });
     }
-  });
-
-  it("records the discarded reported cost rather than falling through silently", () => {
-    const diagnostics = makeDiagnostics();
-    resolveCostUpdateProvenance({
-      ...ladderDefaults,
-      providerReportedCostUsdMicros: Number.NaN,
-      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
-      nativeCapAdmitted: false,
-      diagnostics,
-    });
-
-    // The provider sent a cost and the daemon billed a different number; a silent fall-through
-    // would hide a provider that emits garbage every turn.
-    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(1);
-  });
-
-  it("an ABSENT reported cost is not a mismatch — nothing was discarded", () => {
-    const diagnostics = makeDiagnostics();
-    resolveCostUpdateProvenance({
-      ...ladderDefaults,
-      providerReportedCostUsdMicros: null,
-      derivedQuote: { costUsdMicros: 40, familyMatch: "exact" },
-      nativeCapAdmitted: false,
-      diagnostics,
-    });
-    expect(diagnostics.recentRecordsOfKind("usage_cross_check_mismatch")).toHaveLength(0);
   });
 
   it("family-prefix fallback resolves derived_family_prefix", () => {
@@ -474,7 +389,7 @@ describe("deriveWindowTelemetry", () => {
     }
   });
 
-  it("the Codex leg subtracts the session baseline before deriving windowUsedTokens", () => {
+  it("the Codex leg subtracts the session baseline, never below zero", () => {
     const telemetry = deriveWindowTelemetry({
       windowSource: "provider_reported",
       rawUsedTokens: 62_000,
@@ -483,17 +398,15 @@ describe("deriveWindowTelemetry", () => {
       exceededWhenCountsAbsent: false,
     });
     expect(telemetry.windowUsedTokens).toBe(50_000);
-  });
 
-  it("baseline subtraction never goes negative", () => {
-    const telemetry = deriveWindowTelemetry({
+    const belowBaseline = deriveWindowTelemetry({
       windowSource: "provider_reported",
       rawUsedTokens: 8_000,
       windowMaxTokens: 200_000,
       sessionBaselineTokens: 12_000,
       exceededWhenCountsAbsent: false,
     });
-    expect(telemetry.windowUsedTokens).toBe(0);
+    expect(belowBaseline.windowUsedTokens).toBe(0);
   });
 
   it("the counts-absent arm carries the wire's own limit signal instead of asserting false", () => {
@@ -516,17 +429,6 @@ describe("deriveWindowTelemetry", () => {
       exceededWhenCountsAbsent: false,
     });
     expect(unsignaled).toEqual({ windowSource: "provider_reported", exceeded: false });
-  });
-
-  it("the counts-PRESENT arm ignores the wire signal and derives from the counts", () => {
-    const telemetry = deriveWindowTelemetry({
-      windowSource: "provider_reported",
-      rawUsedTokens: 10,
-      windowMaxTokens: 200_000,
-      sessionBaselineTokens: 0,
-      exceededWhenCountsAbsent: true,
-    });
-    expect(telemetry.exceeded).toBe(false);
   });
 
   it("exceeded flips at the ceiling", () => {

@@ -69,16 +69,14 @@ describe("OsSecretKeychain", () => {
     await settled;
   });
 
-  it("reports a refused storage access as locked", async () => {
+  it("reports a refused storage access as locked, and a platform failure or no keychain as unavailable", async () => {
     keyring.getPassword = () =>
       Promise.reject(keyringError("Couldn't access platform storage: keychain is locked"));
     await expect(new OsSecretKeychain("service").read("account")).rejects.toMatchObject({
       code: "workflow.secret_store_unavailable",
       unavailableCause: "locked",
     });
-  });
 
-  it("reports a platform failure, or no keychain at all, as unavailable", async () => {
     keyring.getPassword = () =>
       Promise.reject(keyringError("Platform failure: org.freedesktop.DBus.Error.ServiceUnknown"));
     await expect(new OsSecretKeychain("service").read("account")).rejects.toMatchObject({

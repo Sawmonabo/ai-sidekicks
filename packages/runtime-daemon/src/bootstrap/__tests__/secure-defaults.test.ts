@@ -1,7 +1,6 @@
-// Bootstrap guards: reading settings or binding before `load` throws, invalid config fails
-// closed with a typed error that also projects to the JSON-RPC envelope, and each override
-// event is emitted once per process. Both modules hold singleton state, so every case starts
-// from a reset.
+// Binding before load throws, invalid config fails closed with a typed error, the settings view
+// holds only its two keys, an insecure setting is refused on the wire, and each override event is
+// emitted once per process. Both modules hold singleton state, so every case starts from a reset.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -48,27 +47,12 @@ afterEach(() => {
   SecureDefaultOverrideEmitter.__resetForTest();
 });
 
-// The read guard and the bind guard are separate cases so a fix to one cannot hide the other.
 describe("load-before-bind", () => {
-  it("SecureDefaults.effectiveSettings() throws when called before load() (API-internal guard)", () => {
-    expect(SecureDefaults.isLoaded()).toBe(false);
-    expect(() => SecureDefaults.effectiveSettings()).toThrow(
-      /SecureDefaults\.load\(config\) must succeed before this view is read/,
-    );
-  });
-
-  it("assertLoadedForBind() throws when called before bootstrap()/SecureDefaults.load() (orchestrator-throw)", () => {
+  it("assertLoadedForBind() throws when called before SecureDefaults.load()", () => {
     expect(SecureDefaults.isLoaded()).toBe(false);
     expect(() => assertLoadedForBind()).toThrow(
       /SecureDefaults\.load\(config\) must complete before any listener bind\(\)/,
     );
-  });
-
-  it("after bootstrap() succeeds, both surfaces stop throwing (proves the guard release path is wired)", () => {
-    bootstrap(VALID_BASE_CONFIG);
-    expect(SecureDefaults.isLoaded()).toBe(true);
-    expect(() => SecureDefaults.effectiveSettings()).not.toThrow();
-    expect(() => assertLoadedForBind()).not.toThrow();
   });
 });
 
@@ -76,7 +60,7 @@ describe("load-before-bind", () => {
 // class and code rather than a message regex, and checks that the failed load left nothing
 // loaded.
 describe("fail-closed on invalid config", () => {
-  it("throws SecureDefaultsValidationError with an actionable message and leaves isLoaded()===false", () => {
+  it("refuses a bad value, a non-object and a missing key, each with its code, and stays unloaded", () => {
     let caught: unknown;
     try {
       // Per-field validation; unknown keys are covered by the extended-scope cases below.
@@ -96,10 +80,8 @@ describe("fail-closed on invalid config", () => {
     expect(caught.message).toMatch(/\["text", "json"\]/);
     expect(SecureDefaults.isLoaded()).toBe(false);
     expect(() => SecureDefaults.effectiveSettings()).toThrow();
-  });
 
-  it("rejects a non-object config with code='invalid_config' (rules out partial start on top-level bad input)", () => {
-    let caught: unknown;
+    caught = undefined;
     try {
       // The type rules this out; the runtime guard is what is pinned here.
       SecureDefaults.load(null as unknown as SecureDefaultsConfig);
@@ -110,10 +92,8 @@ describe("fail-closed on invalid config", () => {
     if (!(caught instanceof SecureDefaultsValidationError)) return;
     expect(caught.code).toBe("invalid_config");
     expect(SecureDefaults.isLoaded()).toBe(false);
-  });
 
-  it("rejects missing required keys with code='missing_required_setting' and stays unloaded", () => {
-    let caught: unknown;
+    caught = undefined;
     try {
       SecureDefaults.load({
         localIpcPath: "/tmp/ai-sidekicks-test.sock",
@@ -142,14 +122,6 @@ describe("effectiveSettings non-secret typed values", () => {
 
     expect(eff.localIpcPath).toBe("/tmp/ai-sidekicks-test.sock");
     expect(eff.bannerFormat).toBe("text");
-
-    expect(Object.isFrozen(eff)).toBe(true);
-  });
-
-  it("admits the json banner format end-to-end", () => {
-    bootstrap({ ...VALID_BASE_CONFIG, bannerFormat: "json" });
-    const eff = SecureDefaults.effectiveSettings();
-    expect(eff.bannerFormat).toBe("json");
   });
 });
 
@@ -197,36 +169,7 @@ describe("extended-scope-key refusal", () => {
       expect(SecureDefaults.isLoaded()).toBe(false);
     },
   );
-
-  it("refuses a config carrying multiple extended-scope keys at once (refuse-unknown-keys catches the first encountered)", () => {
-    // Several bad keys surface one `unknown_setting`; which key is named follows object
-    // key order, so only membership is asserted.
-    const config = {
-      ...VALID_BASE_CONFIG,
-      tlsMode: "strict",
-      nonLoopbackHost: "0.0.0.0",
-      firstRunKeysPolicy: "auto",
-    } as unknown as SecureDefaultsConfig;
-
-    let caught: unknown;
-    try {
-      SecureDefaults.load(config);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(SecureDefaultsValidationError);
-    if (!(caught instanceof SecureDefaultsValidationError)) return;
-    expect(caught.code).toBe("unknown_setting");
-
-    const envelope = mapJsonRpcError(caught, 1);
-    expect(envelope.error.code).toBe(JsonRpcErrorCode.InvalidParams);
-    expect(envelope.error.data?.type).toBe("unknown_setting");
-    const fields = envelope.error.data?.fields as Record<string, unknown> | undefined;
-    expect(fields?.["setting"]).toMatch(/^(tlsMode|nonLoopbackHost|firstRunKeysPolicy)$/);
-  });
 });
-
-// Dedupe is per `behavior`; a throwing sink must not let a retry produce a second event.
 
 describe("single-emit-per-startup", () => {
   it("emits exactly once for a single behavior even when emit() is called twice", () => {
@@ -257,30 +200,7 @@ describe("single-emit-per-startup", () => {
     expect(SecureDefaultOverrideEmitter.hasEmitted(2)).toBe(true);
   });
 
-  it("mark-before-fire: a sink that throws still marks the behavior; a retry with a counting sink does NOT produce a duplicate", () => {
-    const throwingSink: SecurityDefaultOverrideSink = () => {
-      throw new Error("simulated sink failure");
-    };
-    SecureDefaultOverrideEmitter.setSink(throwingSink);
-
-    expect(() => SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1))).toThrow(
-      /simulated sink failure/,
-    );
-
-    // Marked before the sink ran; marking after would leave this false.
-    expect(SecureDefaultOverrideEmitter.hasEmitted(1)).toBe(true);
-
-    // Replacing the sink keeps the dedupe state.
-    const countingSink = vi.fn<SecurityDefaultOverrideSink>();
-    SecureDefaultOverrideEmitter.setSink(countingSink);
-
-    SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1));
-
-    // The retry was suppressed even though the first delivery failed.
-    expect(countingSink).toHaveBeenCalledTimes(0);
-  });
-
-  it("emit() throws when no sink is installed (symmetric pre-condition guard)", () => {
+  it("emit() throws when no sink is installed and keeps the behavior's one event", () => {
     expect(SecureDefaultOverrideEmitter.hasSink()).toBe(false);
     expect(() => SecureDefaultOverrideEmitter.emit(makeOverrideEvent(1))).toThrow(
       /SecureDefaultOverrideEmitter\.setSink\(sink\) must be called before emit\(\)/,

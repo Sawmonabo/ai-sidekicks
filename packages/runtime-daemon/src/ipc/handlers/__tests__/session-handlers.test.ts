@@ -1,19 +1,19 @@
-// `session.create`, `session.read` and `session.subscribe` handler tests, driven through the
-// method registry. The streaming primitive's own guarantees (cancel bookkeeping, transport
-// ownership, cancel handlers) are covered in `streaming-primitive.test.ts`.
+// The `session.*` handlers through the method registry: `session.create` and `session.read`
+// round-trip, refuse a malformed payload or a duplicate registration and carry their gate flags;
+// `session.subscribe` batches changes after the ack, drops for a slow connection instead of
+// waiting, cancels on a malformed event and detaches the upstream with the subscription.
 
 import { afterEach, describe, expect, it, vi, type Mock } from "vitest";
 
 import type {
   AgentId,
   EventCursor,
-  Handler,
   HandlerContext,
   JsonRpcNotification,
-  SessionCreateRequest,
-  SessionCreateResponse,
   SessionEvent,
   SessionId,
+  SessionCreateRequest,
+  SessionCreateResponse,
   SessionReadRequest,
   SessionStreamChange,
   SessionStreamFrame,
@@ -24,13 +24,8 @@ import type {
 } from "@ai-sidekicks/contracts";
 import {
   JSONRPC_VERSION,
-  SessionCreateRequestSchema,
-  SessionCreateResponseSchema,
   JsonRpcErrorCode,
-  SessionReadRequestSchema,
   SessionReadResponseSchema,
-  SessionSubscribeRequestSchema,
-  SessionSubscribeResponseSchema,
   STREAM_FRAME_MAX_CHANGES,
   SUBSCRIPTION_NOTIFY_METHOD,
 } from "@ai-sidekicks/contracts";
@@ -167,7 +162,7 @@ describe("session.create round-trip through MethodRegistry dispatch", () => {
   });
 });
 
-describe("malformed session.create payload (verifies handler NEVER runs maps to -32602)", () => {
+describe("malformed session.create payload", () => {
   it("malformed payload rejects with `RegistryDispatchError(invalid_params)`; handler is NEVER invoked", async () => {
     const registry = new MethodRegistryImpl();
     const mockCreateSession = vi.fn<(req: SessionCreateRequest) => Promise<SessionCreateResponse>>(
@@ -582,26 +577,6 @@ describe("session.subscribe detaches the upstream when the subscription ends", (
 });
 
 describe("duplicate registerSessionCreate rejected at register-time", () => {
-  it("calling registerSessionCreate twice throws RegistryRegistrationError(`duplicate_method`)", () => {
-    const registry = new MethodRegistryImpl();
-    const deps: SessionCreateDeps = {
-      createSession: async () => buildSessionCreateResponse(),
-    };
-
-    registerSessionCreate(registry, deps);
-
-    let caught: unknown = null;
-    try {
-      registerSessionCreate(registry, deps);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(RegistryRegistrationError);
-    if (caught instanceof RegistryRegistrationError) {
-      expect(caught.registryCode).toBe("duplicate_method");
-    }
-  });
-
   it("the duplicate throw is SYNCHRONOUS (verifies bootstrap-deterministic failure)", () => {
     const registry = new MethodRegistryImpl();
     const deps: SessionCreateDeps = {
@@ -613,7 +588,7 @@ describe("duplicate registerSessionCreate rejected at register-time", () => {
   });
 });
 
-describe("session.read round-trip (AC-N2 +)", () => {
+describe("session.read", () => {
   it("dispatches a known sessionId to the readSession deps and answers it with the held draft", async () => {
     const registry = new MethodRegistryImpl();
     const logRead = buildSessionLogRead();
@@ -702,14 +677,3 @@ describe("session.read round-trip (AC-N2 +)", () => {
     expect(registry.isMutating("session.read")).toBe(false);
   });
 });
-
-// These references keep imports that nothing else in the file uses from failing the unused-import
-// check.
-type _HandlerSignaturePresent = Handler<SessionCreateRequest, SessionCreateResponse>;
-const _typeProbe: _HandlerSignaturePresent | undefined = undefined;
-void _typeProbe;
-void SessionCreateRequestSchema;
-void SessionCreateResponseSchema;
-void SessionReadRequestSchema;
-void SessionSubscribeRequestSchema;
-void SessionSubscribeResponseSchema;

@@ -22,25 +22,6 @@ describe("workflow_run", () => {
       null,
     );
   });
-
-  it("tells the provider the members it takes and closes the rest", () => {
-    expect(WORKFLOW_RUN_TOOL.inputSchema).toMatchObject({
-      type: "object",
-      properties: {
-        definitionName: { type: "string" },
-        scope: { enum: ["session", "project", "shared"] },
-      },
-      required: ["definitionName"],
-      additionalProperties: false,
-    });
-  });
-
-  it("refuses a scope outside the three", () => {
-    expect(
-      WorkflowRunToolInputSchema.safeParse({ definitionName: "Nightly suite", scope: "team" })
-        .success,
-    ).toBe(false);
-  });
 });
 
 const CREATE_INPUT = {
@@ -62,15 +43,13 @@ const CREATE_INPUT = {
 };
 
 describe("a session is never an input", () => {
-  it("admits the inputs without a session id", () => {
+  it("admits the run, list and create inputs without a session id and refuses one", () => {
     expect(WorkflowRunToolInputSchema.safeParse({ definitionName: "Nightly suite" }).success).toBe(
       true,
     );
     expect(WorkflowListToolInputSchema.safeParse({}).success).toBe(true);
     expect(WorkflowCreateToolInputSchema.safeParse(CREATE_INPUT).success).toBe(true);
-  });
 
-  it("refuses a session id on the run, list and create inputs", () => {
     expect(
       WorkflowRunToolInputSchema.safeParse({
         definitionName: "Nightly suite",

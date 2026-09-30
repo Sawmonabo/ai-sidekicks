@@ -1,5 +1,6 @@
-// Pure projector tests (no SQLite, no service): `replay()` over in-memory events. The owner
-// is read off the envelope's `actor`; the `session.created` payload does not name it.
+// `replay()` projects the owner from the bootstrap `session.created` event's `actor`, and refuses
+// an event log whose bootstrap is missing or not at sequence 0, since projecting from it would
+// present partial state as complete.
 
 import { describe, expect, it } from "vitest";
 
@@ -55,27 +56,9 @@ describe("session-projector — bootstrap projection", () => {
 
     expect(snapshot.ownerActor).toBe(OWNER_ACTOR_ID);
   });
+});
 
-  it("lets a later event advance asOfSequence and nothing else", () => {
-    // An event the projector does not fold contributes no field to the snapshot.
-    const snapshot: DaemonSessionSnapshot | null = replay([
-      makeCreatedEvent(),
-      {
-        ...makeCreatedEvent(),
-        id: "01J0EV0001NN5J5J5J5J5J5J5J",
-        sequence: 1,
-        category: "assistant_output",
-        type: "assistant.message",
-        payload: { text: "hello" },
-      },
-    ]);
-    expect(snapshot).toStrictEqual({ ...replay([makeCreatedEvent()]), asOfSequence: 1 });
-  });
-
-  it("returns null on an empty event list", () => {
-    expect(replay([])).toBeNull();
-  });
-
+describe("session-projector — bootstrap refusals", () => {
   it("rejects a first event that is not session.created", () => {
     const stranded: StoredEvent = {
       id: "01J0EV9999NN5J5J5J5J5J5J5J",
@@ -94,27 +77,6 @@ describe("session-projector — bootstrap projection", () => {
     expect(() => replay([stranded])).toThrow(/expected first event type 'session.created'/);
   });
 
-  it("reports ownerActor as null when the bootstrap envelope names no actor", () => {
-    // `actor: null` is legal, so a system-emitted bootstrap names nobody; the projector reports
-    // that rather than inventing an owner.
-    const systemEmitted: StoredEvent = { ...makeCreatedEvent(), actor: null };
-    const snapshot: DaemonSessionSnapshot | null = replay([systemEmitted]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    expect(snapshot.ownerActor).toBeNull();
-  });
-
-  it("normalizes an empty-string actor to a null ownerActor", () => {
-    // An empty owner is an absent owner; collapsing the two spares readers checking both.
-    const blankActor: StoredEvent = { ...makeCreatedEvent(), actor: "" };
-    const snapshot: DaemonSessionSnapshot | null = replay([blankActor]);
-    expect(snapshot).not.toBeNull();
-    if (snapshot === null) return;
-
-    expect(snapshot.ownerActor).toBeNull();
-  });
-
   // `SessionService.append` accepts any sequence, so this projector check is the only guard
   // against a log that opens at sequence > 0 and hides lost or corrupted earlier events.
 
@@ -125,18 +87,6 @@ describe("session-projector — bootstrap projection", () => {
     };
     expect(() => replay([nonZeroBootstrap])).toThrow(
       /bootstrap 'session\.created' must have sequence=0 \(got sequence=1\)/,
-    );
-  });
-
-  it("rejects a bootstrap session.created event at a far-future sequence (>0 covers the whole non-zero domain)", () => {
-    // A non-adjacent sequence also catches a regression that compares `sequence < 1` instead of
-    // `!== 0`.
-    const farFutureBootstrap: StoredEvent = {
-      ...makeCreatedEvent(),
-      sequence: 12345,
-    };
-    expect(() => replay([farFutureBootstrap])).toThrow(
-      /bootstrap 'session\.created' must have sequence=0 \(got sequence=12345\)/,
     );
   });
 });

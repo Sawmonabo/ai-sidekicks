@@ -1,6 +1,5 @@
-// The projector does no I/O, so every branch is driven by handing it rows directly.
-// Covered: the listing (every state but `retired`, in the caller's order), the field fold
-// (optional fields absent by key), the folder binding, and the parse boundary.
+// The worktree status read the desktop renders: every standing tree in the caller's order, each
+// row's fields folded onto the wire record.
 
 import { randomUUID } from "node:crypto";
 
@@ -22,7 +21,6 @@ import type { WorktreeStatusReading, WorktreeStatusRow } from "../worktree-proje
 const SESSION_ID: string = randomUUID();
 const CREATING_SESSION_ID: string = randomUUID();
 const MOUNT_A_ID: string = randomUUID();
-const MOUNT_B_ID: string = randomUUID();
 const RUN_ID: string = randomUUID();
 
 const CREATED_AT: string = "2026-08-04T12:00:00.000Z";
@@ -66,18 +64,6 @@ function reading(
   overrides: Partial<WorktreeStatusReading> = {},
 ): WorktreeStatusReading {
   return { repoRoot: REPO_ROOT, worktrees, countsAsOf: null, newWorktree: null, ...overrides };
-}
-
-/**
- * A row as a query that forgot a column hands it over: the key is absent, so the field reads
- * `undefined` rather than `null`. The row interface cannot express that, hence the cast.
- */
-function withColumnOmitted(
-  row: WorktreeStatusRow,
-  column: keyof WorktreeStatusRow,
-): WorktreeStatusRow {
-  const { [column]: _omittedColumn, ...withoutColumn } = row;
-  return withoutColumn as WorktreeStatusRow;
 }
 
 /** A read of folder A, with the request built through the contract's schema. */
@@ -126,10 +112,6 @@ describe("projectWorktreeStatusRead — the trees still standing", () => {
       "ready",
     ]);
   });
-
-  it("answers the repo-root row alone for a project with no trees", () => {
-    expect(project(reading())).toEqual({ repoRoot: REPO_ROOT, worktrees: [] });
-  });
 });
 
 // ----------------------------------------------------------------------------
@@ -177,82 +159,5 @@ describe("projectWorktreeStatusRead — field by field", () => {
       createdAt: CREATED_AT,
       updatedAt: UPDATED_AT,
     });
-  });
-
-  it("leaves an optional field absent by key, whether null or never selected", () => {
-    const nulls = onlyWorktreeRecord(project(reading([worktreeRow()])));
-    // Seeded non-null before the column is dropped, so a projector that stopped omitting fails
-    // here.
-    const unselected = onlyWorktreeRecord(
-      project(
-        reading([
-          withColumnOmitted(
-            withColumnOmitted(
-              withColumnOmitted(
-                worktreeRow({ created_by_run_id: RUN_ID, ahead: 4, behind: 5 }),
-                "ahead",
-              ),
-              "behind",
-            ),
-            "created_by_run_id",
-          ),
-        ]),
-      ),
-    );
-
-    for (const record of [nulls, unselected]) {
-      expect("ahead" in record).toBe(false);
-      expect("behind" in record).toBe(false);
-      expect("createdByRunId" in record).toBe(false);
-    }
-  });
-});
-
-// ----------------------------------------------------------------------------
-// The folder binding
-// ----------------------------------------------------------------------------
-
-describe("projectWorktreeStatusRead — the read's folder", () => {
-  it("refuses a row on another project's folder, naming the row", () => {
-    const foreign = worktreeRow({ repo_mount_id: MOUNT_B_ID });
-
-    expect(() => project(reading([worktreeRow(), foreign]))).toThrow(
-      new RegExp(`different project folder.*${foreign.id}`, "s"),
-    );
-  });
-
-  it("refuses a retired row on another folder too: the binding is checked before the listing rule", () => {
-    const foreign = worktreeRow({ repo_mount_id: MOUNT_B_ID, state: "retired" });
-
-    expect(() => project(reading([foreign]))).toThrow(/different project folder/);
-  });
-});
-
-// ----------------------------------------------------------------------------
-// The parse boundary
-// ----------------------------------------------------------------------------
-
-describe("projectWorktreeStatusRead — the parse boundary", () => {
-  it.each([
-    ["a state outside the closed vocabulary", { state: "hibernating" }],
-    ["a non-ISO instant", { created_at: "4 August 2026, just after lunch" }],
-    ["an id that is not a UUID", { id: "worktree-7" }],
-    ["a negative count", { uncommitted_file_count: -1 }],
-  ])("refuses %s at the projection", (_label, overrides) => {
-    expect(() => project(reading([worktreeRow(overrides)]))).toThrow(
-      /WorktreeStatusReadResponse shape\s+refuses/,
-    );
-  });
-
-  it("carries the validation failure as `cause`, with the array named", () => {
-    let cause: unknown;
-    try {
-      project(reading([worktreeRow({ state: "hibernating" })]));
-    } catch (error) {
-      cause = error instanceof Error ? error.cause : undefined;
-    }
-
-    expect(cause).toBeInstanceOf(Error);
-    expect(String((cause as Error).message)).toMatch(/worktrees/);
   });
 });

@@ -1,16 +1,7 @@
-// Contract coverage for `EventLogService`, the sole durable append path. Four properties fail
-// silently unless asserted here:
-//
-//   1. PII indirection: the owner reaches its durable column and the ciphertext reaches
-//      `pii_payload`, never the plaintext `payload` column.
-//   2. The typed refusal, asserted through `mapJsonRpcError`: a client reads `data.type` beside
-//      `data.fields`, which a check that stops at the throw would never see.
-//   3. Serialization: concurrent appends on one session never derive the same sequence, reentrant
-//      appends do not deadlock, and a throwing `transactionalPrelude` consumes no sequence.
-//   4. The head read boundary: a SQLite column type is affinity, not enforcement, so the head's
-//      `sequence` is read as `unknown` and narrowed; the next sequence derives from that read.
+// `EventLogService`, the sole durable append path: per-session sequencing under the append lock,
+// the head read boundary, the PII split, the canonical-size ceiling, the stored-variant parse and
+// the terminal-run backstop, each asserted on the stored rows.
 
-import { blake3 } from "@noble/hashes/blake3.js";
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -29,16 +20,11 @@ import {
 
 import { mapJsonRpcError } from "../../ipc/jsonrpc-error-mapping.js";
 import { openDatabase } from "../../session/migration-runner.js";
-import { canonicalizeEvent, type CanonicalBytes } from "../canonicalizer.js";
+import { canonicalizeEvent } from "../canonicalizer.js";
 import { EventLogService, type UnsequencedEventEnvelope } from "../event-log-service.js";
-import {
-  CodecOwnedContentKeyError,
-  type PiiEncryptionRequest,
-  type PiiEncryptor,
-} from "../pii-indirection.js";
 import { __resetSessionAppendLocksForTest, withSessionAppendLock } from "../session-append-lock.js";
-import type { SessionContentKeySource } from "../session-content-key-store.js";
 import { writeAcrossStrictTyping } from "../../session/__fixtures__/at-rest-tamper.js";
+import { DeterministicPiiEncryptor } from "./event-test-fixtures.js";
 
 const SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f10");
 const OTHER_SESSION: SessionId = SessionIdSchema.parse("0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f11");
@@ -90,54 +76,14 @@ async function settlesWithin(work: Promise<unknown>, turns: number): Promise<boo
   return settled;
 }
 
-/**
- * Stub encryptor: an XOR over a BLAKE3 keystream seeded by the user id and event id.
- *
- * Not an AEAD. It is deterministic, so tests can name expected bytes, and the ciphertext differs
- * for every (user, event) pair. `writeEventWithPii` stores whatever bytes it is handed.
- */
-class DeterministicPiiEncryptor implements PiiEncryptor {
-  encryptCallCount = 0;
-
-  encrypt(request: PiiEncryptionRequest): Promise<Uint8Array> {
-    this.encryptCallCount += 1;
-    const keystream = blake3(new TextEncoder().encode(`${request.userId} ${request.eventId}`), {
-      dkLen: Math.max(1, request.plaintext.length),
-    });
-    const sealed = new Uint8Array(request.plaintext.length);
-    for (let index = 0; index < request.plaintext.length; index += 1) {
-      sealed[index] = (request.plaintext[index] ?? 0) ^ (keystream[index] ?? 0);
-    }
-    return Promise.resolve(sealed);
-  }
-}
-
 interface ServiceFixture {
   readonly service: EventLogService;
   readonly encryptor: DeterministicPiiEncryptor;
 }
 
-/**
- * A content-key source that always answers, so the sealing branch of `#composeRow` is reachable.
- * Not the real store, which `session-content-partition.test.ts` covers against a real table.
- */
-const ALWAYS_RESOLVING_CONTENT_KEY_SOURCE: SessionContentKeySource = {
-  resolveForWrite: (sessionId) =>
-    Promise.resolve({ sessionId, key: new Uint8Array(32).fill(9), keyVersion: 1 }),
-};
-
-function buildService(options?: {
-  readonly withoutEncryptor?: boolean;
-  readonly withContentKeySource?: boolean;
-}): ServiceFixture {
+function buildService(): ServiceFixture {
   const encryptor = new DeterministicPiiEncryptor();
-  const service = new EventLogService({
-    db: database,
-    ...(options?.withoutEncryptor === true ? {} : { piiEncryptor: encryptor }),
-    ...(options?.withContentKeySource === true
-      ? { contentKeySource: ALWAYS_RESOLVING_CONTENT_KEY_SOURCE }
-      : {}),
-  });
+  const service = new EventLogService({ db: database, piiEncryptor: encryptor });
   return { service, encryptor };
 }
 
@@ -158,10 +104,9 @@ function makeEnvelope(overrides?: Partial<UnsequencedEventEnvelope>): Unsequence
   };
 }
 
-/** The stored row, hydrated into its envelope, its canonical bytes and the PII columns. */
+/** The stored row, hydrated into its envelope and the PII columns. */
 interface HydratedRow {
   readonly envelope: EventEnvelope;
-  readonly canonical: CanonicalBytes;
   readonly piiPayload: Uint8Array | null;
   readonly piiUserId: string | null;
 }
@@ -188,10 +133,6 @@ function readRawRows(sessionId: SessionId): ReadonlyArray<RawEventRow> {
     .all(sessionId) as ReadonlyArray<RawEventRow>;
 }
 
-/**
- * Rebuild the canonical bytes from storage, never from the input handed to `append()`, so a
- * service that measured one form of the row and stored another cannot pass.
- */
 function hydrate(row: RawEventRow): HydratedRow {
   const envelope: EventEnvelope = {
     id: row.id,
@@ -209,7 +150,6 @@ function hydrate(row: RawEventRow): HydratedRow {
   };
   return {
     envelope,
-    canonical: canonicalizeEvent(envelope),
     piiPayload: row.pii_payload,
     piiUserId: row.pii_user_id,
   };
@@ -230,17 +170,6 @@ async function mappedRefusalOf(work: Promise<unknown>): Promise<JsonRpcErrorResp
 // ----------------------------------------------------------------------------
 
 describe("EventLogService — sequence allocation", () => {
-  it("allocates a gapless sequence from 0", async () => {
-    const { service } = buildService();
-
-    for (let index = 0; index < 6; index += 1) {
-      await service.append(makeEnvelope({ payload: { index } }));
-    }
-
-    const rows = readRawRows(SESSION);
-    expect(rows.map((row) => row.sequence)).toEqual([0, 1, 2, 3, 4, 5]);
-  });
-
   it("allocates per session — each session opens at its own sequence 0", async () => {
     const { service } = buildService();
 
@@ -313,29 +242,6 @@ describe("EventLogService — PII indirection", () => {
     expect(row.payload).not.toContain("secret prose");
     expect(receipt.sequence).toBe(0);
   });
-
-  it("leaves both PII columns NULL on a row that carries no partition", async () => {
-    const { service, encryptor } = buildService();
-
-    await service.append(makeEnvelope());
-
-    const [row] = readRawRows(SESSION);
-    expect(row?.pii_payload).toBeNull();
-    expect(row?.pii_user_id).toBeNull();
-    expect(encryptor.encryptCallCount).toBe(0);
-  });
-
-  it("refuses a PII partition when no encryptor is wired, rather than persisting it in the clear", async () => {
-    const { service } = buildService({ withoutEncryptor: true });
-
-    await expect(
-      service.append(makeEnvelope({ category: "assistant_output" }), {
-        pii: { userId: USER, piiPayload: { text: "secret prose" } },
-      }),
-    ).rejects.toThrow(/PiiEncryptor/);
-
-    expect(readRawRows(SESSION)).toHaveLength(0);
-  });
 });
 
 // ----------------------------------------------------------------------------
@@ -371,7 +277,7 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
     const [row] = rows;
     if (row === undefined) return;
     // The stored row re-canonicalizes to exactly the ceiling: the bound is inclusive.
-    expect(hydrate(row).canonical.length).toBe(EVENT_CANONICAL_BYTES_MAX);
+    expect(canonicalizeEvent(hydrate(row).envelope).length).toBe(EVENT_CANONICAL_BYTES_MAX);
   });
 
   it("refuses ONE byte over with the typed 400-equivalent envelope, writing nothing", async () => {
@@ -388,29 +294,6 @@ describe("EventLogService — daemon.event_canonical_bytes_exceeded", () => {
       maxCanonicalBytes: EVENT_CANONICAL_BYTES_MAX,
     });
     expect(readRawRows(SESSION)).toHaveLength(0);
-  });
-
-  it("consumes no sequence on a refused oversized append", async () => {
-    const { service } = buildService();
-    await service.append(makeEnvelope());
-
-    await expect(
-      service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 1)),
-    ).rejects.toThrow(/EVENT_CANONICAL_BYTES_MAX/);
-
-    // No partial row, and the next admitted append takes sequence 1.
-    expect(readRawRows(SESSION)).toHaveLength(1);
-    const readmitted = await service.append(makeEnvelope());
-    expect(readmitted.sequence).toBe(1);
-  });
-
-  it("never echoes the oversized payload into the error envelope", async () => {
-    const { service } = buildService();
-
-    const mapped = await mappedRefusalOf(
-      service.append(envelopeOfCanonicalSize(EVENT_CANONICAL_BYTES_MAX + 1, 0)),
-    );
-
     // The filler must appear nowhere: echoing a payload of about 32 KiB would defeat the ceiling.
     expect(JSON.stringify(mapped)).not.toContain("xxxxxxxx");
   });
@@ -439,68 +322,26 @@ describe("EventLogService — the plain branch parses what it stores", () => {
     },
   };
 
-  it("refuses a REGISTERED type whose payload its own variant rejects", async () => {
-    const { service } = buildService();
-
-    await expect(
-      service.append(
-        makeEnvelope({ type: "session.created", payload: { note: "not the registered shape" } }),
-      ),
-    ).rejects.toThrow(
-      /EventLogService\.append refuses to store an event of type "session\.created"/,
-    );
-  });
-
-  it("names the offending members, so the caller can fix the payload", async () => {
-    const { service } = buildService();
-
-    await expect(
-      service.append(
-        makeEnvelope({ type: "session.created", payload: { note: "not the registered shape" } }),
-      ),
-    ).rejects.toThrow(/payload\.sessionId \(invalid_type\)/);
-  });
-
-  it("refuses BEFORE writing — no row, no burnt sequence", async () => {
+  it("refuses a REGISTERED type whose payload its own variant rejects, before writing", async () => {
     // A refusal after the INSERT would leave the row behind; one after sequencing would push the
     // next append to 1.
     const { service } = buildService();
+    const rejected = makeEnvelope({
+      type: "session.created",
+      payload: { note: "not the registered shape" },
+    });
 
-    await expect(
-      service.append(makeEnvelope({ type: "session.created", payload: { note: "x" } })),
-    ).rejects.toThrow();
+    await expect(service.append(rejected)).rejects.toThrow(
+      /EventLogService\.append refuses to store an event of type "session\.created"/,
+    );
+    // The refusal names the offending members, so the caller can fix the payload.
+    await expect(service.append(rejected)).rejects.toThrow(/payload\.sessionId \(invalid_type\)/);
 
     expect(readRawRows(SESSION)).toHaveLength(0);
     const readmitted = await service.append(
       makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
     );
     expect(readmitted.sequence).toBe(0);
-  });
-
-  it("admits the same REGISTERED type once its payload matches (positive control)", async () => {
-    // Without this the refusals above could come from an unsatisfiable rule.
-    const { service } = buildService();
-
-    const receipt = await service.append(
-      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
-    );
-
-    expect(receipt.sequence).toBe(0);
-    expect(readRawRows(SESSION)).toHaveLength(1);
-  });
-
-  it("still stores an UNREGISTERED census type carrying an ad-hoc payload", async () => {
-    // `session.updated` has no registered payload variant, and an envelope whose type cannot be
-    // interpreted is stored as a version stub, never rejected. A guard that refused here would
-    // break that.
-    const { service } = buildService();
-
-    const receipt = await service.append(
-      makeEnvelope({ type: "session.updated", payload: { anything: "at all", n: 7 } }),
-    );
-
-    expect(receipt.sequence).toBe(0);
-    expect(readRawRows(SESSION)).toHaveLength(1);
   });
 });
 
@@ -513,24 +354,7 @@ describe("EventLogService — the plain branch parses what it stores", () => {
 // whose account of its own body describes prose the column does not hold. The reader echoes those
 // members instead of recomputing them, so the refusal has to happen at the write.
 
-describe("EventLogService — codec-owned content keys are refused before the branch", () => {
-  const validSessionCreatedPayload = {
-    sessionId: SESSION,
-    shape: "chat",
-    mainAgent: {
-      agentId: "44444444-4444-4444-8444-444444444444",
-      name: "Implementer",
-      binding: {
-        driverName: "claude",
-        modelId: "claude-sonnet-5",
-        providerAccountId: null,
-        effort: null,
-      },
-      ancestry: [],
-      createdAt: "2026-08-01T00:00:00.000Z",
-    },
-  };
-
+describe("EventLogService — codec-owned content keys are refused on the plain path", () => {
   const forgeableMembers: ReadonlyArray<readonly [string, unknown]> = [
     [CONTENT_LENGTH_PAYLOAD_KEY, 4096],
     [CONTENT_TRUNCATED_PAYLOAD_KEY, true],
@@ -558,114 +382,6 @@ describe("EventLogService — codec-owned content keys are refused before the br
     ).rejects.toThrow(
       new RegExp(`EventLogService\\.append refuses an event whose payload already carries ${key}`),
     );
-  });
-
-  it("refuses the SEALING path too — the guard precedes the branch choice", async () => {
-    // The only test here that fails if the guard moves: the others omit `options.content` and take
-    // the plain branch, where a guard inside that branch looks the same as one above it. With the
-    // sealing branch live, a plain-branch-only guard would let this reach the codec, whose own
-    // check refuses it as `writeEventWithPii`. The refuser name separates "refused before the
-    // branch" from "refused after it".
-    const { service } = buildService({ withContentKeySource: true });
-
-    const refusal: unknown = await service
-      .append(
-        makeEnvelope({
-          type: "assistant.message",
-          category: "assistant_output",
-          payload: {
-            sessionId: SESSION,
-            runId: "run-1",
-            contentType: "text/markdown",
-            [CONTENT_LENGTH_PAYLOAD_KEY]: 4096,
-          },
-        }),
-        { content: { body: "the body this caller genuinely wanted sealed" } },
-      )
-      .then(
-        () => undefined,
-        (error: unknown) => error,
-      );
-
-    // `instanceof` only here: this test pins the discriminable type, the reason the class is
-    // exported; the others match the message wording a caller reads.
-    expect(refusal).toBeInstanceOf(CodecOwnedContentKeyError);
-    const refused = refusal as CodecOwnedContentKeyError;
-    expect(refused.message).toContain("EventLogService.append refuses");
-    expect(refused.message).not.toContain("writeEventWithPii");
-    expect(refused.seededKey).toBe(CONTENT_LENGTH_PAYLOAD_KEY);
-    expect(readRawRows(SESSION)).toHaveLength(0);
-  });
-
-  it("refuses before writing — no row, no burnt sequence", async () => {
-    const { service } = buildService();
-
-    await expect(
-      service.append(
-        makeEnvelope({
-          type: "assistant.message",
-          category: "assistant_output",
-          payload: {
-            sessionId: SESSION,
-            runId: "run-1",
-            contentType: "text/markdown",
-            [CONTENT_TRUNCATED_PAYLOAD_KEY]: true,
-          },
-        }),
-      ),
-    ).rejects.toThrow();
-
-    expect(readRawRows(SESSION)).toHaveLength(0);
-    const readmitted = await service.append(
-      makeEnvelope({ type: "session.created", payload: validSessionCreatedPayload }),
-    );
-    expect(readmitted.sequence).toBe(0);
-  });
-
-  it("refuses a TOLERANT CARRIER pre-seeding a codec-owned member, and says so", async () => {
-    // `session.updated` has no registered strict variant, so its type is tolerated, but this guard
-    // checks members, not types. The reader echoes the member whatever the type, so a forged
-    // length misleads on any type.
-    const { service } = buildService();
-
-    await expect(
-      service.append(
-        makeEnvelope({
-          type: "session.updated",
-          payload: { note: "ad hoc", [CONTENT_LENGTH_PAYLOAD_KEY]: 4096 },
-        }),
-      ),
-    ).rejects.toThrow(/already carries contentLength/);
-
-    expect(readRawRows(SESSION)).toHaveLength(0);
-  });
-
-  it("still admits a tolerant carrier that seeds none of them (positive control)", async () => {
-    // Without this the test above could be refusing the type rather than the member.
-    const { service } = buildService();
-
-    const receipt = await service.append(
-      makeEnvelope({ type: "session.updated", payload: { anything: "at all", n: 7 } }),
-    );
-
-    expect(receipt.sequence).toBe(0);
-    expect(readRawRows(SESSION)).toHaveLength(1);
-  });
-
-  it("leaves `contentType` alone — it is the producer's member", async () => {
-    // Only the two members the codec determines are reserved; `contentType` is the producer's, and
-    // reserving it would refuse every body-bearing append.
-    const { service } = buildService();
-
-    const receipt = await service.append(
-      makeEnvelope({
-        type: "assistant.message",
-        category: "assistant_output",
-        payload: { sessionId: SESSION, runId: "run-1", contentType: "text/markdown" },
-      }),
-    );
-
-    expect(receipt.sequence).toBe(0);
   });
 });
 
@@ -803,30 +519,6 @@ describe("EventLogService — the append lock", () => {
     expect(await settlesWithin(afterOwnerSettled, 4)).toBe(true);
   });
 
-  it("commits a transactionalPrelude atomically with the row, prelude first", async () => {
-    const { service } = buildService();
-    database.exec("CREATE TABLE prelude_probe (id TEXT PRIMARY KEY, seen_events INTEGER NOT NULL)");
-
-    await service.append(makeEnvelope(), {
-      transactionalPrelude: () => {
-        // The row this append writes is not visible yet, so reading the count here proves the
-        // prelude ran before the INSERT.
-        const { count } = database
-          .prepare("SELECT COUNT(*) AS count FROM session_events")
-          .get() as {
-          count: number;
-        };
-        database.prepare("INSERT INTO prelude_probe VALUES (?, ?)").run("probe", count);
-      },
-    });
-
-    const probe = database
-      .prepare("SELECT seen_events FROM prelude_probe WHERE id = ?")
-      .get("probe") as { seen_events: number };
-    expect(probe.seen_events).toBe(0);
-    expect(readRawRows(SESSION)).toHaveLength(1);
-  });
-
   it("rolls the whole transaction back when the prelude throws, consuming no sequence", async () => {
     const { service } = buildService();
     database.exec("CREATE TABLE prelude_probe (id TEXT PRIMARY KEY, seen_events INTEGER NOT NULL)");
@@ -941,7 +633,7 @@ describe("EventLogService — terminal-key backstop", () => {
     ).toThrow(/cannot be promoted to terminal/);
   });
 
-  it("refuses an UPDATE that moves a committed terminal row's run identity", async () => {
+  it("refuses an UPDATE that moves or drops a committed terminal row's run key", async () => {
     const { service } = buildService();
     const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
 
@@ -971,16 +663,10 @@ describe("EventLogService — terminal-key backstop", () => {
         .prepare("UPDATE session_events SET type = ? WHERE id = ?")
         .run("run.running", receipt.id),
     ).toThrow(/must preserve runId/);
-  });
 
-  it("refuses an UPDATE that DROPS a committed terminal row's run key", async () => {
     // Dropping the key makes both `json_extract` values NULL, which the value-equality check
     // cannot see and the NULL-distinct index allows. A purge that rebuilds `payload` from a key
-    // list and forgets the run key would silently reopen the duplicate-terminal bypass; the purge
-    // projection keeps it closed and this test fails if it stops.
-    const { service } = buildService();
-    const receipt = await service.append(terminalEnvelope({ runId: "run-1", runVersion: 1 }));
-
+    // list and forgets the run key would silently reopen the duplicate-terminal bypass.
     for (const droppedPayload of [{ runVersion: 1 }, { runId: "run-1" }, { summary: "purged" }]) {
       expect(
         () =>

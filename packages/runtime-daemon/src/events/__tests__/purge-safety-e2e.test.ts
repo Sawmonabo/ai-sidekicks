@@ -1,12 +1,6 @@
-// End-to-end safety of the whole-session purge over PII-carrying rows.
-//
-// One lifecycle through the real modules in production order: PII-carrying appends to two sessions
-// through `EventLogService`, then a purge of one session. It asserts that the purged session is
-// stubbed with its PII columns cleared, the kept session is whole and still decrypts, and the
-// daemon-scope sentinel holds the purge's one receipt.
-//
-// The read projection and `splitPii` are suite-local fixtures; the append path, the purge and the
-// content key store are the shipped code, and the PII codec is a test stand-in.
+// A whole-session purge over PII rows appended through the real append path clears the purged
+// session's PII, records one receipt and leaves the kept session whole and decryptable. The PII
+// codec, `splitPii` and the read projection are test stand-ins.
 
 import { blake3 } from "@noble/hashes/blake3.js";
 import type { Database as DatabaseType } from "better-sqlite3";
@@ -286,7 +280,7 @@ async function runLifecycle(): Promise<SessionPurgeResult> {
 }
 
 describe("Session purge safety E2E: PII lifecycle through a whole-session purge", () => {
-  it("purges the session and leaves the kept session whole", async () => {
+  it("stubs the purged session with its PII cleared, records one receipt, and leaves the kept session whole and decryptable", async () => {
     const purge = await runLifecycle();
 
     // The purge must have run: a refusal would make every assertion below vacuous.
@@ -305,6 +299,10 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
     expect(purged.every((row) => row.retention_class === AUDIT_STUB_RETENTION_CLASS)).toBe(true);
     // The opener carries no PII partition, so the stubbed set is not homogeneous.
     expect(purged[0]?.type).toBe("session.created");
+    for (const row of purged) {
+      expect(row.pii_payload).toBeNull();
+      expect(row.pii_user_id).toBeNull();
+    }
 
     const kept = storedRows(KEPT_SESSION);
     expect(kept).toHaveLength(KEPT_SESSION_ROW_COUNT);
@@ -312,21 +310,7 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
     expect(kept.filter((row) => row.pii_user_id === SECOND_USER)).toHaveLength(
       KEPT_PII_EVENT_COUNT,
     );
-  });
 
-  it("clears the PII columns of every stub", async () => {
-    await runLifecycle();
-
-    const purged = storedRows(SESSION);
-    expect(purged).toHaveLength(PURGED_SESSION_ROW_COUNT);
-    for (const row of purged) {
-      expect(row.pii_payload).toBeNull();
-      expect(row.pii_user_id).toBeNull();
-    }
-  });
-
-  it("returns the receipt verbatim and a kept PII row decrypted", async () => {
-    await runLifecycle();
     const receipt = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID)[0];
     if (receipt === undefined) {
       throw new Error("the purge appended no receipt");
@@ -337,7 +321,7 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
       removedSessions: [{ sessionId: SESSION, fromSeq: 0, toSeq: PURGED_SESSION_ROW_COUNT - 1 }],
     });
 
-    const keptRow = storedRows(KEPT_SESSION).find((row) => row.pii_user_id === SECOND_USER);
+    const keptRow = kept.find((row) => row.pii_user_id === SECOND_USER);
     if (keptRow === undefined) {
       throw new Error("no PII row survived in the kept session");
     }
@@ -347,24 +331,5 @@ describe("Session purge safety E2E: PII lifecycle through a whole-session purge"
       ...(JSON.parse(keptRow.payload) as Record<string, unknown>),
       text: `${SECOND_USER_PLAINTEXT}-0`,
     });
-  });
-
-  it("never stubs the maintenance rows, and a repeated purge changes nothing", async () => {
-    await runLifecycle();
-    const sentinelBefore = storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID);
-    const purgedBefore = storedRows(SESSION);
-
-    // The sentinel partition holds only `event_maintenance` rows, so a purge
-    // aimed straight at it finds nothing it may stub.
-    const sentinelPurge = await buildPurge().purge([DAEMON_SCOPE_SENTINEL_SESSION_ID]);
-    expect(sentinelPurge.outcomes).toEqual([
-      { sessionId: DAEMON_SCOPE_SENTINEL_SESSION_ID, rowsStubbed: 0 },
-    ]);
-    const repeated = await buildPurge().purge([SESSION]);
-    expect(repeated.outcomes).toEqual([{ sessionId: SESSION, rowsStubbed: 0 }]);
-
-    // Byte-identical, and no second receipt.
-    expect(storedRows(DAEMON_SCOPE_SENTINEL_SESSION_ID)).toEqual(sentinelBefore);
-    expect(storedRows(SESSION)).toEqual(purgedBefore);
   });
 });

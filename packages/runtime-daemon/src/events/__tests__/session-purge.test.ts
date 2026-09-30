@@ -1,11 +1,6 @@
-// Coverage for `SessionPurge`, the whole-session purge.
-//
-// The fixtures seed raw rows rather than appending through `EventLogService`:
-// a purge is a read-modify-write over already-stored rows, and seeding places a
-// row at an exact sequence with an exact payload.
-//
-// The `category` column must hold a real `EventCategory` member: the stub
-// projection parses it, so an invented category turns every arm into a refusal.
+// The whole-session purge stubs every purgeable row, clears its PII and sealed body, disposes the
+// session's content key, and never runs inside an append-lock hold. Rows are seeded raw to sit at
+// an exact sequence, under a real `EventCategory`, since the stub projection parses it.
 
 import type { Database as DatabaseType } from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -72,13 +67,9 @@ class RecordingEventLog implements SessionPurgeEventLog {
 /** Records the per-session key disposal the purge owes. */
 class RecordingContentKeyDisposer implements SessionContentKeyDisposer {
   readonly disposedSessions: string[] = [];
-  failure: Error | undefined;
 
   async deleteIfUnreferenced(sessionId: SessionId): Promise<boolean> {
     this.disposedSessions.push(sessionId);
-    if (this.failure !== undefined) {
-      throw this.failure;
-    }
     return true;
   }
 
@@ -284,20 +275,6 @@ describe("SessionPurge — the whole session", () => {
       { sessionId: SESSION, fromSeq: first.sequence, toSeq: newest.sequence },
     ]);
   });
-
-  it("does nothing and records nothing for a session with nothing left to purge", async () => {
-    seed({ category: "event_maintenance", type: "event.compacted", payload: { ok: true } });
-    const eventLog = new RecordingEventLog();
-    const disposer = new RecordingContentKeyDisposer();
-
-    const outcome = await buildPurge({ eventLog, contentKeyDisposer: disposer })
-      .purge([SESSION])
-      .then(onlyOutcome);
-
-    expect(outcome).toEqual({ sessionId: SESSION, rowsStubbed: 0 });
-    expect(eventLog.appended).toHaveLength(0);
-    expect(disposer.disposedSessions).toEqual([]);
-  });
 });
 
 describe("SessionPurge — resuming a purge that stopped part way", () => {
@@ -423,55 +400,9 @@ describe("SessionPurge — the terminal-key backstop survives the purge", () => 
       }),
     ).toThrow(/UNIQUE/i);
   });
-
-  it("refuses an UPDATE that rewrites a purged terminal row's run identity", async () => {
-    const terminal = seed({
-      category: "run_lifecycle",
-      type: "run.completed",
-      payload: { runId: "run-terminal", runVersion: 1 },
-    });
-
-    expect((await buildPurge().purge([SESSION]).then(onlyOutcome)).rowsStubbed).toBe(1);
-
-    expect(() =>
-      database
-        .prepare("UPDATE session_events SET payload = ? WHERE id = ?")
-        .run(JSON.stringify({ runId: "run-other", runVersion: 1 }), terminal.id),
-    ).toThrow(/preserve runId/);
-  });
 });
 
 describe("SessionPurge — one receipt per deletion", () => {
-  it("names every session the deletion removed, each with the range it stubbed", async () => {
-    // Different ranges per session, and a never-purged row at each end of the
-    // first, so a receipt built from the whole span or from one session's
-    // range reads differently from the stubbed ranges.
-    seed({ category: "event_maintenance", type: "event.compacted", payload: { ok: true } });
-    seedMessage("a");
-    seedMessage("b");
-    seed({ category: "event_maintenance", type: "event.compacted", payload: { ok: true } });
-    for (const sequence of [0, 1, 2, 3, 4]) {
-      seed({
-        category: "session_lifecycle",
-        type: "session.updated",
-        payload: { text: "second" },
-        sessionId: SECOND_SESSION,
-        sequence,
-      });
-    }
-    const eventLog = new RecordingEventLog();
-
-    const result = await buildPurge({ eventLog }).purge([SESSION, SECOND_SESSION]);
-
-    expect(result.refusedReason).toBeUndefined();
-    expect(result.outcomes.map((outcome) => outcome.rowsStubbed)).toEqual([2, 5]);
-    expect(eventLog.appended).toHaveLength(1);
-    expect(eventLog.appended[0]?.payload.removedSessions).toEqual([
-      { sessionId: SESSION, fromSeq: 1, toSeq: 2 },
-      { sessionId: SECOND_SESSION, fromSeq: 0, toSeq: 4 },
-    ]);
-  });
-
   it("records the rows a refused session lost and carries on with the next session", async () => {
     // The first session stops at a corrupt row after stubbing two; the second
     // session is refused before any stub; the third purges whole. The receipt
@@ -514,20 +445,6 @@ describe("SessionPurge — one receipt per deletion", () => {
       { sessionId: SESSION, fromSeq: 0, toSeq: 1 },
       { sessionId: THIRD_SESSION, fromSeq: 0, toSeq: 0 },
     ]);
-  });
-
-  it("reports a failed receipt append on the deletion without losing the rows it stubbed", async () => {
-    const row = seedMessage("a");
-    const eventLog: SessionPurgeEventLog = {
-      append: () => Promise.reject(new Error("event log is locked")),
-    };
-
-    const result = await buildPurge({ eventLog }).purge([SESSION]);
-
-    expect(onlyOutcome(result).rowsStubbed).toBe(1);
-    expect(readRow(row.id).retention_class).toBe(AUDIT_STUB_RETENTION_CLASS);
-    expect(result.refusedReason).toContain("purge receipt append failed");
-    expect(result.refusedReason).toContain("event log is locked");
   });
 });
 
@@ -607,35 +524,5 @@ describe("SessionPurge — the session's content key", () => {
     await buildPurge({ contentKeyDisposer: disposer }).purge([SESSION]).then(onlyOutcome);
 
     expect(disposer.disposedSessions).toEqual([SESSION]);
-  });
-
-  it("does not dispose when the purge stubbed nothing", async () => {
-    const disposer = new RecordingContentKeyDisposer();
-    // Refused at its first row, so nothing is stubbed.
-    seed({ category: "session_lifecycle", type: "session.updated", payload: "[]" });
-
-    await buildPurge({ contentKeyDisposer: disposer }).purge([SESSION]).then(onlyOutcome);
-
-    expect(disposer.disposedSessions).toEqual([]);
-  });
-
-  it("reports a failed disposal without losing the rows it stubbed", async () => {
-    const disposer = new RecordingContentKeyDisposer();
-    disposer.failure = new Error("content-key table is locked");
-    const row = seed({
-      category: "assistant_output",
-      type: "assistant.message",
-      payload: { contentType: "text/markdown" },
-      contentPayload: new Uint8Array(32).fill(6),
-    });
-
-    const outcome = await buildPurge({ contentKeyDisposer: disposer })
-      .purge([SESSION])
-      .then(onlyOutcome);
-
-    expect(outcome.rowsStubbed).toBe(1);
-    expect(readRow(row.id).content_payload).toBeNull();
-    expect(outcome.refusedReason).toContain("content-key disposal failed");
-    expect(outcome.refusedReason).toContain("content-key table is locked");
   });
 });

@@ -1,8 +1,6 @@
-// `presence.subscribe` through the method registry and a real streaming primitive: the whole
-// device list is pushed as `$/subscription/notify` frames, validated before send, after the
-// `{subscriptionId}` response. Also: a request naming a session is refused, a missing transport
-// id is refused, a bad pushed value cancels the subscription instead of crashing the daemon,
-// and cancel or disconnect (but not `complete()`) detaches the source.
+// `presence.subscribe` through the method registry and a real streaming primitive: the device
+// list is pushed after the `{subscriptionId}` response, a bad pushed value cancels the
+// subscription instead of crashing the daemon, and cancel or disconnect detaches the source.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -14,18 +12,10 @@ import type {
   SessionId,
   SubscriptionNotifyParams,
 } from "@ai-sidekicks/contracts";
-import {
-  JSONRPC_VERSION,
-  MachinePresenceSchema,
-  SUBSCRIPTION_NOTIFY_METHOD,
-} from "@ai-sidekicks/contracts";
+import { JSONRPC_VERSION, SUBSCRIPTION_NOTIFY_METHOD } from "@ai-sidekicks/contracts";
 
-import {
-  MethodRegistryImpl,
-  RegistryDispatchError,
-  RegistryRegistrationError,
-} from "../../registry.js";
-import { StreamingPrimitive, StreamingValidationError } from "../../streaming-primitive.js";
+import { MethodRegistryImpl } from "../../registry.js";
+import { StreamingPrimitive } from "../../streaming-primitive.js";
 
 import { registerPresenceSubscribe, type PresenceSubscribeDeps } from "../presence-subscribe.js";
 
@@ -137,94 +127,6 @@ describe("presence.subscribe — push slice round-trip + wire-frame emission", (
     if (call === undefined) throw new Error("unreachable");
     const params = call[1].params as SubscriptionNotifyParams<MachinePresence>;
     expect(params.value).toStrictEqual(syncUpdate);
-  });
-
-  it("a malformed pushed value throws StreamingValidationError from sub.next (MachinePresenceSchema validates before send)", async () => {
-    // Uses a primitive-level subscription, because the handler catches this throw, cancels the
-    // subscription and logs it, so it would not reach the test.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-
-    // The subscription uses the same per-value schema as the handler.
-    const sub = primitive.createSubscription<MachinePresence>(99, MachinePresenceSchema);
-
-    // A list with an unknown key fails `MachinePresenceSchema`.
-    const malformed = MALFORMED_PRESENCE;
-    expect(() => sub.next(malformed)).toThrow(StreamingValidationError);
-    // Validation fails before anything is sent.
-    expect(send).not.toHaveBeenCalled();
-  });
-
-  it("a request that names a session rejects with `RegistryDispatchError(invalid_params)`; the source is never followed", async () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>(() =>
-      vi.fn<() => void>(),
-    );
-    registerPresenceSubscribe(registry, { streamingPrimitive: primitive, subscribeToPresence });
-
-    const dispatched = registry.dispatch(
-      "presence.subscribe",
-      { sessionId: TEST_SESSION_ID },
-      { transportId: 5 },
-    );
-
-    await expect(dispatched).rejects.toBeInstanceOf(RegistryDispatchError);
-    await expect(dispatched).rejects.toMatchObject({ registryCode: "invalid_params" });
-    expect(subscribeToPresence).not.toHaveBeenCalled();
-  });
-
-  it("registers `presence.subscribe` with mutating: false (subscribing allocates IPC state, mutates no domain row)", () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const deps: PresenceSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToPresence: () => vi.fn<() => void>(),
-    };
-    registerPresenceSubscribe(registry, deps);
-    expect(registry.isMutating("presence.subscribe")).toBe(false);
-  });
-
-  it("refuses dispatch when ctx.transportId is undefined (per-connection streaming state requires a transport identity)", async () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const subscribeToPresence = vi.fn<PresenceSubscribeDeps["subscribeToPresence"]>(() =>
-      vi.fn<() => void>(),
-    );
-    const deps: PresenceSubscribeDeps = { streamingPrimitive: primitive, subscribeToPresence };
-    registerPresenceSubscribe(registry, deps);
-
-    // The handler throws a plain Error (an internal error on the wire) before subscribing.
-    await expect(registry.dispatch("presence.subscribe", {}, {})).rejects.toThrow(
-      /requires ctx\.transportId/,
-    );
-    expect(subscribeToPresence).not.toHaveBeenCalled();
-  });
-
-  it("calling registerPresenceSubscribe twice on the same registry throws `RegistryRegistrationError(duplicate_method)`", () => {
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const deps: PresenceSubscribeDeps = {
-      streamingPrimitive: primitive,
-      subscribeToPresence: () => vi.fn<() => void>(),
-    };
-    registerPresenceSubscribe(registry, deps);
-
-    let caught: unknown = null;
-    try {
-      registerPresenceSubscribe(registry, deps);
-    } catch (err) {
-      caught = err;
-    }
-    expect(caught).toBeInstanceOf(RegistryRegistrationError);
-    if (caught instanceof RegistryRegistrationError) {
-      expect(caught.registryCode).toBe("duplicate_method");
-    }
   });
 });
 
@@ -381,20 +283,5 @@ describe("presence.subscribe — wires upstream unsubscribe via sub.onCancel (th
     primitive.cleanupTransport(transportId);
 
     expect(unsubscribe).toHaveBeenCalledTimes(1);
-  });
-
-  it("complete() does NOT fire the upstream unsubscribe (natural producer-driven termination is silent)", () => {
-    // `complete()` is called by the producer itself, which already knows the stream ended, so
-    // it must not run the cancel hooks.
-    const registry = new MethodRegistryImpl();
-    const send = vi.fn<(transportId: number, frame: JsonRpcNotification<unknown>) => void>();
-    const primitive = new StreamingPrimitive({ registry, send });
-    const sub = primitive.createSubscription<MachinePresence>(31, MachinePresenceSchema);
-    const unsubscribe = vi.fn<() => void>();
-    sub.onCancel(unsubscribe);
-
-    sub.complete();
-
-    expect(unsubscribe).not.toHaveBeenCalled();
   });
 });

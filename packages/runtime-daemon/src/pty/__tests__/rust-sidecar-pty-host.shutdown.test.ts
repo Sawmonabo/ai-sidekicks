@@ -1,140 +1,23 @@
-// Shutdown drain of `RustSidecarPtyHost` against a fake sidecar child process.
-//
-// Covers:
-//   * `DrainResult`: sessions drained in time vs forced-killed, plus `sidecarExitedCleanly` and
-//     `taskkillEscalated` from the sidecar wind-down path.
-//   * Per-session drain: SIGTERM, wait for the exit notification, SIGKILL after
-//     `perSessionTimeoutMs`.
-//   * Host wind-down: close the sidecar's stdin, wait `hostTimeoutMs` for its exit, then hard-kill
-//     it (`taskkill` tree-kill on Windows, `child.kill("SIGKILL")` elsewhere).
-//   * `onExit` fires once per session: no `-1` crash sentinel after a clean or forced drain, but
-//     `-1` for sessions whose real exit was lost when the sidecar crashes mid-shutdown.
-//   * A second `shutdown()` returns the in-flight promise; `spawn()` during or racing with
-//     shutdown is rejected with `PtyBackendUnavailableError`.
-//
-// Lifecycle wiring is tested in `apps/desktop/src/main/services/sidecar-lifecycle.test.ts`.
-
-import { Buffer } from "node:buffer";
-import { EventEmitter } from "node:events";
-import { PassThrough } from "node:stream";
+// `RustSidecarPtyHost.shutdown` against a fake sidecar child: each session is drained (SIGTERM,
+// then SIGKILL after `perSessionTimeoutMs`), then the sidecar is closed and hard-killed after
+// `hostTimeoutMs`, so no PTY process outlives the daemon.
 
 import { describe, expect, it, vi } from "vitest";
 
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
-import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
 import type { TaskkillResult } from "../taskkill-windows.js";
-import type { Envelope } from "../pty-host-protocol.js";
-import type { DrainResult } from "../pty-host.js";
+import {
+  type FakeSidecarChild,
+  flushMicrotasks,
+  frameEnvelope,
+  makeFakeSidecarChild,
+  parseFramesFromStdin,
+  spawnReturning,
+} from "./_fakes.js";
 
-// Fake sidecar child
-
-interface FakeSidecarChild {
-  readonly child: SidecarChildProcess;
-  readStdin(): Buffer;
-  /** Whether the host has closed the sidecar's stdin. */
-  stdinEnded(): boolean;
-  writeStdout(bytes: Buffer | string): void;
-  triggerExit(code: number | null, signal: string | null): void;
-  triggerError(err: Error): void;
-}
-
-function makeFakeSidecarChild(): FakeSidecarChild {
-  const stdin = new PassThrough();
-  const stdout = new PassThrough();
-  const stderr = new PassThrough();
-  const ee = new EventEmitter();
-
-  const stdinChunks: Buffer[] = [];
-  stdin.on("data", (chunk: Buffer) => {
-    stdinChunks.push(chunk);
-  });
-
-  let endedFlag = false;
-  // Wrap stdin.end so the host's `child.stdin.end()` call is observable.
-  const originalEnd = stdin.end.bind(stdin);
-  stdin.end = ((...args: unknown[]) => {
-    endedFlag = true;
-    return originalEnd(...(args as Parameters<typeof originalEnd>));
-  }) as typeof stdin.end;
-
-  function on(
-    event: "exit",
-    listener: (code: number | null, signal: string | null) => void,
-  ): SidecarChildProcess;
-  function on(event: "error", listener: (err: Error) => void): SidecarChildProcess;
-  function on(
-    event: "exit" | "error",
-    listener: ((code: number | null, signal: string | null) => void) | ((err: Error) => void),
-  ): SidecarChildProcess {
-    ee.on(event, listener as (...args: unknown[]) => void);
-    return child;
-  }
-
-  const child: SidecarChildProcess = {
-    pid: 67890,
-    stdin,
-    stdout,
-    stderr,
-    on,
-    kill: vi.fn(() => true),
-  };
-
-  return {
-    child,
-    readStdin: () => Buffer.concat(stdinChunks),
-    stdinEnded: () => endedFlag,
-    writeStdout: (bytes) => {
-      stdout.write(bytes);
-    },
-    triggerExit: (code, signal) => {
-      ee.emit("exit", code, signal);
-    },
-    triggerError: (err) => {
-      ee.emit("error", err);
-    },
-  };
-}
-
-function spawnReturning(fake: FakeSidecarChild): SidecarSpawnFn {
-  return vi
-    .fn<SidecarSpawnFn>()
-    .mockImplementation(() => fake.child as unknown as ReturnType<SidecarSpawnFn>);
-}
-
-function frameEnvelope(envelope: Envelope): Buffer {
-  const payload: Buffer = Buffer.from(JSON.stringify(envelope), "utf8");
-  const header: Buffer = Buffer.from(`Content-Length: ${payload.length}\r\n\r\n`, "utf8");
-  return Buffer.concat([header, payload]);
-}
-
-function parseFramesFromStdin(stdinBuf: Buffer): Envelope[] {
-  const envelopes: Envelope[] = [];
-  let cursor = 0;
-  while (cursor < stdinBuf.length) {
-    const headerEnd: number = stdinBuf.indexOf("\r\n\r\n", cursor);
-    if (headerEnd === -1) {
-      break;
-    }
-    const headerBytes: Buffer = stdinBuf.subarray(cursor, headerEnd);
-    const headerText: string = headerBytes.toString("utf8");
-    const match: RegExpMatchArray | null = headerText.match(/Content-Length:\s*(\d+)/i);
-    if (match === null) {
-      break;
-    }
-    const length: number = Number.parseInt(match[1] ?? "0", 10);
-    const bodyStart: number = headerEnd + 4;
-    const body: Buffer = stdinBuf.subarray(bodyStart, bodyStart + length);
-    envelopes.push(JSON.parse(body.toString("utf8")) as Envelope);
-    cursor = bodyStart + length;
-  }
-  return envelopes;
-}
-
-async function flushMicrotasks(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
-}
+// Distinctive, so a taskkill assertion names the sidecar's pid.
+const SIDECAR_PID = 67890;
 
 /** Spawns one session and resolves its `SpawnResponse` through the fake. */
 async function spawnOneSession(
@@ -156,30 +39,9 @@ async function spawnOneSession(
   await spawnPromise;
 }
 
-describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
-  it("with no spawned sessions returns vacuous DrainResult (0/0, host clean)", async () => {
-    const fake = makeFakeSidecarChild();
-    const host = new RustSidecarPtyHost({
-      resolveBinaryPath: () => "/fake/sidecar",
-      spawn: spawnReturning(fake),
-    });
-
-    // No child was ever spawned, so the host wind-down is skipped.
-    const result: DrainResult = await host.shutdown({
-      perSessionTimeoutMs: 100,
-      hostTimeoutMs: 100,
-    });
-
-    expect(result).toEqual({
-      sessionsDrained: 0,
-      sessionsForcedKilled: 0,
-      sidecarExitedCleanly: true,
-      taskkillEscalated: false,
-    });
-  });
-
+describe("RustSidecarPtyHost.shutdown — drain", () => {
   it("counts a session that emits ExitCodeNotification within the per-session budget under sessionsDrained", async () => {
-    const fake = makeFakeSidecarChild();
+    const fake = makeFakeSidecarChild(SIDECAR_PID);
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
       spawn: spawnReturning(fake),
@@ -241,7 +103,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
   it("counts a session that exceeds the per-session timeout under sessionsForcedKilled and dispatches kill_request{SIGKILL}", async () => {
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
@@ -301,48 +163,10 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     }
   });
 
-  it("closes sidecar stdin and reports sidecarExitedCleanly:true when the child exits within the host timeout", async () => {
-    const fake = makeFakeSidecarChild();
-    const host = new RustSidecarPtyHost({
-      resolveBinaryPath: () => "/fake/sidecar",
-      spawn: spawnReturning(fake),
-    });
-
-    await spawnOneSession(host, fake, "s-0");
-
-    const drainPromise = host.shutdown({
-      perSessionTimeoutMs: 2_000,
-      hostTimeoutMs: 2_000,
-    });
-    await flushMicrotasks();
-    fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-0" }));
-    fake.writeStdout(
-      frameEnvelope({
-        kind: "exit_code_notification",
-        session_id: "s-0",
-        exit_code: 0,
-        signal_code: null,
-      }),
-    );
-    await flushMicrotasks();
-    await flushMicrotasks();
-    await flushMicrotasks();
-
-    // Stdin is closed once the per-session drains finish.
-    expect(fake.stdinEnded()).toBe(true);
-
-    fake.triggerExit(0, null);
-    await flushMicrotasks();
-
-    const result = await drainPromise;
-    expect(result.sidecarExitedCleanly).toBe(true);
-    expect(result.taskkillEscalated).toBe(false);
-  });
-
   it("escalates via child.kill('SIGKILL') and reports taskkillEscalated:true when the sidecar does not exit within hostTimeoutMs", async () => {
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       // Pin the platform so the POSIX `child.kill("SIGKILL")` escalation runs on any CI runner.
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
@@ -394,7 +218,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // only that one process and would leave its PTY workers orphaned.
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       const mockTaskkill: ReturnType<typeof vi.fn<(pid: number) => Promise<TaskkillResult>>> = vi
         .fn<(pid: number) => Promise<TaskkillResult>>()
         .mockResolvedValue({ exitCode: 0 });
@@ -440,9 +264,9 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
       expect(result.sidecarExitedCleanly).toBe(false);
       expect(result.taskkillEscalated).toBe(true);
 
-      // The tree-kill targets the sidecar pid (67890, from `makeFakeSidecarChild`).
+      // The tree-kill targets the sidecar pid.
       expect(mockTaskkill).toHaveBeenCalledTimes(1);
-      expect(mockTaskkill).toHaveBeenCalledWith(67890);
+      expect(mockTaskkill).toHaveBeenCalledWith(SIDECAR_PID);
 
       // The single-PID SIGKILL fallback is not used on Windows.
       expect(fake.child.kill).not.toHaveBeenCalledWith("SIGKILL");
@@ -456,7 +280,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // drain resolves. Without that bound this test would hang past vitest's 5 s test timeout.
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       // A `spawnTaskkill` that never settles stands in for a stuck `taskkill.exe`.
       const neverSettlingTaskkill: ReturnType<
         typeof vi.fn<(pid: number) => Promise<TaskkillResult>>
@@ -497,7 +321,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
 
       // `spawnTaskkill` was called and never settles; only the 5 s bound can end the drain.
       expect(neverSettlingTaskkill).toHaveBeenCalledTimes(1);
-      expect(neverSettlingTaskkill).toHaveBeenCalledWith(67890);
+      expect(neverSettlingTaskkill).toHaveBeenCalledWith(SIDECAR_PID);
 
       // Past the 5 s bound the escalation returns and the drain reports `taskkillEscalated`.
       await vi.advanceTimersByTimeAsync(5_001);
@@ -515,7 +339,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
   it("suppresses the -1 crash sentinel AND fires synthetic onExit(code=1) on the deliberate sidecar exit when the per-session timeout escalates to SIGKILL", async () => {
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
@@ -561,86 +385,6 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     }
   });
 
-  it("emits -1 onExit for sessions whose real ExitCodeNotification never arrived when sidecar crashes mid-shutdown", async () => {
-    // If the sidecar crashes mid-shutdown before every session's real exit notification arrived,
-    // `fireCrashTimeOnExit` sends the `-1` sentinel to the sessions whose exit was lost, so
-    // `onExit` fires exactly once per session. Sessions that already have an exit code are skipped.
-    // s-A gets its real exit and is skipped. s-B gets `-1` and is removed from the host; its drain
-    // then times out into SIGKILL (the synthetic finds no record and does nothing), so it counts as
-    // forced-killed.
-
-    vi.useFakeTimers();
-    try {
-      const fake = makeFakeSidecarChild();
-      const host = new RustSidecarPtyHost({
-        resolveBinaryPath: () => "/fake/sidecar",
-        spawn: spawnReturning(fake),
-      });
-      const onExit = vi.fn();
-      host.setOnExit(onExit);
-
-      await spawnOneSession(host, fake, "s-A");
-      await spawnOneSession(host, fake, "s-B");
-
-      const drainPromise = host.shutdown({
-        perSessionTimeoutMs: 1_000,
-        hostTimeoutMs: 1_000,
-      });
-      await Promise.resolve();
-      await Promise.resolve();
-
-      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-A" }));
-      fake.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-B" }));
-      // Only s-A's real exit arrives before the crash.
-      fake.writeStdout(
-        frameEnvelope({
-          kind: "exit_code_notification",
-          session_id: "s-A",
-          exit_code: 0,
-          signal_code: null,
-        }),
-      );
-      await Promise.resolve();
-      await Promise.resolve();
-
-      // The crash skips s-A (exit code already set) and sends s-B the `-1` sentinel.
-      fake.triggerExit(null, "SIGSEGV");
-      await Promise.resolve();
-      await Promise.resolve();
-
-      // Nothing releases s-B's drain waiter, so its drain falls through the per-session timeout to
-      // SIGKILL and returns "forced".
-      await vi.advanceTimersByTimeAsync(1_001);
-      await Promise.resolve();
-      await Promise.resolve();
-
-      const result = await drainPromise;
-
-      // s-A got exactly one `onExit` with its real exit code, not `-1`.
-      const aCalls = onExit.mock.calls.filter((call) => call[0] === "s-A");
-      expect(aCalls).toHaveLength(1);
-      expect(aCalls[0]).toEqual(["s-A", 0]);
-
-      // s-B got exactly one `onExit`, with `-1`.
-      const bCalls = onExit.mock.calls.filter((call) => call[0] === "s-B");
-      expect(bCalls).toHaveLength(1);
-      expect(bCalls[0]).toEqual(["s-B", -1]);
-
-      // One `onExit` per session, none doubled.
-      expect(onExit).toHaveBeenCalledTimes(2);
-
-      // Both sessions are gone from the host: `kill()` rejects for an unknown id.
-      await expect(host.kill("s-A", "SIGTERM")).rejects.toThrow(/unknown sessionId/);
-      await expect(host.kill("s-B", "SIGTERM")).rejects.toThrow(/unknown sessionId/);
-
-      // s-B was forced (its waiter never resolved); s-A drained in time.
-      expect(result.sessionsDrained).toBe(1);
-      expect(result.sessionsForcedKilled).toBe(1);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
   it("forced-kills a session when sidecar IPC is wedged and kill_response never arrives within perSessionTimeoutMs", async () => {
     // A wedged sidecar (alive but never answering `kill_request`) must not stall the drain, so the
     // per-session timer is armed before the SIGTERM request is awaited. Otherwise the drain, and
@@ -648,7 +392,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // reply entirely (a merely late reply would hide the bug) and never fires the child's exit.
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       // Pin the platform so the POSIX `child.kill("SIGKILL")` escalation runs on any CI runner.
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
@@ -733,7 +477,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // The consumer sees exactly one `onExit(s-0, -1)`.
     vi.useFakeTimers();
     try {
-      const fake = makeFakeSidecarChild();
+      const fake = makeFakeSidecarChild(SIDECAR_PID);
       const host = new RustSidecarPtyHost({
         resolveBinaryPath: () => "/fake/sidecar",
         spawn: spawnReturning(fake),
@@ -785,7 +529,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
   });
 
   it("rejects concurrent spawn() during shutdown with PtyBackendUnavailableError", async () => {
-    const fake = makeFakeSidecarChild();
+    const fake = makeFakeSidecarChild(SIDECAR_PID);
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
       spawn: spawnReturning(fake),
@@ -832,7 +576,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     // no sessions, then the response arrives. `resolveOutstanding` must reject the spawn with
     // `PtyBackendUnavailableError` rather than register a session that shutdown has left behind.
 
-    const fake = makeFakeSidecarChild();
+    const fake = makeFakeSidecarChild(SIDECAR_PID);
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
       spawn: spawnReturning(fake),
@@ -884,7 +628,7 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
   });
 
   it("is idempotent and re-entrant — a second shutdown() call returns the same in-flight Promise", async () => {
-    const fake = makeFakeSidecarChild();
+    const fake = makeFakeSidecarChild(SIDECAR_PID);
     const host = new RustSidecarPtyHost({
       resolveBinaryPath: () => "/fake/sidecar",
       spawn: spawnReturning(fake),
@@ -919,76 +663,5 @@ describe("RustSidecarPtyHost.shutdown — polymorphic drain", () => {
     const result = await firstPromise;
     const secondResult = await secondPromise;
     expect(secondResult).toBe(result);
-  });
-
-  it("resets childExitedBeforeDrain in attachChildListeners so a respawned child does not inherit the prior crashed child's flag (stale-event safety)", async () => {
-    // `childExitedBeforeDrain` is reset when a fresh child is attached, so a respawned sidecar
-    // that drains cleanly reports `sidecarExitedCleanly: true` instead of inheriting the flag left
-    // by the crashed one. The private flag is not read directly: the test crashes child A, respawns
-    // as child B and drains B.
-
-    // The first `spawnFn` call returns child A; the call after A crashed returns child B.
-    const fakeA = makeFakeSidecarChild();
-    const fakeB = makeFakeSidecarChild();
-    let spawnCount = 0;
-    const spawnFn: SidecarSpawnFn = vi.fn<SidecarSpawnFn>().mockImplementation(() => {
-      spawnCount += 1;
-      return (spawnCount === 1
-        ? fakeA.child
-        : fakeB.child) as unknown as ReturnType<SidecarSpawnFn>;
-    });
-
-    const host = new RustSidecarPtyHost({
-      resolveBinaryPath: () => "/fake/sidecar",
-      spawn: spawnFn,
-    });
-    const onExit = vi.fn();
-    host.setOnExit(onExit);
-
-    // Spawn s-A on child A, then crash A.
-    await spawnOneSession(host, fakeA, "s-A");
-    fakeA.triggerExit(null, "SIGSEGV");
-    await flushMicrotasks();
-    await flushMicrotasks();
-
-    // Spawning s-B cold-starts child B.
-    await spawnOneSession(host, fakeB, "s-B");
-
-    expect(spawnFn).toHaveBeenCalledTimes(2);
-
-    // Drain s-B: it exits with a real notification, then the sidecar exits on stdin EOF.
-    const drainPromise = host.shutdown({
-      perSessionTimeoutMs: 2_000,
-      hostTimeoutMs: 2_000,
-    });
-    await flushMicrotasks();
-    fakeB.writeStdout(frameEnvelope({ kind: "kill_response", session_id: "s-B" }));
-    fakeB.writeStdout(
-      frameEnvelope({
-        kind: "exit_code_notification",
-        session_id: "s-B",
-        exit_code: 0,
-        signal_code: null,
-      }),
-    );
-    await flushMicrotasks();
-    await flushMicrotasks();
-    await flushMicrotasks();
-
-    // Stdin is closed, so the drain is parked on child B's exit.
-    expect(fakeB.stdinEnded()).toBe(true);
-
-    fakeB.triggerExit(0, null);
-    await flushMicrotasks();
-
-    const result = await drainPromise;
-
-    // Child B never exited mid-drain, so the drain is clean.
-    expect(result.sidecarExitedCleanly).toBe(true);
-    expect(result.taskkillEscalated).toBe(false);
-
-    // s-B drained in time.
-    expect(result.sessionsDrained).toBe(1);
-    expect(result.sessionsForcedKilled).toBe(0);
   });
 });

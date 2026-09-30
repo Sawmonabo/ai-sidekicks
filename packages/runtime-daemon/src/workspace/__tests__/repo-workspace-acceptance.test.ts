@@ -1,29 +1,7 @@
-// Acceptance walk over the repo/workspace surface: repo mounts, workspaces and their events.
-//
-// It runs through the public entry points against a real temp-file SQLite database from
-// `openDatabase`, a real `EventLogService` append path and real git repositories on disk. The
-// per-module suites prove each branch; this one proves the claims a user sees, so every seam
-// they inject (resolvers, filesystem probes, id sources, failing emitters) stays at its
-// production default. Only two things are test-only: the seeded `session.created` row that
-// `replay` needs, and one stepping clock shared by both services so `updated_at` comparisons
-// never tie on a fast machine (no assertion reads a stamp value, only the order of stamps).
-//
-// The claims:
-//   - Attaching a repository yields a durable repo mount with canonical-root metadata.
-//   - One session binds workspaces across multiple repo mounts.
-//   - An execution root that becomes unavailable makes the workspace `stale` and blocks writes.
-//   - A mode switch reprovisions the workspace in place.
-//   - The detach cascade archives the dependents and produces a fixed event sequence.
-//
-// Why no arm passes vacuously:
-//   - Event-sequence arms assert the ordered type list, so an extra, missing or reordered event
-//     fails.
-//   - The stale arm deletes a real directory, then re-creates it: mount health recovers while
-//     the workspace stays stale.
-//   - Non-transition arms (a second `list`, a second `detach`, a busy/release pair) assert the
-//     event log is unchanged, the only way to observe the negative half.
+// Proves the repo and workspace claims a user sees, through the public entry points with production
+// seams: a durable attach, binds across mounts, one event per transition, an in-place mode switch,
+// and a vanished root that stales its workspace and blocks writes.
 
-import { execFile } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,6 +21,14 @@ import { RepoMountService } from "../repo-mount-service.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
 import { WorkspaceService } from "../workspace-service.js";
 import { WorkspaceStaleError } from "../workspace-service-errors.js";
+
+import {
+  buildFixtureEnvironment,
+  captureRejection,
+  runFixtureGit,
+  seedSession,
+  steppingClock,
+} from "./workspace-test-support.js";
 
 // Fixtures
 
@@ -79,64 +65,6 @@ interface StoredWorkspaceRow {
 }
 
 // Real-git fixtures
-
-/**
- * The hermetic environment fixture git runs under: no system or global config, a `HOME` inside
- * the temp root, an explicit identity. Discovery redirectors such as `GIT_DIR` are stripped so a
- * developer's ambient environment cannot make a fixture resolve elsewhere. Test files do not
- * import from one another, so this repeats the helper in `repo-mount-service.test.ts`.
- */
-function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_PARAMETERS",
-  ]) {
-    delete environment[key];
-  }
-  environment["HOME"] = fixtureRoot;
-  environment["XDG_CONFIG_HOME"] = join(fixtureRoot, "xdg");
-  environment["GIT_CONFIG_NOSYSTEM"] = "1";
-  environment["GIT_CONFIG_GLOBAL"] = join(fixtureRoot, "absent-global-gitconfig");
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  environment["GIT_AUTHOR_NAME"] = "Fixture Author";
-  environment["GIT_AUTHOR_EMAIL"] = "fixture@example.invalid";
-  environment["GIT_COMMITTER_NAME"] = "Fixture Author";
-  environment["GIT_COMMITTER_EMAIL"] = "fixture@example.invalid";
-  return environment;
-}
-
-/**
- * Run a fixture git command, rejecting on any non-zero exit. `cwd` is pinned inside the fixture
- * root so git cannot discover the repository under development and bleed the fixture into it.
- */
-function runFixtureGit(
-  args: readonly string[],
-  environment: NodeJS.ProcessEnv,
-  cwd: string,
-): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    execFile(
-      "git",
-      [...args],
-      { encoding: "utf8", env: environment, cwd, timeout: 30_000 },
-      (error, _stdout, stderr) => {
-        if (error !== null) {
-          reject(new Error(`fixture git ${args.join(" ")} failed: ${stderr}`));
-          return;
-        }
-        resolve();
-      },
-    ).on("error", reject);
-  });
-}
 
 interface AcceptanceFixtures {
   readonly fixtureRoot: string;
@@ -235,37 +163,6 @@ interface TestHarness {
 
 let harness: TestHarness;
 
-/**
- * A clock that advances one second per read, from a fixed epoch. Both services share it, so
- * their stamps come from one sequence.
- */
-function steppingClock(): () => string {
-  let currentMs: number = Date.parse("2026-08-05T00:00:00.000Z");
-  return () => {
-    const stamp = new Date(currentMs).toISOString();
-    currentMs += 1_000;
-    return stamp;
-  };
-}
-
-/** Seed a session's log so `SessionService.replay` returns a snapshot for it. */
-function seedSession(sessionId: SessionId): void {
-  harness.stack.sessions.append({
-    id: `evt-${sessionId}`,
-    sessionId,
-    sequence: 0,
-    occurredAt: "2026-08-05T00:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: null,
-    payload: { sessionId },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  });
-}
-
 beforeEach(async () => {
   const tmpDir: string = await realpath(
     await mkdtemp(join(tmpdir(), "ai-sidekicks-repo-workspace-acceptance-db-")),
@@ -292,8 +189,8 @@ beforeEach(async () => {
     boundRootCheckout,
   };
 
-  seedSession(SESSION_ID);
-  seedSession(OTHER_SESSION_ID);
+  seedSession(harness.stack.sessions, SESSION_ID);
+  seedSession(harness.stack.sessions, OTHER_SESSION_ID);
 });
 
 afterEach(() => {
@@ -392,19 +289,9 @@ function readPayloadsOfType(type: string): readonly LifecycleEventPayload[] {
     .map((row) => JSON.parse(row.payload) as LifecycleEventPayload);
 }
 
-/** Runs `body` and returns what it rejected with; throws if it resolved. */
-async function captureRejection(body: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await body();
-  } catch (error: unknown) {
-    return error;
-  }
-  throw new Error("expected the operation to reject, but it resolved");
-}
-
 /** Make `directory` a real git repository, so an attach of it resolves. */
-function initRepository(directory: string): Promise<void> {
-  return runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
+async function initRepository(directory: string): Promise<void> {
+  await runFixtureGit(["init", "-q", directory], fixtures.environment, fixtures.fixtureRoot);
 }
 
 /** Bind a workspace and complete its provisioning at `fsRoot`, so it is `ready`. */

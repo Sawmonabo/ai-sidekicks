@@ -1,38 +1,6 @@
-// End-to-end check, through the real Rust sidecar binary on Windows, that a git worktree can be
-// removed while a PTY session whose logical cwd is that worktree is still running, without
-// `ERROR_SHARING_VIOLATION` (Win32 error 32, the `microsoft/node-pty#647` failure).
-//
-// The daemon's cwd translator makes this work: the spawn-call cwd on the wire is the daemon's
-// stable parent directory, so Windows holds no directory lock on the worktree. The inner
-// `cd /d "<worktree>"` in the wrapping `cmd.exe` script puts the shell in the worktree, but
-// changing directory into it takes no share-mode lock the way a spawn-call cwd does.
-//
-// Steps: create a real git repo and worktree in a temp dir, translate a worktree-cwd spawn
-// request with `translateSpawnCwd({ strategy: "cd-prefix", ... })`, spawn it through a real
-// `RustSidecarPtyHost`, run `git worktree remove` while the session is alive, and assert exit
-// code 0 with no `ERROR_SHARING_VIOLATION` text on stderr.
-//
-// Limitations:
-//
-//   * The test shows the failure is absent under the translated wire shape. It cannot show the
-//     failure would occur without the translator, because the translator design makes a
-//     worktree spawn-call cwd unreachable. `spawn-cwd-translation.test.ts` covers the wire shape.
-//   * `host.spawn` resolves when the sidecar acks the spawn. The wrapper `cmd.exe /d /s /v:off
-//     /c "cd /d <worktree> && cmd.exe /k"` then runs with `cwd = stableParent`; the inner
-//     `cmd.exe /k` inherits the worktree only after the `cd`. If `git worktree remove` runs
-//     before the inner shell has started, the test passes vacuously. It still proves the
-//     wrapper's spawn-call cwd holds no lock, which is the translator's claim. Writing a byte
-//     through the PTY and awaiting the echo would confirm the inner shell is resident first.
-//
-// Gating:
-//
-//   1. `describe.runIf(process.platform === "win32")`: the lock semantics are Win32-specific, so
-//      elsewhere the suite reports as skipped.
-//   2. Inside the test, `RUN_W3_INTEGRATION=1` and a resolvable sidecar binary are both
-//      required, else `ctx.skip()` with a message. Without them the test would fail for the
-//      wrong reason (a missing binary is not a lock regression). No CI job sets the flag or
-//      builds the sidecar yet; that job would set `RUN_W3_INTEGRATION=1` and run
-//      `cargo build --release` in `packages/sidecar-rust-pty/` before the daemon tests.
+// On Windows, through the real Rust sidecar, `git worktree remove` succeeds while a translated PTY
+// session in that worktree runs: the spawn-call cwd is the stable parent, so Windows holds no lock
+// (`ERROR_SHARING_VIOLATION`, microsoft/node-pty#647). Opt-in; no CI job runs it yet.
 
 import { execFileSync, spawnSync } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
@@ -46,10 +14,6 @@ import { resolveSidecarBinaryPath } from "../sidecar-binary-path.js";
 import { translateSpawnCwd } from "../../session/spawn-cwd-translator.js";
 import type { SpawnRequest, SpawnResponse } from "../pty-host-protocol.js";
 
-// ----------------------------------------------------------------------------
-// Skip-detection helpers
-// ----------------------------------------------------------------------------
-
 // Returns `null` when the production resolver finds no binary (it throws
 // `PtyBackendUnavailableError`), so the test can skip with a message instead of failing.
 function resolveBinaryOrNull(): string | null {
@@ -62,13 +26,9 @@ function resolveBinaryOrNull(): string | null {
 
 // Opt-in gate, so a Windows dev machine with the sidecar built locally does not run a real
 // Win32 PTY spawn by accident.
-function w3Enabled(): boolean {
+function isIntegrationOptedIn(): boolean {
   return process.env["RUN_W3_INTEGRATION"] === "1";
 }
-
-// ----------------------------------------------------------------------------
-// Test fixtures
-// ----------------------------------------------------------------------------
 
 interface TestContext {
   readonly tmpRoot: string;
@@ -86,7 +46,7 @@ beforeEach(() => {
   //   stable-parent/         spawn-call cwd (the daemon's stable dir)
   //     repo/                git repo with one empty commit
   //   worktrees/feature-x/   `git worktree add` target
-  const tmpRoot: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-w3-"));
+  const tmpRoot: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-worktree-teardown-"));
   const stableParent: string = join(tmpRoot, "stable-parent");
   const worktreesDir: string = join(tmpRoot, "worktrees");
   const repoDir: string = join(stableParent, "repo");
@@ -117,19 +77,13 @@ afterEach(async () => {
   rmSync(ctx.tmpRoot, { recursive: true, force: true });
 });
 
-// ----------------------------------------------------------------------------
-// Windows-only worktree teardown
-// ----------------------------------------------------------------------------
-
 describe.runIf(process.platform === "win32")(
-  "RustSidecarPtyHost × translateSpawnCwd (Test W3 /) — Windows worktree teardown",
+  "RustSidecarPtyHost × translateSpawnCwd — Windows worktree teardown",
   () => {
     it("git worktree remove succeeds without ERROR_SHARING_VIOLATION while a translated session is alive", async (ctxRunner) => {
       // Checked here, not at suite level, so the skip message names this test in the reporter.
-      if (!w3Enabled()) {
-        ctxRunner.skip(
-          "RUN_W3_INTEGRATION is not set; W3 requires opt-in (CI windows-latest sets it).",
-        );
+      if (!isIntegrationOptedIn()) {
+        ctxRunner.skip("RUN_W3_INTEGRATION is not set; this test runs only on opt-in.");
         return;
       }
       const binaryPath: string | null = resolveBinaryOrNull();
@@ -186,6 +140,8 @@ describe.runIf(process.platform === "win32")(
         wrappingShell: "windows-cmd",
       });
 
+      // `spawn` resolves on the sidecar's ack, possibly before the inner shell has run its `cd`;
+      // the wrapper's spawn-call cwd, the translator's claim, is what holds or releases the lock.
       const response: SpawnResponse = await host.spawn(translated);
       ctx.sessionId = response.session_id;
 

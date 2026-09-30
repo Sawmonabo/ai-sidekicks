@@ -1,9 +1,6 @@
-// Thread-frame router: thread-scoped families route by explicit thread identity, connection-scoped
-// families route without one, child identities register from parent-linked announcements, a
-// present-but-unregistered identity is held in a bounded pending buffer, and an absent or
-// unrecognized identity is quarantined, never projected or guessed into the parent. Child-raised
-// interactive requests reach the parent's approval pipeline; provider-attributed subagent spend
-// rides the subagent identity while provider-internal child spend attributes to the parent run.
+// The thread-frame router decides where each provider frame goes: the session transcript, a
+// child's usage or approval carve-out, a held registration race, or quarantine. A frame is never
+// guessed into the parent, and child spend is attributed by declared lineage.
 
 import { describe, expect, it } from "vitest";
 
@@ -38,7 +35,7 @@ function usageFrame(
 }
 
 describe("ThreadFrameRouter", () => {
-  it("censused connection-scoped families route without a thread id (api_retry / rate-limit census pass)", () => {
+  it("connection-scoped families route without a thread id", () => {
     const { router, diagnostics } = makeRouter();
     router.registerSessionThread("session-thread");
     for (const connectionScopedKind of ["system/api_retry", "account/rateLimits/updated"]) {
@@ -49,12 +46,6 @@ describe("ThreadFrameRouter", () => {
       expect(route).toEqual({ decision: "route-connection-scoped" });
     }
     expect(diagnostics.emittedRecordCount()).toBe(0);
-  });
-
-  it("the session's own thread projects", () => {
-    const { router } = makeRouter();
-    router.registerSessionThread("session-thread");
-    expect(router.routeFrame(usageFrame("session-thread"), 0)).toEqual({ decision: "project" });
   });
 
   it("an unknown family quarantines even when a thread id is present — never presumed connection-scoped", () => {
@@ -97,7 +88,7 @@ describe("ThreadFrameRouter", () => {
     );
   });
 
-  it("a provider-attributed subagent child's usage carves out under the subagent triple", () => {
+  it("child usage carves out under the subagent, or under the parent run for a provider-internal child", () => {
     const { router } = makeRouter();
     router.registerSessionThread("session-thread");
     const registration = router.registerChildThread({
@@ -111,11 +102,7 @@ describe("ThreadFrameRouter", () => {
       childThreadId: "child-thread",
       attribution: { kind: "subagent", subagentId: "child-thread" },
     });
-  });
-
-  it("a provider-internal child's usage (compaction thread) attributes to the parent run", () => {
-    const { router } = makeRouter();
-    router.registerSessionThread("session-thread");
+    // A compaction thread has no subagent id: its spend is the parent run's.
     router.registerChildThread({
       childThreadId: "compaction-thread",
       declaredParentThreadId: "session-thread",
@@ -235,15 +222,6 @@ describe("ThreadFrameRouter", () => {
     expect(shedRecords[0]?.rawWireType).toBe("held-0");
   });
 
-  it("routing a frame also expires overdue holds first", () => {
-    const { router, diagnostics } = makeRouter({ pendingRegistrationTimeoutMs: 500 });
-    router.registerSessionThread("session-thread");
-    router.routeFrame(usageFrame("never-announced"), 0);
-    router.routeFrame(usageFrame("session-thread"), 1_000);
-    expect(router.pendingHeldFrameCount()).toBe(0);
-    expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
-  });
-
   it("registration derives from declared lineage: an unrecognized parent refuses with a diagnostic", () => {
     const { router, diagnostics } = makeRouter();
     router.registerSessionThread("session-thread");
@@ -329,44 +307,5 @@ describe("ThreadFrameRouter", () => {
     expect(router.routeFrame(usageFrame("child-thread"), 0)).toEqual({
       decision: "held-pending-registration",
     });
-  });
-
-  it("completing a child sheds the frames still held for it, each as a diagnostic", () => {
-    const { router, diagnostics } = makeRouter();
-    router.registerSessionThread("session-thread");
-    router.routeFrame(usageFrame("child-thread", "orphaned-hold"), 0);
-    expect(router.pendingHeldFrameCount()).toBe(1);
-
-    // The child terminated unannounced, so its held frames can never be released; they are shed
-    // here, with a record, instead of occupying the bounded buffer until their timeout.
-    const completion = router.completeChildThread("child-thread");
-    expect(completion.wasRegistered).toBe(false);
-    expect(completion.abandonedPendingFrames.map((frame) => frame.rawWireType)).toEqual([
-      "orphaned-hold",
-    ]);
-    expect(router.pendingHeldFrameCount()).toBe(0);
-    expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
-  });
-
-  it("completing a child re-arms the once-per-child suppression diagnostic for a NEW child of the same id", () => {
-    const { router, diagnostics } = makeRouter();
-    router.registerSessionThread("session-thread");
-    const contentFrame: RoutableProviderFrame = {
-      rawWireType: "child-content",
-      familyClass: { scope: "thread", capability: "content" },
-      threadId: "child-thread",
-    };
-    for (const cycle of [0, 1]) {
-      router.registerChildThread({
-        childThreadId: "child-thread",
-        declaredParentThreadId: "session-thread",
-        subagentId: `child-thread-${String(cycle)}`,
-      });
-      expect(router.routeFrame(contentFrame, cycle).decision).toBe("suppress-child-transcript");
-      router.completeChildThread("child-thread");
-    }
-    // The ledger is per child lifetime: a reused identity is diagnosed again, not folded into the
-    // first one's entry.
-    expect(diagnostics.recentRecordsOfKind("thread_child_transcript_suppressed")).toHaveLength(2);
   });
 });

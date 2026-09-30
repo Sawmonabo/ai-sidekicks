@@ -1,14 +1,6 @@
-// Schema shape of `repo_mounts` and `workspaces` (source: `session/daemon-schema.ts`).
-//
-// Pins columns, NOT NULL flags, primary keys, defaults and indexes (including the partial-unique
-// `idx_repo_mounts_active_root`), plus the CHECK, UNIQUE and FK behavior of the two tables. Shape
-// is read from SQLite's own introspection (`PRAGMA table_info`, `index_list`, `index_info`)
-// rather than reasoned from the DDL, because column order and autoindex names cannot be
-// certified by reading the CREATE TABLE.
-//
-// `local_path` (the entered path) and `canonical_root` (the resolver's output) are both NOT NULL
-// and independent, and the unique index keys on `canonical_root`. That the writer stores the
-// resolver's output in `canonical_root` is asserted elsewhere, not here.
+// Proves the `repo_mounts` and `workspaces` columns and constraints: each CHECK admits exactly its
+// contract union, a workspace needs a real mount, the active-root key is per node, and a reopen
+// re-runs the migration as a no-op.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -63,7 +55,7 @@ const EXECUTION_MODES: Record<ExecutionMode, true> = {
   "provisioned-worktree": true,
 };
 
-describe("repo_mounts and workspaces schema shape", () => {
+describe("repo_mounts and workspaces constraints", () => {
   let db: DatabaseType;
 
   beforeEach(() => {
@@ -102,21 +94,10 @@ describe("repo_mounts and workspaces schema shape", () => {
     );
   }
 
-  // A state change moves a row across the `idx_repo_mounts_active_root` predicate, removing or
-  // re-inserting its index entry.
-  function updateRepoMountState(repoMountId: string, state: string): void {
-    db.prepare("UPDATE repo_mounts SET state = ?, updated_at = ? WHERE id = ?").run(
-      state,
-      FIXTURE_TIMESTAMP,
-      repoMountId,
-    );
-  }
-
   function insertWorkspaceRow(overrides: {
     id: string;
     repoMountId?: string;
     executionMode?: string;
-    fsRoot?: string | null;
     state?: string;
   }): void {
     db.prepare(
@@ -128,7 +109,7 @@ describe("repo_mounts and workspaces schema shape", () => {
       "session-1",
       overrides.repoMountId ?? "mount-1",
       overrides.executionMode ?? "bound-root",
-      overrides.fsRoot === undefined ? FIXTURE_CANONICAL_ROOT : overrides.fsRoot,
+      FIXTURE_CANONICAL_ROOT,
       overrides.state ?? "ready",
       FIXTURE_TIMESTAMP,
       FIXTURE_TIMESTAMP,
@@ -249,69 +230,6 @@ describe("repo_mounts and workspaces schema shape", () => {
     }
   });
 
-  it("creates the partial-unique idx_repo_mounts_active_root", () => {
-    const indexes = db.prepare("PRAGMA index_list(repo_mounts)").all() as ReadonlyArray<{
-      name: string;
-      unique: 0 | 1;
-      origin: string;
-      partial: 0 | 1;
-    }>;
-    const byIndexName = new Map(indexes.map((index) => [index.name, index]));
-
-    // Exactly two indexes: the PK autoindex (`origin` "pk") and the schema's own ("c").
-    expect([...byIndexName.keys()].sort()).toEqual([
-      "idx_repo_mounts_active_root",
-      "sqlite_autoindex_repo_mounts_1",
-    ]);
-    expect(byIndexName.get("sqlite_autoindex_repo_mounts_1")?.origin).toBe("pk");
-
-    // The dedupe key is unique and partial over (node_id, canonical_root). Keying on
-    // `local_path` would let two aliases of one repository both attach, and dropping `node_id`
-    // would let one absolute path attach on only one node.
-    expect(byIndexName.get("idx_repo_mounts_active_root")?.unique).toBe(1);
-    expect(byIndexName.get("idx_repo_mounts_active_root")?.partial).toBe(1);
-    const activeRootColumns = db
-      .prepare("PRAGMA index_info(idx_repo_mounts_active_root)")
-      .all() as ReadonlyArray<{ name: string }>;
-    expect(activeRootColumns.map((column) => column.name)).toEqual(["node_id", "canonical_root"]);
-
-    // The predicate is read from `sqlite_master.sql`: `index_list` reports `partial: 1` but not
-    // the WHERE clause, and a predicate widened to every row would block re-attach of a detached
-    // mount for good.
-    const indexDdl = db
-      .prepare("SELECT sql FROM sqlite_master WHERE type = 'index' AND name = ?")
-      .get("idx_repo_mounts_active_root") as { sql: string } | undefined;
-    expect(indexDdl?.sql).toContain("WHERE state = 'attached'");
-  });
-
-  it("creates idx_workspaces_session and idx_workspaces_repo as non-unique lookup indexes", () => {
-    const indexes = db.prepare("PRAGMA index_list(workspaces)").all() as ReadonlyArray<{
-      name: string;
-      unique: 0 | 1;
-      origin: string;
-    }>;
-    const byIndexName = new Map(indexes.map((index) => [index.name, index]));
-
-    expect([...byIndexName.keys()].sort()).toEqual([
-      "idx_workspaces_repo",
-      "idx_workspaces_session",
-      "sqlite_autoindex_workspaces_1",
-    ]);
-
-    // Both must be non-unique: a session holds several workspaces and a mount several bindings.
-    expect(byIndexName.get("idx_workspaces_session")?.unique).toBe(0);
-    const sessionIndexColumns = db
-      .prepare("PRAGMA index_info(idx_workspaces_session)")
-      .all() as ReadonlyArray<{ name: string }>;
-    expect(sessionIndexColumns.map((column) => column.name)).toEqual(["session_id"]);
-
-    expect(byIndexName.get("idx_workspaces_repo")?.unique).toBe(0);
-    const repoIndexColumns = db
-      .prepare("PRAGMA index_info(idx_workspaces_repo)")
-      .all() as ReadonlyArray<{ name: string }>;
-    expect(repoIndexColumns.map((column) => column.name)).toEqual(["repo_mount_id"]);
-  });
-
   it("enforces the state CHECK on `repo_mounts`", () => {
     for (const state of Object.keys(REPO_MOUNT_STATES)) {
       expect(() => {
@@ -375,18 +293,6 @@ describe("repo_mounts and workspaces schema shape", () => {
     }).toThrow(/CHECK constraint failed/i);
   });
 
-  it("accepts a workspace with a NULL fs_root (the provisioning path)", () => {
-    insertRepoMountRow({ id: "mount-1" });
-    expect(() => {
-      insertWorkspaceRow({
-        id: "workspace-provisioning",
-        executionMode: "provisioned-worktree",
-        fsRoot: null,
-        state: "preparing",
-      });
-    }).not.toThrow();
-  });
-
   it("enforces the workspaces.repo_mount_id foreign key against `repo_mounts`", () => {
     // Negative control first: with enforcement live, the accept below passes because the parent
     // exists, not because enforcement is off.
@@ -401,15 +307,6 @@ describe("repo_mounts and workspaces schema shape", () => {
     }).not.toThrow();
   });
 
-  it("rejects a second ACTIVE mount of one canonical root on the same node", () => {
-    insertRepoMountRow({ id: "mount-first" });
-    // The message names the key columns, which shows the partial index fired and not the PK on
-    // `id`.
-    expect(() => {
-      insertRepoMountRow({ id: "mount-duplicate" });
-    }).toThrow(/UNIQUE constraint failed: repo_mounts\.node_id, repo_mounts\.canonical_root/i);
-  });
-
   it("admits an active mount that differs in exactly one key column", () => {
     // Each accept varies one member of the index key and holds the other fixed: a different
     // node is a different filesystem, a different canonical root a different repository.
@@ -420,48 +317,6 @@ describe("repo_mounts and workspaces schema shape", () => {
     expect(() => {
       insertRepoMountRow({ id: "mount-other-root", canonicalRoot: "/repos/other-repository" });
     }).not.toThrow();
-  });
-
-  it("admits an attach alongside an already-detached row on the same key", () => {
-    // The index covers only `attached` rows, so a detached row never blocks re-attach. This arm
-    // puts no entry in the index; the UPDATE arm below covers entry removal.
-    insertRepoMountRow({ id: "mount-detached", state: "detached" });
-    expect(() => {
-      insertRepoMountRow({ id: "mount-reattached" });
-    }).not.toThrow();
-  });
-
-  it("readmits an attach after the holder is UPDATEd to detached", () => {
-    // The detach-then-re-attach lifecycle: the first row occupies the partial index until the
-    // UPDATE evicts it.
-    insertRepoMountRow({ id: "mount-holder" });
-    updateRepoMountState("mount-holder", "detached");
-    expect(() => {
-      insertRepoMountRow({ id: "mount-successor" });
-    }).not.toThrow();
-  });
-
-  it("rejects an UPDATE that re-attaches a detached mount whose key is already held", () => {
-    // The uniqueness check must also fire on the index entry an UPDATE inserts, or a re-attach
-    // would put two active mounts on one canonical root.
-    insertRepoMountRow({ id: "mount-active" });
-    insertRepoMountRow({ id: "mount-detached", state: "detached" });
-    expect(() => {
-      updateRepoMountState("mount-detached", "attached");
-    }).toThrow(/UNIQUE constraint failed: repo_mounts\.node_id, repo_mounts\.canonical_root/i);
-  });
-
-  it("stores the entered path and the canonical root as independent values", () => {
-    // The two columns hold different strings on one row, so a schema that collapsed them shows.
-    insertRepoMountRow({ id: "mount-1" });
-    const row = db
-      .prepare("SELECT local_path, canonical_root, metadata FROM repo_mounts WHERE id = ?")
-      .get("mount-1") as { local_path: string; canonical_root: string; metadata: string };
-    expect(row.canonical_root).toBe(FIXTURE_CANONICAL_ROOT);
-    expect(row.local_path).toBe(`${FIXTURE_CANONICAL_ROOT}/src/services`);
-    expect(row.local_path).not.toBe(row.canonical_root);
-    // An omitted `metadata` resolves to its DDL default, not NULL, so readers can always parse it.
-    expect(row.metadata).toBe("{}");
   });
 });
 

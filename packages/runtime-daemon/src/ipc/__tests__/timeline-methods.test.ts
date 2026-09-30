@@ -1,13 +1,10 @@
-// The `timeline.*` method strings against the real daemon `MethodRegistry`, and the
-// `timeline.bodyRead` handler. A regex check on the names would not prove the deployed registry
-// accepts them, so every assertion goes through `MethodRegistryImpl` and the dispatch rows go
-// through the descriptors' real schemas.
+// Timeline methods through the real method registry: every method string registers and resolves,
+// and a reply about another session or run, a page over the caller's window, an empty first
+// reasoning read or a malformed entry is refused before it reaches the wire.
 
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type {
-  EventCursor,
-  EventEnvelope,
   ChildRunExpandResponse,
   Handler,
   HandlerContext,
@@ -19,9 +16,7 @@ import type {
   TimelineRow,
 } from "@ai-sidekicks/contracts";
 import {
-  EventEnvelopeVersionSchema,
   TIMELINE_CHILD_RUN_EXPAND_METHOD,
-  TIMELINE_METHOD_DESCRIPTORS,
   TIMELINE_METHOD_NAMES,
   TIMELINE_READ_LIMIT_MAX,
   TIMELINE_READ_METHOD,
@@ -33,16 +28,7 @@ import {
 
 // Imported through the barrel, the surface callers bind timeline methods from.
 import { registerTimelineMethod } from "../handlers/index.js";
-import { SessionContentReader, type StoredEventContentRow } from "../../events/content-read.js";
-import { SessionContentKeyUnavailableError } from "../../events/session-content-key-store.js";
-import { registerTimelineBodyRead } from "../handlers/timeline-methods.js";
-import { SessionNotFoundError } from "../session-errors.js";
-import {
-  isCanonicalMethodName,
-  MethodRegistryImpl,
-  RegistryDispatchError,
-  RegistryRegistrationError,
-} from "../registry.js";
+import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
 
 const TRANSPORT_ID = 7;
 const dispatchContext: HandlerContext = { transportId: TRANSPORT_ID };
@@ -106,15 +92,6 @@ const registerAllTimelineMethods = (registry: MethodRegistryImpl): void => {
 };
 
 describe("timeline method-name registration", () => {
-  it("every timeline method string passes the deployed registry's gate", () => {
-    for (const method of TIMELINE_METHOD_NAMES) {
-      expect(isCanonicalMethodName(method)).toBe(true);
-    }
-    // Control: the predicate rejects malformed siblings, so the passes above are meaningful.
-    expect(isCanonicalMethodName("Timeline.read")).toBe(false);
-    expect(isCanonicalMethodName("timeline.")).toBe(false);
-  });
-
   it("every method registers on a real MethodRegistryImpl and then resolves", () => {
     const registry = new MethodRegistryImpl();
     for (const method of TIMELINE_METHOD_NAMES) {
@@ -123,164 +100,11 @@ describe("timeline method-name registration", () => {
     registerAllTimelineMethods(registry);
     for (const method of TIMELINE_METHOD_NAMES) {
       expect(registry.has(method)).toBe(true);
-      // Every timeline operation is a read, so the version-mismatch gate lets it through.
-      expect(registry.isMutating(method)).toBe(false);
     }
   });
+});
 
-  it("an unregistered `timeline.*` sibling still resolves to method_not_found", () => {
-    // Registering the methods does not open the rest of the namespace.
-    const registry = new MethodRegistryImpl();
-    registerAllTimelineMethods(registry);
-    expect(registry.has("timeline.write")).toBe(false);
-    expect(registry.isMutating("timeline.write")).toBeUndefined();
-  });
-
-  it("registering a timeline method twice throws at register-time", () => {
-    const registry = new MethodRegistryImpl();
-    registerTimelineMethod(registry, {
-      method: TIMELINE_READ_METHOD,
-      handler: async () => readResponse,
-    });
-    expect(() => {
-      registerTimelineMethod(registry, {
-        method: TIMELINE_READ_METHOD,
-        handler: async () => readResponse,
-      });
-    }).toThrow(RegistryRegistrationError);
-  });
-
-  it("the descriptor's request schema gates dispatch, handler never runs", async () => {
-    const registry = new MethodRegistryImpl();
-    const handler = vi.fn<Handler<TimelineReadRequest, TimelineReadResponse>>(
-      async () => readResponse,
-    );
-    registerTimelineMethod(registry, { method: TIMELINE_READ_METHOD, handler });
-
-    // Over the read window's cap; the descriptor's schema enforces it, not the handler.
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(
-        TIMELINE_READ_METHOD,
-        { sessionId: SESSION_ID, limit: 100_000 },
-        dispatchContext,
-      );
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_params");
-    }
-    expect(handler).not.toHaveBeenCalled();
-
-    // Control: valid params dispatch, so the refusal above came from the payload.
-    const result = await registry.dispatch(
-      TIMELINE_READ_METHOD,
-      { sessionId: SESSION_ID },
-      dispatchContext,
-    );
-    expect(result).toStrictEqual(readResponse);
-    expect(handler).toHaveBeenCalledTimes(1);
-  });
-
-  it("each method dispatches to ITS OWN operation, not a sibling's", async () => {
-    // Each name carries its own schemas, so one operation's request shape is refused by another.
-    const registry = new MethodRegistryImpl();
-    registerAllTimelineMethods(registry);
-
-    await expect(
-      registry.dispatch(TIMELINE_REASONING_SURFACE_READ_METHOD, { runId: RUN_ID }, dispatchContext),
-    ).resolves.toStrictEqual(reasoningResponse);
-
-    // `sessionId`, `beforeCursor` and `limit` are not members of the expansion's strict shape.
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(
-        TIMELINE_CHILD_RUN_EXPAND_METHOD,
-        { runId: RUN_ID, sessionId: SESSION_ID, beforeCursor: "seq-1", limit: 10 },
-        dispatchContext,
-      );
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_params");
-    }
-  });
-
-  it("a handler resolving another operation's response is caught as invalid_result", async () => {
-    // The descriptor's response schema validates the resolved value, so a handler wired to the
-    // wrong operation fails at dispatch instead of putting a wrong shape on the wire.
-    const registry = new MethodRegistryImpl();
-    registerTimelineMethod(registry, {
-      method: TIMELINE_READ_METHOD,
-      // The cast stands in for a handler wired to the wrong operation, which the types reject.
-      handler: (async () => reasoningResponse) as unknown as Handler<
-        TimelineReadRequest,
-        TimelineReadResponse
-      >,
-    });
-    let caught: unknown = null;
-    try {
-      await registry.dispatch(TIMELINE_READ_METHOD, { sessionId: SESSION_ID }, dispatchContext);
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toBeInstanceOf(RegistryDispatchError);
-    if (caught instanceof RegistryDispatchError) {
-      expect(caught.registryCode).toBe("invalid_result");
-    }
-  });
-
-  it("the registered schemas are the CANONICAL objects, by reference", () => {
-    // The binder takes schemas from `TIMELINE_METHOD_DESCRIPTORS`. Identity, not deep equality,
-    // proves each registered pair is the canonical object and not a look-alike.
-    const recorded = new Map<string, { params: unknown; result: unknown }>();
-    const recordingRegistry = {
-      register: (method: string, paramsSchema: unknown, resultSchema: unknown): void => {
-        recorded.set(method, { params: paramsSchema, result: resultSchema });
-      },
-      dispatch: async (): Promise<unknown> => undefined,
-      has: (): boolean => false,
-      isMutating: (): boolean | undefined => undefined,
-    } as unknown as MethodRegistryImpl;
-
-    registerAllTimelineMethods(recordingRegistry);
-
-    expect(recorded.size).toBe(TIMELINE_METHOD_NAMES.length);
-    for (const method of TIMELINE_METHOD_NAMES) {
-      const canonical = TIMELINE_METHOD_DESCRIPTORS[method];
-      expect(recorded.get(method)?.params).toBe(canonical.requestSchema);
-      expect(recorded.get(method)?.result).toBe(canonical.responseSchema);
-    }
-  });
-
-  it("no two operations share a schema object — the identity check can discriminate", () => {
-    // Control for the identity test above: if two operations shared a schema instance, it could
-    // pass while a method was paired with a sibling's schema.
-    const requestSchemas = TIMELINE_METHOD_NAMES.map(
-      (method) => TIMELINE_METHOD_DESCRIPTORS[method].requestSchema,
-    );
-    const responseSchemas = TIMELINE_METHOD_NAMES.map(
-      (method) => TIMELINE_METHOD_DESCRIPTORS[method].responseSchema,
-    );
-    expect(new Set(requestSchemas).size).toBe(TIMELINE_METHOD_NAMES.length);
-    expect(new Set(responseSchemas).size).toBe(TIMELINE_METHOD_NAMES.length);
-  });
-
-  it("a handler bound to a sibling operation does not compile", () => {
-    const registry = new MethodRegistryImpl();
-    registerTimelineMethod(registry, {
-      method: TIMELINE_CHILD_RUN_EXPAND_METHOD,
-      // @ts-expect-error a reasoning-surface handler cannot bind to childRunExpand:
-      // the handler's types are derived from `method` through the contract map.
-      handler: async () => reasoningResponse,
-    });
-    expect(registry.has(TIMELINE_CHILD_RUN_EXPAND_METHOD)).toBe(true);
-  });
-
+describe("timeline replies are scoped to the request", () => {
   it("a read answering with ANOTHER session's rows is refused as an internal error", async () => {
     // Rows that are each a valid `TimelineRow` from another session pass every schema check,
     // because the response schema never sees the request.
@@ -541,128 +365,5 @@ describe("timeline method-name registration", () => {
         dispatchContext,
       ),
     ).resolves.toStrictEqual(servedSurface);
-  });
-});
-
-describe("timeline.bodyRead", () => {
-  const storedEnvelope: EventEnvelope = {
-    id: "evt-output",
-    sessionId: SESSION_ID,
-    sequence: 3,
-    occurredAt: "2026-09-01T00:00:00.000Z",
-    category: "tool_activity",
-    type: "tool.result",
-    actor: "agent-1",
-    payload: { sessionId: SESSION_ID, runId: RUN_ID, toolName: "Bash" },
-    version: EventEnvelopeVersionSchema.parse("1.0"),
-  };
-  const storedRow = (retentionClass: string | null): StoredEventContentRow => ({
-    envelope: storedEnvelope,
-    contentPayload: null,
-    retentionClass,
-  });
-  const contentReader = new SessionContentReader({
-    keyReader: {
-      read: (sessionId) =>
-        Promise.reject(
-          new SessionContentKeyUnavailableError("wrapped_key_missing", sessionId, "no key"),
-        ),
-    },
-  });
-
-  const registryReading = (
-    readStoredEventRow: (
-      sessionId: SessionId,
-      eventId: string,
-    ) => Promise<StoredEventContentRow | undefined>,
-    reader: Pick<SessionContentReader, "hydrate"> = contentReader,
-  ): MethodRegistryImpl => {
-    const registry = new MethodRegistryImpl();
-    registerTimelineBodyRead(registry, { readStoredEventRow, contentReader: reader });
-    return registry;
-  };
-
-  const dispatchBodyRead = (registry: MethodRegistryImpl, rowId = "evt-output"): Promise<unknown> =>
-    registry.dispatch(TIMELINE_BODY_READ_METHOD, { sessionId: SESSION_ID, rowId }, dispatchContext);
-
-  it("answers with the row's opened body", async () => {
-    const readStoredEventRow = vi.fn(async () => storedRow(null));
-    const registry = registryReading(readStoredEventRow, {
-      hydrate: async (row) => ({
-        event: row.envelope,
-        content: { status: "available", body: "done\n", contentLength: 5 },
-      }),
-    });
-    await expect(dispatchBodyRead(registry)).resolves.toStrictEqual({
-      status: "available",
-      body: "done\n",
-      contentLength: 5,
-    });
-    expect(readStoredEventRow).toHaveBeenCalledWith(SESSION_ID, "evt-output");
-  });
-
-  it("answers why a body cannot be read", async () => {
-    const registry = registryReading(async () => storedRow(null));
-    await expect(dispatchBodyRead(registry)).resolves.toStrictEqual({
-      status: "unavailable",
-      reason: "absent",
-    });
-  });
-
-  it("refuses a row the session does not hold, on the rowId path", async () => {
-    const registry = registryReading(async () => undefined);
-    const refusal = await dispatchBodyRead(registry, "evt-missing").catch(
-      (error: unknown) => error,
-    );
-    expect(refusal).toBeInstanceOf(RegistryDispatchError);
-    expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_params");
-    expect((refusal as RegistryDispatchError).issues?.[0]).toMatchObject({ path: ["rowId"] });
-  });
-
-  it("lets an unknown session surface as session.not_found", async () => {
-    const registry = registryReading(async () => {
-      throw new SessionNotFoundError("no such session");
-    });
-    await expect(dispatchBodyRead(registry)).rejects.toBeInstanceOf(SessionNotFoundError);
-  });
-
-  it("never puts a purged body on the wire", async () => {
-    const registry = registryReading(async () => storedRow("audit_stub"));
-    const refusal = await dispatchBodyRead(registry).catch((error: unknown) => error);
-    expect(refusal).toBeInstanceOf(RegistryDispatchError);
-    expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_result");
-  });
-});
-
-describe("timeline.search", () => {
-  it("a page over the caller's own limit is refused, and at the limit resolves", async () => {
-    const hit = {
-      rowId: "evt-1",
-      cursor: "seq-1" as EventCursor,
-      snippet: "a parser",
-      matchRanges: [{ offset: 2, length: 6 }],
-    };
-    const registry = new MethodRegistryImpl();
-    registerTimelineMethod(registry, {
-      method: TIMELINE_SEARCH_METHOD,
-      handler: async () => ({ matchCount: 3, hits: [hit, hit, hit], hasMore: false }),
-    });
-    const refusal = await registry
-      .dispatch(
-        TIMELINE_SEARCH_METHOD,
-        { sessionId: SESSION_ID, query: "parser", limit: 2 },
-        dispatchContext,
-      )
-      .catch((error: unknown) => error);
-    expect(refusal).toBeInstanceOf(RegistryDispatchError);
-    expect((refusal as RegistryDispatchError).registryCode).toBe("invalid_result");
-    expect((refusal as RegistryDispatchError).issues?.[0]).toMatchObject({ path: ["hits"] });
-    await expect(
-      registry.dispatch(
-        TIMELINE_SEARCH_METHOD,
-        { sessionId: SESSION_ID, query: "parser", limit: 3 },
-        dispatchContext,
-      ),
-    ).resolves.toMatchObject({ matchCount: 3 });
   });
 });

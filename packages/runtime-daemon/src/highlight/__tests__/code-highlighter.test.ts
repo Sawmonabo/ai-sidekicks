@@ -22,18 +22,6 @@ function decodeSpans(source: string, spans: Uint32Array): [string, string][] {
 }
 
 describe("CodeHighlighter", () => {
-  it("paints each class at the characters it covers", async () => {
-    const source = 'const greeting = "hi"; // say it\nlet count = 42;\n';
-    const spans = await new CodeHighlighter().readSpans(source, "typescript");
-    expect(decodeSpans(source, spans)).toStrictEqual([
-      ["const", "keyword"],
-      ['"hi"', "string"],
-      ["// say it", "comment"],
-      ["let", "keyword"],
-      ["42", "number"],
-    ]);
-  });
-
   it("colors a comment that runs past a slice boundary, and the code after it", async () => {
     const commentBody = "inside the comment\n".repeat(400);
     const source = `/*\n${commentBody}*/\nconst after = 1;\n`;

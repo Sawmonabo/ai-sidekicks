@@ -1,14 +1,6 @@
-// Contract enums against the daemon schema's CHECK constraints.
-//
-// Every member of a contract enum is inserted into the column that stores it,
-// and must be admitted; a value outside the enum must be refused. The member
-// lists are `Record<Union, true>` maps, so a member added to or renamed in the
-// contract is a typecheck error here until its accept case exists, and that
-// case then fails at runtime until the CHECK admits it.
-//
-// `repo_mounts` and `workspaces` are covered the same way in
-// `workspace/__tests__/repo-workspace-migration.test.ts`, and the provider
-// account tables in `accounts/__tests__/provider-account-schema-conformance.test.ts`.
+// Every member of a contract enum is admitted by the SQLite CHECK on the column that stores it, and
+// a value outside the enum is refused. The `Record<Union, true>` member maps make a contract member
+// added without an accept case a typecheck error here.
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";

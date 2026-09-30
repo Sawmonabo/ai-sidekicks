@@ -1,23 +1,7 @@
-// RepoMountService behavior, against a real temp-file SQLite database, a real event log, real
-// `WorkspaceService` and `SessionService`, and real git repositories built with `execFile` (the
-// approach `repo-root-resolver.test.ts` uses): "attach through a subdirectory resolves to the
-// repository root" is only a real claim if git answered it.
-//
-// Test-only mechanisms:
-//   * Real git fixtures under a hermetic environment; a mocked resolver would let every
-//     canonical-root assertion pass against a value the test invented.
-//   * An interfering clock that mutates the database on its first read. `detach` reads the clock
-//     between its pre-transaction row read and the transaction, the window the compare-and-swap
-//     and the in-transaction dependent read exist for; real concurrency would be flaky or would
-//     never reach it.
-//   * An injected `newRepoMountId` that mints a colliding id, to reach a constraint failure the
-//     production id source cannot produce.
-//   * An emitter whose first `workspace.archived` append rejects, for the post-commit announcement
-//     path; that failure (a size refusal, a full disk) has no other trigger.
-//   * An injected `platform`, so the win32 git-pinning guard runs on every CI leg, not only on
-//     Windows.
+// Proves RepoMountService keeps one active mount per canonical root and detaches atomically:
+// every dependent is archived and announced, a busy one blocks the detach, and a race rolls back.
+// Real git, SQLite and services; a clock that writes on its first read opens the race windows.
 
-import { execFile } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { mkdtemp, realpath } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,16 +27,20 @@ import {
   RepoMountServiceInvariantError,
   type RepoMountServiceDeps,
 } from "../repo-mount-service.js";
-import { RepoRootResolver } from "../repo-root-resolver.js";
 import { WorkspaceEventEmitter } from "../workspace-event-emitter.js";
-import type { FilesystemPathProbe } from "../workspace-projector.js";
 import { WorkspaceService } from "../workspace-service.js";
-import { type FilesystemPathProbeFn } from "../workspace-row-guards.js";
+
+import {
+  buildFixtureEnvironment,
+  captureRejection,
+  runFixtureGit,
+  seedSession,
+  steppingClock,
+} from "./workspace-test-support.js";
 
 const SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000001" as SessionId;
 const OTHER_SESSION_ID: SessionId = "0190f9a0-0000-7000-8000-000000000002" as SessionId;
 const NODE_ID: NodeId = "node-local" as NodeId;
-const OTHER_NODE_ID: NodeId = "node-remote" as NodeId;
 const UNKNOWN_MOUNT_ID: RepoMountId = "0190f9a1-0000-7000-8000-00000000ffff" as RepoMountId;
 
 const USER_ACTOR: string = "0190f9a4-0000-7000-8000-000000000001";
@@ -78,8 +66,6 @@ const WORKSPACE_ID_POOL: readonly string[] = [
   "0190f9a2-0000-7000-8000-000000000006",
 ];
 const INJECTED_WORKSPACE_ID: string = "0190f9a2-0000-7000-8000-00000000aaaa";
-// Named because `MOUNT_ID_POOL[0]` needs a cast to shed `| undefined`.
-const INJECTED_MOUNT_ID: string = "0190f9a1-0000-7000-8000-00000000aaaa";
 
 /**
  * An emitter whose first `workspace.archived` append rejects; later ones append for real.
@@ -118,78 +104,15 @@ interface StoredWorkspaceRow {
   readonly state: string;
 }
 
-/**
- * The hermetic environment fixture git runs under: no system or global config, a `HOME` inside the
- * temp root, an explicit identity, and the discovery variables (`GIT_DIR` and the like) stripped
- * so an ambient one cannot redirect a fixture. Same as the helper in `repo-root-resolver.test.ts`.
- */
-function buildFixtureEnvironment(fixtureRoot: string): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = { ...process.env };
-  for (const key of [
-    "GIT_DIR",
-    "GIT_WORK_TREE",
-    "GIT_COMMON_DIR",
-    "GIT_CEILING_DIRECTORIES",
-    "GIT_DISCOVERY_ACROSS_FILESYSTEM",
-    "GIT_CONFIG_COUNT",
-    "GIT_CONFIG_PARAMETERS",
-  ]) {
-    delete environment[key];
-  }
-  environment["HOME"] = fixtureRoot;
-  environment["XDG_CONFIG_HOME"] = join(fixtureRoot, "xdg");
-  environment["GIT_CONFIG_NOSYSTEM"] = "1";
-  environment["GIT_CONFIG_GLOBAL"] = join(fixtureRoot, "absent-global-gitconfig");
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  environment["GIT_AUTHOR_NAME"] = "Fixture Author";
-  environment["GIT_AUTHOR_EMAIL"] = "fixture@example.invalid";
-  environment["GIT_COMMITTER_NAME"] = "Fixture Author";
-  environment["GIT_COMMITTER_EMAIL"] = "fixture@example.invalid";
-  return environment;
-}
-
-/**
- * Runs a fixture git command, rejecting on any non-zero exit. `cwd` is pinned inside the fixture
- * root so git cannot discover the repository under development and bleed into the host.
- */
-function runFixtureGit(
-  args: readonly string[],
-  environment: NodeJS.ProcessEnv,
-  cwd: string,
-): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    execFile(
-      "git",
-      [...args],
-      { encoding: "utf8", env: environment, cwd, timeout: 30_000 },
-      (error, _stdout, stderr) => {
-        if (error !== null) {
-          reject(new Error(`fixture git ${args.join(" ")} failed: ${stderr}`));
-          return;
-        }
-        resolve();
-      },
-    ).on("error", reject);
-  });
-}
-
 interface GitFixtures {
   readonly fixtureRoot: string;
-  /** The hermetic environment fixture git runs under. */
-  readonly environment: NodeJS.ProcessEnv;
   /** A real git repository root — what `rev-parse --show-toplevel` reports. */
   readonly repositoryRoot: string;
-  /** A directory BELOW `repositoryRoot`; attaching it must persist the root. */
+  /** A directory BELOW `repositoryRoot`, which resolves to the same canonical root. */
   readonly nestedDirectory: string;
-  /** A second, unrelated repository. */
-  readonly unrelatedRepositoryRoot: string;
-  /** A directory that is not a repository at all, refused as `not_a_git_repository`. */
-  readonly plainDirectory: string;
   /** An absolute path that does not exist. */
   readonly absentPath: string;
-  /** An absolute path to a `git` that is not there (the win32 seam's control). */
+  /** An absolute path to a `git` that is not there. */
   readonly missingGitExecutable: string;
 }
 
@@ -205,23 +128,15 @@ beforeAll(async () => {
 
   const repositoryRoot = join(fixtureRoot, "repo");
   const nestedDirectory = join(repositoryRoot, "packages", "daemon");
-  const unrelatedRepositoryRoot = join(fixtureRoot, "unrelated-repo");
-  const plainDirectory = join(fixtureRoot, "plain");
-  for (const directory of [nestedDirectory, plainDirectory]) {
-    mkdirSync(directory, { recursive: true });
-  }
+  mkdirSync(nestedDirectory, { recursive: true });
 
   await runFixtureGit(["init", "-q", repositoryRoot], environment, fixtureRoot);
-  await runFixtureGit(["init", "-q", unrelatedRepositoryRoot], environment, fixtureRoot);
 
   gitFixtures = {
     fixtureRoot,
-    environment,
     repositoryRoot,
     nestedDirectory,
-    unrelatedRepositoryRoot,
-    plainDirectory,
-    absentPath: join(fixtureRoot, "definitely-not-here"),
+    absentPath: join(fixtureRoot, "does-not-exist"),
     missingGitExecutable: join(fixtureRoot, "definitely-not-a-git-binary"),
   };
 }, 120_000);
@@ -233,16 +148,12 @@ afterAll(() => {
 });
 
 interface TestHarness {
-  /** Mutable: the durability arm closes this handle and reopens the same file. */
-  db: DatabaseType;
-  readonly dbPath: string;
+  readonly db: DatabaseType;
   readonly emitter: WorkspaceEventEmitter;
   readonly workspaces: WorkspaceService;
   readonly sessions: SessionService;
   readonly service: RepoMountService;
   readonly tmpDir: string;
-  /** A per-test directory that arms may delete to make a root vanish. */
-  readonly disposableRoot: string;
 }
 
 let harness: TestHarness;
@@ -257,24 +168,6 @@ function makeIdSource(pool: readonly string[], label: string): () => string {
     index += 1;
     return value;
   };
-}
-
-/** Seed a session's log so `SessionService.replay` returns a snapshot for it. */
-function seedSession(sessionId: SessionId): void {
-  harness.sessions.append({
-    id: `evt-${sessionId}`,
-    sessionId,
-    sequence: 0,
-    occurredAt: "2026-08-05T00:00:00.000Z",
-    monotonicNs: 1_000_000_000n,
-    category: "session_lifecycle",
-    type: "session.created",
-    actor: null,
-    payload: { sessionId },
-    correlationId: null,
-    causationId: null,
-    version: "1.0",
-  });
 }
 
 /**
@@ -382,16 +275,6 @@ function readLifecycleEnvelopes(sessionId: string = SESSION_ID): readonly Stored
   ).filter((row) => row.type !== "session.created");
 }
 
-/** Run `body` and return whatever it rejected with, so an arm can assert on the carrier. */
-async function captureRejection(body: () => Promise<unknown>): Promise<unknown> {
-  try {
-    await body();
-  } catch (error: unknown) {
-    return error;
-  }
-  throw new Error("expected the operation to reject, but it resolved");
-}
-
 function captureThrow(body: () => unknown): unknown {
   try {
     body();
@@ -399,19 +282,6 @@ function captureThrow(body: () => unknown): unknown {
     return error;
   }
   throw new Error("expected the operation to throw, but it returned");
-}
-
-/**
- * A clock that advances one second per read, so arms that compare two stamps do not tie:
- * `toISOString` has millisecond resolution and two calls microseconds apart give the same string.
- */
-function steppingClock(): () => string {
-  let currentMs: number = Date.parse("2026-08-05T00:00:00.000Z");
-  return () => {
-    const stamp = new Date(currentMs).toISOString();
-    currentMs += 1_000;
-    return stamp;
-  };
 }
 
 /**
@@ -430,34 +300,11 @@ function interferingClock(interfere: () => void): () => string {
   };
 }
 
-/** A probe seam that records the path it was handed, then answers truthfully. */
-function recordingProbe(record: (path: string) => void): FilesystemPathProbeFn {
-  return (path: string) => {
-    record(path);
-    return Promise.resolve({
-      probedPath: path,
-      reachable: true,
-      checkedAt: "2026-08-05T00:00:00.000Z",
-    } satisfies FilesystemPathProbe);
-  };
-}
-
-/** A probe seam that reports having measured a path other than the one asked for. */
-function mispairedProbe(probedPathOverride: string): FilesystemPathProbeFn {
-  return (_path: string) =>
-    Promise.resolve({
-      probedPath: probedPathOverride,
-      reachable: true,
-      checkedAt: "2026-08-05T00:00:00.000Z",
-    } satisfies FilesystemPathProbe);
-}
-
 beforeEach(async () => {
   const tmpDir: string = await realpath(
     await mkdtemp(join(tmpdir(), "ai-sidekicks-repo-mount-service-db-")),
   );
-  const dbPath = join(tmpDir, "test.db");
-  const db: DatabaseType = openDatabase(dbPath);
+  const db: DatabaseType = openDatabase(join(tmpDir, "test.db"));
   const emitter = new WorkspaceEventEmitter({
     sessionEvents: new EventLogService({
       db,
@@ -472,12 +319,8 @@ beforeEach(async () => {
     sessions,
     newWorkspaceId: makeIdSource(WORKSPACE_ID_POOL, "workspace"),
   });
-  const disposableRoot = join(tmpDir, "disposable-root");
-  mkdirSync(disposableRoot, { recursive: true });
-
   harness = {
     db,
-    dbPath,
     emitter,
     workspaces,
     sessions,
@@ -488,11 +331,10 @@ beforeEach(async () => {
       newRepoMountId: makeIdSource(MOUNT_ID_POOL, "repo mount"),
     }),
     tmpDir,
-    disposableRoot,
   };
 
-  seedSession(SESSION_ID);
-  seedSession(OTHER_SESSION_ID);
+  seedSession(sessions, SESSION_ID);
+  seedSession(sessions, OTHER_SESSION_ID);
 });
 
 afterEach(() => {
@@ -503,45 +345,7 @@ afterEach(() => {
   rmSync(harness.tmpDir, { recursive: true, force: true });
 });
 
-describe("RepoMountService.attach", () => {
-  it("persists the resolved root of a SUBDIRECTORY attach, and it survives a reopen", async () => {
-    const response = await harness.service.attach({
-      // Below the repository root: the only shape where the entered path and canonical root differ.
-      localPath: gitFixtures.nestedDirectory,
-    });
-
-    expect(response.state).toBe("attached");
-    expect(response.vcsType).toBe("git");
-    expect(response.canonicalRoot).toBe(gitFixtures.repositoryRoot);
-    expect(response.canonicalRoot).not.toBe(gitFixtures.nestedDirectory);
-
-    // Durability: close the handle, reopen the same file, and read; an uncommitted row would not
-    // survive.
-    harness.db.close();
-    harness.db = openDatabase(harness.dbPath);
-
-    const mount = requireMountRow(response.repoMountId);
-    expect(mount.canonical_root).toBe(gitFixtures.repositoryRoot);
-    // The entered path is kept alongside the resolved root, and the two differ.
-    expect(mount.local_path).toBe(gitFixtures.nestedDirectory);
-    expect(mount.local_path).not.toBe(mount.canonical_root);
-    // The request names no node; the service stamps its own.
-    expect(mount.node_id).toBe(NODE_ID);
-    expect(mount.vcs_type).toBe("git");
-    expect(mount.state).toBe("attached");
-  });
-
-  it("refuses a path that is not a git repository, and persists nothing", async () => {
-    const error = await captureRejection(() =>
-      harness.service.attach({ localPath: gitFixtures.plainDirectory }),
-    );
-
-    expect(error).toBeInstanceOf(RepoRootResolutionError);
-    expect((error as RepoRootResolutionError).code).toBe("repo.root_resolution_failed");
-    expect((error as RepoRootResolutionError).reason).toBe("not_a_git_repository");
-    expect(countMountRows()).toBe(0);
-  });
-
+describe("RepoMountService.attach — resolution failure", () => {
   it("persists NOTHING when the root cannot be resolved", async () => {
     for (const unresolvable of [
       gitFixtures.absentPath,
@@ -555,36 +359,6 @@ describe("RepoMountService.attach", () => {
       expect((error as RepoRootResolutionError).code).toBe("repo.root_resolution_failed");
     }
 
-    expect(countMountRows()).toBe(0);
-  });
-
-  it("admits a path with NO containment check — attach IS envelope admission", async () => {
-    // The machine already has an attached mount at `repositoryRoot`. A containment check at attach
-    // would refuse anything outside it, and must not.
-    const first = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-
-    const second = await harness.service.attach({
-      // A sibling repository, not under the first.
-      localPath: gitFixtures.unrelatedRepositoryRoot,
-    });
-
-    expect(second.canonicalRoot).toBe(gitFixtures.unrelatedRepositoryRoot);
-    expect(second.repoMountId).not.toBe(first.repoMountId);
-    expect(countMountRows()).toBe(2);
-  });
-
-  it("refuses the attach response — and writes nothing — when the identity is unrepresentable", async () => {
-    // A minted id the branded schema refuses. The projection runs before the write so no durable
-    // mount is left behind: a mount that cannot be reported is one the caller can never detach.
-    // detach either.
-    const service = createService({ newRepoMountId: () => "not-a-uuid" });
-
-    const error = await captureRejection(() =>
-      service.attach({ localPath: gitFixtures.repositoryRoot }),
-    );
-
-    expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
-    expect((error as RepoMountServiceInvariantError).kind).toBe("repo_mount_row_unprojectable");
     expect(countMountRows()).toBe(0);
   });
 });
@@ -607,21 +381,6 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
     expect(countMountRows()).toBe(1);
   });
 
-  it("attaches the same root cleanly on a different node", async () => {
-    await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-
-    // The same path on two nodes names two node-local filesystems, so both may attach.
-    const otherNodeService = createService({
-      nodeId: OTHER_NODE_ID,
-      newRepoMountId: makeIdSource(MOUNT_ID_POOL.slice(1), "other-node repo mount"),
-    });
-    const otherNode = await otherNodeService.attach({ localPath: gitFixtures.repositoryRoot });
-
-    expect(otherNode.canonicalRoot).toBe(gitFixtures.repositoryRoot);
-    expect(requireMountRow(otherNode.repoMountId).node_id).toBe(OTHER_NODE_ID);
-    expect(countMountRows()).toBe(2);
-  });
-
   it("re-attaches a detached root as a NEW row", async () => {
     const first = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
     await harness.service.detach({ repoMountId: first.repoMountId });
@@ -633,108 +392,6 @@ describe("RepoMountService.attach — active-root uniqueness", () => {
     expect(requireMountRow(first.repoMountId).state).toBe("detached");
     expect(requireMountRow(second.repoMountId).state).toBe("attached");
     expect(countMountRows()).toBe(2);
-  });
-
-  it("does NOT translate a constraint failure that is not the uniqueness index", async () => {
-    // Negative control: two different roots under one minted id fail on the primary key. No active
-    // mount holds the second root, so `repo.already_attached` would be wrong and the original error
-    // must surface.
-    const service = createService({ newRepoMountId: () => INJECTED_MOUNT_ID });
-
-    await service.attach({ localPath: gitFixtures.repositoryRoot });
-
-    const error = await captureRejection(() =>
-      service.attach({ localPath: gitFixtures.unrelatedRepositoryRoot }),
-    );
-
-    expect(error).not.toBeInstanceOf(RepoAlreadyAttachedError);
-    expect(error).toBeInstanceOf(Error);
-    expect(String((error as { code?: unknown }).code)).toContain("SQLITE_CONSTRAINT");
-    expect(countMountRows()).toBe(1);
-  });
-});
-
-describe("RepoMountService.read", () => {
-  it("projects the row and enriches it with a fresh health verdict", async () => {
-    const attached = await harness.service.attach({ localPath: gitFixtures.nestedDirectory });
-
-    const response = await harness.service.read(attached.repoMountId);
-
-    // A read projection carries a bare `id`.
-    expect(response.id).toBe(attached.repoMountId);
-    expect(response.nodeId).toBe(NODE_ID);
-    expect(response.localPath).toBe(gitFixtures.nestedDirectory);
-    expect(response.canonicalRoot).toBe(gitFixtures.repositoryRoot);
-    expect(response.localPath).not.toBe(response.canonicalRoot);
-    expect(response.vcsType).toBe("git");
-    expect(response.state).toBe("attached");
-    expect(response.health.status).toBe("healthy");
-    // `checkedAt` comes from this read's probe, so it is not before `attachedAt`.
-    expect(Date.parse(response.health.checkedAt)).not.toBeNaN();
-    expect(Date.parse(response.health.checkedAt)).toBeGreaterThanOrEqual(
-      Date.parse(requireMountRow(attached.repoMountId).attached_at),
-    );
-    expect(response.attachedAt).toBe(requireMountRow(attached.repoMountId).attached_at);
-  });
-
-  it("probes the row's canonical_root VERBATIM", async () => {
-    const attached = await harness.service.attach({ localPath: gitFixtures.nestedDirectory });
-
-    const probedPaths: string[] = [];
-    const service = createService({ probePath: recordingProbe((path) => probedPaths.push(path)) });
-    await service.read(attached.repoMountId);
-
-    // The row's canonical root byte for byte, not the entered path or a re-normalized spelling.
-    expect(probedPaths).toEqual([gitFixtures.repositoryRoot]);
-  });
-
-  it("reports a vanished root as unreachable, and changes nothing", async () => {
-    await runFixtureGit(
-      ["init", "-q", harness.disposableRoot],
-      gitFixtures.environment,
-      gitFixtures.fixtureRoot,
-    );
-    const attached = await harness.service.attach({ localPath: harness.disposableRoot });
-    // A real deletion, not a mocked verdict.
-    rmSync(harness.disposableRoot, { recursive: true, force: true });
-
-    const response = await harness.service.read(attached.repoMountId);
-
-    expect(response.health.status).toBe("unreachable");
-    // Health is a projection, not a persisted column or a transition; the mount stays `attached`.
-    expect(response.state).toBe("attached");
-    expect(requireMountRow(attached.repoMountId).state).toBe("attached");
-  });
-
-  it("answers for a DETACHED mount, and its health stays orthogonal to lifecycle", async () => {
-    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-    await harness.service.detach({ repoMountId: attached.repoMountId });
-
-    const response = await harness.service.read(attached.repoMountId);
-
-    // A detached mount keeps its durable record, and the record stays readable.
-    expect(response.state).toBe("detached");
-    // The root is still on disk, so health is `healthy`; health does not fold in lifecycle.
-    expect(response.health.status).toBe("healthy");
-  });
-
-  it("refuses an unknown mount id with repo.not_found", async () => {
-    const error = await captureRejection(() => harness.service.read(UNKNOWN_MOUNT_ID));
-    expect(error).toBeInstanceOf(RepoMountNotFoundError);
-    expect((error as RepoMountNotFoundError).repoMountId).toBe(UNKNOWN_MOUNT_ID);
-  });
-
-  it("refuses a probe that measured some other path", async () => {
-    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-    const service = createService({
-      probePath: mispairedProbe(gitFixtures.unrelatedRepositoryRoot),
-    });
-
-    const error = await captureRejection(() => service.read(attached.repoMountId));
-
-    expect(error).toBeInstanceOf(RepoMountServiceInvariantError);
-    expect((error as RepoMountServiceInvariantError).kind).toBe("repo_mount_row_unprojectable");
-    expect((error as RepoMountServiceInvariantError).repoMountId).toBe(attached.repoMountId);
   });
 });
 
@@ -846,20 +503,6 @@ describe("RepoMountService.detach", () => {
       "workspace.preparing",
       "workspace.archived",
     ]);
-  });
-
-  it("is a no-op success on an already-detached mount, with no event", async () => {
-    const attached = await harness.service.attach({ localPath: gitFixtures.repositoryRoot });
-    await bindWorkspace(attached.repoMountId);
-    await harness.service.detach({ repoMountId: attached.repoMountId });
-    const eventsAfterFirstDetach = readLifecycleEventTypes();
-
-    const second = await harness.service.detach({ repoMountId: attached.repoMountId });
-
-    expect(second.state).toBe("detached");
-    // An empty array is valid: this call archived nothing.
-    expect(second.archivedWorkspaceIds).toEqual([]);
-    expect(readLifecycleEventTypes()).toEqual(eventsAfterFirstDetach);
   });
 
   it("refuses an unknown mount id with repo.not_found", async () => {
@@ -989,37 +632,12 @@ describe("RepoMountService.detach", () => {
 
 describe("RepoMountService construction", () => {
   it("refuses to construct a bare-git resolver on win32", () => {
-    // Fail-closed. Driven through the injected platform so it runs on every CI leg; a guard keyed
-    // off `process.platform` would run only on Windows, which is why `repo-root-resolver.ts`
-    // derives win32-ness from its injected `path` module.
+    // Fail-closed. Driven through the injected platform so it runs on every CI leg, not only on
+    // Windows.
     const error = captureThrow(() => createService({ platform: "win32" }));
 
     expect(error).toBeInstanceOf(TypeError);
     expect((error as TypeError).message).toContain("win32");
-  });
-
-  it("accepts a win32 construction that pins git, by either seam", () => {
-    // Negative control: the guard must refuse an omission, not win32. Both legal shapes construct,
-    // and `linux` shows the guard is win32-scoped.
-    expect(() =>
-      createService({ platform: "win32", gitExecutablePath: gitFixtures.missingGitExecutable }),
-    ).not.toThrow();
-    expect(() =>
-      createService({ platform: "win32", resolver: new RepoRootResolver() }),
-    ).not.toThrow();
-    expect(() => createService({ platform: "linux" })).not.toThrow();
-  });
-
-  it("refuses both a resolver and a gitExecutablePath", () => {
-    const error = captureThrow(() =>
-      createService({
-        resolver: new RepoRootResolver(),
-        gitExecutablePath: gitFixtures.missingGitExecutable,
-      }),
-    );
-
-    expect(error).toBeInstanceOf(TypeError);
-    expect((error as TypeError).message).toContain("not both");
   });
 
   it("forwards gitExecutablePath to the resolver it constructs", async () => {

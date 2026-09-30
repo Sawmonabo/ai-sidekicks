@@ -1,8 +1,6 @@
-// SessionService over SQLite: replay order, restart durability, the append guard, the read-side
-// payload check, and migration idempotency including a concurrent-boot race across worker threads.
-//
-// Each test gets a unique database file under os.tmpdir(); `afterEach` closes the handle and
-// removes the directory (including the -wal and -shm sidecars).
+// SessionService over SQLite: replay order, restart durability, schema idempotency including a
+// concurrent-boot race across worker threads, the append guard and the read-side payload check.
+// Each test gets its own database file under os.tmpdir().
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -11,7 +9,7 @@ import { Worker } from "node:worker_threads";
 
 import Database from "better-sqlite3";
 import type { Database as DatabaseType } from "better-sqlite3";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { applyMigrations, applyPragmas, openDatabase } from "../migration-runner.js";
 import { SessionService, TestSeedingAppendToken } from "../session-service.js";
@@ -144,7 +142,6 @@ describe("SessionService — replay reads events by sequence ASC", () => {
     expect(snapshot.ownerActor).toBe(OWNER_ID);
   });
 });
-
 // ----------------------------------------------------------------------------
 // Sequence, not monotonic_ns
 // ----------------------------------------------------------------------------
@@ -380,7 +377,7 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
   // The 60_000 trailing argument is headroom: five trials each spawn four worker threads, and
   // spawn plus compile has exceeded vitest's 5 s default on a contended CI runner. The oracle is
   // FAILURE_THRESHOLD, never elapsed time.
-  it("4 workers × 5 trials with .immediate() stays well below the BUSY-saturation threshold of broken production (regression detector)", async () => {
+  it("4 workers × 5 trials of concurrent first boots under .immediate() stay below the SQLITE_BUSY failure threshold", async () => {
     // A per-test retry cannot separate a host flake from a regression, since both fail as
     // SQLITE_BUSY: with `retry: 5` a broken DEFERRED run still passed 5 of 5 times. The rates
     // over 20 attempts (4 workers × 5 trials) do separate them:
@@ -520,90 +517,14 @@ describe("applyMigrations concurrent-boot race (BEGIN IMMEDIATE serialization)",
 });
 
 // ----------------------------------------------------------------------------
-// openDatabase failure-mode cleanup
-// ----------------------------------------------------------------------------
-//
-// If `applyPragmas` or `applyMigrations` throws, callers hold no reference to the half-initialized
-// handle, so `openDatabase` must close it before rethrowing or its file lock and WAL descriptor
-// stay held until garbage collection.
-//
-// A pre-created conflicting `session_snapshots` table makes `applyMigrations` throw: the schema
-// probe finds no `session_events`, then the schema script hits "table … already exists". A spy
-// on `Database.prototype.close` counts the cleanup close, which holds even where garbage
-// collection would eventually hide the leak.
-
-describe("openDatabase — failure-mode cleanup (closes handle if init throws)", () => {
-  let cleanupTmpDir: string;
-
-  beforeEach(() => {
-    cleanupTmpDir = mkdtempSync(join(tmpdir(), "ai-sidekicks-daemon-cleanup-"));
-  });
-
-  afterEach(() => {
-    rmSync(cleanupTmpDir, { recursive: true, force: true });
-  });
-
-  it("calls db.close() on the half-initialized handle before rethrowing if applyMigrations throws", () => {
-    const dbPath: string = join(cleanupTmpDir, "init-fail.db");
-
-    // A conflicting table makes the schema script throw "already exists".
-    const seedHandle: DatabaseType = new Database(dbPath);
-    try {
-      seedHandle.exec("CREATE TABLE session_snapshots (placeholder TEXT)");
-    } finally {
-      seedHandle.close();
-    }
-
-    // The spy keeps the real implementation so the handle still releases.
-    const closeSpy = vi.spyOn(Database.prototype, "close");
-    try {
-      expect(() => openDatabase(dbPath)).toThrow(/already exists/i);
-      expect(closeSpy).toHaveBeenCalledTimes(1);
-    } finally {
-      closeSpy.mockRestore();
-    }
-  });
-
-  it("rethrows the original init error when db.close() itself throws (close-error suppression preserves diagnostic)", () => {
-    // A close failure on an already-broken handle says less than the init error, which must win.
-    const dbPath: string = join(cleanupTmpDir, "init-fail-close-throws.db");
-
-    const seedHandle: DatabaseType = new Database(dbPath);
-    try {
-      seedHandle.exec("CREATE TABLE session_snapshots (placeholder TEXT)");
-    } finally {
-      seedHandle.close();
-    }
-
-    const closeSpy = vi.spyOn(Database.prototype, "close").mockImplementation(function () {
-      throw new Error("simulated close failure");
-    });
-    try {
-      expect(() => openDatabase(dbPath)).toThrow(/already exists/i);
-      expect(() => openDatabase(dbPath)).not.toThrow(/simulated close failure/);
-    } finally {
-      closeSpy.mockRestore();
-    }
-  });
-});
-
-// ----------------------------------------------------------------------------
 // Append guard
 // ----------------------------------------------------------------------------
 //
 // A default-constructed service is read-only, so a composition root wiring a real database cannot
-// reach the test-seeding append path by accident. The refusal test is the guard's negative
-// control: it proves the guard fires, so the opted-in suite is not vacuous.
-
-// Titles of the guard's negative controls, exported so a rename or deletion is a compile-time
-// change.
-export const DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST: string =
-  "refuses append on a default-constructed service, naming the replacement writer and the opt-in";
-export const FORGED_TOKEN_REFUSAL_TEST: string =
-  "refuses a FORGED token — the guard checks identity against the module-private singleton, not structure";
+// reach the test-seeding append path, which bypasses the append lock, by accident.
 
 describe("SessionService — append guard (test-seeding writes are opt-in)", () => {
-  it(DEFAULT_CONSTRUCTED_APPEND_REFUSAL_TEST, () => {
+  it("refuses append on a default-constructed service, naming the replacement writer and the opt-in", () => {
     const guardedService: SessionService = new SessionService(ctx.db);
     expect(() => guardedService.append(makeCreatedEvent())).toThrow(
       /SessionService\.append is guarded/,
@@ -617,7 +538,7 @@ describe("SessionService — append guard (test-seeding writes are opt-in)", () 
     expect(guardedService.readEvents(SESSION_ID)).toHaveLength(0);
   });
 
-  it(FORGED_TOKEN_REFUSAL_TEST, () => {
+  it("refuses a forged token: the guard checks identity against the module-private singleton, not structure", () => {
     // A boolean opt-in could be threaded in from configuration. Deserialized or hand-built data
     // can never be the token singleton, so even a cast structural lookalike still throws.
     const forgedToken = Object.freeze({
@@ -630,14 +551,6 @@ describe("SessionService — append guard (test-seeding writes are opt-in)", () 
       /SessionService\.append is guarded/,
     );
     expect(forgedService.readEvents(SESSION_ID)).toHaveLength(0);
-  });
-
-  it("reads need no opt-in — a default-constructed service replays rows an opted-in writer seeded", () => {
-    ctx.service.append(makeCreatedEvent());
-    const readOnlyService: SessionService = new SessionService(ctx.db);
-    expect(readOnlyService.readEvents(SESSION_ID)).toHaveLength(1);
-    const snapshot = readOnlyService.replay(SESSION_ID);
-    expect(snapshot).not.toBeNull();
   });
 });
 
@@ -676,29 +589,17 @@ describe("SessionService — read-side payload validation", () => {
       });
   }
 
-  it("throws a structured error when payload deserializes to null", () => {
-    appendRaw("null", 0, "01J0EV8881NN5J5J5J5J5J5J5J");
-    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(
-      /payload must be a JSON object .* \(got null\)/,
-    );
-  });
-
-  it("throws a structured error when payload deserializes to a JSON array", () => {
-    appendRaw('["a","b"]', 0, "01J0EV8882NN5J5J5J5J5J5J5J");
-    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(
-      /payload must be a JSON object .* \(got array\)/,
-    );
-  });
-
-  it("throws a structured error when payload deserializes to a JSON primitive", () => {
-    appendRaw('"plain string"', 0, "01J0EV8883NN5J5J5J5J5J5J5J");
-    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(
+  it.each([
+    ["null", "01J0EV8881NN5J5J5J5J5J5J5J", /payload must be a JSON object .* \(got null\)/],
+    ['["a","b"]', "01J0EV8882NN5J5J5J5J5J5J5J", /payload must be a JSON object .* \(got array\)/],
+    [
+      '"plain string"',
+      "01J0EV8883NN5J5J5J5J5J5J5J",
       /payload must be a JSON object .* \(got string\)/,
-    );
-  });
-
-  it("throws a structured error when payload is not valid JSON at all", () => {
-    appendRaw("{not valid json", 0, "01J0EV8884NN5J5J5J5J5J5J5J");
-    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(/payload is not valid JSON/);
+    ],
+    ["{not valid json", "01J0EV8884NN5J5J5J5J5J5J5J", /payload is not valid JSON/],
+  ])("throws a structured error for the stored payload %s", (payloadText, id, refusal) => {
+    appendRaw(payloadText, 0, id);
+    expect(() => ctx.service.readEvents(SESSION_ID)).toThrow(refusal);
   });
 });

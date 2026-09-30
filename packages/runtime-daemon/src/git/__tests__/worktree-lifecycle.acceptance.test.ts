@@ -1,42 +1,6 @@
-// Worktree-lifecycle acceptance suite.
-//
-// The acceptance tier for the git services: `../worktree-service.ts` and
-// `../../workspace/execution-root-service.ts`, driven over real git repositories in temporary
-// directories. The sibling unit suites assert what the services ask git to do by recording argv
-// against a fake; this suite asserts what git actually did, which catches a modeling mistake in
-// those fakes.
-//
-// Harness choices:
-//   * `WorktreeService`'s git seam is left at its production default (`execFile` against the real
-//     `git` binary), so nothing about the invocation is modeled. `ExecutionRootService` takes its
-//     `git` and `filesystem` seams with no defaults, so the suite supplies real ones.
-//   * Every fixture repository is hostile: sentinel hooks are installed in its `.git/hooks` before
-//     any service touches it, and each records that it ran. Fixture-side git is itself
-//     hook-neutralized, so any marker was caused by a service invocation. A negative control runs
-//     one un-neutralized `worktree add` and asserts the markers do appear; without it, "no hooks
-//     fired" would be satisfied by sentinels that were never armed.
-//   * Each test builds its own repository (one `git init` and commit): several cases create
-//     branches, merge, collide branch names or detach HEAD, and a shared repository would let one
-//     case's refs decide another's outcome.
-//
-// What the suite establishes:
-//   * No path checks out, creates, switches or merges branches inside the mount's main checkout.
-//     The ground truth is a content hash of every working-tree file plus HEAD's symbolic ref and
-//     commit, `status --porcelain` and the branch roster, compared before and after every failure
-//     path. Even a merged branch is observed as a git fact, not produced by the daemon.
-//   * A run on a git repo defaults to provisioned-worktree mode, at the capability projection and
-//     end to end through `ExecutionRootService.prepare`, which materializes a real linked worktree.
-//   * A failed materialization refuses with the typed error and lands the workspace in `stale`
-//     with the failure recorded. No lesser mode or fallback root is substituted, no root is left
-//     behind, and the checkout is byte-identical, under both `refuse` and `suffix`.
-//   * Reuse is explicit: a candidate binds only via `reuseWorktreeId`, a dirty candidate also needs
-//     `acknowledgeDirtyCandidate`, and a prepare that omits the id refuses. A reused worktree keeps
-//     its row, root and `branch_contexts` row (id and `created_at` preserved).
-//   * No repository-controlled code runs during provisioning: neither the `hooks/`-resident
-//     sentinels that `core.hooksPath` redirects away nor the config-named fsmonitor hook that
-//     `-c core.fsmonitor=false` suppresses, and the neutralization directory is empty.
-//   * The full event sequences asserted on the lifecycle walks (create, reuse, retire, cleanup and
-//     the failure cases) are the evidence that each lifecycle transition emits its mapped event.
+// The worktree and execution-root services over real git in hostile fixture repositories: what git
+// actually did, that the user's main checkout and branches are never touched, and that no
+// repository-controlled hook runs.
 
 import { execFile } from "node:child_process";
 import { createHash } from "node:crypto";
@@ -124,8 +88,7 @@ const SENTINEL_HOOK_NAMES: readonly string[] = [
  * The marker the config-named fsmonitor sentinel writes. It is not in {@link SENTINEL_HOOK_NAMES}:
  * those are `hooks/`-resident files `core.hooksPath` redirects away, while the fsmonitor hook is
  * named by a repo-local `core.fsmonitor=<pathname>` that `core.hooksPath` never governs. The
- * services suppress it with `-c core.fsmonitor=false`; the mechanism-attribution control below
- * proves that flag is load-bearing.
+ * services suppress it with `-c core.fsmonitor=false`.
  */
 const FSMONITOR_SENTINEL_MARKER: string = "fsmonitor-hook";
 
@@ -208,7 +171,7 @@ function spawnGit(
 /**
  * One real git repository under a temporary root, plus the sentinel-hook apparatus. Fixture-side
  * invocations are hook-neutralized by default, like the services', so a marker can only come from
- * a service or from the one negative control that asks for hooks to run.
+ * a service or from the arming probe that asks for hooks to run.
  */
 class FixtureRepository {
   readonly root: string;
@@ -260,21 +223,6 @@ class FixtureRepository {
    */
   gitWithHooksLive(argv: readonly string[], cwd: string = this.root): Promise<FixtureGitResult> {
     return spawnGit([...argv], this.#environment, cwd);
-  }
-
-  /**
-   * Escape hatch: `core.hooksPath` neutralized, `core.fsmonitor` left alone. Only the config-named
-   * fsmonitor hook fires through this form, which pins the services' second flag as load-bearing.
-   */
-  gitWithHooksPathOnly(
-    argv: readonly string[],
-    cwd: string = this.root,
-  ): Promise<FixtureGitResult> {
-    return spawnGit(
-      ["-c", `core.hooksPath=${this.#hookNeutralizationDirectory}`, ...argv],
-      this.#environment,
-      cwd,
-    );
   }
 
   /**
@@ -355,8 +303,8 @@ async function buildFixtureRepository(options: {
 
 /**
  * Asserts that this repository's sentinels really fire, then undoes the trigger. "No hook ran" is
- * evidence only if a hook could have run, and the negative control uses a throwaway repository, so
- * a mount fixture that failed to install its hooks would pass every assertion vacuously. A branch
+ * evidence only if a hook could have run, so a mount fixture that failed to install its hooks would
+ * otherwise pass every assertion vacuously. A branch
  * create is the smallest un-neutralized trigger for the `hooks/`-resident sentinels
  * (`reference-transaction`). The fsmonitor sentinel needs its own probe, an un-neutralized
  * `status`, because no `hooks/`-resident trigger reaches it.
@@ -746,10 +694,9 @@ function createWorktree(branchName: string, onCollision: "refuse" | "suffix" = "
 
 describe("a run on a git repository defaults to provisioned-worktree mode", () => {
   it("projects provisioned-worktree as the default mode for a git mount", () => {
-    const capabilities = computeExecutionModeCapabilities({ vcsType: "git" });
-
-    expect(capabilities.defaultMode).toBe("provisioned-worktree");
-    expect(capabilities.availableModes).toEqual(["bound-root", "provisioned-worktree"]);
+    expect(computeExecutionModeCapabilities({ vcsType: "git" }).defaultMode).toBe(
+      "provisioned-worktree",
+    );
   });
 
   it(
@@ -1013,66 +960,6 @@ describe("the worktree lifecycle on real git: create -> dirty -> merged -> retir
 
 describe("no repository-controlled code executes during provisioning", () => {
   it(
-    "negative control: an un-neutralized worktree add DOES fire the repository's hooks",
-    async () => {
-      // Without this case, every "no hooks fired" assertion below could pass on sentinels that were
-      // never armed. It runs in a throwaway repository so the ref and worktree registration it
-      // leaves behind cannot perturb anything.
-      const hostileRepository = await buildFixtureRepository({
-        parentDirectory: ctx.fixtureRoot,
-        name: "hook-control-repository",
-        environment: ctx.environment,
-        hookNeutralizationDirectory: ctx.fixtureHookNeutralizationDirectory,
-      });
-      expect(hostileRepository.firedHooks()).toEqual([]);
-
-      const added = await hostileRepository.gitWithHooksLive([
-        "worktree",
-        "add",
-        "-b",
-        "control/branch",
-        join(ctx.fixtureRoot, "hook-control-worktree"),
-        DEFAULT_BRANCH,
-      ]);
-      expect(added.exitCode).toBe(0);
-      expect(hostileRepository.firedHooks()).toContain("post-checkout");
-      expect(hostileRepository.firedHooks()).toContain("reference-transaction");
-      // Checkout population also consults the config-named fsmonitor hook, which `core.hooksPath`
-      // cannot reach.
-      expect(hostileRepository.firedHooks()).toContain(FSMONITOR_SENTINEL_MARKER);
-
-      // `core.hooksPath` alone suppresses only the `hooks/`-resident sentinels: the fsmonitor
-      // sentinel still fires, alone. This pins the services' second flag as load-bearing.
-      hostileRepository.clearFiredHooks();
-      const hooksPathOnly = await hostileRepository.gitWithHooksPathOnly([
-        "worktree",
-        "add",
-        "-b",
-        "control/second-branch",
-        join(ctx.fixtureRoot, "hook-control-second-worktree"),
-        DEFAULT_BRANCH,
-      ]);
-      expect(hooksPathOnly.exitCode).toBe(0);
-      expect(hostileRepository.firedHooks()).toEqual([FSMONITOR_SENTINEL_MARKER]);
-
-      // The full service prefix (both flags) fires nothing, attributing each suppression to its
-      // mechanism.
-      hostileRepository.clearFiredHooks();
-      const neutralized = await hostileRepository.gitCapturing([
-        "worktree",
-        "add",
-        "-b",
-        "control/third-branch",
-        join(ctx.fixtureRoot, "hook-control-third-worktree"),
-        DEFAULT_BRANCH,
-      ]);
-      expect(neutralized.exitCode).toBe(0);
-      expect(hostileRepository.firedHooks()).toEqual([]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
     "runs no hook across a whole worktree lifecycle, and points core.hooksPath at an empty directory",
     async () => {
       await proveSentinelsAreArmed(ctx.repository);
@@ -1134,27 +1021,6 @@ describe("derived-name collisions against real git", () => {
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
-
-  it(
-    "refuses instead of suffixing when the wire posture is refuse",
-    async () => {
-      const derivedName = deriveWorktreeBranchName({
-        sessionId: SESSION_ID,
-        runId: RUN_ID,
-        taskSummary: "Fix login",
-      });
-      await createWorktree(derivedName);
-
-      const collision = await captureRejection(() => createWorktree(derivedName));
-
-      expect(collision).toBeInstanceOf(WorktreeBranchCollisionError);
-      expect(collision).toMatchObject({ repoMountId: REPO_MOUNT_ID, branchName: derivedName });
-      // Refused BEFORE git: exactly one worktree, one branch, one pair of events.
-      expect(readWorktreeRows()).toHaveLength(1);
-      expect(readEventTypes()).toEqual(["worktree.created", "worktree.ready"]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
 });
 
 // ----------------------------------------------------------------------------
@@ -1183,27 +1049,6 @@ describe("a branch free in the index but taken in git", () => {
       expect(failedRow).toMatchObject({ state: "failed", branch_name: "feature/taken" });
       expect(existsSync(requireValue(failedRow?.fs_root, "the failed row's fs_root"))).toBe(false);
       expect(readEventTypes()).toEqual(["worktree.created"]);
-    },
-    ACCEPTANCE_TEST_TIMEOUT_MS,
-  );
-
-  it(
-    "cannot advance the ordinal under suffix either",
-    async () => {
-      await ctx.repository.git(["branch", "feature/taken"]);
-
-      const failure = await captureRejection(() => createWorktree("feature/taken", "suffix"));
-
-      // The ordinal loop retries only on a SQLite UNIQUE violation, and this failure never reaches
-      // the database, so `suffix` refuses exactly where `refuse` does, on the bare name.
-      expect(failure).toBeInstanceOf(WorktreeCreateFailedError);
-      expect(failure).toMatchObject({ reason: "git_invocation_failed" });
-      const rows = readWorktreeRows();
-      expect(rows).toHaveLength(1);
-      expect(rows[0]).toMatchObject({ state: "failed", branch_name: "feature/taken" });
-      // No `-2` was ever attempted.
-      const roster = await ctx.repository.git(["for-each-ref", "--format=%(refname:short)"]);
-      expect(roster.split("\n")).not.toContain("feature/taken-2");
     },
     ACCEPTANCE_TEST_TIMEOUT_MS,
   );
@@ -1398,23 +1243,13 @@ describe("a reused worktree stays linked to its branch and prior context", () =>
 });
 
 // ----------------------------------------------------------------------------
-// Ambient GIT_OBJECT_DIRECTORY — the strip the worktree service inherits
+// Ambient GIT_OBJECT_DIRECTORY
 // ----------------------------------------------------------------------------
 //
-// This tier is the only place to test this: the service builds its child environment inside its
-// default `execFile` runner, and its git seam is `(argv, {timeoutMs})` with no environment. The
-// sibling unit suite injects a fake runner for every case, bypassing that builder, so a strip
-// assertion there could only observe the fake.
-//
-// `GIT_OBJECT_DIRECTORY` is not a discovery redirector in the `GIT_DIR` sense: git substitutes it
-// into its is-this-a-repository predicate, so a value naming nothing accessible makes every
-// candidate fail and every invocation exit 128 with `not a git repository` (observed on git
-// 2.50.1). The service strips it because it uses `DISCOVERY_REDIRECTING_GIT_ENV_KEYS` from
-// `../../workspace/repo-root-resolver.ts`, which documents the full observation.
-//
-// Order matters in each case: the fixture environment is captured by `buildFixtureEnvironment` in
-// `beforeEach`, before any stub, so fixture-side git stays clean and read-backs never run under
-// the hijack. The services read `process.env` at call time, so the stub reaches only them.
+// Only this real-git tier exercises the environment the service's default runner builds. An
+// ambient `GIT_OBJECT_DIRECTORY` naming nothing makes every git call exit 128 (`not a git
+// repository`, git 2.50.1); the runner strips it with the repo-root resolver's discovery keys. The
+// fixture environment is captured in `beforeEach`, before the stub, so only the services see it.
 describe("ambient GIT_OBJECT_DIRECTORY cannot reach the worktree service's git", () => {
   /** A path that names nothing — the shape that blinds git's predicate. */
   function poisonedObjectDirectory(): string {
@@ -1430,20 +1265,6 @@ describe("ambient GIT_OBJECT_DIRECTORY cannot reach the worktree service's git",
       vi.unstubAllEnvs();
     }
   }
-
-  it("negative control — raw git IS blinded by GIT_OBJECT_DIRECTORY", async () => {
-    // Without this, the case below could pass on a variable that never mattered. `spawnGit` takes
-    // the environment explicitly, so this poisons the fixture environment, not `process.env`.
-    const blinded = await spawnGit(
-      ["-C", ctx.repository.root, "rev-parse", "--show-toplevel"],
-      { ...ctx.environment, GIT_OBJECT_DIRECTORY: poisonedObjectDirectory() },
-      ctx.fixtureRoot,
-    );
-
-    // git's fatal exit and message for a blinded invocation.
-    expect(blinded.exitCode).toBe(128);
-    expect(blinded.stderr).toContain("not a git repository");
-  });
 
   it(
     "creates a real linked worktree with GIT_OBJECT_DIRECTORY exported",

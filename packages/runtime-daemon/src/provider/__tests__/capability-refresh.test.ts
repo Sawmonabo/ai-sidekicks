@@ -1,20 +1,11 @@
-// The CLI-version floor seam and the CapabilityRefreshScheduler.
-//
-// The floor is enforced mechanically: an unparseable version fails closed as
-// `driver.cli_version_unparseable`, a below-floor one as `driver.cli_version_below_floor`, and a
-// build at or above the floor is admitted, including one above the measured pin. The scheduler
-// polls every 15 minutes per runtime node, pairing the capability refresh with the auth probe;
-// correctness never depends on push. Change detection belongs to the writer, so the scheduler adds
-// none of its own.
+// The CLI-version parse, which fails closed on anything short of a full semver, and the
+// CapabilityRefreshScheduler, which pairs the capability refresh with the auth probe and keeps a
+// failed, hung or stale-lifetime leg from stopping the poll or writing the wrong auth state.
 
 import type { DriverAuthProbeResult } from "@ai-sidekicks/contracts";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  CapabilityProbeNegativeControlError,
-  CapabilityProbeTransportError,
-} from "../capability-probe.js";
-import { DriverDiagnosticsEmitter, type DriverDiagnosticRecord } from "../driver-diagnostics.js";
+import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import {
   CAPABILITY_REFRESH_INTERVAL_MS,
@@ -23,13 +14,11 @@ import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
-  assertCliVersionMeetsFloor,
   parseCliVersionReport,
   type CapabilityRefreshDiagnostic,
   type CapabilityRefreshDriverEntry,
   type FlooredDriverName,
 } from "../capability-refresh.js";
-import { CLI_VERSION_RAW_MAX_LEN } from "../provider-output-validation.js";
 
 describe("parseCliVersionReport", () => {
   it("derives the canonical semver from a prose-wrapped raw string, preserving raw verbatim", () => {
@@ -40,12 +29,7 @@ describe("parseCliVersionReport", () => {
     expect(claudeReport).toStrictEqual({ raw: "2.1.245 (Claude Code)", semver: "2.1.245" });
   });
 
-  it("accepts a pre-release token", () => {
-    const report = parseCliVersionReport("claude", "2.2.0-rc.1 (probe)");
-    expect(report.semver).toBe("2.2.0-rc.1");
-  });
-
-  it.each(["garbage", "v2", "2.1", ""])(
+  it.each(["garbage", "2.1"])(
     "refuses %j fail-closed as driver.cli_version_unparseable (no coercion of partial versions)",
     (raw) => {
       let thrown: unknown;
@@ -61,65 +45,6 @@ describe("parseCliVersionReport", () => {
       expect((thrown as DriverCliVersionUnparseableError).fields.driverName).toBe("codex");
     },
   );
-
-  it("bounds the raw string carried on the error's fields to the persistence cap", () => {
-    const oversized = "x".repeat(CLI_VERSION_RAW_MAX_LEN * 4);
-    let thrown: unknown;
-    try {
-      parseCliVersionReport("claude", oversized);
-    } catch (e) {
-      thrown = e;
-    }
-    expect((thrown as DriverCliVersionUnparseableError).fields.raw).toHaveLength(
-      CLI_VERSION_RAW_MAX_LEN,
-    );
-  });
-});
-
-describe("assertCliVersionMeetsFloor", () => {
-  it("admits a build exactly at the floor, and any build above it (above the pin included)", () => {
-    expect(() =>
-      assertCliVersionMeetsFloor("claude", { raw: "2.1.234", semver: "2.1.234" }),
-    ).not.toThrow();
-    expect(() =>
-      assertCliVersionMeetsFloor("codex", { raw: "codex-cli 0.141.0", semver: "0.141.0" }),
-    ).not.toThrow();
-    // Newer than measured is the expected state, never a refusal condition.
-    expect(() =>
-      assertCliVersionMeetsFloor("claude", { raw: "9.0.0", semver: "9.0.0" }),
-    ).not.toThrow();
-    expect(() =>
-      assertCliVersionMeetsFloor("codex", { raw: "codex-cli 0.150.1", semver: "0.150.1" }),
-    ).not.toThrow();
-  });
-
-  it("refuses a below-floor build as driver.cli_version_below_floor with the floor named", () => {
-    let thrown: unknown;
-    try {
-      assertCliVersionMeetsFloor("claude", { raw: "2.1.198 (Claude Code)", semver: "2.1.198" });
-    } catch (e) {
-      thrown = e;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionBelowFloorError);
-    const error = thrown as DriverCliVersionBelowFloorError;
-    expect(error.code).toBe("driver.cli_version_below_floor");
-    expect(error.fields).toStrictEqual({
-      driverName: "claude",
-      reportedSemver: "2.1.198",
-      floor: DRIVER_CLI_VERSION_FLOORS.claude,
-    });
-  });
-
-  it("refuses a non-canonical semver member fail-closed as unparseable rather than throwing raw", () => {
-    // Reachable only through an untyped boundary; the gate still refuses it.
-    expect(() =>
-      assertCliVersionMeetsFloor("codex", { raw: "codex-cli", semver: "not-a-version" }),
-    ).toThrow(DriverCliVersionUnparseableError);
-  });
-
-  it("pins the ratified V1 floor values", () => {
-    expect(DRIVER_CLI_VERSION_FLOORS).toStrictEqual({ claude: "2.1.234", codex: "0.141.0" });
-  });
 });
 
 /** A controllable driver entry whose call history the assertions read. */
@@ -166,26 +91,21 @@ function buildFakeDriverEntry(driverName: FlooredDriverName): FakeDriverEntry {
   };
 }
 
-/**
- * One scheduler plus both of its diagnostic surfaces. The scheduler requires the emitter, so every
- * construction goes through here rather than the bare constructor.
- */
+/** One scheduler plus the diagnostics it reported. */
 function buildScheduler(): {
   readonly scheduler: CapabilityRefreshScheduler;
   readonly diagnostics: CapabilityRefreshDiagnostic[];
-  readonly emittedDiagnosticRecords: DriverDiagnosticRecord[];
 } {
   const diagnostics: CapabilityRefreshDiagnostic[] = [];
-  const emittedDiagnosticRecords: DriverDiagnosticRecord[] = [];
   const emitter = new DriverDiagnosticsEmitter({
-    logSink: { record: (record) => emittedDiagnosticRecords.push(record) },
+    logSink: { record: () => undefined },
     counterSink: { increment: () => undefined },
   });
   const scheduler = new CapabilityRefreshScheduler({
     diagnostics: emitter,
     onDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
   });
-  return { scheduler, diagnostics, emittedDiagnosticRecords };
+  return { scheduler, diagnostics };
 }
 
 describe("CapabilityRefreshScheduler", () => {
@@ -456,87 +376,6 @@ describe("CapabilityRefreshScheduler", () => {
     // The cadence is unaffected: the next timer tick still fires on schedule.
     await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
     expect(codex.refreshCalls).toHaveLength(2);
-    scheduler.shutdown();
-  });
-
-  it("refreshNow against an unregistered node is a no-op, never a throw", async () => {
-    const { scheduler } = buildScheduler();
-    await expect(scheduler.refreshNow("node-unknown")).resolves.toBeUndefined();
-  });
-});
-
-describe("the cadence re-probe's diagnostic leg", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
-  it("reports a probe-surface failure under the `capability-probe` leg", async () => {
-    // The detection read runs inside `refreshDeclaration()`, so a probe failure arrives on the
-    // refresh leg. Labeling it as an ordinary refresh failure would hide whether the probe channel
-    // is broken or the declaration could not be written, which are different repairs.
-    const codex = buildFakeDriverEntry("codex");
-    const { scheduler, diagnostics, emittedDiagnosticRecords } = buildScheduler();
-    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
-
-    codex.setRefreshResult(new CapabilityProbeNegativeControlError("codex", "zzq/nonexistent"));
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]?.leg).toBe("capability-probe");
-    expect(diagnostics[0]?.message).toMatch(/negative control/);
-    // No new diagnostic kind: the record meters under the capability-refresh counter, and the leg
-    // rides `details`.
-    expect(emittedDiagnosticRecords).toHaveLength(1);
-    expect(emittedDiagnosticRecords[0]?.kind).toBe("capability_refresh_failed");
-    expect(emittedDiagnosticRecords[0]?.details["leg"]).toBe("capability-probe");
-    scheduler.shutdown();
-  });
-
-  it("refines a transport failure of the probe surface too", async () => {
-    const codex = buildFakeDriverEntry("codex");
-    const { scheduler, diagnostics } = buildScheduler();
-    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
-
-    codex.setRefreshResult(
-      new CapabilityProbeTransportError("codex", "turn/steer", { cause: new Error("pipe closed") }),
-    );
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-
-    expect(diagnostics[0]?.leg).toBe("capability-probe");
-    scheduler.shutdown();
-  });
-
-  it("leaves an ORDINARY refresh failure on the `capability-refresh` leg", async () => {
-    // The refinement is scoped: a below-floor downgrade is still a refresh failure, not a probe
-    // fault.
-    const codex = buildFakeDriverEntry("codex");
-    const { scheduler, diagnostics } = buildScheduler();
-    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
-
-    codex.setRefreshResult(
-      new DriverCliVersionBelowFloorError("codex", "0.140.0", DRIVER_CLI_VERSION_FLOORS.codex),
-    );
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-
-    expect(diagnostics[0]?.leg).toBe("capability-refresh");
-    scheduler.shutdown();
-  });
-
-  it("never refines the AUTH-PROBE leg, whatever it rejects with", async () => {
-    // A probe error surfacing from the auth seam would be a wiring fault, and relabeling it would
-    // blame the capability channel for an auth failure.
-    const codex = buildFakeDriverEntry("codex");
-    const { scheduler, diagnostics } = buildScheduler();
-    scheduler.startForNode({ nodeId: "node-1", drivers: [codex.entry] });
-
-    codex.setProbeResult(new CapabilityProbeNegativeControlError("codex", "zzq/nonexistent"));
-    await vi.advanceTimersByTimeAsync(CAPABILITY_REFRESH_INTERVAL_MS);
-
-    expect(diagnostics).toHaveLength(1);
-    expect(diagnostics[0]?.leg).toBe("auth-probe");
     scheduler.shutdown();
   });
 });

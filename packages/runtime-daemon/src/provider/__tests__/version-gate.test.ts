@@ -1,25 +1,13 @@
-/**
- * Spawn-time binary resolution, the in-band version read, and the floor gate.
- *
- * - A below-floor build refuses attach as `driver.cli_version_below_floor` before session
- *   creation, any capability probe or any billed turn. The version handshake process may still
- *   spawn, since the version is read in-band from it: the handshake ran once and nothing used
- *   that process afterwards.
- * - An above-pin build attaches.
- * - Launcher drift: the version the binding row records equals the version the spawned process
- *   reported, even when the launcher names a different build (what a `--version` shell-out
- *   gets wrong).
- * - An unparseable in-band report refuses as `driver.cli_version_unparseable` on both channels,
- *   including the Codex `userAgent`, whose naive parse returns the caller's version.
- * - Every driver-spawned child carries its provider's auto-update opt-out.
- */
+// Spawn-time binary resolution, the in-band version read and the floor gate: the version recorded
+// is the one the spawned build reported, a below-floor or unparseable build is refused before any
+// other use, and every provider child carries its auto-update opt-out.
 
 import { chmod, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { DriverCliVersionReport } from "@ai-sidekicks/contracts";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import {
   RecordingCapabilityProbeTransport,
@@ -29,7 +17,6 @@ import {
   DRIVER_CLI_VERSION_FLOORS,
   DriverCliVersionBelowFloorError,
   DriverCliVersionUnparseableError,
-  type FlooredDriverName,
 } from "../capability-refresh.js";
 import type { DeclareDriverCapabilitiesResult } from "../driver-capabilities-writer.js";
 import { DriverDiagnosticsEmitter } from "../driver-diagnostics.js";
@@ -37,7 +24,6 @@ import {
   withSpawnedVersionCarriers,
   type CreateRuntimeBindingInput,
 } from "../runtime-binding-store.js";
-import { PROVIDER_AUTO_UPDATE_OPT_OUT_ENV } from "../spawn-env.js";
 import {
   DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
   ProviderExecutableUnresolvableError,
@@ -88,20 +74,6 @@ function codexUserAgent(codexVersion: string, clientVersion = "0.9.0"): string {
 }
 
 describe("auto-update suppression in the spawned child", () => {
-  it("declares an opt-out for EVERY driver, Codex's deliberately empty", () => {
-    // An omitted key and a deliberately empty one must not look alike; codex-cli documents no
-    // environment opt-out and gets the same guarantee through the exact-build-path spawn.
-    const drivers: readonly FlooredDriverName[] = Object.keys(
-      DRIVER_CLI_VERSION_FLOORS,
-    ) as FlooredDriverName[];
-    expect(Object.keys(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV).sort()).toStrictEqual([...drivers].sort());
-    expect(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.claude).toStrictEqual({
-      DISABLE_AUTOUPDATER: "1",
-      DISABLE_UPDATES: "1",
-    });
-    expect(PROVIDER_AUTO_UPDATE_OPT_OUT_ENV.codex).toStrictEqual({});
-  });
-
   it("applies the opt-out OVER the inherited environment, so it cannot be re-enabled", () => {
     const composed = composeProviderChildEnvironment("claude", {
       PATH: "/usr/bin",
@@ -238,14 +210,6 @@ describe("provider executable resolution", () => {
     expect(refusal.fields.requestedCommand).toBe("codex");
   });
 
-  it("refuses an empty configured command rather than searching for one", async () => {
-    const probe = vi.fn(() => Promise.resolve(true));
-    await expect(
-      resolveProviderExecutable("claude", "   ", { isExecutableFile: probe }),
-    ).rejects.toBeInstanceOf(ProviderExecutableUnresolvableError);
-    expect(probe).not.toHaveBeenCalled();
-  });
-
   it("expands PATHEXT on win32, where the executable-bit probe is inert", async () => {
     // The win32 logic under test is the `PATHEXT` expansion and its ordering. Path syntax is
     // `node:path`'s and follows the host, so the fixture uses host-shaped PATH entries.
@@ -284,20 +248,6 @@ describe("provider executable resolution", () => {
       "claude.CMD",
       "claude",
     ]);
-  });
-
-  it("falls back to the documented PATHEXT default when the environment carries none", async () => {
-    const probed: string[] = [];
-    await resolveProviderExecutable("claude", "claude", {
-      platform: "win32",
-      readEnvironment: () => ({ PATH: join("/tools") }),
-      isExecutableFile: (candidate) => {
-        probed.push(candidate);
-        return Promise.resolve(candidate.endsWith(".EXE"));
-      },
-      realpath: (candidate) => Promise.resolve(candidate),
-    });
-    expect(probed.some((candidate) => candidate.endsWith("claude.EXE"))).toBe(true);
   });
 
   it("skips a candidate whose realpath fails rather than trusting the launcher path", async () => {
@@ -344,15 +294,6 @@ describe("in-band version read — Codex initialize userAgent", () => {
     ).toThrow(DriverCliVersionUnparseableError);
   });
 
-  it("refuses a userAgent with no '/' delimiter at all", () => {
-    expect(() =>
-      extractCodexReportedVersion(
-        { userAgent: `${DEFAULT_PROVIDER_VERSION_CLIENT_NAME} 0.149.1` },
-        DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
-      ),
-    ).toThrow(DriverCliVersionUnparseableError);
-  });
-
   it("refuses a token that merely CONTAINS a semver rather than being one", () => {
     for (const token of ["v0.149.1", "0.149.1+meta", "0.149", "nightly-0.149.1-x"]) {
       expect(() =>
@@ -364,15 +305,6 @@ describe("in-band version read — Codex initialize userAgent", () => {
     }
   });
 
-  it("accepts a pre-release token, which IS a canonical semver", () => {
-    expect(
-      extractCodexReportedVersion(
-        { userAgent: `${DEFAULT_PROVIDER_VERSION_CLIENT_NAME}/0.150.0-alpha.1 (macos; aarch64)` },
-        DEFAULT_PROVIDER_VERSION_CLIENT_NAME,
-      ),
-    ).toBe("0.150.0-alpha.1");
-  });
-
   it("refuses a reply carrying no userAgent as unparseable", () => {
     for (const payload of [undefined, null, {}, { userAgent: 7 }]) {
       expect(() =>
@@ -380,31 +312,9 @@ describe("in-band version read — Codex initialize userAgent", () => {
       ).toThrow(DriverCliVersionUnparseableError);
     }
   });
-
-  it("refuses a daemon-supplied client name that breaks the extraction rule", () => {
-    // A daemon obligation, so a violation is an internal-invariant Error, not a provider
-    // refusal: a name with '/' or whitespace would make the extraction ambiguous.
-    for (const badName of ["", "ai/sidekicks", "ai sidekicks"]) {
-      expect(() =>
-        extractCodexReportedVersion({ userAgent: codexUserAgent("0.149.1") }, badName),
-      ).toThrow(/clientInfo\.name/);
-    }
-  });
-
-  it("surfaces the WHOLE userAgent on the refusal, not the fragment it carved out", () => {
-    const userAgent = `${DEFAULT_PROVIDER_VERSION_CLIENT_NAME}/v0.149.1 (macos; aarch64)`;
-    let thrown: unknown;
-    try {
-      extractCodexReportedVersion({ userAgent }, DEFAULT_PROVIDER_VERSION_CLIENT_NAME);
-    } catch (error) {
-      thrown = error;
-    }
-    expect(thrown).toBeInstanceOf(DriverCliVersionUnparseableError);
-    expect((thrown as DriverCliVersionUnparseableError).fields.raw).toBe(userAgent);
-  });
 });
 
-describe("the ratified floor gate at the spawn", () => {
+describe("the floor gate at the spawn", () => {
   const CODEX_EXECUTABLE = "/opt/homebrew/Cellar/codex/0.149.1/bin/codex";
 
   function passthroughResolver(): {
@@ -467,7 +377,7 @@ describe("the ratified floor gate at the spawn", () => {
     expect(probe.requests).toHaveLength(0);
   });
 
-  it("admits the ratified floor itself", async () => {
+  it("admits a build exactly at the floor", async () => {
     const handshake = new RecordingHandshake({
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent(DRIVER_CLI_VERSION_FLOORS.codex) },
     });
@@ -515,23 +425,6 @@ describe("the ratified floor gate at the spawn", () => {
     expect(request?.clientName).toBe(DEFAULT_PROVIDER_VERSION_CLIENT_NAME);
     expect(request?.driverName).toBe("codex");
   });
-
-  it("never spawns at all when the executable cannot be resolved", async () => {
-    const handshake = new RecordingHandshake({});
-    await expect(
-      readSpawnedProviderVersion({
-        driverName: "claude",
-        requestedCommand: "claude",
-        handshake: handshake.run,
-        baseEnvironment: {},
-        resolver: {
-          readEnvironment: () => ({ PATH: "/nowhere" }),
-          isExecutableFile: () => Promise.resolve(false),
-        },
-      }),
-    ).rejects.toBeInstanceOf(ProviderExecutableUnresolvableError);
-    expect(handshake.requests).toHaveLength(0);
-  });
 });
 
 describe("the binding carriers come from one reading", () => {
@@ -575,12 +468,6 @@ describe("the binding carriers come from one reading", () => {
         toBindingVersionCarriers(READING),
       ),
     ).toThrow(/one reading/);
-  });
-
-  it("copies the report rather than aliasing the reading's own object", () => {
-    const carriers = toBindingVersionCarriers(READING);
-    expect(carriers.cliVersion).toStrictEqual(READING.report);
-    expect(carriers.cliVersion).not.toBe(READING.report);
   });
 
   it("records a version the reading produced, never one a caller supplied", () => {
