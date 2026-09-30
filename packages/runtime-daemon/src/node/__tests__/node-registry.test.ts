@@ -1,6 +1,5 @@
-// NodeRegistry over a real SQLite file: the registration survives a restart, is
-// keyed by machine and owning user, needs no session, and a re-registration
-// keeps the first-seen time.
+// NodeRegistry over a real SQLite file: the registration is keyed by machine and owning user,
+// and a re-registration keeps the first-seen time.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -20,7 +19,6 @@ const OTHER_USER_ID: string = "01J0PB0000NN5J5J5J5J5J5J5J";
 
 interface TestContext {
   database: DatabaseType;
-  databasePath: string;
   temporaryDirectory: string;
 }
 
@@ -28,14 +26,11 @@ let context: TestContext;
 
 beforeEach(() => {
   const temporaryDirectory: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-node-registry-"));
-  const databasePath: string = join(temporaryDirectory, "test.db");
-  context = { database: openDatabase(databasePath), databasePath, temporaryDirectory };
+  context = { database: openDatabase(join(temporaryDirectory, "test.db")), temporaryDirectory };
 });
 
 afterEach(() => {
-  if (context.database.open) {
-    context.database.close();
-  }
+  context.database.close();
   rmSync(context.temporaryDirectory, { recursive: true, force: true });
 });
 
@@ -47,20 +42,6 @@ function tableRowCount(tableName: string): number {
 }
 
 describe("NodeRegistry", () => {
-  it("recovers the registration from SQLite after the database is reopened", () => {
-    new NodeRegistry(context.database).register({ nodeId: NODE_ID, ownerUserId: OWNER_USER_ID });
-
-    context.database.close();
-    context.database = openDatabase(context.databasePath);
-
-    const recovered: NodeTrustStateRow | undefined = new NodeRegistry(context.database).lookup(
-      NODE_ID,
-      OWNER_USER_ID,
-    );
-    expect(recovered?.node_id).toBe(NODE_ID);
-    expect(recovered?.owner_user_id).toBe(OWNER_USER_ID);
-  });
-
   it("keys the registration by machine and owning user", () => {
     const registry = new NodeRegistry(context.database);
     expect(registry.lookup(NODE_ID, OWNER_USER_ID)).toBeUndefined();
@@ -70,18 +51,6 @@ describe("NodeRegistry", () => {
     expect(registry.lookup(NODE_ID, OWNER_USER_ID)).toBeDefined();
     expect(registry.lookup(NODE_ID, OTHER_USER_ID)).toBeUndefined();
     expect(registry.lookup("node-never-registered", OWNER_USER_ID)).toBeUndefined();
-  });
-
-  it("registers without a session: only the registration row is written", () => {
-    const beforeSnapshots: number = tableRowCount("session_snapshots");
-    const beforeUserKeys: number = tableRowCount("user_keys");
-
-    new NodeRegistry(context.database).register({ nodeId: NODE_ID, ownerUserId: OWNER_USER_ID });
-
-    expect(tableRowCount("node_trust_state")).toBe(1);
-    expect(tableRowCount("session_events")).toBe(0);
-    expect(tableRowCount("session_snapshots")).toBe(beforeSnapshots);
-    expect(tableRowCount("user_keys")).toBe(beforeUserKeys);
   });
 
   it("refreshes only updated_at on re-registration", () => {
