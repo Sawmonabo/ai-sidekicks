@@ -226,7 +226,7 @@ export const ApprovalResolveRequestSchema: z.ZodType<
     approver: UserIdSchema.optional(),
     declineReason: z.string().min(1).optional(),
     editedAction: z.string().min(1).optional(),
-    effectiveScope: z.string().min(1).optional(),
+    effectiveScope: approvalScopeSchema("ApprovalResolveRequest.effectiveScope").optional(),
     rememberedScope: RememberedScopeSchema.optional(),
     auditMetadata: z.record(z.string(), z.unknown()).optional(),
   })
@@ -271,7 +271,7 @@ export const ApprovalResolveResponseSchema: z.ZodType<ApprovalResolveResponse> =
   .object({
     approvalRequestId: ApprovalRequestIdSchema,
     state: ApprovalStateSchema,
-    effectiveScope: z.string(),
+    effectiveScope: approvalScopeSchema("ApprovalResolveResponse.effectiveScope"),
     approverId: UserIdSchema,
     resolvedAt: z.iso.datetime({ offset: true }),
   })
@@ -349,7 +349,7 @@ export const ApprovalProjectionRowSchema: z.ZodType<ApprovalProjectionRow> = z
     resolvedAt: z.iso.datetime({ offset: true }).optional(),
     decision: ApprovalDecisionSchema.optional(),
     approverId: UserIdSchema.optional(),
-    effectiveScope: z.string().optional(),
+    effectiveScope: approvalScopeSchema("ApprovalProjectionRow.effectiveScope").optional(),
     rememberedScope: RememberedScopeSchema.optional(),
   })
   .strict()
@@ -546,7 +546,7 @@ export const ApprovalResolvedPayloadSchema: z.ZodType<ApprovalResolvedPayload> =
     category: ApprovalCategorySchema,
     scope: approvalScopeSchema("ApprovalResolvedPayload.scope"),
     approver: UserIdSchema,
-    effectiveScope: z.string(),
+    effectiveScope: approvalScopeSchema("ApprovalResolvedPayload.effectiveScope"),
     clientResolutionId: z.uuid(),
   })
   .strict();
