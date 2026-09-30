@@ -1,26 +1,8 @@
-// The console's one reading of a wire identifier.
-//
-// EVERY IDENTIFIER THE STORE HOLDS IS A `string`, AND EVERY REQUEST TAKES A BRAND.
-// `SessionId`, `RunId` and `WorkspaceId` are branded in
-// `@ai-sidekicks/contracts`, so the only way from one to the other is the registered
-// schema, read here once. A parse written per call site is a parse somebody eventually
-// writes differently, and the shape of "differently" here is a cast, which turns an
-// identifier the daemon would refuse into a round trip that fails.
-//
-// WHY THE READERS LIVE IN `services/daemon/`. A schema is the wire's, and the wire's
-// edge is `services/`: it is the only place a `*Schema` binding may be imported from
-// the contracts package, so a feature consumes a typed READER and never a validator.
-// Named as this folder's other decoders are — a `read*` that answers the value or
-// `undefined` — so a caller branches on presence rather than on a validator's result
-// object, and no feature has to know what a schema failure looks like.
-//
-// WHAT THEY DO NOT DO. They mint no refusal and compose no sentence. Whether an
-// unreadable identifier is a rendered refusal, a dropped row, or a silent skip is
-// the caller's decision and differs by caller: the composer refuses the send and
-// keeps the user's text, the run controls refuse the act, and the addressed
-// -run chip simply shows no state. A reader that refused on their behalf would have
-// had to choose one, and the console's refusal codes would have moved into this
-// folder, where no view can read them.
+// The console's one reading of a wire identifier. The store holds ids as plain strings while
+// requests take branded ids, so the registered schema is read here once instead of being cast per
+// call site. A contracts `*Schema` is importable only in `services/`, so features consume these
+// `read*` functions, which return the value or `undefined`. They mint no refusal: whether an
+// unreadable id is a refusal, a dropped row or a skipped chip is the caller's decision.
 
 import {
   QueueItemIdSchema,
@@ -60,14 +42,9 @@ export function readWorkspaceId(value: string): WorkspaceId | undefined {
 }
 
 /**
- * The run state the wire admits, or `undefined` for a word this build does not know.
- *
- * A state and not an identifier, and here rather than beside the four because the
- * question is the same one: the store holds the daemon's word verbatim and a view
- * that branches on it needs the closed union. A state this build has never heard of
- * is a real case — a newer daemon against an older console — and answering
- * `undefined` is what lets the view say so instead of falling into whichever arm
- * its `switch` happened to end on.
+ * The run state the wire admits, or `undefined` for a word this build does not know, such as a
+ * state from a newer daemon. It lives here because a view branching on the daemon's word needs the
+ * closed union.
  */
 export function readRunState(value: string): RunState | undefined {
   const parsed = RunStateSchema.safeParse(value);
@@ -75,17 +52,9 @@ export function readRunState(value: string): RunState | undefined {
 }
 
 /**
- * The states in which a run is still the daemon's to move.
- *
- * The complement of the three terminals — `completed`, `interrupted`, `failed` — and
- * written as the positive set rather than as a negation, so a tenth state added
- * upstream lands OUTSIDE it: a run whose state this build has never heard of is not
- * asserted to be finished.
- *
- * IT IS HERE AND NOT IN A FEATURE. This module owns the console's one reading of the
- * wire's run-state vocabulary, and a predicate over that vocabulary belongs beside the
- * reader that produces it, where every feature can import it, since no feature may
- * import another.
+ * The states in which a run is still the daemon's to move. Written as a positive set rather than
+ * as the complement of the terminals, so a state added upstream lands outside it instead of being
+ * assumed finished.
  */
 const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
   "queued",
@@ -97,14 +66,9 @@ const LIVE_RUN_STATES: ReadonlySet<RunState> = new Set<RunState>([
 ]);
 
 /**
- * Whether a run is still moving, by the state the daemon last reported.
- *
- * Used to decide what a view OFFERS or SAYS, never whether the daemon will admit
- * anything: eligibility is the daemon's and reaches the view as a typed refusal
- * — eligibility is never projected by the renderer. What this answers is the
- * narrower question of whether an act is
- * meaningful at all — a `completed` run has no turn to interrupt, and a restart
- * interrupts nothing by ending it.
+ * Whether a run is still moving, by the state the daemon last reported. It decides what a view
+ * offers or says, never whether the daemon admits an act: eligibility is the daemon's and reaches
+ * the view as a typed refusal.
  */
 export function isLiveRunState(state: RunState): boolean {
   return LIVE_RUN_STATES.has(state);

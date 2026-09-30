@@ -1,26 +1,18 @@
-// A scenario carrying only the members the vocabulary requires, for the suites in this
-// directory that need one as INPUT.
-//
-// The runtime imports no scenario from the corpus above it — that is what lets the
-// engine change without touching a feature's fixture, and the corpus grow without
-// touching the engine. A suite here that needs a scenario to drive therefore declares
-// one, and declares it once: three of them do, and a fourth copy of these eight members
-// would be a second answer to "what is the smallest scenario the runtime accepts".
+// A scenario with only the members the vocabulary requires, for suites here that need one as
+// input. The runtime imports no scenario from the corpus, so a suite declares its own, and only
+// here, once.
 
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 
-/** The one instant every stand-in starts at, so two of them are ordered by nothing. */
+/** The one instant every stand-in starts at, so nothing orders two of them. */
 const STAND_IN_STARTED_AT_ISO = "2026-01-14T11:20:00.000Z";
 
-/** The session a stand-in names. One id, because no suite here reads two sessions. */
+/** The session a stand-in names; no suite here reads two sessions. */
 export const FIXTURE_SCENARIO_SESSION_ID = "019b7a10-4c00-7d31-9f02-6b1a5e900001";
 
 /**
- * A scenario with only the members the vocabulary requires, named by its caller.
- *
- * Every optional member is left absent rather than filled with a plausible value: a
- * suite that needs one states it by spreading, which is what keeps the thing it varies
- * legible beside seven members it does not.
+ * A scenario with only the required members, named by its caller. Optional members are left absent
+ * so a suite that spreads one in shows what it varies.
  */
 export function scenarioNamed(id: string): Scenario {
   return {

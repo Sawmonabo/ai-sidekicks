@@ -1,14 +1,7 @@
-// A scenario cannot script a reply the wire could not send.
-//
-// The fixture already refuses to DELIVER a beat it cannot project into the shape a
-// narrowed stream registers (`beat-unprojectable`). The fixture bridge's `call` is
-// held to the same: without that, a scenario could answer `repo.mountRead` with
-// anything at all, and the view reading that answer would render a frame the live
-// daemon cannot produce — green fixture, green screenshot, and a shape nobody has
-// ever received.
-//
-// The check reads the SAME table `callDaemon` parses live replies against, so the
-// failure lands in the scenario's own tests rather than in whichever view renders it.
+// A scenario cannot script a reply the wire could not send. Without the check, a scenario could
+// answer `repo.mountRead` with anything and a view would render a frame the live daemon cannot
+// produce. It reads the same table `callDaemon` parses live replies against, so a failure lands in
+// the scenario's own tests and not in whichever view renders it.
 
 import { describe, expect, it } from "vitest";
 
@@ -56,9 +49,7 @@ describe("fixture bridge — a scripted reply is held to the registered shape", 
   });
 
   it("catches the near miss, not only the obviously wrong shape", async () => {
-    // One member off — the state a device can be in. This is what a scenario
-    // author actually gets wrong, and a check that only caught a wholly different
-    // object would let it through.
+    // One member off, which is what a scenario author actually gets wrong.
     const fixture = createFixture(
       scenarioAnswering(REGISTERED_CALL, {
         devices: [{ ...ON_CONTRACT_REPLY.devices[0], state: "loitering" }],
@@ -71,18 +62,16 @@ describe("fixture bridge — a scripted reply is held to the registered shape", 
   });
 
   it("negative control: an on-contract reply is handed back exactly as scripted", async () => {
-    // Two claims at once. Without the first, an implementation that refused every
-    // scripted reply would pass both cases above. The second is the assert-do-not-
-    // substitute rule: the ORIGINAL value travels, so a scenario cannot lean on a
-    // coercion or a default and look correct against a daemon that supplies neither.
+    // Without a successful path, a fixture that refused every reply passes both cases above.
+    // The original value travels, so a scenario cannot lean on a coercion or default the
+    // daemon does not supply.
     const fixture = createFixture(scenarioAnswering(REGISTERED_CALL, ON_CONTRACT_REPLY));
 
     await expect(callThroughBridge(fixture, REGISTERED_CALL)).resolves.toBe(ON_CONTRACT_REPLY);
   });
 
   it("leaves a call the registry does not bind untouched", async () => {
-    // The corpus registers no shape for this wire, so there is nothing to check
-    // against and the honest answer is to pass it through.
+    // No shape is registered for this method, so there is nothing to check against.
     const offContractForNoContract = { anything: "the slate row owes the shape" };
     const fixture = createFixture(scenarioAnswering(UNREGISTERED_CALL, offContractForNoContract));
 

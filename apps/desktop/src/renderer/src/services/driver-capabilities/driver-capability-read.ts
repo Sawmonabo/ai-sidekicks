@@ -1,29 +1,13 @@
-// What each bound driver DECLARED, read once per bridge and shared by every view.
+// What each bound driver declared, read once per bridge and shared by every view. The answer is
+// addressed at the node, not a run or session, so it belongs to the bridge; the cache is a
+// `WeakMap` so a closed window's entry and a test's fixture reply are not kept.
+// `useDriverCapabilities` and `useDriverCapabilityRepairRead` are the two entry points.
 //
-// `driver.listCapabilities` answers with one report per driver, each naming itself, and it is
-// addressed at the node rather than at a run or a session, so the answer is a property of the
-// bridge and not of the view that asked. The runs controls gate Rewind and Steer on it and
-// the composer gates the compaction control on it; a read held by either would make the
-// other's copy a second read of one wire.
-//
-// SO THE READ LIVES HERE, AND IT IS PERFORMED ONCE. The cache below is keyed by the bridge and
-// is a `WeakMap`, so a window that closes takes its entry with it and a test's fixture bridge
-// is never the next test's cached reply. `useDriverCapabilities` and
-// `useDriverCapabilityRepairRead` beside it are the two entry points.
-//
-// A FAILED READ IS SAID OUT LOUD. A rejection and an unreadable reply both SETTLE, carrying
-// the daemon's own refusal on the readout for the views to render: the flags stay absent,
-// which keeps the gating fail-closed, and the reason travels with them. A reply naming NO
-// driver is not a refusal: it is an answered read whose answer is that this node has no driver
-// to declare anything.
-//
-// AND NO SETTLEMENT IS TERMINAL FOR A BRIDGE. One read serves every view, and refresh goes
-// through `lib/reads/refresh-scheduler.ts`'s `RefreshScheduler` on exactly the three admitted
-// refresh reasons: subscribe, window focus, and reconnect. There is no interval and no retry
-// loop; a refusal is re-asked at the next reason. A settled readout stays on screen while the
-// next read is in flight, because the not-loaded state is entered once and never re-entered on
-// a refresh: a control that vanished and came back on every window focus would be a worse
-// reading than a slightly stale one.
+// A rejection or an unreadable reply settles with the daemon's refusal on the readout and the
+// flags absent, which keeps gating fail-closed; a reply naming no driver is an answered read, not
+// a refusal. No settlement is terminal: `RefreshScheduler` re-reads on the window's refresh
+// reasons with no interval or retry loop, and a settled readout stays on screen during the next
+// read so a control does not vanish on every window focus.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import {
@@ -40,7 +24,7 @@ import { callDaemon } from "../daemon/daemon-reply.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 
-/** No run has a named binding yet. Frozen so no caller writes one in place. */
+/** No run has a named binding yet. */
 const NO_RUN_BINDINGS: ReadonlyMap<string, string> = new Map<string, string>();
 
 /** The declarations a failed read carries: none. */
@@ -50,22 +34,15 @@ const NO_DECLARATIONS: ReadonlyMap<string, DeclaredDriverFlags> = new Map<
 >();
 
 /**
- * One bridge's reading, everyone waiting on it, and the scheduler that refreshes it.
- *
- * A class with private fields rather than a mutable record, because the three are
- * one invariant: the readout is what the scheduler's last completed read settled,
- * the listeners are told exactly when that happens, and the scheduler is the only
- * thing that may put a call on the wire. A caller that could move one without the
- * others is how a latch gets reintroduced.
+ * One bridge's reading, everyone waiting on it, and the scheduler that refreshes it. The three are
+ * one invariant: the readout is what the last completed read settled, listeners are told when
+ * that happens, and only the scheduler puts a call on the wire.
  */
 class BridgeCapabilityRead implements ReadTriggerTarget {
   /**
-   * Nothing in a session's timeline says this node's declarations changed.
-   *
-   * A driver declares its capabilities at the node, and the events a session
-   * appends are about that session's runs — so the empty set here is a claim and
-   * not an omission: this reading goes stale when the window has been away or the
-   * connection was repaired, and never because a run ended.
+   * Nothing in a session's timeline says this node's declarations changed: a driver declares at
+   * the node and session events are about that session's runs. The reading goes stale when the
+   * window has been away or the connection was repaired, never because a run ended.
    */
   public readonly triggeringEventKinds: ReadonlySet<string> = NO_TRIGGERING_EVENT_KINDS;
   readonly #bridge: PlatformBridge;
@@ -76,15 +53,13 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   public constructor(bridge: PlatformBridge, clock: Clock) {
     this.#bridge = bridge;
     this.#scheduler = new RefreshScheduler({
-      // The window's clock: the fixture's frozen clock wherever a scenario is playing, the
-      // only clock the renderer reads in fixture mode.
+      // The window's clock: the fixture's frozen clock wherever a scenario is playing.
       clock,
       perform: async (_reasons, round) => {
         await this.#read(round);
       },
-      // A read that fails is already recorded as the readout's own refusal, so
-      // re-throwing here would surface the same fact a second time as an unhandled
-      // rejection.
+      // A failed read is already recorded as the readout's refusal; re-throwing would surface it
+      // again as an unhandled rejection.
       onError: () => undefined,
     });
   }
@@ -95,10 +70,8 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   }
 
   /**
-   * Ask for a read.
-   *
-   * Coalesced by the scheduler, so the four views that mount together on one
-   * session still cost one call, without making the answer permanent.
+   * Asks for a read. The scheduler coalesces requests, so views mounting together on one session
+   * cost one call.
    */
   public requestRead(reason: RefreshReason): void {
     this.#scheduler.request(reason);
@@ -113,21 +86,14 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
   }
 
   /**
-   * Take the node's declarations, on the round the scheduler opened for this read.
-   *
-   * BOTH HALVES OF THE ROUND ARE USED AND THEY ANSWER DIFFERENT QUESTIONS. The signal
-   * goes to `callDaemon`, where it stops an abandoned read before its reply is
-   * parsed; `settle` guards what reaches the readout, so a round this line has already
-   * replaced installs nothing and wakes no watcher. Publishing an abandoned read's
-   * refusal would be the worse failure of the two — every view holding this reading
-   * would render "nothing is waiting for it" as though the node had refused.
+   * Takes the node's declarations on the round the scheduler opened. The signal goes to
+   * `callDaemon` to stop an abandoned read before its reply is parsed; `settle` guards what
+   * reaches the readout, so a replaced round installs nothing and its refusal is never published.
    */
   async #read(round: ReadRound): Promise<void> {
-    // One branch, because `callDaemon` has already collapsed the three ways a read can
-    // fail into one: a request the registry would not admit, a rejection carrying the
-    // daemon's own code, and a reply the registered shape does not accept all arrive
-    // as a refusal with its code intact. A refused read declares NOTHING — the flags
-    // stay absent, which is the fail-closed direction — and carries why.
+    // `callDaemon` collapses every way a read can fail (unsendable request, daemon rejection,
+    // unaccepted reply) into a refusal with its code intact. A refused read declares nothing, which
+    // is the fail-closed direction.
     const reply = await callDaemon(
       this.#bridge,
       "driver.listCapabilities",
@@ -144,8 +110,7 @@ class BridgeCapabilityRead implements ReadTriggerTarget {
     for (const report of reply.value.drivers) {
       flagsByDriverName.set(report.driverName, report.capabilities.flags);
     }
-    // A reply naming no driver settles with no entries and no refusal: nothing
-    // failed, and this node declares nothing.
+    // A reply naming no driver settles with no entries and no refusal: this node declares nothing.
     round.settle(() => {
       this.#settle({
         flagsByDriverName,
@@ -173,12 +138,8 @@ function refusedReadout(readRefusal: Refusal): DriverCapabilityReadout {
 }
 
 /**
- * The one reading per bridge, and everything that shares it.
- *
- * A class with a private field rather than a module-level map, per this package's
- * structure rules — and a `WeakMap` rather than a `Map` because the key is a live
- * object: an entry outlives nothing, a closed window's bridge is collectable, and a
- * test's fixture bridge cannot serve a later test its reply.
+ * The one reading per bridge. A `WeakMap` because the key is a live object: a closed window's
+ * bridge is collectable and a test's fixture bridge cannot serve a later test its reply.
  */
 class DriverCapabilityReadCache {
   readonly #readingByBridge = new WeakMap<PlatformBridge, BridgeCapabilityRead>();
@@ -194,5 +155,5 @@ class DriverCapabilityReadCache {
   }
 }
 
-/** The window's one cache. Keyed by bridge, so a second window shares nothing. */
+/** The window's one cache, keyed by bridge so a second window shares nothing. */
 export const driverCapabilityReads: DriverCapabilityReadCache = new DriverCapabilityReadCache();

@@ -1,65 +1,39 @@
-// How far a wire reading has got, why it did not get further, and whether its tail
-// can be opened again.
-//
-// THE PAIR MUST MOVE TOGETHER. A phase and a `readRefusal` beside it, set by separate
-// writers, let a registry that refused once and then healed publish `phase: "read"`
-// with populated rows and a refusal from a read two triggers ago, because a consumer
-// reading the member bare has no way to know the two are coupled.
-//
-// THE COUPLING IS THE WHOLE SUBJECT, so it lives in one class with one meaning:
-// `readRefusal` says the NEWEST read failed, never that a read has failed at some
-// point. A served read clears it in the same act that moves the phase, and
-// {@link findReadRefusal} derives what a view renders from the phase rather than
-// trusting the clear — two independent statements of one rule, so a later arm that
+// How far a wire reading has got, why it did not get further, and whether its tail can be opened
+// again. A phase and a `readRefusal` set by separate writers could publish `phase: "read"` beside
+// a refusal from an older read, so the pair moves together in one class: `readRefusal` says the
+// newest read failed, a served read clears it in the same act that moves the phase, and
+// {@link findReadRefusal} also derives what a view renders from the phase, so a later arm that
 // forgets the clear still renders honestly.
 //
-// AND A STREAM THAT WOULD NOT OPEN IS NOT THE SAME AS ONE THAT CANNOT. A reading opens
-// a tail before its first read and settles refused when the open throws; with the
-// stream flag still claiming to be up, every later focus, repair, and mount trigger
-// would be a guaranteed no-op, or a later read could serve and publish a
-// current-looking reading with no live tail behind it. The two failing opens are
-// different facts and are named as such — a transport that refused this time may serve
-// the next, and a registered request this reading's own scope does not satisfy will
-// never parse — so the first leaves the reading re-openable and the second does not,
-// and neither leaves a read reachable without the tail it depends on.
-//
-// WHAT THIS IS NOT. It is not the scheduler: when a re-read is asked for is
-// `lib/reads/refresh-scheduler.ts`'s, and which moments ask is `store/reads/read-triggers.ts`'s. It
-// holds no bridge, opens no stream, and publishes nothing — the reading that owns it
-// does all three, and calls one method here per outcome so that the outcome and the
-// state it leaves behind cannot be spelled two ways.
+// A reading opens a tail before its first read and settles refused when the open throws. A
+// transport that refused this time may serve the next, so that failure leaves the reading
+// re-openable; a registered request this reading's scope does not satisfy will never parse, so
+// that one does not. Neither leaves a read reachable without its tail. This is not the scheduler
+// (`lib/reads/refresh-scheduler.ts` decides when, `store/reads/read-triggers.ts` which moments):
+// it holds no bridge, opens no stream and publishes nothing.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 
-/** How a wire read has gone. Three answers, and none of them is an empty list. */
+/** How a wire read has gone; none of the three is an empty list. */
 export type WireReadPhase = "reading" | "read" | "refused";
 
 /**
- * The phase-and-refusal pair every wire reading publishes.
- *
- * Declared once and spread onto each reading's own readout, so a view that renders
- * "why is this empty" reads the same two members whichever reading it holds.
+ * The phase-and-refusal pair every wire reading publishes, spread onto each reading's readout so a
+ * view rendering "why is this empty" reads the same two members whichever reading it holds.
  */
 export interface WireReadState {
   readonly phase: WireReadPhase;
   /**
-   * Why the NEWEST read could not be taken. Carried rather than swallowed.
-   *
-   * A chip's absence is not a health reading, so a read that failed and a node whose
-   * answer is genuinely empty would otherwise look identical — and the one a person
-   * needs to act on is the one that says nothing.
+   * Why the newest read could not be taken. Carried rather than swallowed: a chip's absence is not
+   * a health reading, so a failed read and a genuinely empty answer would otherwise look alike.
    */
   readonly readRefusal: Refusal | undefined;
 }
 
 /**
- * One reading's phase, its refusal, and its stream's openability.
- *
- * A class with private fields rather than three fields on each reading, because the
- * three move together and every transition here is one that got written twice: the
- * clear on a served read, the two different open failures, and the close. The reading
- * that owns one calls exactly one method per outcome and then publishes — this class
- * wakes nobody, so a caller can never be woken into a half-written state.
+ * One reading's phase, its refusal and its stream's openability. The three move together, so the
+ * owning reading calls one method per outcome and then publishes; this class wakes nobody, so a
+ * caller is never woken into a half-written state.
  */
 export class WireReadLifecycle {
   #phase: WireReadPhase = "reading";
@@ -71,37 +45,29 @@ export class WireReadLifecycle {
     return { phase: this.#phase, readRefusal: this.#readRefusal };
   }
 
-  /**
-   * Whether the tail is up.
-   *
-   * What a read guards on: a snapshot taken with no tail behind it stops being true
-   * the moment it lands, and publishing one as `read` is how a dead reading came to
-   * present itself as current.
-   */
+  /** Whether the tail is up. A read guards on it, since a snapshot with no tail goes stale. */
   public get isOpen(): boolean {
     return this.#streamState === "open";
   }
 
-  /** Whether opening the tail is worth attempting. False once and for all if not. */
+  /** Whether opening the tail is worth attempting. */
   public get isOpenable(): boolean {
     return this.#streamState === "closed";
   }
 
-  /** The tail is up. Called by the reading once the subscription is in hand. */
+  /** The tail is up; called once the subscription is in hand. */
   public markOpen(): void {
     this.#streamState = "open";
   }
 
-  /** The reading is closing. Its tail is down and a fresh reading opens its own. */
+  /** The reading is closing; its tail is down and a fresh reading opens its own. */
   public markClosed(): void {
     this.#streamState = "closed";
   }
 
   /**
-   * A read served. Clears the refusal in the same act that moves the phase.
-   *
-   * The clear is the point: `readRefusal` means "the newest read failed", so a served
-   * read leaves none. Without it a transient refusal became permanent on screen.
+   * A read served. Clears the refusal in the same act that moves the phase, since `readRefusal`
+   * means the newest read failed.
    */
   public settleRead(): void {
     this.#phase = "read";
@@ -114,12 +80,9 @@ export class WireReadLifecycle {
   }
 
   /**
-   * The tail would not open, and a later trigger may try again.
-   *
-   * The transport arm: a bridge that threw on `subscribe` this time is the same
-   * bridge a repair, a focus, or a fresh mount asks again, so the reading stays
-   * openable and its scheduler re-opens rather than reading behind a stream that is
-   * not there.
+   * The tail would not open, and a later trigger may try again. The transport arm: the bridge that
+   * threw on `subscribe` this time may serve a repair, focus or fresh mount, so the reading stays
+   * openable.
    */
   public refuseOpen(refusal: Refusal): void {
     this.#streamState = "closed";
@@ -127,13 +90,9 @@ export class WireReadLifecycle {
   }
 
   /**
-   * The tail can never be opened by this reading, so nothing re-tries it.
-   *
-   * The registered-request arm: the request is composed from this reading's own
-   * scope and parsed against the schema the corpus registers, so a scope that did
-   * not parse will not parse on the next focus either. Re-trying it would republish
-   * a fresh refusal object on every trigger and re-render every watcher for a fact
-   * that has not moved.
+   * The tail can never be opened by this reading, so nothing re-tries it. The registered-request
+   * arm: the request is composed from the reading's own scope, so a scope that did not parse will
+   * not parse next time, and retrying would republish a fresh refusal and re-render every watcher.
    */
   public refuseOpenTerminally(refusal: Refusal): void {
     this.#streamState = "unopenable";
@@ -147,13 +106,9 @@ export class WireReadLifecycle {
 }
 
 /**
- * The refusal a view renders for this reading, or `undefined` when there is none.
- *
- * THE PHASE-AWARE ACCESSOR EVERY CONSUMER GOES THROUGH, so the coupling between the
- * two members is stated once rather than at each call site. Two consumers read the
- * member bare and rendered a healed reading's last failure indefinitely; both now ask
- * here, and a reading whose newest read served answers `undefined` even if some later
- * arm forgets {@link WireReadLifecycle.settleRead}'s clear.
+ * The refusal a view renders for this reading, or `undefined` when there is none. Every consumer
+ * goes through it so the phase-and-refusal coupling is stated once, and a reading whose newest
+ * read served answers `undefined` even if a later arm forgets the clear.
  */
 export function findReadRefusal(state: WireReadState): Refusal | undefined {
   return state.phase === "refused" ? state.readRefusal : undefined;
@@ -162,12 +117,10 @@ export function findReadRefusal(state: WireReadState): Refusal | undefined {
 /**
  * Whether this reading's tail is up, and what a trigger may do about it if not.
  *
- *   • `closed` — no tail, and opening one is worth trying. The seed state, the state
- *     a closed reading returns to, and the state a transport-level open failure
- *     leaves, because the transport that refused may serve the next caller.
- *   • `open` — the tail is up and this reading's reads are behind it.
- *   • `unopenable` — the open failed for a reason re-trying cannot change: the
- *     stream's own registered request did not admit the scope this reading is
- *     addressed at, and that request is composed from the same scope every time.
+ * - `closed`: no tail, and opening one is worth trying (the seed state, the state after close, and
+ *   after a transport-level open failure).
+ * - `open`: the tail is up and the reading's reads are behind it.
+ * - `unopenable`: the open failed for a reason retrying cannot change, since the stream's
+ *   registered request did not admit the scope and is composed from the same scope every time.
  */
 type WireStreamState = "closed" | "open" | "unopenable";

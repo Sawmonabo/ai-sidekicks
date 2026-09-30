@@ -1,54 +1,32 @@
-// Why the fixture could not answer, and the one exception that says so.
-//
-// A scenario may also script a call that REFUSES, and the two refusal vocabularies
-// here are deliberately different values rather than one merged shape. A
-// `FixtureBridgeError` says the FIXTURE could not answer (nothing scripted, no
-// stand-in for a native capability, the engine torn down under the request); a
-// scripted `ScenarioRejectingReply` says the DAEMON refused, and travels as the
-// wire's own `{code, message}` envelope, unwrapped. Folding the second into the
-// first would put a fixture-scoped code in front of every typed daemon refusal the
-// console renders, which is the one thing a fixture must not paraphrase.
-//
-// ITS OWN MODULE because the daemon fixture, its subscriptions and the platform fixture all
-// raise it; declared here, each reads one leaf and none of them reads another.
+// Why the fixture could not answer, and the one exception that says so. A `FixtureBridgeError`
+// says the fixture could not answer (nothing scripted, no stand-in for a native capability, the
+// engine torn down under the request); a scripted `ScenarioRejectingReply` says the daemon refused
+// and travels as the wire's own `{code, message}` envelope, unwrapped. They stay two values, since
+// merging them would put a fixture-scoped code in front of every typed daemon refusal. It is its
+// own module so the daemon fixture, its subscriptions and the platform fixture each read one leaf.
 
 import { RefusalError, refuse } from "@renderer/lib/refusal.js";
 
 /**
- * The codes a scripted reply that never arrived refuses with.
- *
- * Two members, and each one is a distinct operator remedy rather than a shade of the
- * same failure: `reply-abandoned` means the engine was torn down before the frozen
- * clock reached the reply — advance it before disposing it — and `reply-backlog-full`
- * means the caller has parked more delayed replies than the cap admits without ever
- * moving the clock forward. A single merged code would tell a reader which call
- * failed and not which mistake produced it.
+ * The codes a scripted reply that never arrived refuses with. Each is a distinct remedy:
+ * `reply-abandoned` means the engine was torn down before the frozen clock reached the reply
+ * (advance it before disposing), and `reply-backlog-full` means more delayed replies were parked
+ * than the cap admits without the clock moving.
  */
 const SCRIPTED_REPLY_REFUSAL_CODES = ["reply-abandoned", "reply-backlog-full"] as const;
 
-/** One such code. Derived, so the refusal set that spreads them cannot disagree. */
+/** One such code, derived from the list. */
 export type ScriptedReplyRefusalCode = (typeof SCRIPTED_REPLY_REFUSAL_CODES)[number];
 
 /**
  * Why the fixture could not answer. Rendered verbatim; never swallowed.
  *
- * `reply-unscripted` is an AUTHORING error: every method a view reaches through the
- * daemon's call is one the corpus registers, so a scenario that scripts none has a gap in
- * it. The last two name a reply the frozen clock never released.
- *
- * `beat-unprojectable` is a SCENARIO authoring error rather than a wire one: the
- * beat named a kind a narrowed stream carries and then could not supply what that
- * stream's registered payload requires. It refuses rather than delivering the half
- * it could build, because a projection missing a required member renders as blank
- * and reviews as working.
- *
- * `reply-off-contract` is the other half of that authoring claim, on the request /
- * response seam rather than the subscription one: the scenario scripted a reply for
- * a method the corpus HAS registered, and the value does not match the shape
- * `daemon-reply-registry.ts` binds to it. It refuses rather than resolving, because
- * a fixture that hands a view a shape the live wire cannot send teaches that
- * view to render a frame production never produces — the same defect the
- * projection arm above exists to prevent, arriving through the bridge's `call`.
+ * `reply-unscripted` is an authoring gap: the scenario scripts no reply for a registered method.
+ * `beat-unprojectable` is an authoring error: the beat names a kind a narrowed stream carries but
+ * cannot supply the required payload, and it refuses rather than deliver a half-built projection.
+ * `reply-off-contract` is the same on the call seam: a scripted reply does not match the shape
+ * `daemon-reply-registry.ts` binds to its method, and resolving it would teach a view to render a
+ * frame production never produces. The last two name a reply the frozen clock never released.
  */
 export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   "reply-unscripted",
@@ -64,7 +42,7 @@ export const FIXTURE_BRIDGE_REFUSAL_CODES: readonly [
   ...SCRIPTED_REPLY_REFUSAL_CODES,
 ];
 
-/** One fixture refusal code. Derived, so the vocabulary is declared exactly once. */
+/** One fixture refusal code, derived from `FIXTURE_BRIDGE_REFUSAL_CODES`. */
 export type FixtureBridgeRefusalCode = (typeof FIXTURE_BRIDGE_REFUSAL_CODES)[number];
 
 /** The subsystem name every refusal this module raises carries. */
@@ -73,16 +51,10 @@ export const FIXTURE_BRIDGE_REFUSAL_ORIGIN = "fixture-bridge";
 /**
  * Thrown when a caller asks the fixture for something no scenario scripts.
  *
- * A `RefusalError` and not a bare `Error` carrying a code of its own: a bare `Error`
- * would be a second refusal vocabulary, and a view rendering a fixture failure
- * would have to translate it to reach the one refusal renderer. It stays a NAMED
- * subclass because a fixture failure is worth catching by name — the seam has to
- * travel as an exception, since these are rejections from methods whose signatures
- * the preload contract fixes.
- *
- * `call` is kept beside the refusal rather than folded into `detail`: it names a
- * bridge method, which is machine-readable provenance, and `detail` is the sentence
- * a person acts on.
+ * A `RefusalError`, so the one refusal renderer needs no translation, and a named subclass so a
+ * fixture failure can be caught by name; it travels as an exception because the preload contract
+ * fixes the signatures. `call` names the bridge method as machine-readable provenance, apart from
+ * `detail`, the sentence a person acts on.
  */
 export class FixtureBridgeError extends RefusalError {
   public readonly call: string;
@@ -95,12 +67,8 @@ export class FixtureBridgeError extends RefusalError {
 }
 
 /**
- * Reject one call the fixture cannot stand in for.
- *
- * Named for what it refuses rather than `refuse`, which is `core/refusal.ts`'s
- * builder and is imported above: two functions called `refuse` in one module, one
- * returning a refusal and one rejecting with it, is the kind of collision a reader
- * resolves wrongly once and then trusts.
+ * Reject one call the fixture cannot stand in for. Not named `refuse`, which is `lib/refusal.ts`'s
+ * builder imported above.
  */
 export function refuseAbsentCapability(call: string): Promise<never> {
   return Promise.reject(

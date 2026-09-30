@@ -1,10 +1,7 @@
-// A frame carrying the daemon's drop mark, and the repair it asks for.
-//
-// The daemon never waits for a slow screen: when it drops changes for a connection,
-// the next frame that fits carries the mark, and a connection that caught up with
-// nothing new to send is handed one frame with no changes and the mark. No scenario
-// plays either — the fixture never falls behind — so each case hands the subscriber
-// the frame itself, through the real fixture bridge's subscribe arm.
+// A frame carrying the daemon's drop mark, and the repair it asks for. When the daemon drops
+// changes for a connection, the next frame carries the mark, and a caught-up connection gets one
+// frame with no changes and the mark. No scenario plays either, so each case hands the subscriber
+// the frame itself through the fixture bridge's subscribe arm.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -35,16 +32,13 @@ interface DropHarness {
 }
 
 /**
- * The subscriber over the fixture bridge, its session bound and its opening read done.
- *
- * The subscription is opened through to the scenario as it ships, and its handler is
- * kept so a case can hand it a frame no scenario plays. The opening `subscribe` read
- * is spent before the case starts, so the reasons a case sees are the ones its frame
- * asked for.
+ * The subscriber over the fixture bridge, its session bound and its opening read done. Its
+ * handler is kept so a case can hand it a frame no scenario plays, and the opening `subscribe`
+ * read is spent first so the reasons a case sees are the ones its frame asked for.
  */
 async function createBoundHarness(): Promise<DropHarness> {
-  // The concurrent-streaming session with no beats of its own, so every event the
-  // subscriber sees is one the case handed it.
+  // The concurrent-streaming session with no beats, so every event the subscriber sees is one the
+  // case handed it.
   const { bridge: base, scenarioEngine: engine } = createFixtureBridge({
     scenario: { ...CONCURRENT_STREAMING_SCENARIO, id: "drop-mark-probe", beats: [] },
   });
@@ -86,8 +80,7 @@ function frameOfFirstBeat(): ScenarioSessionStreamFrame {
   return frame;
 }
 
-// Tripwires throw in development so a breach is impossible to ignore. Under test
-// they are RECORDED instead, because nothing here expects one to fire.
+// Tripwires throw in development; under test they are recorded, since nothing here expects one.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
@@ -95,9 +88,8 @@ beforeEach(() => {
 
 describe("SessionEventSubscriber — the drop mark", () => {
   it("marks the session short and asks for its re-read on the caught-up frame", async () => {
-    // The frame with no changes: a session that went quiet right after a drop. With
-    // nothing to apply, the store has no gap of its own to find, so the mark is the
-    // only notice the rows are missing.
+    // The frame with no changes: a session that went quiet right after a drop. With nothing to
+    // apply the store has no gap of its own to find, so the mark is the only notice.
     const { registry, binder, engine, deliver, reasonsSeen } = await createBoundHarness();
 
     deliver({ changes: [], dropped: true, cursor: "cursor-after-the-drop" });
@@ -126,8 +118,7 @@ describe("SessionEventSubscriber — the drop mark", () => {
   });
 
   it("negative control: a frame without the mark asks for no repair", async () => {
-    // Without this, a subscriber that re-read on every frame would pass both cases
-    // above, and would cost the daemon one read per frame for the life of the window.
+    // Without this, a subscriber that re-read on every frame would pass both cases above.
     const { registry, binder, engine, deliver, reasonsSeen } = await createBoundHarness();
 
     deliver(frameOfFirstBeat());

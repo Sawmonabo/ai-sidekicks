@@ -1,37 +1,17 @@
-// What arrives on the account-plane tail, and what it is allowed to do to the fold.
+// What arrives on the account-plane tail and the order in which it reaches the fold. Nothing here
+// opens, reads, closes or publishes; it applies frames to the fold it is handed and says when
+// something moved.
 //
-// This module owns the ORDER in which a frame reaches the fold. Nothing here opens,
-// reads, closes, or publishes; it is handed the fold, applies frames to it, and says
-// when something moved.
-//
-// TWO DECISIONS ABOUT THE TAIL ARE MADE HERE, each argued at the site that makes it:
-//
-//   • A frame arriving across the opening read is HELD and replayed rather than
-//     silently overwritten by the snapshot, and an overflowing hold degrades to a
-//     fresh read rather than a drop ({@link ProviderAccountDeliveries.deliver},
-//     `#holdAcrossSeedRead`).
-//   • A same-window reading below the high-water mark is recorded as a diagnostic
-//     rather than rendered as a regression ({@link ProviderAccountDeliveries.mergeUsageWindow}).
-//
-// AND ONE FRAME IS CARRIED WITHOUT MOVING THE FOLD. `login_completed` is a report from
-// the provider that its own login process finished, not a reading of anything — the
-// daemon observes health next and publishes `account_changed`, which is the frame that
-// moves an account here. But it IS the node's evidence that one brokered attempt is
-// over, and the view that started that attempt has no other way to learn it: a
-// refused cancellation establishes nothing, so without this the sign-in flow would go
-// on holding its single-flight claim for the life of the window. So the newest one is
-// held and published, correlated by the caller on its `attemptId` and never taken as a
-// verdict about the account.
-//
-// A third — that a delivery outside the registered union is counted rather than
-// dropped — is `unreadable-deliveries.ts`', and the one part of it this stream owns
-// is that it NEVER clears the count. The registry read answers for an instant the
-// tail has already moved past, which is the very reason frames are held across it, so
-// it may not claim to cover a frame that arrived after it; and a payload outside the
-// registered union is a BUILD-level fact rather than a transient one, so the same
-// shape keeps arriving unreadable and a count that reset would report a live gap as
-// closed. That is exactly where this stream parts from the queue's, whose snapshot
-// restates its whole list at one moment and does clear.
+// A frame arriving across the opening read is held and replayed rather than overwritten by the
+// snapshot, and an overflowing hold degrades to a fresh read rather than a drop. A same-window
+// reading below the high-water mark is recorded as a diagnostic, not rendered as a regression.
+// `login_completed` is carried without moving the fold: it reports that a brokered sign-in attempt
+// is over, which the view that started it cannot learn otherwise (a refused cancellation
+// establishes nothing), and the daemon publishes `account_changed` next for the account itself.
+// The newest one is held, correlated by the caller on `attemptId`, never taken as an account
+// verdict. Unreadable deliveries are counted in `unreadable-deliveries.ts`; this stream never
+// clears the count, because the registry read answers for an instant the tail has moved past and
+// an unreadable payload is a build-level fact, not a transient one.
 
 import type {
   ProviderAccountNotification,
@@ -40,11 +20,8 @@ import type {
 import { ProviderAccountNotificationSchema } from "@ai-sidekicks/contracts";
 
 /**
- * One brokered sign-in the provider reported finished, as the tail carried it.
- *
- * Derived from the registered notification union rather than restated, so the members
- * a consumer reads are the wire's own and a fourth kind added upstream cannot quietly
- * widen what this name means.
+ * One brokered sign-in the provider reported finished, as the tail carried it. Derived from the
+ * registered notification union so its members are the wire's own.
  */
 export type ProviderLoginCompletion = Extract<
   ProviderAccountNotification,
@@ -67,26 +44,18 @@ export interface ProviderAccountDeliverySink {
   /** Something moved, or a delivery was recorded unreadably. Publish. */
   readonly onChanged: () => void;
   /**
-   * The hold overflowed and what it held has been applied live.
-   *
-   * The reply now in flight describes an older registry than the fold does, so the
-   * reading takes a FRESH read whose reply supersedes it. Separate from
-   * {@link onChanged} because it is a repair rather than a render.
+   * The hold overflowed and what it held has been applied live. The reply in flight describes an
+   * older registry than the fold, so the reading takes a fresh read that supersedes it. Separate
+   * from {@link onChanged} because it is a repair, not a render.
    */
   readonly onSupersededRead: () => void;
 }
 
 /**
- * One account-plane tail: the frames it carries, and the order they reach the fold in.
- *
- * A class with private fields rather than methods on the reading, because the hold,
- * the unreadable ledger, and the once-only high-water diagnostic are three pieces of
- * state that only ever move on a delivery — and a reading that could move one of them
- * from its own read path is how a held frame comes to be applied twice.
- *
- * The FOLD is a constructor parameter rather than something built here: the reading
- * loads the registry snapshot's accounts into the same fold and composes its readout
- * off it, so a fold owned here would be a second one to keep in step with the first.
+ * One account-plane tail: the frames it carries and the order they reach the fold in. The hold,
+ * the unreadable ledger and the once-only high-water diagnostic move only on a delivery, so a
+ * reading cannot apply a held frame twice. The fold is a constructor parameter because the reading
+ * also loads the registry snapshot into it and composes its readout from it.
  *
  * @consumedBy the provider account service, which folds quota frames
  */
@@ -109,12 +78,9 @@ export class ProviderAccountDeliveries {
   }
 
   /**
-   * The newest completion the tail has carried, or `undefined` before any.
-   *
-   * ONE AND NOT A LEDGER. A consumer's question is whether the attempt IT is tracking
-   * has finished, the node runs one brokered flow at a time, and a set of every
-   * completion this window ever saw would grow for the life of the tail with nothing
-   * ever entitled to prune it.
+   * The newest completion the tail has carried, or `undefined` before any. One, not a ledger: the
+   * node runs one brokered flow at a time and a set would grow for the tail's life with nothing
+   * entitled to prune it.
    */
   public get newestLoginCompletion(): ProviderLoginCompletion | undefined {
     return this.#newestLoginCompletion;
@@ -126,9 +92,8 @@ export class ProviderAccountDeliveries {
   }
 
   /**
-   * Apply everything held across the read, in arrival order, and stop holding.
-   *
-   * Every caller publishes after it, so the replay itself does not.
+   * Applies everything held across the read, in arrival order, and stops holding. It does not
+   * publish; every caller does.
    */
   public releaseHold(): void {
     for (const notification of this.#hold.release()) {
@@ -137,21 +102,15 @@ export class ProviderAccountDeliveries {
   }
 
   /**
-   * One notification off the tail.
-   *
-   * A payload the registered union does not admit moves no account and no window: it
-   * is a frame this build cannot read, and guessing at it would be worse than
-   * ignoring it. It is COUNTED rather than ignored, though — a reading that went on
-   * presenting its previous snapshot as current would be saying something it no
-   * longer knows. A readable one either moves the fold now or is held until the
-   * opening read has landed — a question of ORDER and never of whether it is applied.
+   * Delivers one notification off the tail. A payload the registered union does not admit moves
+   * no account or window but is counted, so the reading does not present a stale snapshot as
+   * current. A readable one either moves the fold now or is held until the opening read lands.
    */
   public deliver(payload: unknown): void {
     const parsed = ProviderAccountNotificationSchema.safeParse(payload);
     if (!parsed.success) {
-      // EVERY delivery publishes, readable or not. One this build cannot read moves
-      // no account and no window — the fold never saw it — but it does change what
-      // the chips MEAN, and a count that never reached a render could not say so.
+      // Every delivery publishes: an unreadable one moves nothing but changes what the chips
+      // mean, and a count that never reached a render could not say so.
       this.#unreadable.record(parsed.error.issues);
       this.#sink.onChanged();
       return;
@@ -165,7 +124,7 @@ export class ProviderAccountDeliveries {
     }
   }
 
-  /** Merge one reading, and say so once if the monotonicity guard had to hold it. */
+  /** Merges one reading, and says so once if the monotonicity guard had to hold it. */
   public mergeUsageWindow(usageWindow: ProviderAccountUsageWindow): void {
     const disposition = this.#fold.mergeUsageWindow(usageWindow);
     if (disposition !== "dropped-below-high-water" || this.#hasReportedHighWaterDrop) {
@@ -177,13 +136,13 @@ export class ProviderAccountDeliveries {
     );
   }
 
-  /** Hold one notification across the opening read, or take the overflow's way out. */
+  /** Holds one notification across the opening read, or takes the overflow's way out. */
   #holdAcrossSeedRead(notification: ProviderAccountNotification): void {
     if (this.#hold.hold(notification) === "held") {
       return;
     }
-    // Overflowed: apply what is held plus the frame that overflowed, then ask for a
-    // read whose reply supersedes the one now in flight. Nothing is dropped.
+    // Overflowed: apply what is held plus the overflowing frame, then ask for a read that
+    // supersedes the one in flight. Nothing is dropped.
     this.releaseHold();
     this.#applyNotification(notification);
     this.#sink.onChanged();
@@ -191,11 +150,9 @@ export class ProviderAccountDeliveries {
   }
 
   /**
-   * Apply one notification to the fold, and say whether anything moved.
-   *
-   * Every kind is a re-entrant state update rather than a delta, so an account that
-   * changed is written whole and a removed one takes its readings with it — a quota
-   * row whose account has left the registry names an account nothing can label.
+   * Applies one notification to the fold and says whether anything moved. Every kind is a state
+   * update, not a delta: a changed account is written whole, and a removed one takes its readings
+   * with it because a quota row for a departed account cannot be labeled.
    */
   #applyNotification(notification: ProviderAccountNotification): boolean {
     switch (notification.kind) {
@@ -209,12 +166,9 @@ export class ProviderAccountDeliveries {
         this.mergeUsageWindow(notification.window);
         return true;
       case "login_completed":
-        // The FOLD is untouched, deliberately: a provider reporting its flow finished
-        // is not a reading of the account, and the daemon publishes `account_changed`
-        // next for the part that is. What is recorded is that this attempt is over,
-        // which is the one thing a view holding a brokered sign-in cannot learn any
-        // other way — and it publishes, because a card that stays up over a flow the
-        // node has reported finished is the state this exists to end.
+        // The fold is untouched: a finished login flow is not a reading of the account, and the
+        // daemon publishes `account_changed` next for that. It records that the attempt is over and
+        // publishes, so a card does not stay up over a flow the node reported finished.
         this.#newestLoginCompletion = notification;
         return true;
     }

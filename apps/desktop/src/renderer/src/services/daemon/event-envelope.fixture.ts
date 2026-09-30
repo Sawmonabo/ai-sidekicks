@@ -1,30 +1,14 @@
-// One authored beat, composed into the wire envelope the daemon would have sent, and
-// a run of them into the `session.subscribe` frames that carry them.
+// One authored beat composed into the wire envelope the daemon would have sent, and a run of them
+// into the `session.subscribe` frames that carry them. A scenario is authored in
+// `ProjectedSessionEvent`s, but `session.subscribe` carries the canonical `EventEnvelope`
+// (`packages/contracts/src/event.ts`), whose event type is `type` and whose attribution is `actor`.
+// A fixture that delivered the authoring shape would agree with the console's decode boundary and
+// with nothing the daemon sends, so this is the one place the first becomes the second.
 //
-// A scenario is authored in `ProjectedSessionEvent`s, which is the console's own
-// projection shape and the readable way to write a script. It is NOT what the wire
-// carries: `session.subscribe` is registered as a long-lived consumer of the
-// canonical `EventEnvelope` (`packages/contracts/src/event.ts#EventEnvelope`), whose
-// event type is `type` and whose attribution is `actor`. This module is the one
-// place the first becomes the second.
-//
-// WHY IT HAS TO EXIST AT ALL. Without it the fixture delivered the authoring record
-// verbatim, so the console's decode boundary was reading fixture-local field names
-// and every fixture run agreed with it — while the live bridge delivered `type` and
-// `actor`, the boundary found neither, and every real session event was refused as
-// unreadable with nothing anywhere reporting a shape mismatch. A fixture that
-// delivers a different shape from the wire cannot fail the way the wire fails, which
-// is the only failure worth rehearsing.
-//
-// COMPOSING IS NOT JUDGING. What comes back is a CANDIDATE: it carries what the beat
-// states and nothing it does not, so a beat naming a kind the census does not
-// register composes with no `category` — which is exactly the shape
-// `EventEnvelopeSchema` refuses. Substituting a category here would let the fixture
-// deliver a frame no daemon can send; refusing here would move the wire's judgment
-// into the composer and give the fixture a second refusal vocabulary for a defect
-// the registered schema already names. The judges are those schemas, and both of
-// them run: `tests/helpers/scenario-contract-check/contract-check.ts` parses every beat of every scenario before it
-// ships, and `services/daemon/session-event-payload.ts` parses every delivery at the boundary.
+// Composing is not judging: the result is a candidate that carries only what the beat states, so a
+// kind outside the census composes with no `category`, which `EventEnvelopeSchema` refuses. The
+// judges are the schemas, run by `tests/helpers/scenario-contract-check/contract-check.ts` on every
+// beat before a scenario ships and by `session-event-payload.ts` on every delivery.
 
 import {
   SESSION_EVENT_CATEGORY_BY_TYPE,
@@ -37,25 +21,17 @@ import {
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
 /**
- * The envelope version every composed beat carries.
- *
- * `"MAJOR.MINOR"`, producer-set and never rewritten on read. It is the
- * one canonical member no beat states and no console view reads, so the composer
- * supplies it rather than the scenario. The scenario contract check and the delivery
- * both compose through here, so they cannot supply two different versions of one
- * beat.
+ * The envelope version every composed beat carries, as `"MAJOR.MINOR"`. No beat states it and no
+ * view reads it, so the composer supplies it; the contract check and the delivery both compose
+ * through here and so agree.
  */
 export const SCENARIO_ENVELOPE_VERSION: string = "1.0";
 
 /**
- * Every canonical envelope member, at the type an authored beat can supply.
- *
- * Deliberately not `EventEnvelope`: that type's `sessionId` and `version` are
- * branded and its `category` is required, and claiming all three of a record built
- * out of scenario text would be asserting the very thing the schemas are run to
- * find out. `category` is optional here for exactly one reason — a kind outside the
- * census has none — and that absence is the composed record's honest report that no
- * daemon emits this beat.
+ * Every canonical envelope member, at the type an authored beat can supply. Not `EventEnvelope`,
+ * whose branded `sessionId` and `version` and required `category` would claim what the schemas
+ * are run to find out. `category` is optional because a kind outside the census has none, which
+ * reports that no daemon emits the beat.
  */
 export interface ScenarioEventEnvelopeCandidate {
   readonly id: string;
@@ -65,7 +41,7 @@ export interface ScenarioEventEnvelopeCandidate {
   /** Absent when the beat's kind is not a registered event type. */
   readonly category?: EventCategory;
   readonly type: string;
-  /** Absent when the beat attributes itself to nobody — the system arm. */
+  /** Absent when the beat attributes itself to nobody (the system arm). */
   readonly actor?: string;
   readonly payload: Readonly<Record<string, unknown>>;
   readonly version: string;
@@ -81,16 +57,10 @@ export interface ScenarioSessionStreamChange {
 export type ScenarioSessionStreamFrame = StreamFrame<ScenarioSessionStreamChange, string>;
 
 /**
- * Compose the wire envelope one beat is delivered as.
- *
- * Total: every beat composes, including a malformed one, because the caller that
- * has to decide what a malformed beat means is the schema and not this function.
- *
- * `payload` is supplied as an empty record where the beat states none, since the
- * canonical envelope's payload is required and an absent one is a member the wire
- * never omits. `actor` is the opposite case and stays absent: present-null and
- * absent are wire-distinguishable, and a beat that names no actor is not the same
- * claim as one that names the system.
+ * Compose the wire envelope one beat is delivered as. Total: every beat composes, including a
+ * malformed one, since the schema judges it. `payload` defaults to an empty record because the
+ * wire never omits it; `actor` stays absent when unstated, since absent and present-null differ on
+ * the wire.
  */
 export function composeScenarioEventEnvelope(
   event: ProjectedSessionEvent,
@@ -110,14 +80,9 @@ export function composeScenarioEventEnvelope(
 }
 
 /**
- * Compose the `session.subscribe` frames one batch of beats is delivered in.
- *
- * The daemon sends a session's changes in frames of at most
- * `STREAM_FRAME_MAX_CHANGES`, oldest first, so a batch longer than that — a late
- * subscriber's replayed log, most often — goes out as several. The fixture never
- * falls behind a subscriber, so no frame carries the drop mark, and an empty batch is
- * no frame at all: a frame with no changes is only ever the caught-up drop frame. Each
- * change's cursor is its event's id, the cursor the client SDK reads back as the id.
+ * Compose the `session.subscribe` frames one batch of beats is delivered in: frames of at most
+ * `STREAM_FRAME_MAX_CHANGES`, oldest first. The fixture never falls behind, so no frame carries
+ * the drop mark, and an empty batch is no frame at all. Each change's cursor is its event's id.
  */
 export function composeScenarioSessionFrames(
   events: readonly ProjectedSessionEvent[],

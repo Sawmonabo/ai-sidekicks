@@ -1,28 +1,13 @@
-// The census reading both stream suites drive their assertions from.
-//
-// Hoisted on this package's second-use rule the moment the kind tables moved to
-// `session-event-stream-kinds.ts` and their suite moved with them: the readings a
-// case needs about the census — which category a wire-verbatim string is registered
-// under, which kinds one category registers, every kind it registers at all — beside
-// the kinds one stream declares and a stable order to compare two sets in. A second
-// copy of `carriedKindsOf` is two suites disagreeing about what "the kinds this
-// stream carries" is read THROUGH, which is the disagreement the routing table itself
-// exists to end.
-//
-// THE CENSUS IS RE-KEYED AND KEPT, NOT EXPORTED. `SESSION_EVENT_CATEGORY_BY_TYPE` is
-// keyed to the `SessionEventType` union, so asking it about an arbitrary string needs
-// a cast at every call site, and the questions these suites ask are all "is this
-// wire-verbatim string registered, and as what" — a string question. What leaves this
-// module is therefore the derived reading rather than the collection: an exported
-// `Map` is one mutable object every importer shares however it is annotated, which is
-// what `no-restricted-syntax` says here and what this package's state rules say
-// everywhere.
+// The census readings both stream suites use, so they agree on what a stream carries and can
+// compare sets in one order. The census map is not exported: it is keyed to `SessionEventType`,
+// the suites ask about arbitrary strings, and an exported `Map` is one mutable object every
+// importer shares.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE, type EventCategory } from "@ai-sidekicks/contracts";
 
 import { sessionEventStreamFor, type SessionEventStreamName } from "./session-event-streams.js";
 
-/** The registered forward, non-state rollback row — the state stream's second arm. */
+/** The registered rollback row, the state stream's second arm. */
 export const ROLLED_BACK_KIND = "run.rolled_back";
 
 const CATEGORY_BY_REGISTERED_KIND: ReadonlyMap<string, EventCategory> = new Map(
@@ -34,10 +19,7 @@ export const EVERY_REGISTERED_EVENT_KIND: readonly string[] = [
   ...CATEGORY_BY_REGISTERED_KIND.keys(),
 ];
 
-/**
- * The category this wire-verbatim string is registered under, or `undefined` when
- * the census registers no such event type at all.
- */
+/** The category this wire-verbatim string is registered under, or `undefined` if none. */
 export function registeredCategoryOf(eventKind: string): EventCategory | undefined {
   return CATEGORY_BY_REGISTERED_KIND.get(eventKind);
 }
@@ -49,7 +31,7 @@ export function registeredKindsIn(category: EventCategory): readonly string[] {
     .map(([eventType]) => eventType);
 }
 
-/** The kinds one stream that declares a kind list carries, as the table declares them. */
+/** The kinds one stream declares, as the table declares them; throws for a stream with no list. */
 export function carriedKindsOf(subscriptionName: SessionEventStreamName): readonly string[] {
   const stream = sessionEventStreamFor(subscriptionName);
   if (stream === undefined || stream.scope !== "selected-kinds") {

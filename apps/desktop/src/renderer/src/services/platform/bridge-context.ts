@@ -36,13 +36,9 @@ export interface ComposedBridge {
 }
 
 /**
- * How a window that was handed no bridge builds one, and what it puts on the page for a
- * driver to read.
- *
- * The provider calls it and knows nothing of what it builds: a window with no composition
- * reads the preload, and one with a composition plays whatever the composition built. The
- * installs return their removal, so a replaced bridge or a closed window takes down exactly
- * what it put up.
+ * How a window that was handed no bridge builds one, and what it puts on the page for a driver to
+ * read. The provider knows nothing of what it builds; each install returns its removal, so a
+ * replaced bridge or closed window takes down exactly what it put up.
  */
 export interface BridgeComposition {
   /** Build the bridge. The provider disposes what it builds here. */

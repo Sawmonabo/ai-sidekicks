@@ -1,84 +1,31 @@
-// The one thing in the renderer that subscribes to the bridge.
+// The one thing in the renderer that subscribes to the bridge. Components subscribe to a store,
+// and this feeds every store through `registry.enqueue`, the queue in front of
+// `SessionStore.applyBatch`; without it a session opened in a window receives nothing. It lives in
+// `services/` because it must know both the registry and `daemon.subscribe`, and `store/` sits
+// below `services/` so a store cannot reach a wire. `app/hooks/useSessionStoreRegistry.ts`
+// composes it with the registry.
 //
-// `store/session/session-hooks.ts` states the rule this module realizes: "No component subscribes
-// to the bridge. Components subscribe to a STORE, and exactly one thing subscribes
-// to the bridge — the apply chokepoint." Without it nothing calls
-// `SessionStoreRegistry.enqueue` or `daemon.subscribe`, so a session opened in a window
-// receives nothing: the fixture scenario's beats reach nobody, every feature renders an
-// empty projection of a live session, and the endurance tier measures an idle loop
-// rather than a window under load.
+// - One apply path: it holds no store reference, so the queue is the only writer.
+// - One subscription path: a session's wire subscription opens when the registry says the session
+//   opened and closes when it closed, so it cannot outlive its store.
+// - No lost open: `attach` binds every session already open before listening for changes.
+// - No subscription without a read: `#bindSession` requests the base-state read in the same act
+//   as taking the subscription.
+// - No session left unbound because the wire was away when it opened:
+//   `failed-subscription-retry.ts` remembers failed opens and retries them on the returning edge.
 //
-// WHY IT LIVES IN `services/` AND NOT IN `store/`
+// This class only consumes the returning edge; if it also produced it from its own opens, a
+// window whose only session failed to bind could never retry. The edge is reported by
+// `services/transport/observed-subscription.ts`, which every daemon subscription goes through, so
+// even a window with no bindable session can observe it.
 //
-// It is the one object that has to know both ends — the registry's `enqueue` and
-// the bridge's `daemon.subscribe`. `store/` sits BELOW `services/` in the import
-// direction precisely so that a store cannot reach a wire, and putting the binder
-// there would invert that edge. `services/` may import `store/`, so the binder sits
-// here, and `app/hooks/useSessionStoreRegistry.ts` composes it with the registry.
-//
-// SIX PROPERTIES, EACH A FAILURE THIS CLASS EXISTS TO MAKE UNREPRESENTABLE
-//
-//   • **One apply path.** Every delivered event reaches the store through
-//     `registry.enqueue`, which is the queue in front of `SessionStore.applyBatch`.
-//     This class never touches a store, holds no store reference, and has no way
-//     to write one — so "the chokepoint is the only writer" stays a structural
-//     property rather than a convention a reviewer polices.
-//   • **One subscription path.** A session's wire subscription is opened when the
-//     registry says the session opened and closed when it says it closed, so a
-//     subscription cannot outlive the store it feeds, and a store cannot exist
-//     with nothing feeding it.
-//   • **No lost open.** `attach` binds every session that is ALREADY open before
-//     it subscribes to further changes. A binder that only listened for changes
-//     would silently miss a session opened between construction and attachment,
-//     and the symptom — one session that never updates — looks like a wire fault
-//     rather than a wiring one.
-//   • **No subscription without the read that makes it mean something.** The
-//     converse of the rule above, and it was the half that was missing: binding a
-//     stream and never asking for a base state leaves the store buffering exactly
-//     as if no read existed. `#bindSession` requests the read in the same act as
-//     taking the subscription, so the two cannot be separated by a caller who
-//     remembers one of them.
-//   • **No session left unbound because the wire was away when it opened.** A
-//     `daemon.subscribe` that throws leaves the session with no stream and no base
-//     state, and the registry's `opened` change has already been delivered. What is
-//     remembered about that, and what one returning edge is worth, is
-//     `failed-subscription-retry.ts` — a second subject, kept out of this class.
-//
-// AND THE EDGE IT RETRIES ON IS NOT ONE THIS CLASS PRODUCES
-//
-// This class is the only live-path consumer of the returning edge. Were it also the
-// producer — reporting `unreachable` from its own failed open and `reachable` from its
-// own successful one — a window whose ONLY session failed to bind would hold the one
-// state that could never change: the retry needs an edge, and the edge needs a bind.
-// Transport recovery alone could not reach that session, and nothing on screen would
-// say why.
-//
-// So the observation sits on the one call every daemon subscription in the window
-// goes through (`services/transport/observed-subscription.ts`, reported into by
-// `services/daemon/daemon-streams.ts` as well as by the open below). This class reports
-// nothing and subscribes once, for its whole life, to a signal other openers move: the
-// node's provider-account tail coming back is a returning edge, and it is one a window
-// with no bindable session can still observe.
-//
-// WHAT THE WIRE OFFERS, AND WHAT THIS DOES WITH IT
-//
-// Each session gets its own subscription, opened with `session.subscribe`'s registered
-// request: the session it follows. Its deliveries are still checked against that
-// session at the delivery boundary, because the stream comes from another process and
-// an event for any other session has no store here to go to.
-//
-// Each delivery is a FRAME: a batch of the session's events, oldest first, or the
-// caught-up frame with none. The daemon never waits for a slow screen; when it drops
-// changes for this connection, the next frame carries the drop mark, and the screen
-// repairs from the daemon's record. The repair this class asks for is the session's
-// own re-read, through the registry, which also shows the catching-up line until the
-// read lands and is what clears the store's gap mark.
-//
-// Reading a delivered frame is a different job (`services/daemon/session-event-payload.ts`): this
-// module owns WHICH sessions are bound, that one owns WHAT a frame looks like. The four reads
-// the endurance tier makes (`session-diagnostics-handle.ts`) are composed here, three off this
-// class's own state and one from the floor's registry, and handed out as `diagnostics`; the
-// window's registry hook gives them to the fixture composition, which alone writes the page.
+// Each session gets its own `session.subscribe`, and deliveries are still checked against that
+// session because the stream comes from another process. A delivery is a frame: a batch of events
+// oldest first, or the caught-up frame with none. When the daemon drops changes for this
+// connection, the next frame carries the drop mark and this asks the registry for the session's
+// re-read, which shows the catching-up line and clears the store's gap mark. Reading a frame is
+// `services/daemon/session-event-payload.ts`. The four reads the endurance tier makes
+// (`session-diagnostics-handle.ts`) are composed here and handed out as `diagnostics`.
 
 import type { TranscriptWindowReading } from "@renderer/lib/transcript-window-diagnostics.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
@@ -97,11 +44,13 @@ import type { SessionStoreRegistry } from "@renderer/store/session/session-store
 /** The site every tripwire this module reports names. */
 const SITE = "console/frame/session-event-binder.ts";
 
+/** Options for `SessionEventSubscriber`. */
 export interface SessionEventSubscriberOptions {
   readonly registry: SessionStoreRegistry;
   readonly bridge: PlatformBridge;
 }
 
+/** Binds each open session to its wire subscription and feeds the registry; see the header. */
 export class SessionEventSubscriber {
   readonly #registry: SessionStoreRegistry;
   readonly #bridge: PlatformBridge;
@@ -120,8 +69,7 @@ export class SessionEventSubscriber {
   public constructor(options: SessionEventSubscriberOptions) {
     this.#registry = options.registry;
     this.#bridge = options.bridge;
-    // The three questions a pass asks, answered from here so the retry can reach a
-    // retained id and nothing else — not a subscription map, not a store, not a wire.
+    // Answered from here so the retry reaches a retained id and nothing else.
     this.#retry = new FailedSubscriptionRetry({
       isRetired: () => this.#disposed,
       isStillOpen: (sessionId) => this.#registry.has(sessionId),
@@ -133,26 +81,14 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Start binding: subscribe to the registry, then bind what is already open.
+   * Starts binding: subscribes to the registry, then binds what is already open. That order
+   * cannot drop a session, whereas sweeping first would leave a window in which an open goes
+   * unobserved; the worst case is binding twice, and `#bindSession` is idempotent by session id.
    *
-   * The registry subscription is taken FIRST and the already-open sweep runs
-   * second, which is the order that cannot drop a session. Sweeping first would
-   * leave a window between the sweep and the subscription in which an open goes
-   * unobserved; taking the subscription first can at worst bind a session twice,
-   * and `#bindSession` is idempotent by session id.
-   *
-   * A THIRD SUBSCRIPTION IS TAKEN: the transport's returning edge,
-   * which is what re-attempts the sessions whose open threw. ONE subscription for this
-   * binder's whole life, taken once here in `attach` rather than per session
-   * bind or per render — the retained set is what a returning edge is walked against,
-   * and a per-bind subscription would walk it once per session. The edge is produced by
-   * `openObservedSubscription`, which every subscription goes through, and never by this
-   * class, so the retry costs no probe, no timer, and no second reading of whether the
-   * wire is there — and the signal emits only on `unreachable → reachable`, so a window
-   * whose wire never went away pays nothing.
-   *
-   * Idempotent, and a no-op once disposed: a disposed binder holds no
-   * subscription and must not be able to start one from a late effect.
+   * It also takes one subscription for the binder's whole life to the transport's returning edge,
+   * which re-attempts sessions whose open threw. The signal emits only on
+   * `unreachable → reachable`, so a window whose wire never went away pays nothing. Idempotent,
+   * and a no-op once disposed.
    */
   public attach(): void {
     if (this.#disposed || this.#attached) {
@@ -200,43 +136,33 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * Deliveries the wire made for a session that was no longer open.
-   *
-   * Counted rather than merely dropped: the drop is correct — the store they were
-   * bound for is gone — but a stream still delivering into a closed session is a
-   * leak upstream, and a count is how it becomes visible. Mirrors
-   * `ApplyQueue.droppedAfterDisposeCount`, one layer up.
+   * Deliveries the wire made for a session that was no longer open. Counted rather than merely
+   * dropped, because a stream still delivering into a closed session is an upstream leak. Mirrors
+   * `ApplyQueue.droppedAfterDisposeCount`.
    */
   public get droppedAfterCloseCount(): number {
     return this.#droppedAfterCloseCount;
   }
 
   /**
-   * What of the stream this console could not read: one for each delivered frame it
-   * refused whole, and one for each event inside a readable frame whose type the
-   * census pairs with another category.
-   *
-   * Counted and not reported on the tripwire, which is a deliberate split. A
-   * tripwire is a detector for CONSOLE invariants; a payload shape is a WIRE fact,
-   * and firing one here would report every event type the console has not learned
-   * yet as a defect in the console. The count is the honest reading: it says how
-   * much of the stream this build could not project, without claiming to know
-   * whose fault that is.
+   * What of the stream this console could not read: one per delivered frame refused whole, and
+   * one per event in a readable frame whose type the census pairs with another category. It is
+   * counted, not reported on the tripwire, which detects console invariants; a payload shape is a
+   * wire fact, and a tripwire would report every event type the console has not learned yet as a
+   * console defect.
    */
   public get unreadableDeliveryCount(): number {
     return this.#unreadableDeliveryCount;
   }
 
+  /** Whether `dispose` has run. */
   public get isDisposed(): boolean {
     return this.#disposed;
   }
 
   /**
-   * Release every subscription this binder holds. Final, and idempotent.
-   *
-   * The applied-event counts survive on purpose — see
-   * `SessionDiagnostics.appliedEventCountFor` — and stay readable through
-   * `diagnostics` for whoever still holds it.
+   * Releases every subscription this binder holds. Final and idempotent. Applied-event counts
+   * survive so `diagnostics` stays readable.
    */
   public dispose(): void {
     if (this.#disposed) {
@@ -251,39 +177,21 @@ export class SessionEventSubscriber {
       unsubscribe();
     }
     this.#unsubscribeBySessionId.clear();
-    // Released with the rest: a retained id is a promise to re-attempt, and a
-    // disposed binder makes none.
+    // A retained id is a promise to re-attempt, and a disposed binder makes none.
     this.#retry.clear();
   }
 
   /**
-   * Open one session's stream, and report what that told us about the transport.
+   * Opens one session's stream through `openObservedSubscription`, which owns what an open proves
+   * for the transport signal, so this class reports nothing itself.
    *
-   * THE OPEN GOES THROUGH THE CALL THAT OWNS WHAT AN OPEN PROVES, and this class
-   * therefore reports nothing itself. `openObservedSubscription` tells the signal what
-   * the transport did on this call exactly as it does for every other subscription the
-   * window takes; a second, hand-written report here would be the same claim made twice
-   * — and were it the ONLY claim, this class would be both the producer of the returning
-   * edge and its only consumer, which is a deadlock rather than an economy.
-   *
-   * A throw is not re-raised: out of the registry callback that called this method it
-   * would reach a mount effect and take the window down for a transport that was merely
-   * away. It is recorded in three places instead, and each one answers a question the
-   * others cannot. The SIGNAL is told the wire is unreachable — by
-   * `openObservedSubscription`, on the way out — so the returning edge exists at all. The
-   * session's own STORE is marked `subscription-closed` through the registry — the
-   * declared degraded cause `degradation.ts` reserves for "a wire that stopped", so the
-   * session shows a stream it does not have as a named degradation rather than as a
-   * quiet, permanently empty projection. And the id is RETAINED, so the edge has
-   * something to re-attempt.
-   *
-   * The store's cause is sticky until a completed re-pull clears it, which is exactly
-   * right here — the retry asks for that re-pull, so a session that comes back stops
-   * being degraded because it was re-read and not because it was re-subscribed.
-   *
-   * A session id the daemon does not admit — a route address typed by hand — has no
-   * stream to open and never will, so it is marked `subscription-closed` and not
-   * retained for a retry.
+   * A throw is not re-raised: out of the registry callback it would reach a mount effect and take
+   * the window down for a transport that was merely away. Instead the signal is told the wire is
+   * unreachable (by `openObservedSubscription`), the store is marked `subscription-closed` so the
+   * session shows a named degradation rather than a quiet empty projection, and the id is retained
+   * for the returning edge. The store's cause is sticky until a completed re-pull clears it, and
+   * the retry asks for that re-pull. A session id the daemon does not admit, such as a hand-typed
+   * route address, has no stream to open, so it is marked closed and not retained.
    */
   #bindSession(sessionId: string): void {
     if (this.#disposed || this.#unsubscribeBySessionId.has(sessionId)) {
@@ -297,8 +205,7 @@ export class SessionEventSubscriber {
     let release: Unsubscribe;
     try {
       release = openObservedSubscription(this.#bridge.transportReconnect, () =>
-        // The handler takes the frame as `unknown`: the bridge's type is a claim about
-        // another process, and `readSessionStreamFrame` is the check of it.
+        // The bridge's type is a claim about another process; `readSessionStreamFrame` checks it.
         this.#bridge.daemon.subscribe(
           SESSION_EVENT_STREAM,
           { sessionId: wireSessionId },
@@ -319,21 +226,15 @@ export class SessionEventSubscriber {
     }
     this.#retry.forget(sessionId);
     this.#unsubscribeBySessionId.set(sessionId, release);
-    // The read that gives the store its base state, asked for at the one moment
-    // that knows a stream just started. `subscribe` is a registered refresh reason
-    // and means precisely this. Without it a bound session buffers forever —
-    // nothing else in the console calls `requestRefresh` on an open, so the store
-    // layer stayed dormant even where a read WAS available. The refusal arm is
-    // unreachable here (this runs on the registry's own `opened` change, so the
-    // session is open) and is dropped rather than checked: a re-check would be a
-    // second answer to a question the caller already answered.
+    // The base-state read, asked for at the moment a stream starts; without it a bound store
+    // buffers forever. The refusal arm is unreachable because this runs on the registry's own
+    // `opened` change, so it is dropped rather than re-checked.
     this.#registry.requestRefresh(sessionId, "subscribe");
   }
 
   #unbindSession(sessionId: string): void {
-    // Dropped whether or not a subscription was ever taken: a session that closes
-    // has nothing left to retry, and this is what bounds the retained set by the
-    // open set rather than by the window's life.
+    // Dropped whether or not a subscription was taken; this bounds the retained set by the open
+    // set.
     this.#retry.forget(sessionId);
     const unsubscribe = this.#unsubscribeBySessionId.get(sessionId);
     if (unsubscribe === undefined) {
@@ -344,22 +245,13 @@ export class SessionEventSubscriber {
   }
 
   /**
-   * One delivered frame, on the subscription opened for one session.
+   * Handles one delivered frame. The drop mark is acted on before the events are queued: the store
+   * is marked short of rows (which the catching-up line reads) and the session's re-read is asked
+   * for, so a session that went quiet right after a drop does not stay short silently.
    *
-   * THE DROP MARK IS ACTED ON BEFORE THE FRAME'S EVENTS ARE QUEUED. It says changes
-   * before this frame never arrived, so the store is marked short of rows — which is
-   * what the catching-up line under the session header reads — and the session's
-   * re-read is asked for, the one repair that clears the mark. A caught-up frame
-   * carries the mark and no events, so without this a session that went quiet right
-   * after a drop would stay short with nothing on screen saying so.
-   *
-   * The close race is real rather than theoretical and is why the refusal arm
-   * exists: emission iterates a SNAPSHOT of the subscribers, so a listener that
-   * closes a session part-way through a delivery still leaves this handler in the
-   * batch being delivered — correctly, since it was subscribed when emission
-   * began. `enqueue` answers with a refusal instead of throwing for exactly that
-   * case, and a throw here would break the wire's own subscription for every other
-   * session on it.
+   * The refusal arm of `enqueue` covers a close race: emission iterates a snapshot of subscribers,
+   * so a session closed mid-delivery still reaches this handler, and a throw here would break the
+   * wire's subscription for every other session on it.
    */
   #deliver(sessionId: string, delivered: unknown): void {
     const frame = readSessionStreamFrame(delivered);
@@ -369,15 +261,14 @@ export class SessionEventSubscriber {
     }
     this.#unreadableDeliveryCount += frame.unreadableEventCount;
     if (frame.dropped) {
-      // A refusal means the session closed during this delivery: nothing is left to
-      // repair, and the close-race arm below reports a frame that still carried events.
+      // A refusal means the session closed during this delivery; the close-race arm below reports
+      // a frame that still carried events.
       if (this.#registry.markDegraded(sessionId, "sequence-gap") === undefined) {
         this.#registry.requestRefresh(sessionId, "gap-repull");
       }
     }
-    // Only this session's events reach its store. The daemon scopes the stream to the
-    // session it was opened for, and an event naming any other session is not counted
-    // as unreadable: it is dropped here because this subscription has no store for it.
+    // Only this session's events reach its store; another session's event has no store here and is
+    // dropped without being counted as unreadable.
     const events = frame.events.filter((event) => event.sessionId === sessionId);
     if (events.length === 0) {
       return;

@@ -1,28 +1,12 @@
 // A narrowed run stream delivers the payload it registers, not the beat's envelope.
+// `daemon.fixture.test.ts` owns routing (which beats reach which subscription); this file owns
+// shape: a `run.subscribeState` subscriber must get `RunStateChangeEvent` (no `kind`, `sequence`
+// or nested `payload`, and a top-level `newState`), not the renderer-local envelope. The
+// projector's own behavior is in `services/run-streams/run-stream-projection.fixture.test.ts`.
 //
-// The sibling file `bridge.test.ts` owns ROUTING — which beats reach which
-// subscription. This one owns SHAPE, and the two fail differently: routing is wrong
-// when a subscriber receives a frame the daemon would not have sent it, and shape is
-// wrong when it receives the right frame in a form the daemon never sends.
-//
-// The defect this guards: a fixture that handed every subscriber the renderer-local
-// envelope would give a subscriber to `run.subscribeState` `{id, sessionId, sequence,
-// kind, occurredAt, payload}` where the wire sends `RunStateChangeEvent` — no `kind`,
-// no `sequence`, no nested `payload`, and a top-level `newState` where the envelope
-// has `payload.newState`. Nothing reads those members yet, so no screen would show the
-// difference until something does.
-//
-// The projector's OWN behavior — which subscriptions it answers for at all, and
-// which optional members it carries — is a different subject with a different
-// failure, and lives beside the module in `run-stream-projection.test.ts`.
-//
-// EVERY CLEAN CASE IS PARSED THROUGH THE REGISTERED SCHEMA. A hand-written assertion
-// on a few members would pass over a projection that dropped a required one, which is
-// exactly the half-built shape the refusal arm exists to prevent — so the projections
-// go through `RunStateChangeEventSchema` and `RunRolledBackEventSchema` themselves.
-// Those are `.strict()`, so an envelope member leaking through fails too. A test file
-// is not bundled, so it can import the schemas as values where the projector
-// deliberately imports the types only.
+// Clean cases are parsed through the registered `.strict()` schemas, so a dropped required member
+// or a leaked envelope member fails. A test file is not bundled, so it may import the schemas as
+// values where the projector imports the types only.
 
 import { describe, expect, it } from "vitest";
 
@@ -49,12 +33,9 @@ const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 1
 const ROLLBACK_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 60;
 
 /**
- * The concurrent-streaming scenario script plus one rollback row.
- *
- * The concurrent-streaming scenario plays run transitions and no rollback, so the state stream's second
- * arm would go untested. The added beat names a registered event type and carries the
- * members its registered PROJECTION names, so the probe is a script the daemon could
- * have produced.
+ * The concurrent-streaming script plus one rollback row, since the script plays no rollback and
+ * the state stream's second arm would go untested. The beat is a registered type carrying the
+ * members its projection names, so the probe is a script the daemon could have produced.
  */
 function scenarioWithRollbackBeat(): Scenario {
   const lastConcurrentStreamingBeat =
@@ -79,8 +60,7 @@ function scenarioWithRollbackBeat(): Scenario {
           sequence: nextSequence,
           kind: "run.rolled_back",
           occurredAt: "2026-01-01T14:20:00.460Z",
-          // The forward, non-state arm the same stream carries: no transition, and
-          // the landing position the run came to rest at.
+          // The non-state arm of the same stream: no transition, just the landing position.
           payload: {
             sessionId,
             runId: PROBE_RUN_ID,
@@ -100,14 +80,11 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // Parsed, not spot-checked. `.strict()` means an envelope member surviving the
-    // projection fails here, and a missing required member fails here too.
+    // Parsed, not spot-checked: `.strict()` fails an envelope member that survives projection.
     const parsed = received.map((delivery) => RunStateChangeEventSchema.parse(delivery));
-    // The creation row is not a transition: the concurrent-streaming plays `run.queued` for every
-    // run it starts, and no state precedes `queued` in the run state machine — so
-    // however many runs the script carries, none of their creations reaches this
-    // stream. Asserted as an absence rather than as a count, because a count would
-    // have to re-derive the kind-to-state table this projection owns.
+    // A creation row is not a transition: no state precedes `queued`, so no `run.queued` beat
+    // reaches this stream. Asserted as an absence, since a count would re-derive the
+    // projection's kind-to-state table.
     expect(
       CONCURRENT_STREAMING_SCENARIO.beats.some((beat) => beat.event.kind === "run.queued"),
     ).toBe(true);
@@ -115,9 +92,7 @@ describe("run streams — the registered payload reaches the subscriber", () => 
     // The first transition the script plays, member by member.
     expect(parsed[0]?.newState).toBe("starting");
     expect(parsed[0]?.previousState).toBe("queued");
-    // Sourced from the beat's own envelope, which is the only place the instant
-    // lives — and not from the scenario's start, which is what a projection
-    // stamping the clock it was handed would have delivered.
+    // The instant comes from the beat's envelope, not the scenario's start.
     const firstTransitionBeat = CONCURRENT_STREAMING_SCENARIO.beats.find(
       (beat) => beat.event.kind === "run.starting",
     );
@@ -128,9 +103,8 @@ describe("run streams — the registered payload reaches the subscriber", () => 
   });
 
   it("negative control: the delivered payload is not the envelope it used to be", () => {
-    // The case above would pass over a bridge that delivered BOTH — so this pins the
-    // members the envelope has and the projection must not: a `kind`, a `sequence`,
-    // and a nested `payload` are what a subscriber would key on by mistake.
+    // The case above passes over a bridge that delivered both; this pins the envelope members
+    // a subscriber would key on by mistake.
     const fixture = createFixture();
     const received = subscribeThroughBridge<Readonly<Record<string, unknown>>>(
       fixture,
@@ -154,10 +128,9 @@ describe("run streams — the registered payload reaches the subscriber", () => 
 
     fixture.engine.advance(PAST_EVERY_BEAT_MS);
 
-    // The two arms share one stream with no wire tag and stay unambiguous
-    // STRUCTURALLY, so the last delivery is asked to be the rollback shape and the
-    // state-change schema is asked to REJECT it. Either alone would pass over a
-    // projection that built one arm for both kinds.
+    // The two arms share one stream with no wire tag, so the last delivery must parse as the
+    // rollback shape and the state-change schema must reject it; either alone would pass a
+    // projection that built one arm for both.
     const rollback = received[received.length - 1];
     const parsed = RunRolledBackEventSchema.parse(rollback);
     expect(parsed.targetPosition).toBe(1);
@@ -167,10 +140,8 @@ describe("run streams — the registered payload reaches the subscriber", () => 
   });
 
   it("negative control: the whole-session stream still receives the envelope", () => {
-    // Two things at once, and both are needed. A projector applied to every
-    // subscription would break the console's one real subscriber, whose frames
-    // carry the envelope; and a bridge that delivered nothing anywhere would satisfy
-    // every exact-set case above by delivering the empty set.
+    // A projector applied to every subscription would break the console's real subscriber, and
+    // a bridge that delivered nothing would satisfy every exact-set case above.
     const probe = scenarioWithRollbackBeat();
     const fixture = createFixture(probe);
     const received = subscribeToSessionStream(fixture);
@@ -183,10 +154,8 @@ describe("run streams — the registered payload reaches the subscriber", () => 
   });
 
   it("negative control: a bare event-type subscriber still receives the envelope", () => {
-    // The other unprojected arm. A name that is not a registered stream carries only
-    // itself, and the corpus registers no projection for one — so the beat is what
-    // reaches it, and a projector that fired on every name would silently rewrite
-    // this subscriber's frames too.
+    // A name that is not a registered stream has no projection, so the beat reaches it; a
+    // projector firing on every name would rewrite its frames too.
     const fixture = createFixture();
     const received = subscribeThroughBridge(fixture, "run.starting");
 
@@ -240,9 +209,8 @@ function queueScenario(
 
 describe("run streams — a beat that cannot be projected refuses, loudly", () => {
   it("refuses a transition that names no `previousState` rather than half-building one", () => {
-    // The member with no substitute: the registered vocabulary has no pre-birth
-    // state, so a beat that omits it cannot be projected and must not be delivered
-    // without it. Delivered half-built, it renders as blank and reviews as working.
+    // The vocabulary has no pre-birth state, so a beat omitting it cannot be projected and
+    // must not be delivered half-built.
     const missingPreviousState: Scenario = {
       ...CONCURRENT_STREAMING_SCENARIO,
       id: "run-state-missing-previous-state-probe",
@@ -264,11 +232,8 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
   });
 
   it("refuses a queue beat that names no state rather than deriving one from its kind", () => {
-    // `state` is required on every queue payload, and the strict layer registers no
-    // variant for the five `queue_item.*` kinds — so nothing the contracts package
-    // ships refuses a beat without it. The projection used to skip its comparison
-    // when the member was absent and take the state from the KIND alone, which
-    // delivered a valid-looking `QueueItemSummary` assembled from half a payload.
+    // `state` is required on every queue payload, but the strict layer registers no variant for
+    // the five `queue_item.*` kinds, so nothing in contracts refuses a beat without it.
     const fixture = createFixture(
       queueScenario("queue-beat-stateless-probe", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
@@ -283,9 +248,8 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
   });
 
   it("refuses a beat whose kind and payload disagree about the queue state", () => {
-    // The check the missing member used to skip past. `queue_item.admitted`
-    // announces `admitted`; a payload saying `queued` routes by one key and renders
-    // by the other, exactly as the run-state arm's disagreement does.
+    // `queue_item.admitted` announces `admitted`; a payload saying `queued` would route by
+    // one key and render by the other.
     const fixture = createFixture(
       queueScenario("queue-beat-state-disagreement-probe", {
         ...PROBE_QUEUE_PAYLOAD,
@@ -300,9 +264,8 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
   });
 
   it("refuses a beat whose kind and payload disagree about the current state", () => {
-    // One beat cannot report two current states. Without this the projection would
-    // take the payload's word and deliver a `run.running` frame saying `paused`,
-    // which routes by one key and renders by the other.
+    // One beat cannot report two current states; the projection must not take the payload's
+    // word and deliver a `run.running` frame saying `paused`.
     const disagreeing: Scenario = {
       ...CONCURRENT_STREAMING_SCENARIO,
       id: "run-state-disagreement-probe",
@@ -327,8 +290,8 @@ describe("run streams — a beat that cannot be projected refuses, loudly", () =
 
 describe("run streams — the probe is a script the daemon could have produced", () => {
   it("plays only registered types carrying payloads the strict layer accepts", () => {
-    // Held to the same predicate every shipped scenario is held to, so the cases
-    // above are about a real wire rather than a plausible-looking invention.
+    // Held to the predicate every shipped scenario is held to, so the cases above concern a
+    // real wire.
     expect(findScenarioContractDefects([scenarioWithRollbackBeat()])).toStrictEqual([]);
   });
 });

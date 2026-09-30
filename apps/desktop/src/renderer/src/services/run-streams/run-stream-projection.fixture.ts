@@ -1,69 +1,27 @@
-// What a narrowed `daemon.subscribe` stream actually hands a subscriber.
+// What a narrowed `daemon.subscribe` stream hands a subscriber. `session-event-streams.ts` says
+// which beats reach a subscription; this module says what reaches it.
 //
-// `session-event-streams.ts` answers WHICH beats reach a subscription. This module
-// answers WHAT reaches it, and the two are different questions with different
-// failure modes: routing is wrong when a subscriber receives a frame the daemon would
-// not have sent it, and this is wrong when a subscriber receives the right frame in a
-// shape the daemon does not send at all.
+// The two `run.*` streams deliver registered projections (`RunStateChangeEvent`,
+// `RunRolledBackEvent`, `QueueItemSummary`), not the session envelope: they have a top-level
+// `newState`, not `payload.newState`, and no `kind` or `sequence`. A fixture that handed over the
+// envelope would make every screenshot and end-to-end result about a frame no daemon produces.
+// Codex's safety hold is a live frame with no session row, so no beat projects to it.
 //
-// WHY NOT THE SESSION ENVELOPE. The renderer-local `ProjectedSessionEvent` envelope is
-// `{id, sessionId, sequence, kind, occurredAt, payload}`. The two `run.*` streams are
-// registered PROJECTIONS and carry nothing of the sort: `run.subscribeState` streams
-// `RunStateChangeEvent | RunRolledBackEvent` and `run.subscribeQueue` streams
-// `QueueItemSummary`, none of which has a `kind`, a `sequence`, or a nested `payload`,
-// and all of which name members the envelope does not. The state stream's third
-// delivery, Codex's safety hold, is a live frame with no session row, so no beat
-// projects to it here. So a runs view built against a
-// fixture that handed over the envelope would read `event.payload.newState` where the
-// wire sends a top-level `newState`, and every screenshot, geometry reading, and
-// end-to-end result taken against it would be about a frame no daemon produces.
+// Every member is sourced from the beat, not invented. `occurredAt` becomes the state-change
+// `timestamp` and the queue row's `updatedAt`, and the beat's kind supplies the queue state
+// through the same table that routed it. A beat that cannot supply a required member is refused by
+// name, not delivered half-built. `QueueItemSummary` projects the `queue_items` row, which the
+// queue payload (`{sessionId, queueItemId, state}`) does not carry, so `priority`, `content` and
+// `createdAt` come from the caller's row lookup.
 //
-// WHERE THE MEMBERS COME FROM. Each one is sourced and nothing is composed:
-// `newState` is carried as the payload names it, the envelope's `occurredAt` becomes the
-// state-change `timestamp` and the queue row's `updatedAt`, and the beat's own KIND
-// supplies the queue state through the same table that routed it here. A beat that
-// cannot supply a required member is REFUSED — loudly, by name, through the
-// fixture's own refusal vocabulary — rather than delivered half-built, because a
-// projection missing a required member is exactly the shape a view renders as
-// blank and a reviewer reads as working.
-//
-// THE QUEUE STREAM HAS A SECOND SOURCE, AND HAS TO. `QueueItemSummary` is a
-// projection of the `queue_items` ROW, so it requires `priority`, `content` and
-// `createdAt`, which the registered queue payload does not carry — every queue event's payload is
-// `{sessionId, queueItemId, state}`. So a beat is never asked for those two:
-// the row comes from the caller's lookup by the beat's own queue item id, as the row
-// the daemon projects the summary from.
-//
-// THE REGISTERED SCHEMA IS THE VALIDATOR, AND IT RUNS BEFORE DELIVERY. Every
-// candidate this module composes is parsed through the shape the corpus registers
-// for it, and a parse failure is a refusal carrying the failing member's own path.
-// Hand-checking the required members and then CASTING the result would leave the
-// optionals unchecked entirely: a scenario scripting `intendedClose: false`,
-// `completionKind: "session"`, or a malformed `executionPosture` would have them copied
-// through wire-verbatim and presented to a subscriber as a valid `RunStateChangeEvent`.
-// Nothing else catches it — the scenario wire-truth predicate cannot, because the
-// run-lifecycle kinds are census-only in `SessionEventSchema` and register no payload
-// variant to check against — and a fixture must never deliver values the registered
-// shape rejects. Parsing also removes every branded-identifier cast in this file: the
-// schema returns the branded type, so the values are checked rather than asserted.
-//
-// WHY A VALUE IMPORT OF THE SCHEMAS IS AFFORDABLE HERE. The renderer's initial-bundle
-// budget is enforced, and `services/daemon/session-event-streams.ts` keeps its
-// contracts import type-only for exactly that reason — it is on the release path,
-// reached from the session-event subscriber. This module is not: its only importer is
-// `services/daemon/scenario-subscriptions.fixture.ts`, which the fixture bridge reaches,
-// and the fixture composition that builds that bridge is called only inside `App.tsx`'s
-// `__FIXTURE_BUILD__` branch, a build-time literal, so a release bundle folds
-// the branch away and drops this module with the rest of the fixture subtree. The budget therefore pays nothing for the schemas,
-// and a fixture that validates what it delivers is worth strictly more than one that
-// asserts it.
-//
-// WHAT THE SIBLING HOLDS. `run-stream-shapes.ts` carries the outcome type these arms
-// return and the three things all of them do identically — the session cross-check,
-// the registered-shape parse, and the refusal constructors. This file is the arms and
-// the table they read; that one is what an arm is made of. The fourth, reading a wire
-// member as a string, is `lib/wire-strings.ts`, because every reader of a wire string
-// shares that rule, not only the run streams.
+// Every composed candidate is parsed through the registered schema before delivery and a failure
+// is a refusal with the failing member's path. Hand-checking required members and casting would
+// leave optionals such as `intendedClose` unchecked; the run-lifecycle kinds register no payload
+// variant for the wire-truth predicate to check, so nothing else catches it. Parsing also removes
+// the branded-identifier casts. The value import of the schemas costs the release bundle nothing:
+// this module is reached only from the fixture bridge, and the fixture composition sits behind
+// the build-time `__FIXTURE_BUILD__` branch in `App.tsx`. `run-stream-shapes.ts` holds what all
+// arms share, and `lib/wire-strings.ts` the string reader every wire reader uses.
 
 import {
   QueueItemSummarySchema,
@@ -90,19 +48,10 @@ import {
 } from "../daemon/session-event-stream-kinds.js";
 
 /**
- * The optional members of `RunStateChangeEvent` this projection carries through.
- *
- * A `Record` keyed by the derived member union rather than a hand-written list, so
- * the set is TOTAL by construction: a member added to the registered shape fails to
- * compile here, and a member this table invents fails too. Values are carried
- * wire-verbatim as far as the parse, which is what then decides whether the shape
- * admits them — this table says which members travel, never whether a value is one
- * the contract accepts.
- *
- * They are carried rather than dropped because a scenario that scripts one means
- * it: `completionKind` is what tells a turn-complete from a task-complete, and
- * `trigger` is what tells a budget-exhausted interrupt from a user cancel.
- * A projection that kept only the required five would silently flatten both.
+ * The optional `RunStateChangeEvent` members this projection carries through, wire-verbatim, so a
+ * scenario's `completionKind` or `trigger` is not flattened away. Keyed by the derived member union
+ * so a member added to the registered shape fails to compile; the parse decides whether a value is
+ * accepted.
  */
 const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
@@ -125,10 +74,9 @@ const RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS: Readonly<
 };
 
 /**
- * The optional `QueueItemSummary` members the queue row carries through, where
- * the row names them: the message's files, the child whose queue holds it, and
- * the daemon's reason once its delivery failed. Keyed by the derived member union
- * for the reason the table above is.
+ * The optional `QueueItemSummary` members carried through from the queue row where it names them:
+ * the message's files, the child whose queue holds it, and the reason its delivery failed. Keyed
+ * by the derived member union like the table above.
  */
 const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
   Record<
@@ -145,17 +93,10 @@ const QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS: Readonly<
 };
 
 /**
- * The registered payload this beat travels as on this stream, or `undefined` when
- * the subscription is not one of the two narrowed run streams.
- *
- * `undefined` is deliberately not an error arm: `session.subscribe` carries the
- * whole log and a bare event-type name carries only itself, and neither registers a
- * projection for the fixture to build. Their subscribers get the envelope, which is
- * what those registrations describe.
- *
- * `queueRowFor` finds the queue row a beat is about by the beat's own queue item id,
- * the queue arm's second source. It is required wherever the subscription can be the
- * queue stream, and a lookup that finds no row is a refusal rather than a made-up row.
+ * The registered payload this beat travels as on this stream, or `undefined` when the subscription
+ * is not one of the two narrowed run streams; `session.subscribe` and bare event-type names get the
+ * envelope. `queueRowFor` finds the queue row by the beat's own queue item id, and a lookup that
+ * finds none is a refusal rather than a made-up row.
  */
 export function projectRunStreamDelivery(
   subscriptionName: typeof RUN_STATE_EVENT_STREAM,
@@ -167,6 +108,7 @@ export function projectRunStreamDelivery(
   event: ProjectedSessionEvent,
   queueRowFor: QueueRowLookup,
 ): RunStreamProjection | undefined;
+/** Routes a beat to the arm its narrowed stream registers. */
 export function projectRunStreamDelivery(
   subscriptionName: string,
   event: ProjectedSessionEvent,
@@ -186,9 +128,8 @@ type QueueRowLookup = (queueItemId: string) => Readonly<Record<string, unknown>>
 
 /** The `run.subscribeState` arms: a state transition, or the forward rollback row. */
 function projectRunStateStreamBeat(event: ProjectedSessionEvent): RunStreamProjection {
-  // The arm comes from the routing table rather than from a second reading of the
-  // kind here. That table is what decided this beat reaches this stream at all, so
-  // asking it again is the one answer that cannot disagree with the routing.
+  // The arm comes from the routing table, which is what decided this beat reaches this stream, so
+  // it cannot disagree with the routing.
   const arm = runStateStreamArmFor(event.kind);
   if (arm === undefined) {
     return unprojectable(
@@ -208,11 +149,9 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
   if (sessionDisagreement !== undefined) {
     return sessionDisagreement;
   }
-  // The one cross-check no schema can make: the kind and the payload each name the
-  // state the run is now in, and they have to be the same state. Checked before the
-  // parse because it is a fact about this BEAT rather than about the shape — a
-  // `run.running` frame reporting `paused` routes by one key and renders by the
-  // other, and both values pass the registered vocabulary.
+  // The kind and the payload each name the state the run is now in, and they must agree. Checked
+  // before the parse because a `run.running` frame reporting `paused` passes the registered
+  // vocabulary and then routes by one key and renders by the other.
   const announcedState = runStateForTransitionKind(event.kind);
   const statedState = payload["newState"];
   if (statedState === undefined) {
@@ -225,8 +164,8 @@ function projectStateChange(event: ProjectedSessionEvent): RunStreamProjection {
     );
   }
   return projectThroughRegisteredShape(RunStateChangeEventSchema, event, {
-    // The carried optionals are spread FIRST so a payload that also spells one of
-    // the five required members under an optional's name cannot displace it.
+    // Optionals are spread first so a payload cannot displace a required member by spelling it
+    // under an optional's name.
     ...carriedOptionalMembers(payload, RUN_STATE_CHANGE_CARRIED_OPTIONAL_MEMBERS),
     runId: payload["runId"],
     runVersion: payload["runVersion"],
@@ -248,10 +187,8 @@ function projectRollback(event: ProjectedSessionEvent): RunStreamProjection {
   }
   const channelId = readWireString(payload["channelId"]);
   return projectThroughRegisteredShape(RunRolledBackEventSchema, event, {
-    // The PAYLOAD's session, checked equal to the envelope's just above and then
-    // carried untouched. Copying the envelope's here instead would make that check
-    // vacuous — the value delivered would agree with the envelope by construction
-    // rather than because the beat said so.
+    // The payload's own session, already checked equal to the envelope's. Copying the envelope's
+    // here would make that check vacuous.
     sessionId: payload["sessionId"],
     runId: payload["runId"],
     runVersion: payload["runVersion"],
@@ -283,12 +220,9 @@ function projectRunQueueStreamBeat(
   if (queueItemId === undefined) {
     return unprojectableFor(event, "names no `queueItemId` to find its queue row by");
   }
-  // Required, exactly as `newState` is on the state arm above. Every queue event's
-  // payload is `{sessionId, queueItemId, state}`, so a beat without one is not
-  // a queue event that omitted a check — it is a queue event no daemon emits. Skipping
-  // the comparison when the member is absent would let the summary take its state from
-  // the KIND alone and deliver a valid-looking `QueueItemSummary` built from a payload
-  // the contract rejects.
+  // Required like `newState` on the state arm: every queue event's payload is
+  // `{sessionId, queueItemId, state}`. Skipping the comparison when absent would let the summary
+  // take its state from the kind alone and deliver a payload the contract rejects.
   const statedState = payload["state"];
   if (statedState === undefined) {
     return unprojectableFor(
@@ -302,10 +236,8 @@ function projectRunQueueStreamBeat(
       `announces "${announcedState}" by its kind and ${JSON.stringify(statedState)} in its payload; one beat cannot report two queue states`,
     );
   }
-  // The row, not the beat. `QueueItemSummary` is a projection of `queue_items` and
-  // carries members the registered queue payload does not; a beat asked for
-  // `priority` or the message's words is a beat asked for something no daemon puts
-  // on one.
+  // The row, not the beat: `QueueItemSummary` projects `queue_items`, which carries members the
+  // registered queue payload does not.
   const queueRow = queueRowFor(queueItemId);
   if (queueRow === undefined) {
     return unprojectableFor(
@@ -317,15 +249,12 @@ function projectRunQueueStreamBeat(
     ...carriedOptionalMembers(queueRow, QUEUE_ROW_CARRIED_OPTIONAL_MEMBERS),
     id: queueItemId,
     state: announcedState,
-    // Row members, carried through untouched — the daemon reads them off the row and
-    // so does this. Their types are the schema's business: `priority` is
-    // `z.number().int()` with no `.nonnegative()`, because the column reads "higher
-    // = more urgent" and a negative priority is a deliberate de-prioritization.
+    // Row members carried through untouched; their types are the schema's business. `priority` may
+    // be negative, since a negative value is a deliberate de-prioritization.
     priority: queueRow["priority"],
     content: queueRow["content"],
     createdAt: queueRow["createdAt"],
-    // This beat IS the row's newest change, so the moment it occurred is the
-    // moment the row was last updated. Sourced, not stamped from a clock.
+    // This beat is the row's newest change, so its moment is the row's last update.
     updatedAt: event.occurredAt,
   });
 }

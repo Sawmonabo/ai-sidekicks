@@ -1,24 +1,9 @@
-// The fixture-bridge shape claim, as a test.
-//
-// The claim: the fixture bridge is typed from the same `packages/contracts`
-// desktop-bridge types as the live bridge, and is shape-identical to `PlatformBridge`
-// namespace for namespace.
-//
-// WHY A RUNTIME TEST FOR SOMETHING THE TYPES ALREADY SAY. Both bridges are declared
-// `PlatformBridge`, so a namespace added to the contract breaks the fixture at
-// compile time. What the compiler cannot see is the LIVE side: `window.desktopBridge`
-// is installed by a preload across `contextBridge`, which structurally clones the
-// object graph, and the renderer's belief that it satisfies the interface is a
-// declaration about a value the renderer never checked. So the shapes are read from
-// the two real bridges — the live one built the way the preload builds it, the
-// fixture one built by its own factory — and compared.
-//
-// NOTHING HERE HAND-LISTS A NAMESPACE OR A METHOD. A test that carried its own copy
-// of the bridge's namespaces and methods would be a third declaration of them,
-// maintained by whoever remembered, and would go on passing over a fixture that
-// dropped a method the hand-list also forgot. The comparison enumerates both objects at
-// runtime, and the only listing anywhere is `bridge-shape.ts`'s namespace table, which
-// is keyed by `keyof PreloadApi` and therefore cannot go stale.
+// The fixture bridge is shape-identical to the live `PlatformBridge`, namespace for namespace.
+// Types cover the fixture, but the live side is installed by a preload across `contextBridge`, so
+// the shapes are read at runtime from the two real bridges (the live one built as the preload
+// builds it, the fixture by its own factory) and compared. Nothing is hand-listed: the only
+// listing is `bridge-shape.ts`'s namespace table, keyed by `keyof PreloadApi`, so it cannot go
+// stale.
 import { afterEach, describe, expect, it } from "vitest";
 
 import { createStubBridge, type PreloadApi } from "@shared/preload-api.js";
@@ -35,13 +20,9 @@ import { findScenario } from "../../../../../fixtures/index.js";
 import { FIRST_RUN_SCENARIO_ID } from "../../../../../fixtures/scenarios/first-run.js";
 
 /**
- * Install a bridge the way the preload does, and hand back the live `PlatformBridge`
- * the console would have resolved.
- *
- * Goes through `readInstalledBridge` rather than calling `createLiveBridge` with the
- * object directly, so the probe that decides whether a preload ran is on the path
- * this test drives. A helper that skipped it would be testing a bridge the console
- * would have refused.
+ * Installs a bridge the way the preload does and returns the live `PlatformBridge` the console
+ * would resolve. It goes through `readInstalledBridge` so the "did the preload run" probe is on
+ * the path this test drives.
  */
 function resolveLiveBridgeFrom(installed: unknown): PlatformBridge | undefined {
   (globalThis as { desktopBridge?: unknown }).desktopBridge = installed;
@@ -76,10 +57,8 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("covers every namespace the contract declares, so the comparison is not vacuous", () => {
-    // Without this, two bridges that had both lost the same namespace — or an
-    // enumeration that read nothing at all — would compare equal and pass. The
-    // namespace table is keyed by `keyof PreloadApi`, so this is the point
-    // where the runtime reading is tied back to the contract.
+    // Without this, two bridges that had both lost the same namespace, or an enumeration that read
+    // nothing, would compare equal. It ties the runtime reading back to the contract.
     const live = resolveLiveBridgeFrom(createStubBridge(FIXTURE_APP_META));
     const fixture = fixtureBridge();
     const expected = [...DESKTOP_BRIDGE_NAMESPACES].sort();
@@ -92,9 +71,8 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("reads members, not just namespaces", () => {
-    // The other vacuity arm: a describer that returned an empty member list for
-    // every namespace would satisfy both tests above. Every namespace the contract
-    // declares carries at least one member, so an empty one is a reading failure.
+    // The other vacuity arm: a describer returning an empty member list for every namespace would
+    // pass both tests above.
     const shape: BridgeShape = describeBridgeShape(fixtureBridge());
     for (const namespace of DESKTOP_BRIDGE_NAMESPACES) {
       expect(shape.get(namespace)?.length ?? 0).toBeGreaterThan(0);
@@ -102,10 +80,8 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("negative control: rejects a bridge missing one method", () => {
-    // The comparison must be able to FAIL, and this is the failure it exists for —
-    // a fixture that answered every call but one. Perturbed on a constructed
-    // bridge and compared through the SAME function the positive test uses, so a
-    // comparison that had quietly become a tautology is caught here.
+    // The comparison must be able to fail: perturb a constructed bridge and compare through the
+    // same function as the positive test, so a comparison that became a tautology is caught.
     const perturbed = createStubBridge(FIXTURE_APP_META);
     Reflect.deleteProperty(perturbed.native, "revealInFileExplorer");
     const live = resolveLiveBridgeFrom(perturbed);
@@ -136,8 +112,8 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("negative control: rejects a member whose type changed under it", () => {
-    // A method replaced by a plausible-looking value is the shape a half-installed
-    // preload actually arrives in, and a name-only comparison would call it equal.
+    // A method replaced by a plausible value is how a half-installed preload arrives, and a
+    // name-only comparison would call it equal.
     const perturbed = createStubBridge({ ...FIXTURE_APP_META });
     Reflect.set(perturbed.app, "version", 0);
     const live = resolveLiveBridgeFrom(perturbed);
@@ -156,26 +132,23 @@ describe("the fixture bridge is shape-identical to the live bridge", () => {
   });
 
   it("treats a bridge that is not there as absent rather than as a shape difference", () => {
-    // The two failures are different facts with different next steps: "the preload
-    // did not run" is a window to reopen, and "the bridges diverged" is a defect to
-    // fix. Conflating them would send a person to the wrong one.
+    // "The preload did not run" is a window to reopen and "the bridges diverged" is a defect to
+    // fix; conflating them sends a person to the wrong one.
     expect(resolveLiveBridgeFrom(undefined)).toBeUndefined();
     expect(resolveLiveBridgeFrom({ daemon: {} })).toBeUndefined();
   });
 
   it("negative control: an array-valued namespace is refused rather than admitted", () => {
-    // The probe used to read each namespace as `typeof … === "object" && … !== null`,
-    // which is true of an array — so a namespace that arrived as one passed, and the
-    // console went on to call methods on it. The reading is `core/isWireRecord` now,
-    // which rejects an array, and this is what fails if that is written by hand again.
+    // A hand-written `typeof === "object"` probe admits an array, so a namespace that arrived as
+    // one passed and the console called methods on it. `isWireRecord` rejects it.
     const installed = createStubBridge(FIXTURE_APP_META);
     const [firstNamespace] = DESKTOP_BRIDGE_NAMESPACES;
     expect(firstNamespace).toBeDefined();
     const arrayValued = { ...installed, [firstNamespace ?? "daemon"]: [] };
 
     expect(resolveLiveBridgeFrom(arrayValued)).toBeUndefined();
-    // And the same object with that namespace intact IS admitted, so the case above
-    // fails for the array and not for the way this literal was built.
+    // The same object with that namespace intact is admitted, so the case above fails for the
+    // array and not for how the literal was built.
     expect(resolveLiveBridgeFrom({ ...installed })).toBeDefined();
   });
 });

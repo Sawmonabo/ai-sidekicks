@@ -1,15 +1,8 @@
-// What a delivered payload has to look like before it may reach a store.
-//
-// Split from `session-event-binder.test.ts` along the same seam the production code
-// is split on: that module owns WHICH sessions are bound and for how long, and
-// `services/daemon/session-event-payload.ts` owns WHAT a delivered payload has to look
-// like. These cases drive the second question and nothing else.
-//
-// The wire hands the console an `unknown`. Each case below casts a deliberately wrong
-// shape into a scenario beat, which is the only way to drive the boundary with what a
-// daemon on the other side of a version skew would actually send. The negative control
-// is load-bearing: a boundary that refused EVERY delivery would pass both refusals,
-// and a console that admits nothing looks exactly like a quiet session.
+// What a delivered payload must look like before it may reach a store. These cases drive the
+// payload boundary (`services/daemon/session-event-payload.ts`), while the subscriber owns which
+// sessions are bound. Each casts a deliberately wrong shape into a scenario beat, the way a daemon
+// across a version skew would send it. The negative control is load-bearing: a boundary that
+// refused every delivery would pass both refusals and look like a quiet session.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -28,9 +21,8 @@ function scenarioDelivering(id: string, event: unknown): Scenario {
   };
 }
 
-// Tripwires throw in development so a breach is impossible to ignore. Under test
-// they are RECORDED instead, because these cases assert that a breach was detected
-// and described — a throw would only prove it was noticed.
+// Tripwires throw in development; under test they are recorded, because these cases assert that a
+// breach was detected and described.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
@@ -48,19 +40,16 @@ describe("SessionEventSubscriber — the payload boundary", () => {
 
     expect(binder.unreadableDeliveryCount).toBe(1);
     expect(binder.appliedEventCountFor(SESSION_ID)).toBe(0);
-    // Counted, and deliberately not reported: an unfamiliar payload is a fact
-    // about the wire, and a tripwire would name it a defect in the console.
+    // Counted, not reported: an unfamiliar payload is a wire fact, not a console defect.
     expect(windowTripwires.totalFiringCount).toBe(0);
 
     binder.dispose();
   });
 
   it("refuses a delivery that carries every member but the canonical event id", () => {
-    // The id is what a later read of this event's body is keyed by, so a payload
-    // without one is not an envelope the console can hold. Without this case the
-    // boundary could admit it and leave a row in the store that no view could
-    // ever open — and the alternative fix, composing an id from the members that
-    // ARE present, would look identical from every other assertion in this file.
+    // The id keys a later read of the event's body, so a payload without one cannot be held.
+    // Without this case the boundary could admit it, or compose an id from the present members,
+    // and no other assertion here would differ.
     const { registry, binder, engine } = createHarness(
       scenarioDelivering("concurrent-streaming-idless-payload-probe", {
         sessionId: SESSION_ID,

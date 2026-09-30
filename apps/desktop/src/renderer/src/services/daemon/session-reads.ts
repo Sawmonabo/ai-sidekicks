@@ -1,6 +1,4 @@
-// The session reads the daemon answers, in the shapes the console asks them in: what a
-// session is called, from `session.read`. The snapshot half of `session.read` is the
-// registry's own binding, which `callDaemon` answers through.
+// The session reads the daemon answers, in the shapes the console asks them in.
 
 /**
  * What a session is called and the state it is in.

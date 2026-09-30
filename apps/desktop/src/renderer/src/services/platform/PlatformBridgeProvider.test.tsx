@@ -1,24 +1,9 @@
-// The resolved bridge is a resource with a lifetime, not a cached computation.
-//
-// The provider used to hold its resolution in a `useMemo`. React documents that
-// cache as a performance hint it may discard and recompute, and the fixture arm
-// puts a MUTABLE `ScenarioEngine` inside it: a discarded cache starts a second
-// engine at tick zero while the first one — with its subscriptions, its frozen
-// clock, and every beat it had delivered — is abandoned mid-scenario. The same
-// gap left the replacement path silent: changing the scenario built a new engine
-// and disposed nothing, so the old one stayed subscribable forever.
-//
-// So the cases here are about IDENTITY and about TEARDOWN, and the two that fail
-// the way the regression did are the replacement and the unmount: a memo can keep
-// an identity, and it can never dispose one. The composition is a recording one built
-// here rather than the fixture launch's, so what is asserted is the provider's contract
-// with any composition: build once, install once, take both down, and dispose only what
-// it built.
-//
-// `AppProviders` states the same rule for the stores it composes — "one store per window,
-// created once; `useRef` rather than `useMemo`, because a memo may be discarded
-// and recomputed and store identity is correctness" — and `app/hooks/useSessionStoreRegistry.ts`
-// is where the re-mint arm this file's last case drives comes from.
+// The resolved bridge is a resource with a lifetime, not a cached computation. A discarded
+// `useMemo` would start a second `ScenarioEngine` at tick zero and abandon the first mid-scenario,
+// and a replaced scenario would dispose nothing, leaving the old engine subscribable. So the cases
+// are about identity and teardown; a memo can keep an identity but never dispose one. The
+// composition is a recording one built here, so what is asserted is the provider's contract with
+// any composition: build once, install once, take both down, dispose only what it built.
 
 import { render } from "@testing-library/react";
 import { StrictMode, useState, type ReactNode } from "react";
@@ -144,9 +129,8 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
 
     expect(firstRun).not.toBe(concurrentStreaming);
     expect(firstRun.scenario.id).toBe(FIRST_RUN_SCENARIO_ID);
-    // The superseded engine is TORN DOWN rather than merely dropped. An
-    // abandoned engine still holds every sink subscribed to it, and a driver
-    // holding the old handle would go on advancing a scenario no window renders.
+    // The superseded engine is torn down, not just dropped: it still holds every subscribed sink,
+    // and a driver holding the old handle would advance a scenario no window renders.
     expect(concurrentStreaming.isDisposed).toBe(true);
     expect(concurrentStreaming.sinkCount).toBe(0);
     expect(firstRun.isDisposed).toBe(false);
@@ -173,9 +157,8 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
   });
 
   it("never disposes a bridge the caller supplied", () => {
-    // Tests and stories build a fixture once and render it through several
-    // providers. Disposing one on unmount would tear down a resource this
-    // component never owned, and the second render would be driving a corpse.
+    // Tests build a fixture once and render it through several providers; disposing on unmount
+    // would tear down a resource this component never owned.
     const { bridge, scenarioEngine } = createFixtureBridge({
       scenario: CONCURRENT_STREAMING_SCENARIO,
     });
@@ -193,10 +176,8 @@ describe("PlatformBridgeProvider — the resolved bridge's lifetime", () => {
   });
 
   it("re-mints after a double mount, so the console never holds a torn-down engine", () => {
-    // React's StrictMode mounts, tears down, and mounts again. The teardown
-    // disposes this provider's engine, so the second mount has to notice and
-    // build a fresh one — the same re-mint arm `app/hooks/useSessionStoreRegistry.ts`
-    // carries for the registry and binder it owns.
+    // StrictMode mounts, tears down and mounts again. The teardown disposes this provider's engine,
+    // so the second mount must build a fresh one.
     const composition = recordingComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const observed: PlatformBridge[] = [];
     const tree: ReactNode = (
@@ -222,12 +203,8 @@ function ClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null
 }
 
 /**
- * The superseded form, kept as a control rather than as an alternative.
- *
- * `useState`'s lazy initializer runs once for the life of the MOUNT, which is the
- * shape `useClock` had and the shape the case below fails on. It is written
- * here so the replacement's claim is measured against the thing it replaced instead
- * of being asserted.
+ * The superseded form, kept as a control. `useState`'s lazy initializer runs once per mount,
+ * which is the shape `useClock` had and the shape the case below fails on.
  */
 function MountPinnedClockProbe(props: { readonly onObserve: (clock: Clock) => void }): null {
   const bridgeClock = useBridgeClock();
@@ -251,11 +228,9 @@ describe("useClock — the clock is a fact about the resolution", () => {
     createFixtureBridge({ scenario: findScenario(FIRST_RUN_SCENARIO_ID) });
 
   it("re-resolves on a bridge replacement, on the first committed render", () => {
-    // The READING is what moves, not the identity. One `ForwardingClock` per
-    // mount is the whole point — every `[clock]` re-mint arm downstream would fire on
-    // a scenario switch if the hook handed back a new object — so what the case has
-    // to show is that the one object it does hand back stops reading the retired
-    // bridge's time the moment the replacement is committed.
+    // The reading moves, not the identity: one `ForwardingClock` per mount keeps every `[clock]`
+    // re-mint arm downstream from firing on a scenario switch, and it must stop reading the retired
+    // bridge's time once the replacement commits.
     const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
     const observed: Clock[] = [];
@@ -280,9 +255,8 @@ describe("useClock — the clock is a fact about the resolution", () => {
   });
 
   it("negative control: the mount-pinned form keeps the retired bridge's clock", () => {
-    // The shape this hook had. Everything downstream of it — the pane layout's rect flush,
-    // the reveal engine's armed frame, every `[clock]` re-mint arm — would go on
-    // reading a clock the scenario switch stopped advancing.
+    // The mount-pinned shape: everything downstream would keep reading a clock the scenario
+    // switch stopped advancing.
     const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
     const observed: Clock[] = [];
@@ -302,9 +276,8 @@ describe("useClock — the clock is a fact about the resolution", () => {
   });
 
   it("negative control: the two scenarios really do carry two clocks, and one bridge carries one", () => {
-    // Without the first half the case above would pass over two bridges sharing a
-    // clock; without the second, over a hook that recomputed on every render, which
-    // is the property `useState` was there for and which must survive the change.
+    // Without the first half the case above would pass over two bridges sharing a clock; without
+    // the second, over a hook that recomputed on every render.
     const bridgeA = concurrentStreamingBridge();
     const bridgeB = firstRunBridge();
     expect(bridgeA.scenarioEngine.clock).not.toBe(bridgeB.scenarioEngine.clock);
