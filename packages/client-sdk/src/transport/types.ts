@@ -15,9 +15,10 @@ import type {
 
 /**
  * The byte-frame transport a `JsonRpcClient` runs over. An implementation owns the connection (Unix
- * socket, Windows named pipe, in-memory double), the framing (the same rules as `parseFrame` and
- * `encodeFrame` in the daemon's `local-ipc-gateway.ts`), and backpressure on outbound writes. The
- * client works on JSON-RPC envelopes above the framing and never sees bytes.
+ * socket, Windows named pipe, in-memory double), the framing (the same rules as the daemon's
+ * `parseFrame` in `content-length-framing.ts` and `encodeFrame` in `local-ipc-gateway.ts`), and
+ * backpressure on outbound writes. The client works on JSON-RPC envelopes above the framing and
+ * never sees bytes.
  */
 export interface ClientTransport {
   /**
