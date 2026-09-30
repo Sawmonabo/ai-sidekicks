@@ -11,6 +11,7 @@ import { z } from "zod";
 
 import { uuidTextFormSchema } from "../internal/branded.js";
 import { DRIVER_FAILURE_DETAIL_MAX_LEN, RunIdSchema, type RunId } from "../provider-driver.js";
+import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
 import { WorkflowRunIdSchema, type WorkflowRunId } from "../workflow-run.js";
 import {
@@ -24,7 +25,6 @@ import {
 import {
   ChangeRequestNumberSchema,
   countSchema,
-  GitObjectIdSchema,
   GitRefNameSchema,
   GitShortObjectIdSchema,
   HostingAddressSchema,
@@ -202,7 +202,7 @@ export type GitflowDiffReadRequest =
       sessionId: SessionId;
       scope: "branch";
       base?: string | undefined;
-      commitId?: string | undefined;
+      commitId?: GitObjectId | undefined;
     }
   | { sessionId: SessionId; scope: "change_request"; changeRequestNumber: number }
   | {
@@ -263,8 +263,8 @@ export interface DiffFile {
   additions: number;
   deletions: number;
   patch?: string | undefined;
-  oldBlobId?: string | undefined;
-  newBlobId?: string | undefined;
+  oldBlobId?: GitObjectId | undefined;
+  newBlobId?: GitObjectId | undefined;
   newestTurn?: number | undefined;
   stepId?: string | undefined;
 }
@@ -295,7 +295,7 @@ const DiffFileSchema: z.ZodType<DiffFile> = z
  * read from the commit's run trailer; a commit without one is the person's.
  */
 export interface DiffCommit {
-  commitId: string;
+  commitId: GitObjectId;
   shortId: string;
   subject: string;
   landedAt: string;
@@ -543,9 +543,9 @@ export const GitflowChangeRequestTextGenerateResponseSchema: z.ZodType<GitflowCh
  * A type alias rather than an interface so it narrows the event envelope's payload.
  */
 export type GitSettledPayload =
-  | { sessionId: SessionId; cause: "committed"; commitId: string; runId?: RunId | undefined }
+  | { sessionId: SessionId; cause: "committed"; commitId: GitObjectId; runId?: RunId | undefined }
   | { sessionId: SessionId; cause: "pushed"; branch: string }
-  | { sessionId: SessionId; cause: "pulled"; branch: string; commitId: string }
+  | { sessionId: SessionId; cause: "pulled"; branch: string; commitId: GitObjectId }
   | {
       sessionId: SessionId;
       cause: "pull_request_opened";

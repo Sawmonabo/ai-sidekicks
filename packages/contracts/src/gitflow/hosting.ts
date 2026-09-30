@@ -9,11 +9,11 @@
 // host's own word, which follows from the host kind this contract reports.
 import { z } from "zod";
 
+import { GitObjectIdSchema, type GitObjectId } from "../repo-git-reads.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "../session.js";
 import {
   ChangeRequestNumberSchema,
   countSchema,
-  GitObjectIdSchema,
   HostHandleSchema,
   HostingAddressSchema,
   timestampSchema,
@@ -316,7 +316,7 @@ export interface ChangeRequestDetail extends ChangeRequestSummary {
   requestedReviewers: string[];
   threads: ReviewThread[];
   checks: ChangeRequestCheck[];
-  headCommitId: string;
+  headCommitId: GitObjectId;
 }
 const ChangeRequestDetailSchema: z.ZodType<ChangeRequestDetail> = z
   .object({

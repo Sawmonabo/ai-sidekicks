@@ -1,4 +1,4 @@
-// Scalars the git-flow contract's modules share: git's object ids and ref names,
+// Scalars the git-flow contract's modules share: git's short object ids and ref names,
 // addresses on the hosting service, timestamps, change-request numbers, the host's
 // own handles and counts. Private to `gitflow/`: the barrel does not re-export
 // this module, because each value is a building block of a public schema, not a
@@ -7,11 +7,6 @@ import { z } from "zod";
 
 import { wireFreeFormString } from "../session.js";
 import { WORKTREE_GIT_REF_MAX_LEN } from "../worktree.js";
-
-/** A git object id: a commit or a blob, as the full hex name git prints (SHA-1 or SHA-256). */
-export const GitObjectIdSchema: z.ZodType<string, string> = z
-  .string()
-  .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/u, "Expected a full hex git object id");
 
 /** A commit's short id, git's own abbreviation, which is as long as the repository needs. */
 export const GitShortObjectIdSchema: z.ZodType<string, string> = z

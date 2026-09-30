@@ -2774,17 +2774,11 @@ export const DriverSubscribeEventsParamsSchema: z.ZodType<
 // `InterruptRunParamsSchema` comment records against the globally-unique run
 // id's single-key shape.
 
-// The agent identifier member. `AgentId`'s canonical brand + schema home is the
-// `packages/contracts/src/orchestration.ts`, which is UNSHIPPED at this task's
-// landing — and minting the brand here instead would be exactly the second
-// single branded-UUID source of truth the `RunIdSchema` doctrine at the top of
-// this file forbids, plus a barrel collision on the day exports the canonical
-// symbol. So the member is typed `string` and UUID-shape-validated at the seam
-// (the `clientIdempotencyKey` precedent: an unbranded caller-supplied UUID,
-// validated where it crosses). `string` is assignable FROM the future branded
-// `AgentId` at every call site, so the one-line narrowing of this member and its
-// validator is owed to — and lands compatibly with — the swap that ships
-// orchestration.ts.
+// The agent identifier member. `AgentId`'s brand and schema live in
+// `agent-definition.ts`, which imports this file at load, so this file cannot
+// import them back without a load cycle. The member is typed `string` and
+// checked as a UUID where it crosses; a branded `AgentId` is assignable to it at
+// every call site.
 
 // `driver.compactContext` — the user-triggered compaction request.
 //
