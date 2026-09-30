@@ -19,13 +19,13 @@ The process, the checkers, and the instruction files in this repository were bui
 
 Measured on 2026-09-14, before this cleanup:
 
-- About 55,800 lines of harness tooling under `.claude/` and `tools/` — `git ls-files '.claude/**' 'tools/**' | xargs wc -l` reported 55,799 — and 54 % of that was tests of the tooling rather than tooling.
+- Harness tooling under `.claude/` and `tools/`, most of it tests of the tooling rather than tooling.
 - A 24 KB plan template.
 - A 27-minute CI run.
 - A session preamble of roughly 12,000 tokens before any work began.
 - Codex review rounds with no cap.
 
-The tooling was not broken. It was built for a reader that no longer sits at this keyboard, and its cost is paid on every commit by the reader that does.
+The tooling was not broken. It was built for models that needed step lists and machine checks, and its cost is paid on every commit by models that do not.
 
 ## Problem Statement
 
@@ -43,7 +43,7 @@ We will delete the process machinery that exists only to compensate for a model 
 
 **Removed.** Branch protection on `develop` (it stays on `main`). The Shipment Manifest. The readiness gate. The four-state document status. The doc-first rule. The lane taxonomy. The citation grammar and its checkers. The ripple-check and CLAUDE.md-audit skills. The housekeeping PR. The pre-commit type check.
 
-**Kept.** Secret scanning. The worktree occupancy check. The commit lock. The fail-closed test runner. One table check. The Codex gate script, with an advisory mode. A four-check preflight.
+**Kept.** Secret scanning. The worktree occupancy check. The commit lock. The fail-closed test runner. The Codex gate script, with an advisory mode. The plan preflight.
 
 **Shrunk.** `CLAUDE.md`, `AGENTS.md`, and `CONTRIBUTING.md` are cut to facts and prohibitions — what is true about this repository, and what you must not do. Nothing that restates how to be a competent engineer.
 
@@ -51,11 +51,11 @@ Citations become markdown links, checked by lychee.
 
 ### Thesis — Why This Option
 
-Every kept item catches something a careful reader cannot: a secret that looks like a token, a worktree that another process is standing in, two agents committing at once, a test runner that reports green on a glob that matched nothing, a column that does not sum, a review that has not actually happened yet, a phase that already shipped.
+Every kept item catches something a careful reader cannot: a secret that looks like a token, a worktree that another process is standing in, two agents committing at once, a test runner that reports green on a glob that matched nothing, a review that has not actually happened yet, a phase that already shipped.
 
 Every removed item catches something a careful reader already sees, and charges for it on every commit. A citation parser tells you a heading moved; so does a broken markdown link, using a standard tool that needs no maintenance. A four-state status field tells you a document is not finished; so does reading it.
 
-The 54 % figure is the clearest signal. More than half the harness was tests of the harness — work that protects the checker rather than the product, and grows whenever the checker does.
+The clearest signal is that most of the harness was tests of the harness — work that protects the checker rather than the product, and grows whenever the checker does.
 
 ---
 
@@ -77,7 +77,7 @@ The 54 % figure is the clearest signal. More than half the harness was tests of 
 
 - **What:** lint, test, typecheck, secret scan. Nothing repo-specific at all.
 - **Steel man:** maximum simplicity, zero maintenance, no bespoke code to test.
-- **Why rejected:** four of the kept checks have no standard-tool equivalent. A test runner that exits 0 on a glob matching no files is a false green no linter catches; a worktree deleted out from under a live process breaks every later command in that session; two agents committing concurrently corrupt the index. These are real incidents this repository has had, not hypotheticals.
+- **Why rejected:** the test-runner, worktree-occupancy and commit-lock checks have no standard-tool equivalent. A test runner that exits 0 on a glob matching no files is a false green no linter catches; a worktree deleted out from under a live process breaks every later command in that session; two agents committing concurrently corrupt the index. These are real incidents this repository has had, not hypotheticals.
 
 ---
 
@@ -99,8 +99,8 @@ The 54 % figure is the clearest signal. More than half the harness was tests of 
 ### Negative (accepted trade-offs)
 
 - A red check can land on `develop`. It is fixed forward, and the nightly full run catches what slips. This is the deliberate trade: the develop branch becomes a place where work lands and is corrected, and `main` keeps its protection.
-- Status words on existing documents are left as they are. One check still reads them: the retained preflight refuses to dispatch a plan whose `**Status**` is not `ready`, `approved`, or `completed`. Nothing else does, and a plan that is genuinely not ready should refuse to dispatch — the one plan still marked `draft` (and the template it was copied from) is correct as it stands. Sweeping the rest would be a large diff bought with no check.
-- The 2,283 backticked `Spec-NNN §Heading` citations became markdown links. The roughly 2,000 un-backticked prose mentions of the same form stayed prose: they have no closing delimiter, so nothing can parse them reliably; nothing parses them any more anyway; and rewriting them would be a large diff bought with no check.
+- Status words on existing documents are left as they are. One check still reads them: the retained preflight refuses to dispatch a plan whose `**Status**` is not `ready`, `approved`, or `completed`. Nothing else does, and a plan that is genuinely not ready should refuse to dispatch. Sweeping the rest would be a large diff bought with no check.
+- Backticked `Spec-NNN §Heading` citations are markdown links. Un-backticked prose mentions of the same form stay prose: they have no closing delimiter, so nothing can parse them reliably, and rewriting them would be a large diff bought with no check.
 
 ### Unknowns
 
@@ -118,7 +118,7 @@ If a class of defect that a deleted check used to catch recurs twice, add a stan
 
 | Source | Type | Key Finding | URL/Location |
 | --- | --- | --- | --- |
-| `git ls-files '.claude/**' 'tools/**' \| xargs wc -l` | Primary measurement | 55,799 lines of harness tooling before the cleanup; 54 % of it tests of the tooling | this repository, 2026-09-14 |
+| The harness files under `.claude/` and `tools/` | Primary measurement | Most of the harness tooling before the cleanup was tests of the tooling | this repository, 2026-09-14 |
 | CI run history | Primary measurement | 27-minute wall time on the full required set | GitHub Actions, 2026-09-14 |
 | [failure-mode-catalog.md](../operations/failure-mode-catalog.md) | Internal record | The incident classes behind the kept checks — false-green test runs, occupied-worktree removal, concurrent commits | this repository |
 

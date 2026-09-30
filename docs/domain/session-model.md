@@ -12,18 +12,16 @@ This document defines what a session contains, how it behaves, and how it relate
 
 - `Session`: the top-level container for runtime, communication, and work state, owned by one user.
 - `SessionState`: the lifecycle state of the session itself, not the state of any specific run.
-- `local-only`: an operating constraint where a session remains usable on the user's own local runtime node without current control-plane coordination.
+- `local-only`: a connectivity state in which a session stays fully usable on the machine that runs it while that machine has no relay connection; the user's other devices reach the same session again once the connection is back.
 
 ## What This Is
 
 A session is the durable container that holds:
 
-- runtime nodes
-- channels
 - agents
 - runs
 - queue items and interventions
-- repo mounts and workspaces
+- the workspace it is bound to
 - approvals and artifacts
 
 ## What This Is Not
@@ -38,29 +36,29 @@ A session is the durable container that holds:
 
 - Every core runtime and communication record belongs to exactly one session.
 - Session identity remains stable across reconnects, client restarts, and transport changes.
-- A session may host multiple active channels and multiple active runs at the same time.
+- A session runs on the one machine it was started on for its whole life. Nothing moves it, copies it, or sends its work to another machine.
+- A session may host multiple active runs at the same time.
 - A session may outlive the presence of any currently connected client.
-- Opening a live session from another of the user's devices must attach to the existing session; it must not clone or fork the session by default.
+- Opening a live session from another of the user's devices opens the existing session on the machine that holds it; it never clones or forks the session.
 - `local-only` continuity must not create a second session identity or a separate session type.
 
 ## Relationships To Adjacent Concepts
 
 - [User And Device Model](./user-and-device-model.md) describes who owns the session and which devices drive it.
-- `RuntimeNode` describes what execution authority is attached to the session.
-- `Channel` describes where communication occurs inside the session.
+- `RuntimeNode` is the machine that runs the session. A session has exactly one, fixed when the session starts.
 - `Agent` and `Run` describe who executes work and which execution episode is in progress.
-- `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing surfaces used by runs inside the session.
-- `local-only` describes a continuity constraint on session use; it does not replace the control-plane-connected session as the root model.
+- `RepoMount`, `Workspace`, and `Worktree` describe the code-bearing execution contexts used by runs inside the session.
+- `local-only` describes a connectivity state of the one session; it is not a second root model and not a second kind of session.
 
 ## State Model
 
 | State | Meaning |
 | --- | --- |
-| `provisioning` | The session exists but its initial storage or control-plane metadata is not yet ready. |
+| `provisioning` | The session exists but its initial storage on the machine that runs it is not yet ready. |
 | `active` | The session is usable for communication and execution. |
 | `archived` | The session is retained for history and replay but no longer accepts normal active work. |
 | `closed` | The session has been intentionally terminated and is not resumable without explicit restoration. |
-| `purge_requested` | A user or admin has requested data purge. The session is locked against further modification while purge processing is pending. |
+| `purge_requested` | The person has pressed `Delete old data` and the session is among those it removes. The session is locked against further modification while purge processing is pending. |
 | `purged` | Event payloads containing PII have been destroyed via crypto-shredding. Audit stubs (timestamps, event types, non-PII metadata) are retained. Purge is irreversible. |
 
 Allowed transitions:
@@ -74,34 +72,33 @@ Allowed transitions:
 - `archived -> purge_requested`
 - `purge_requested -> purged`
 
-## Local-Only Reconciliation
+## Session Identity And Local-Only Continuity
 
-Sessions started in `local-only` continuity are domain-identical to control-plane-connected sessions — only connectivity is partial. Reconciliation to the control plane MUST preserve session identity and history:
+Every session is created and held by the daemon of the machine that runs it; the control plane keeps no session record. `local-only` continuity is therefore a connectivity state of that same session, not a mode it has to leave or reconcile:
 
-1. **Session IDs are daemon-assigned UUID v7** per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Standards Track, May 2024). UUID v7 is lexicographically sortable by creation timestamp, so sessions remain orderable even when reconciliation is delayed by minutes, hours, or days. Postgres 18 exposes native `uuidv7()` and `uuid_extract_timestamp()` that reverse-validate any daemon-generated ID.
-2. **The daemon generates the session ID for daemon-originated sessions.** Such sessions are fully functional with zero control-plane contact; the ID is preserved unchanged across later reconciliation. The `sessions` schema's `gen_random_uuid()` default exists only for rare control-plane-originated rows (e.g., admin-provisioned sessions that have no daemon origin); it is not the normal production path.
-3. **First reconciliation executes the `provisioning -> active` transition** once the shared-Postgres row is written. The daemon presents the session ID and the control plane performs an idempotent upsert: `INSERT INTO sessions (id, ...) VALUES (...) ON CONFLICT (id) DO UPDATE SET updated_at = sessions.updated_at RETURNING *`. The `DO UPDATE` clause (not `DO NOTHING`) guarantees `RETURNING *` yields a row on every attempt so the daemon detects retries after a crash without silent data loss.
-4. **Owner identity is bound at the first authenticated RPC.** Until then, the session is attributable to the daemon machine but not to a global account identity. The first PASETO v4 token received on any session RPC (token format and issuance flows defined in [ADR-010](../decisions/010-paseto-webauthn-mls-auth.md)) seeds `sessions.owner_user_id` on the control plane in a trust-on-first-use binding; subsequent tokens MUST match the bound owner. On the daemon the same fact is derived rather than stored — the owner is the actor on the session's first event ([User And Device Model §Session Ownership](./user-and-device-model.md#session-ownership)). The TOFU-seeding rule itself is established by this invariant — ADR-010 is cited for the underlying token material, not for the seeding rule.
-5. **Reconciliation is never destructive.** A reconnecting daemon never re-assigns a session ID. Unknown IDs cause shared-row creation; known IDs resolve to the existing row via the upsert no-op.
+1. **Session IDs are daemon-assigned UUID v7** per [RFC 9562](https://www.rfc-editor.org/rfc/rfc9562.html) (Standards Track, May 2024). UUID v7 is lexicographically sortable by creation timestamp, so sessions stay orderable by when they were created.
+2. **The daemon generates every session ID.** A session is fully functional with no control-plane contact, and its ID never changes.
+3. **`provisioning -> active` happens on the machine.** It runs once the session's initial storage on its machine is ready, and never waits on the control plane.
+4. **The owner is derived, not stored.** The owner is the actor on the session's first event ([User And Device Model §Session Ownership](./user-and-device-model.md#session-ownership)); one account owns the machine, so the owner is that account's user.
+5. **Reaching the session from another device changes nothing about it.** While the machine has no relay connection the session is in `local-only` continuity; once the connection is up, the user's other devices open the same session on its machine. Nothing is promoted, copied or re-created.
 
 State-machine precedent for the `provisioning -> active` split: Kubernetes Pod (`Pending -> Running`) and Amazon ECS (`PROVISIONING -> PENDING -> ACTIVATING -> RUNNING`) both treat creation-time resource allocation as a distinct pre-ready phase from steady-state operation.
 
 ## Example Flows
 
-- Example: A user creates a new session around a repository, attaches a runtime node, and starts an implementation run. All later messages, approvals, diffs, and artifacts remain inside that same session.
-- Example: A device reconnects after a transport failure. The session remains `active`, and the device reattaches to the existing session instead of creating a second one.
-- Example: A user starts work while the control plane is unreachable. The session remains the same domain object in `local-only` continuity and may later reconnect to control-plane coordination if product rules allow it.
+- Example: A user creates a new session around a repository on one of their machines and starts an implementation run. All later messages, approvals, diffs, and artifacts remain inside that same session, on that machine.
+- Example: A device reconnects after a transport failure. The session remains `active`, and the device reopens the existing session instead of creating a second one.
+- Example: A user starts work while their machine has no relay connection. The session is the same domain object in `local-only` continuity, fully usable on that machine, and the user's other devices open it once the connection is back.
 
 ## Edge Cases
 
-- A session can be `active` even when it has no runtime nodes attached yet.
 - A session can have no repository mounts and still be valid for planning, discussion, or review-only activity.
 - A session may be archived with unresolved historical approvals or failed runs; archival does not rewrite history.
 - A session may temporarily remain usable only in `local-only` continuity during control-plane outage; that does not imply a different lifecycle model.
 
 ## Related Domain Docs
 
-- [Trust And Identity](./trust-and-identity.md) — session-end is the trigger for ephemeral X25519 zeroization (per [security-architecture.md §V1 Relay Encryption](../architecture/security-architecture.md#v1-relay-encryption-pairwise-x25519--xchacha20-poly1305)) and for the rotate-on-shred path of the daemon master key when user crypto-shred fires. Session lifecycle and trust-state lifecycle interact at this boundary.
+- [Trust And Identity](./trust-and-identity.md) — the session lifecycle meets the trust lifecycle at the session's own content key, which is wrapped under the machine's master key; a purge overwrites that key with zeros and deletes it before the session's rows, with a `TRUNCATE` checkpoint after commit. No session event rotates the master key: it rotates only through `sidekicks rotate-keys`. The encryption between a device and a machine is not a session's: one Noise channel joins a device and a machine and carries every session on that machine, with a fresh handshake on every connection and every 10 minutes on a long one and the old keys erased ([security-architecture.md §Relay Authentication And Encryption](../architecture/security-architecture.md#relay-authentication-and-encryption)). A channel's keys belong to a connection, not a session, so no key is tied to a session's end.
 
 ## Related Specs
 

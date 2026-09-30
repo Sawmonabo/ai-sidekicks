@@ -7,7 +7,7 @@
 | **Slug** | `skills` |
 | **Date** | `2026-09-21` |
 | **Author(s)** | `Sawmon Abo` |
-| **Depends On** | [Spec-004](004-provider-driver-contract-and-capabilities.md), [Spec-021](021-desktop-shell-and-renderer.md), [Spec-027](027-agent-definitions-and-peer-invocation.md); [ADR-031](../decisions/031-five-rail-destinations.md), [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) |
+| **Depends On** | [Spec-004](004-provider-driver-contract-and-capabilities.md), [Spec-021](021-desktop-app-and-renderer.md), [Spec-027](027-agent-definitions-and-peer-invocation.md); [ADR-031](../decisions/031-five-rail-destinations.md) |
 | **Implementation Plan** | [Plan-030](../plans/030-skills.md) |
 
 ## Purpose
@@ -22,28 +22,29 @@ The consequence this spec is built on: **a skill authored once can be made avail
 
 ## Scope
 
-- **What a skill is, and where it lives.** A skill is a folder on disk. It lives in one of three origins, each of which exists both globally under the home folder and per project inside the repository:
+- **What a skill is, and where it lives.** A skill is a folder on disk. It lives in one of four origins. The first three each exist both globally under the home folder and per project inside the repository:
   - **the console's own** — `~/.ai-sidekicks/skills/<name>/` and `<project>/.ai-sidekicks/skills/<name>/`;
   - **Claude Code's own** — `~/.claude/skills/` and `<project>/.claude/skills/`;
   - **Codex's own** — `$HOME/.agents/skills/` (its current user location), `~/.codex/skills/` (the older one it still reads), `<project>/.codex/skills/`, and the project's `.agents/skills/`, which Codex also reads as a skill root. A folder found there carries the Codex origin and shows that root in its path.
+  - **a plugin's** — a skill a plugin installed, read from the daemon's own plugin home for that plugin's provider, and read-only here; plugins are found, installed and removed in `Browse plugins` ([Spec-027 §Browse plugins](027-agent-definitions-and-peer-invocation.md#browse-plugins)).
 
   Project folders travel with the repository. The daemon watches all of them.
 
-- **One list across the three origins.** Every skill folder appears once, with the origin and scope it was found at, its folder path, how many files it holds, where it is available and what a person types to call it.
+- **One list across the origins.** Every skill folder appears once, with the origin and scope it was found at, its folder path, how many files it holds, where it is available and what a person types to call it, and whether its provider switches it off or it fails to load.
 - **The folder is the unit.** The editor authors the folder, not one file: a Files list with the entry file first and every supporting file after it, with adding, renaming and deleting a file, and each file opening in the same editor. Availability, widening and the scan apply to the folder as a whole.
-- **Availability across providers.** A setting per folder with a default derived from origin, a one-click widening whose scan reports and never refuses, and three controls that are held because the underlying change is not the console's to make.
+- **Availability across providers.** A setting per folder with a default derived from origin, a one-click widening whose scan reports and never refuses, and controls that are held because the underlying change is not the console's to make or would leave the skill nowhere.
 - **Authoring and editing.** A new skill is written under the console's own tree, global or project as chosen. A skill found in a provider's own tree is edited where it already is.
 
 ## Non-Goals
 
-- **No marketplace and no gallery.** Nothing discovers, browses, downloads or publishes skills authored elsewhere.
-- **No writing into a provider's own tree from the New skill form.** A new folder is created under the console's own tree only; a provider's existing folder is edited in place and is never created by the console.
+- **No gallery of the console's own.** Skills made elsewhere arrive as plugins from each provider's own catalogs, installed in `Browse plugins` ([Spec-027 §Browse plugins](027-agent-definitions-and-peer-invocation.md#browse-plugins)), and a plugin's skills are listed read-only beside the rest. Nothing here publishes a skill.
+- **No writing into a provider's own tree from the New skill form.** A new folder is created under the console's own tree only; a provider's existing folder is edited in place and is never created by the console. The console adds no field of its own to a file a provider owns.
 - **No Commands view.** Claude Code folded its custom commands into its skills registry, and Codex has no custom commands at all, so a Commands view would show one provider's items and draw a split neither provider has.
 - **No copying into a provider's tree to make a bare terminal see skills.** Nothing is written into `.claude` or `.codex` so that a plain `claude` or `codex` invocation outside the console would find a skill authored here. Providers receive skills through the pack the daemon hands them at launch.
 - **No tool-server configuration.** A tool server is machine configuration and is managed on its Settings page, not here.
-- **No second registry.** The session composer's `/` and `$` list and this screen read the same skills; one is not a copy of the other.
+- **No second registry.** The session composer's `/` and `$` list and this screen read the same skills; one is not a copy of the other. The daemon's skill list is the one inventory and the one answer to where a skill is available; a provider's own skill list is evidence of what that provider loaded or failed to load, never a second registry. The daemon parses every `SKILL.md` itself rather than trusting what a provider chose to load.
 - **Nothing about driving a session from a linked device.** This is a console surface over a registry the daemon watches on the machine the skills live on.
-- **An agent definition does not become a folder.** A definition stays one file ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)); an agent that needs reference material attaches a skill, and the skill carries the folder.
+- **An agent definition does not become a folder, and nothing attaches a skill to one.** A definition stays one file ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)); reference material lives in a skill, and the skill carries the folder. Every skill available on the provider an agent runs on reaches that agent in the pack the daemon builds at launch, so there is no per-definition list of skills.
 
 ## Domain Dependencies
 
@@ -53,16 +54,14 @@ The consequence this spec is built on: **a skill authored once can be made avail
 ## Architectural Dependencies
 
 - [ADR-031](../decisions/031-five-rail-destinations.md) — the five rail destinations and their order; Skills is the third, and this spec is its owner.
-- [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) — code is coloured once in the daemon and every surface paints the spans it is handed, which is how a script file's body is drawn in this editor.
-- [Spec-021](021-desktop-shell-and-renderer.md) — the console shell this destination mounts inside: the icon rail and the surface set, the console's library set, and the test tiers a console change is proven by.
+- [Spec-021](021-desktop-app-and-renderer.md) — the app layout this destination mounts inside: the icon rail and the surface set, the console's library set, and the test tiers a console change is proven by.
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live read of a provider's own enumeration of commands and skills, per binding. That read is the provider's answer about what it has loaded; this spec's list is the registry on disk that the daemon watches and packs. The two are different questions and neither is derived from the other.
-- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination, and the one-file definition a skill is attached to rather than folded into.
+- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination; the one-file definition every available skill reaches through the pack rather than being folded into; the file watch, the record kept beside a provider's file and the session pack, which this destination reuses rather than duplicates; and `Browse plugins`, where a plugin that carries skills is installed.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) and [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — the two providers' skill surfaces as measured, including the scope and enabled axes Codex declares and Claude Code does not.
 
 ## Preconditions
 
 - The specs and decision records under `Depends On` say what this one assumes.
-- Blocking open questions are resolved or explicitly deferred.
 
 ## Required Behavior
 
@@ -74,28 +73,30 @@ The consequence this spec is built on: **a skill authored once can be made avail
 - Four addresses, and no more: `#/skills` (the list), `#/skills/new` (the new-skill form), `#/skills/<name>` (a folder, opened at its entry file) and `#/skills/<name>/<file path>` (that folder with one other file open). The entry file has **no address of its own** — the folder's address means the folder opened at its entry file — so there is exactly one address per thing on screen.
 - `new` is the one folder name the destination reserves. A new skill whose typed name would produce the folder name `new` is written to `new-2` instead, so the form's address and a folder's address can never collide.
 
-### The shell
+### The layout
 
 - **Rail.** As above: five destinations, Skills current, the open book.
-- **Header.** The title `Skills`, the count of folders, one search field and `New skill`. No view strip and no tabs. While a folder is open the header carries the skill's name in place of the title, and the count, the search field and `New skill` are put away until the folder is closed.
+- **Header.** The title `Skills`, the count of folders, one search field, `Browse plugins` and `New skill`. No view strip and no tabs. `Browse plugins` opens `#/sidekicks/plugins`. While a folder is open the header carries the skill's name in place of the title, and the count, the search field, `Browse plugins` and `New skill` are put away until the folder is closed.
 - **Body.** The list and the open folder; exactly one is drawn at a time and the other is emptied.
-- **Shared shell.** The collapsed sessions track, the bell with its list and the colour-scheme control are the console's shared shell and this screen carries them unchanged.
+- **Shared layout.** The collapsed sessions track, the bell with its list and the color-scheme control are the console's shared layout and this screen carries them unchanged.
 
 ### The list
 
-- The list opens with a caption — the count, and one line naming the three places a folder lives — then a note saying why availability is a setting rather than a guess, and that the folder is the unit.
+- The list opens with a caption — the count, and one line naming the places a folder lives — then a note saying why availability is a setting rather than a guess, and that the folder is the unit.
 - Below that, one row per skill folder. Each row carries:
   - **a glyph tile** — the skill's icon on a plain tile, that skill's own picture;
   - **the name and the summary** — the folder name in the mono face, and the line an agent reads when it is deciding whether to use the skill;
-  - **the origin mark** — `sidekicks · global`, `claude code · project`, `codex · global` and so on: the origin word with the scope beside it, the same origin words the session composer's skills list uses;
+  - **the origin mark** — `sidekicks · global`, `claude code · project`, `codex · global` and so on: the origin word with the scope beside it, the same origin words the session composer's skills list uses; a plugin's skill reads `plugin · <plugin name>`;
   - **the folder and its size** — the folder path, and how many files the folder holds;
   - **the availability line** — `Available on: Claude Code · Codex`, each provider a control that reads as pressed or not pressed, to assistive technology as well as to the eye, and where held reads as unavailable and carries its reason;
   - **the call form** — one line naming what a person types, per provider the skill reaches;
-  - **the widen warning** — where the scan has something to say, the one line it writes, in place.
+  - **the widen warning** — where the scan has something to say, the one line it writes, in place;
+  - **the provider facts** — `Off in Claude Code` or `Off in Codex` while that provider's own configuration switches the skill off, and `Didn't load · <reason>` while its folder fails to load, each drawn only while it holds, each its own mark, and both drawn when both hold. Both are read from the daemon's own parse of the folder, never from a provider's list alone.
 - Rows order by folder name under `Intl.Collator`.
 - Search matches the folder name, the summary line, the origin words and every file path inside the folder, case-folded substring, never fuzzy. A search matching nothing says so in place of the rows and lists none.
 - Opening a row opens that folder at its entry file.
-- **The list has three read arms besides its populated one**, drawn the way the agent library draws them: an empty registry shows one sentence and a `New skill` control, never a spinner and never a list; a refused read renders the refusal with `Try again` as one faint clickable word at the right end of its line — no box and no icon — and no rows; and a read in flight is a third state, distinct from empty and from refused.
+- **A skill whose folder was renamed or deleted outside the console** leaves the rows for a group of its own after them, `Folder gone`. Its row keeps what the console's record still holds — the icon and where it was available — reads the last path the folder was known at, and carries two acts: `Reattach…`, which opens the platform's folder chooser and attaches the record to the folder picked, and `Discard`, which drops the record after asking in place. The row is never drawn among the live rows and never dropped.
+- **The list has three read arms besides its populated one**, drawn the way the agent library draws them: an empty registry shows one sentence and a `New skill` control, never a spinner and never a list; a refused read renders the refusal with `Try again` as one faint clickable word at the right end of its line — no box and no icon — and no rows; and a read in flight is a third state, distinct from empty and from refused, whose loading note reads `Reading the skills on this machine…` while the count reads `—`.
 - **No row carries a "last used" line.** A skill is read into every session pack it is available to and an agent may follow it without ever calling it by name, so any figure would understate real use.
 
 ### The folder, open
@@ -113,6 +114,8 @@ The open folder holds, in reading order:
 - **The availability control, its call line and its warning**, exactly as the row carries them.
 - **One sentence under the folder.** On a provider's own folder it says that the record the console keeps beside that folder holds two things and nothing else. On a folder of the console's own it says that what is written here goes under the console's own tree, and that each provider is handed it at launch in its pack, so nothing is copied into a provider's tree.
 - **The unsaved-changes question**, and the note saying what a save wrote.
+
+A skill a plugin installed opens the same folder with its fields and files drawn and no control: no `Save`, no `Add file`, no rename and no delete, and no icon, scope or availability control to press. One line stands in their place: `Installed by a plugin. Update or remove it in Browse plugins.`, where `Browse plugins` opens `#/sidekicks/plugins`.
 
 ### Files inside the folder
 
@@ -136,11 +139,12 @@ The open folder holds, in reading order:
 - Tool names in the warning are **words in sentence case**, never their wire spelling.
 - A folder whose files name no other provider's tools widens with **no warning at all**.
 - **Narrowing a skill back takes the setting and the line together** and leaves no state behind, because the line is derived from the setting and is never stored.
-- **Three controls are held, and each says why.**
+- **Two controls are held, and each says why.**
   - **A provider's own skill cannot be switched off its home provider.** That provider loads the folder out of its own tree whatever the console says, so the control keeps reading as pressed, also reads as unavailable, and its reason says that availability there is not the console's to switch off.
   - **The last provider a skill is on cannot be removed.** A skill available nowhere would never reach a session, so the control is held the same way and its reason names the other provider to widen to first.
-  - **A provider whose command is not installed on this machine is held too.** Its control reads as not pressed and as unavailable, and its reason reads `Install the <provider> command to turn this on.`, the words Settings › Providers uses for the same case.
-  - All three are **held rather than hidden**. Each hold is stated on the control and enforced again when the click is handled, so a forced click changes nothing.
+  - Both are **held rather than hidden**. Each hold is stated on the control and enforced again when the click is handled, so a forced click changes nothing.
+- **A plugin's skill is available on the provider the plugin was installed for, and neither control can be pressed**, because the plugin, not the console, decides where the skill goes.
+- **A skill runs only on the providers it is available on.** A skill marked for one provider never runs under the other; widening it is the one way it reaches the other provider.
 
 ### A new skill, and a provider's own folder
 
@@ -154,14 +158,16 @@ The open folder holds, in reading order:
 - Every row and every open folder carries one line naming the form each provider it reaches documents.
 - A skill in a provider's own folder keeps its **bare name** in that provider's own session — `/security-review` on Claude Code, `$refactor-plan` on Codex.
 - Everything the daemon packs arrives **namespaced** — `/sidekicks:review-diff` and `$sidekicks:review-diff` — so a packed skill can never shadow one of the provider's own.
+- A plugin's skill on Claude Code keeps the plugin's own namespace, `/<plugin name>:<skill name>`. On Codex it arrives in the daemon's pack like any packed skill, `$sidekicks:<skill name>`, and where a skill of the console's already packs under that name, the plugin's packs as `$sidekicks:<plugin name>-<skill name>`; the row states whichever form it got.
 - The console **states** the form; the composer **inserts** it, so the sigil is never typed by hand.
 
 ### The scan, and when a saved skill is live
 
 - **Nothing stands between a project's own skill folders and a session.** Both providers read `<project>/.claude/skills`, `<project>/.codex/skills` and the project's `.agents/skills` out of the checkout on their own, so a hold in the console would not stop them loading and would only read as safety. The scan warns and never blocks, on a cloned project as on any other.
 - The scan is a daemon read over every file in the folder, matched against the tool names and call sigils each provider publishes. The console renders what the daemon returns and **stores nothing**.
-- At launch the daemon builds each provider's session pack from every skill available to that provider, and hands it over through that provider's own loading path.
-- **A skill saved mid-session is live on Codex at once**, on the change notice the provider pushes, and **live on Claude Code after the daemon's reload request**, about 100 ms — measured at codex-cli `0.154.0` and Claude Code `2.1.270`.
+- **The daemon parses every `SKILL.md` itself**, because a provider's own report misses cases. Codex's `skills/list` reports a failed skill only in its `errors`, as `{path, message}`, which the daemon matches to its row by path. Codex flags missing or unclosed front matter, invalid YAML, a missing or empty `description` and a name over 64 characters; it loads without error a skill with no name (under its folder's name), a name that differs from its folder, a duplicate name and front matter it repairs (a broken name loads as `[unterminated`), and it never reports a system skill's error. The daemon's own parse is what sets a row's `Didn't load · <reason>`, and Codex's report is evidence beside it.
+- At launch the daemon builds each provider's session pack from every skill available to that provider, and hands it over through that provider's own loading path: on Claude Code in the plugin folder named `sidekicks`, passed with `--plugin-dir`; on Codex as skill folders through its configuration. It is the one session pack the agent definitions also travel in ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)).
+- **A skill saved mid-session is live on Codex at once**, on the `skills/changed` notice the provider pushes, and **live on Claude Code after the daemon's `reload_plugins` request**, about 100 ms — measured at codex-cli `0.154.0` and Claude Code `2.1.270`.
 
 ### Words, keys and sizing
 
@@ -173,6 +179,7 @@ The open folder holds, in reading order:
 ## Default Behavior
 
 - A skill authored in the console's own tree is **available on both providers**. A skill found in a provider's own tree is **available on that provider alone**.
+- A skill a plugin installed is **available on the provider the plugin was installed for**, and the console cannot change it.
 - A new skill's scope is chosen explicitly on the form, and the path line shows the folder that choice produces as the name is typed, so where it lands is read rather than inferred.
 - The `New skill` form opens on **Global**, whether or not a project is attached; `This project` is one press away, held with its reason (`No project is attached`) while none is. The project it names is the one the person came from — the session's project when the destination was opened from a session, otherwise the project of the most recently focused session — shown in the control's own label, with the machine's other known projects one press away in its list.
 - A new skill starts with the **bolt** picked from the twelve, and a skill whose record holds no icon draws the bolt, so every row and every open folder draws one of the twelve.
@@ -189,22 +196,34 @@ The open folder holds, in reading order:
 - **A path that would walk out of the folder.** Leading slashes, `.` and `..` segments are dropped by normalization before the path is judged, so a file cannot land outside the folder it belongs to.
 - **Availability held on the home provider.** The control keeps reading as pressed and also reads as unavailable. Its reason is a tooltip: a small label beside the control that opens on pointer hover and on keyboard focus, closes when either leaves, and is tied to the control so a screen reader reads it with the control. The row itself carries none of those words. A forced click changes nothing, because the hold is enforced when the click is handled too.
 - **Availability held on the last provider.** The same shape and the same tooltip, with the reason naming the provider to widen to first.
-- **Availability held for a provider that is not installed.** The control reads as not pressed and as unavailable, and its tooltip says to install that provider's command.
 - **Leaving with changes.** One question, naming every changed field by its label and every changed file by its own path, with three ways out; saving is the only way out that keeps the changes. A file whose text changed is named by its own path; a file added to the folder or taken out of it is named once, as **Files**. The question is one small card at the top of the screen, over the folder and with no scrim behind it, so the folder it is asking about stays readable.
 - **A file the daemon cannot read.** Listed with its size and no editor, rather than hidden.
+- **A provider's skill folder renamed or deleted outside the console.** The availability and the icon the console's record holds for it are shown as orphaned in the `Folder gone` group, with the last path the folder was known at, until they are reattached to a folder or discarded, as an agent's record is ([Spec-027 §Fallback Behavior](027-agent-definitions-and-peer-invocation.md#fallback-behavior)). Nothing is silently rewritten and nothing is silently dropped. A reattach is accepted only while the record is orphaned.
+- **A skill folder that does not load, or that its provider switches off.** The row stays in the list and says which, `Didn't load · <reason>` or `Off in Codex`; nothing hides the skill.
+- **A change to a plugin's skill.** Nothing on the open folder can change it; the line under it sends the person to `Browse plugins`, where the plugin is updated or removed.
 - **The registry read refuses.** The refusal is rendered with `Try again` at the right end of its line and no rows; nothing is invented and no partial list is drawn.
 
 ## Interfaces And Contracts
 
 Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 
-- **The daemon owns disk.** It watches the three origins at both scopes, reads each folder's front matter, writes a folder, runs the scan the widening control renders, and builds each provider's session pack. **The console never writes a folder itself and never computes a pack**, so there is exactly one writer and exactly one place a pack is decided.
-- **A read of the registry** returns one entry per skill folder: its origin, its scope, its folder path, the name and description read from its front matter, the file list with each file's path and size and whether the daemon could read it, the availability record, and the call form per provider the skill reaches.
-- **A write of a folder** is a whole-folder save: the front-matter fields, each file's body, the files added and the files removed, applied together. A refused write leaves the folder on disk exactly as it was.
-- **A scan** takes a folder and the provider being widened onto and returns the files that named another provider's tools and the tool names as words. It is a read with no durable effect; nothing is stored and nothing is cached across widenings.
-- **The console's own record per folder** holds exactly two fields — availability and icon — keyed to the folder, on every origin.
-- **The session pack** is composed per provider at launch from every skill available to that provider and is handed over through the provider's own loading path, namespaced. It is not a copy into a provider's tree.
-- **The composer reads this registry.** The `/` and `$` list's Skills group is a read of the same entries this screen lists, name for name and line for line — one registry with two readers, never two registries.
+- **The daemon owns disk.** It watches the origins — the file origins at both scopes, and the plugin origin in its own plugin homes — parses each folder's `SKILL.md` itself, writes a folder, runs the scan the widening control renders, and builds each provider's session pack. **The console never writes a folder itself and never computes a pack**, so there is exactly one writer and exactly one place a pack is decided. The watch, the record beside a folder and the pack are the ones the agent definitions use ([Spec-027 §The definition registry](027-agent-definitions-and-peer-invocation.md#the-definition-registry)), extended for skills, never built a second time.
+- **The daemon's operations are nine**, none of them built yet; each is a build gap its plan phase delivers:
+  - `skill.list` — the read of the registry. It returns one entry per skill folder across the origins: its origin (and the plugin's name on a plugin's skill), its scope, its folder path, the name and description read from its front matter, the file list with each file's path and size and whether the daemon could read it, the availability record and the holds on it, the icon, the call form per provider the skill reaches, and the facts `orphaned`, `disabledInProvider` and `loadError` with its reason — each its own field, the same spellings the agent list uses. It is read when a screen opens.
+  - `skill.subscribe` — the whole list again each time a save from any window or the daemon's watch over the origins changes it, so this screen and the composer's Skills group stay current in every open window.
+  - `skill.fileRead` — one file's body, read when that file opens; the list carries paths and sizes only.
+  - `skill.create` — a new folder under the console's own tree, global or project, its name folded and a collision suffixed, available on both providers.
+  - `skill.update` — a whole-folder save: the front-matter fields, each file's body, the files added, renamed and removed, and the icon, applied together, for a folder of the console's own and for a provider's own folder in place. A refused write leaves the folder on disk exactly as it was. A path it cannot take is refused as `skill.path_refused`, naming the path, with the reason `escapes_folder`, `duplicate_path` or `names_entry_file`.
+  - `skill.availabilityUpdate` — sets one provider on or off for a folder, with both holds enforced when the request is handled: a refused change is `skill.availability_held`, with the reason `home_provider` or `last_provider`.
+  - `skill.scan` — takes a folder and the provider being widened onto and returns the files that named another provider's tools and the tool names as words. It is a read with no durable effect; nothing is stored and nothing is cached across widenings.
+  - `skill.recordReattach` — attaches an orphaned record to a folder, taking the token the platform's folder chooser returned, accepted only while the record is orphaned and refused otherwise with `skill.write_refused` (`reason: not_orphaned`).
+  - `skill.recordDiscard` — drops an orphaned record.
+
+  Every operation that writes refuses a plugin's skill with `skill.write_refused` (`reason: plugin_read_only`).
+
+- **The console's own record per folder** holds exactly two fields — availability and icon — keyed to the folder, on every origin but a plugin's. When the folder is renamed or deleted outside the console, the record stays, marked orphaned with the last path the folder was known at.
+- **The session pack** is composed per provider at launch from every skill available to that provider and is handed over through the provider's own loading path, namespaced. It is not a copy into a provider's tree. The session pack and the live refresh are the daemon's own work with the providers; no screen calls them.
+- **The composer reads this registry.** The `/` and `$` list's Skills group is a read of `skill.list`, the same entries this screen lists, name for name and line for line — one registry with two readers, never two registries. A skill not available on the session's provider is drawn grayed beside the rest. Codex's own `skills/list` is read only for what Codex loaded: a skill Codex failed to load stays listed and grayed, with its load error as the reason, matched to its row by its `SKILL.md` path.
 
 ## State And Data Implications
 
@@ -246,7 +265,7 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 
 - [ ] The rail draws five destinations in the order Sessions, Sidekicks, Skills, Workflows, Settings, and on this screen Skills is marked current to assistive technology as well as drawn.
 - [ ] The Skills rail item draws the open book at the rail's own weight, and no robot glyph appears on this screen for a skill.
-- [ ] The header carries the title, the count, one search field and `New skill`, and no view switch or tab set exists anywhere on the screen.
+- [ ] The header carries the title, the count, one search field, `Browse plugins` and `New skill`, and no view switch or tab set exists anywhere on the screen; `Browse plugins` opens `#/sidekicks/plugins`.
 - [ ] Every row shows its origin mark, its folder path, its file count, its availability line and its call form.
 - [ ] Rows order by folder name under `Intl.Collator`.
 - [ ] Search matches the folder name, the summary line, the origin words and every file path inside the folder, case-folded substring; a search matching nothing says so and lists no rows.
@@ -258,7 +277,6 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - [ ] Narrowing a skill back removes the setting and the warning together and leaves no state behind.
 - [ ] The home provider of a folder found in a provider's tree cannot be switched off it: the hold is stated on the control, and a forced click handled by the code changes nothing.
 - [ ] The last provider a skill is on cannot be removed, held the same way, with a reason naming the provider to widen to first.
-- [ ] A provider whose command is not installed is held as not pressed, with the reason `Install the <provider> command to turn this on.`
 - [ ] The `New skill` form opens on Global with the bolt icon picked.
 - [ ] Opening a row opens that folder at its entry file.
 - [ ] The Files list holds the entry file first and every other file after it ordered by whole path, and states how many files the folder holds.
@@ -277,18 +295,17 @@ Described here; the shapes belong to [Plan-030](../plans/030-skills.md).
 - [ ] Every chrome size on the screen is root-relative and every text size and line height is a type-scale token, so the screen at a larger root is the same screen in one proportion; the folder's two columns fold to one under the narrow threshold, asked of the pane rather than the window.
 - [ ] A file the daemon cannot read is listed with its size and no editor rather than omitted.
 - [ ] A folder carries subfolders at any depth: any prefix is accepted, the list orders by whole path, and no depth is capped.
-- [ ] The list draws its in-flight, refused and empty arms, each distinct from the others and from a populated list.
+- [ ] The list draws its in-flight, refused and empty arms, each distinct from the others and from a populated list; in flight the loading note reads `Reading the skills on this machine…` and the count reads `—`.
 - [ ] No row carries a "last used" line.
 - [ ] A skill saved mid-session is live on Codex on its change notice and on Claude Code after the daemon's reload request.
 - [ ] The session composer's skills group and this list show the same skills, name for name and line for line.
-
-## ADR Triggers
-
-- Writing into a provider's own tree from the console — creating a folder there, or adding a field of the console's to a file a provider owns — crosses this spec's boundary and requires a record covering provenance and what happens when the provider rewrites the file.
-- Adding a Commands view, or any second registry beside this one, changes what a single source of truth means here and requires a record.
-- Bridging a skill across providers — making a skill marked for one provider execute under the other — is a change to what a skill is (text a model reads) and requires a record.
-- Distributing or importing skills authored elsewhere — a marketplace, a gallery, a pull from a remote index — introduces third-party content into a session's instructions and requires a record covering trust.
-- Making the widening scan a gate rather than a report inverts this spec's stated posture and requires a record.
+- [ ] The list holds every skill folder across the origins; a plugin's skill is marked `plugin · <plugin name>`, lists its folder under the daemon's plugin home, is available on the plugin's provider with neither control pressable, and opens with no control and the line `Installed by a plugin. Update or remove it in Browse plugins.`
+- [ ] A row draws `Off in Claude Code` or `Off in Codex` while that provider switches the skill off and `Didn't load · <reason>` while its folder fails to load, each only while it holds and both when both hold, from the daemon's own parse.
+- [ ] A skill whose folder was renamed or deleted outside the console is drawn in a `Folder gone` group after the rows with its icon, where it was available and its last path; `Reattach…` attaches the record to a folder picked in the platform's chooser, `Discard` drops it after asking in place, and nothing is dropped silently.
+- [ ] A plugin's skill's call form reads `/<plugin name>:<skill name>` on Claude Code and `$sidekicks:<skill name>` on Codex, or `$sidekicks:<plugin name>-<skill name>` where a skill of the console's already packs under that name.
+- [ ] The daemon serves the skill operations, and a forced availability change or a refused path answers with its typed refusal and changes nothing.
+- [ ] A save in one window, and a folder changed on disk, reach the list and the composer's Skills group in every open window without a re-read.
+- [ ] The composer's Skills group draws a skill not available on the session's provider grayed, and a skill Codex failed to load stays listed and grayed with its load error as the reason.
 
 ## Open Questions
 
@@ -297,12 +314,11 @@ None.
 ## References
 
 - [Spec-004 §The provider command and skill surface](004-provider-driver-contract-and-capabilities.md#the-provider-command-and-skill-surface) — the driver's live per-binding read of a provider's own command-and-skill enumeration, which is the provider's answer about what it loaded, beside this spec's registry of what is on disk.
-- [Spec-021 §The surface set](021-desktop-shell-and-renderer.md#the-surface-set) — the icon rail and the console's surfaces this destination joins.
-- [Spec-021 §Console Test Tiers](021-desktop-shell-and-renderer.md#console-test-tiers) — the tiers a console change is proven by.
-- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination; a definition stays one file and attaches a skill rather than carrying a folder.
+- [Spec-021 §The surface set](021-desktop-app-and-renderer.md#the-surface-set) — the icon rail and the console's surfaces this destination joins.
+- [Spec-021 §Console Test Tiers](021-desktop-app-and-renderer.md#console-test-tiers) — the tiers a console change is proven by.
+- [Spec-027](027-agent-definitions-and-peer-invocation.md) — the agent library beside this destination; a definition stays one file and every available skill reaches it through the pack. [Spec-027 §Browse plugins](027-agent-definitions-and-peer-invocation.md#browse-plugins) is where a plugin carrying skills is installed.
 - [ADR-031](../decisions/031-five-rail-destinations.md) — the five rail destinations, their order, and the rule that sorts a future surface into a destination or a Settings page.
-- [ADR-035](../decisions/035-one-syntax-colourer-in-the-daemon.md) — one colourer in the daemon; the folder editor paints the spans it is handed.
 - [Claude wire reference §`system/init` command and skill enumeration](../reference/provider-wire/claude.md#systeminit-command-and-skill-enumeration--a-live-read-never-a-stored-registry) — Claude Code's own skill enumeration, names only, with no scope and no enabled axis.
-- [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — Codex's skill surface: the grouped-per-directory read, the change notification, the required `description`, and the four-value scope set.
+- [Codex wire reference §`skills/*`](../reference/provider-wire/codex.md#skills--the-skill-surface) — Codex's skill surface: the grouped-per-directory read, the change notification, the required `description`, and the scope set.
 - [Plan-030](../plans/030-skills.md) — the implementation plan for this spec.
 - Provider measurements behind the front-matter and liveness rules above, taken 2026-09-13: Claude Code `2.1.270` reads the front matter it knows and drops unknown keys silently, folds custom commands into the skills registry, and picks up a written skill on a forced reload request in about 100 ms; codex-cli `0.154.0` (source tag `rust-v0.154.0`) parses `name`, `description` and `metadata.short-description`, ignores unknown keys, reads the optional `agents/openai.yaml` metadata file beside the entry file, has no custom slash commands, and pushes a change notification within about two seconds of a skill folder being written, after which the same live thread can invoke it.

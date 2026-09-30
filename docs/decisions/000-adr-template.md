@@ -53,7 +53,7 @@
 
 ### Synthesis — Why It Still Holds [T2]
 
-{Address every point raised in Antithesis directly. Do not hand-wave. If you cannot rebut a point, acknowledge it as an accepted risk and explain why the trade-off is still worth it. If the antithesis changed your decision, document how your thinking evolved.}
+{Address every point raised in Antithesis directly. Do not hand-wave. If you cannot rebut a point, acknowledge it as an accepted risk and explain why the trade-off is still worth it. If the antithesis changed your decision, state the decision it led to, not the path you took to it.}
 
 ---
 
@@ -140,14 +140,6 @@
 
 ## Decision Validation [T2]
 
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [ ] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [ ] Failure modes have detection mechanisms
-- [ ] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
@@ -170,12 +162,3 @@
 ### Related ADRs
 
 - {`ADR-NNN` — how it relates to this decision}
-
-## Decision Log
-
-| Date       | Event             | Notes                          |
-| ---------- | ----------------- | ------------------------------ |
-| YYYY-MM-DD | Proposed          | Initial draft                  |
-|            | Accepted/Rejected | {Rationale if rejected}        |
-|            | Revisited         | {What triggered re-evaluation} |
-|            | Superseded        | {Link to new ADR}              |

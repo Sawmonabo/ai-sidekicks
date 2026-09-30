@@ -9,31 +9,31 @@ Diagnose and contain driver-level provider failures that affect run execution or
 - New runs fail during `starting`
 - Active runs transition to `failed` with `provider failure` detail or visible `recovery-needed` condition
 - Driver capability data is missing or inconsistent
-- Scope and blast radius: one provider driver, one RuntimeNode, or all nodes using the same driver
+- Scope and blast radius: one provider account, one provider on this machine, or every session on one provider
 
 ## Detection
 
-- Read `HealthStatusRead` and `FailureDetailRead` for the affected run or RuntimeNode.
-- Inspect driver capability refresh status and the latest `RuntimeBindingRead` for affected recovery handles.
+- Read the failure category the affected run's state-transition events carry, and run `sidekicks daemon status` on the machine.
+- Read the provider's line on Settings › Providers, which says one of three things: installed and signed in with its version, `Not installed on this machine.`, or `Cannot tell right now.` `Check again` reads it again, and a provider re-reads what it can do when its command path changes, when a provider process starts, and when its model catalog goes stale.
 - Compare canonical failure events with driver logs for startup failure, transport failure, capability refresh failure, resume failure, or an outbound-frame neutralization trip (a `providerFailureDetail` whose leading token is `driver.text_neutralization_failed` — [Spec-004 §Required Behavior](../specs/004-provider-driver-contract-and-capabilities.md#required-behavior)).
 
 ## Preconditions
 
-- Access to the affected RuntimeNode
-- Access to driver logs and runtime binding state
-- Ability to disable new scheduling to the affected driver if needed
+- The `sidekicks` command line on the affected machine
+- Access to the daemon's diagnostic logs on that machine
+- Settings › Providers for that machine, where `Available for new sessions` stops new sessions starting on one provider while another stays on
 
 ## Recovery Steps
 
 1. Identify whether the failure is startup, active-run, capability-refresh, or resume-related.
-2. Stop routing new work to the affected driver until health is understood.
-3. If the failure is recovery-related, issue one bounded `RecoveryActionRequest` for driver health refresh and resume-handle adoption or resume. A neutralization trip is **not** recovery-related: it disposes the run's live provider binding by design, so the provider process is gone and no resume or resume-handle adoption is available. The remedy is a fresh spawn after confirming the provider's command-parsing behavior, and that driver's [Spec-004 §Parity Capability Mechanism Grades](../specs/004-provider-driver-contract-and-capabilities.md#parity-capability-mechanism-grades) row may need re-grading.
-4. If resume is impossible or the bounded recovery action fails, mark affected runs as `failed` with `provider failure` detail and visible `recovery-needed` condition rather than silently recreating sessions.
-5. Re-enable scheduling only after a known-good test run starts, streams events, and reaches a terminal or valid blocking state normally.
+2. Turn off `Available for new sessions` for the affected provider on Settings › Providers until the failure is understood, while another provider stays on.
+3. If the failure is recovery-related, press `Check again` on Settings › Providers to read the provider again, then `Restart` on a session that shows its provider ended; the daemon resumes that session's conversation. When a Codex service dies, the daemon restarts it at once and resumes its conversations; after three deaths within five minutes it leaves the service down, and each of its sessions shows that the provider ended, with `Restart`. A neutralization trip is **not** recovery-related: it disposes the run's live provider binding by design, so the provider process is gone and no resume or resume-handle adoption is available. The remedy is a fresh spawn after confirming the provider's command-parsing behavior, and that driver's [Spec-004 §Parity Capability Mechanism Grades](../specs/004-provider-driver-contract-and-capabilities.md#parity-capability-mechanism-grades) row may need re-grading.
+4. If resume is impossible or the restart fails, mark affected runs as `failed` with `provider failure` detail and visible `recovery-needed` condition rather than silently recreating sessions.
+5. Turn `Available for new sessions` back on only after a known-good test run, sent in a session already on that provider, starts, streams events, and reaches a terminal or valid blocking state normally.
 
 ## Validation
 
-- Driver health returns to expected status
+- Settings › Providers reads the provider as installed and signed in, with its version
 - Capability projection matches supported controls
 - One test run succeeds or blocks cleanly without unexpected driver errors
 - No affected run remains stuck in a non-terminal state without updated failure or recovery detail
@@ -42,17 +42,17 @@ Diagnose and contain driver-level provider failures that affect run execution or
 
 Use when one registered provider account's credentials have expired or been revoked while other accounts on the same node stay healthy. Scope and blast radius: **one account and its own credential home**, never the node and never the provider. Each account's credential material lives in its own daemon-managed home, so repairing one account cannot disturb another, and runs bound to the node's other accounts keep running throughout ([Spec-026 §Credential homes and the constructed environment](../specs/026-provider-accounts-and-credential-homes.md#credential-homes-and-the-constructed-environment)).
 
-The daemon refuses rather than substitutes. A run whose bound account is unregistered, whose credential home is missing or husked, or whose authentication probe reports anything other than `authenticated`, is refused **before spawn** with a typed refusal and no provider process is created — there is no fallback to the operator's ambient provider configuration, to the provider's current account, or to another registered account ([Spec-026 §Validation at spawn — fail-closed](../specs/026-provider-accounts-and-credential-homes.md#validation-at-spawn--fail-closed)). The refusal is the intended state, not a fault to route around.
+The daemon refuses rather than substitutes. A run whose bound account is unregistered, whose credential home is missing or husked, or whose authentication probe reports anything other than `authenticated`, is refused **before spawn** with a typed refusal and no provider process is created — there is no fallback to the person's ambient provider configuration, to the provider's current account, or to another registered account ([Spec-026 §Validation at spawn — fail-closed](../specs/026-provider-accounts-and-credential-homes.md#validation-at-spawn--fail-closed)). The refusal is the intended state, not a fault to route around.
 
-Detection: **normally the provider-management page says so before any run does** — the background observation reads each account's own limits on its cadence, and an account whose login has gone reads `Login expired · Sign in again` on its row with the sign-in beside it, which is the front door to this procedure ([Spec-026 §Credential-home health observation](../specs/026-provider-accounts-and-credential-homes.md#credential-home-health-observation)). The other three arrivals are the account's authentication probe reporting other than `authenticated`, a run bound to it refusing before spawn, and a mid-run credential expiry surfacing the `reauth-required` recovery condition. Probe state is per `(driver, account)` — read it for the specific account, because a healthy sibling account says nothing about this one.
+Detection: **normally Settings › Providers says so before any run does** — the background observation reads each account's own limits every five minutes, and an account whose login has gone reads `Login expired · Sign in again` on its row with the sign-in beside it, which is the front door to this procedure ([Spec-026 §Credential-home health observation](../specs/026-provider-accounts-and-credential-homes.md#credential-home-health-observation)). The other three arrivals are the account's authentication probe reporting other than `authenticated`, a run bound to it refusing before spawn, and a mid-run credential expiry surfacing the `reauth-required` recovery condition. Probe state is per `(driver, account)` — read it for the specific account, because a healthy sibling account says nothing about this one.
 
 1. Identify the affected account by its `accountId`, taken from the typed refusal or from the run's `admittedProviderAccountId` admission stamp. Do not act on the provider name alone: a node may hold several accounts per provider and only one may be affected.
 2. Record that account's current `credentialGeneration` before changing anything. It is the evidence the repair actually landed.
 3. Probe every registered account of that provider and establish the blast radius. Only accounts reporting other than `authenticated` are in scope; leave the rest untouched and let their runs continue. If accounts on unrelated homes are failing too, this is not an account-scoped credential failure — treat it as a driver-level failure and return to Recovery Steps above.
-4. Work on the affected node itself. Registration, removal, a change of the provider's current account, and credential-home reset are node-local operator authority; a control-plane-relayed attempt is denied, never queued ([Spec-026 §Authorization Posture](../specs/026-provider-accounts-and-credential-homes.md#authorization-posture)).
+4. Work from Settings › Providers for the affected machine, on that machine or on any linked device. Registration, removal, sign-in, a change of the provider's current account, and credential-home reset are open to the machine's own client and to every linked device, and to no session ([Spec-026 §Authorization Posture](../specs/026-provider-accounts-and-credential-homes.md#authorization-posture)).
 5. Do not remove the account, and do not point it at another account's home. Removal is refused while a run bound to the account is live, and when permitted it forgets the registry row without deleting the home and **without running the provider's own sign-out** — it forgets the account, it does not repair it, and on one leg a sign-out can end the login of the account being left. Pointing two accounts at one home is forbidden on every path including recovery: a shared home is the credential-corruption case per-account isolation exists to prevent ([Spec-026 §Fallback Behavior](../specs/026-provider-accounts-and-credential-homes.md#fallback-behavior)).
-6. Where the account's home is absent, or present but husked (holding no usable credential), issue the registry's credential-home reset for that account through the node-local `providerAccount.*` surface before re-authenticating.
-7. Re-authenticate the provider CLI **into that account's own credential home** — the same home the daemon points the provider child at through its reserved, daemon-set credential-home variable. **Use the node-local brokered sign-in** (`providerAccount.login` on the `providerAccount.*` surface; `sidekicks provider-account login <account>` from the CLI, and the sign-in control on the desktop provider-management page). It spawns the provider's own **unmodified** binary with that account's home already pinned and hands you the provider's verification URL — and, where the provider publishes a device-code arm, a user code you can enter on any other device, which is how a headless node is re-authenticated without moving credential material between hosts. Cancel an attempt you cannot finish with `providerAccount.loginCancel` rather than abandoning it: at least one provider holds exactly one active login slot, and starting a second attempt silently drops the first. Where the provider publishes no device-code arm and the node has no browser, the remaining path is the non-interactive token the provider's own tooling mints — supplied on registration, never echoed, and sealed by the daemon outside the home ([Spec-026 §Non-interactive token registration](../specs/026-provider-accounts-and-credential-homes.md#non-interactive-token-registration)). The credential stays in the home: the daemon brokers the provider's own refresh mechanism, reads nothing the sign-in flow writes, and stores no credential material.
+6. Where the account's home is absent, or present but husked (holding no usable credential), issue the registry's credential-home reset for that account through the machine's `providerAccount.*` surface before re-authenticating.
+7. Re-authenticate the provider CLI **into that account's own credential home** — the same home the daemon points the provider child at through its reserved, daemon-set credential-home variable. **Use the machine's own brokered sign-in** (`providerAccount.login` on the `providerAccount.*` surface, which `Sign in` on the account's row on Settings › Providers calls). It spawns the provider's own **unmodified** binary with that account's home already pinned and hands you the provider's verification URL — and, where the provider publishes a device-code arm, a user code you can enter on any other device, which is how a headless node is re-authenticated without moving credential material between hosts. Cancel an attempt you cannot finish with `providerAccount.loginCancel` rather than abandoning it: at least one provider holds exactly one active login slot, and starting a second attempt silently drops the first. Where the provider publishes no device-code arm and the node has no browser, the remaining path is the non-interactive token the provider's own tooling mints — supplied on registration, never echoed, and sealed by the daemon outside the home ([Spec-026 §Non-interactive token registration](../specs/026-provider-accounts-and-credential-homes.md#non-interactive-token-registration)). The credential stays in the home: the daemon brokers the provider's own refresh mechanism, reads nothing the sign-in flow writes, and stores no credential material.
 8. Re-run that account's authentication probe and wait for `authenticated` before restarting work.
 9. Restart the affected work. A resume re-realizes the same account from the durable spawn-bound record and refuses again while the probe is not `authenticated`; a resume never silently rebinds to whichever account is current now ([Spec-026 §Selection at run start](../specs/026-provider-accounts-and-credential-homes.md#selection-at-run-start)).
 
@@ -67,16 +67,16 @@ Detection: **normally the provider-management page says so before any run does**
 
 ## Provider Usage-Limit Outage
 
-Use when a provider reports that the account's plan allowance is spent. **This is a pacing fact with a reset boundary — not a credential failure and not an operator-reconciliation condition.** The distinction is operational, not taxonomic: re-authenticating repairs nothing here and is actively harmful, because a completed re-authentication bumps the account's `credentialGeneration` and thereby ends the outage's attention epoch, splitting one outage into two attention records. Nor is it `recovery-needed` — that condition means a human must reconcile something, while a spent allowance needs no operator at all. The usage-limit signal is a sibling axis beside the closed `RecoveryCondition` set, never a member of it, so finding no `RecoveryCondition` value on a park is correct rather than missing data ([Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40)).
+Use when a provider reports that the account's plan allowance is spent. **This is a pacing fact with a reset boundary — not a credential failure and not a condition for the person to reconcile.** The distinction is operational, not taxonomic: re-authenticating repairs nothing here and is actively harmful, because a completed re-authentication bumps the account's `credentialGeneration` and thereby ends the outage's attention epoch, splitting one outage into two attention records. Nor is it `recovery-needed` — that condition means a human must reconcile something, while a spent allowance needs nothing from the person at all. The usage-limit signal is a sibling axis beside the `RecoveryCondition` set, never a member of it, so finding no `RecoveryCondition` value on a park is correct rather than missing data ([Spec-015 §Provider-limit pacing and durable resumption (SA-40)](../specs/015-workflow-authoring-and-execution.md#provider-limit-pacing-and-durable-resumption-sa-40)).
 
-Recognition is typed and only typed: the refusal is recognized from the driver's normalized usage-limit signal, which is account-scoped and keyed on `(accountId, credentialGeneration)`. Never classify from provider prose, an error string, a rate-limit window's name, or a model id. Until the driver carrier ships that typed signal (its declaration is owned by [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md)), a spent allowance is seen by the engine as an ordinary failure and travels the ordinary retry-and-fail path — steps 3 and 5 below apply only where the run actually parked.
+Recognition is typed and only typed: the refusal is recognized from the driver's normalized usage-limit signal, which is account-scoped and keyed on `(accountId, credentialGeneration)`, and whose declaration is owned by [Spec-004](../specs/004-provider-driver-contract-and-capabilities.md). Never classify from provider prose, an error string, a rate-limit window's name, or a model id.
 
-1. Confirm the classification before acting: the run parked on the typed usage-limit signal, and the signal names an account. If the run instead failed on message text or exhausted its retries, do not force it into this classification — but note that until the typed carrier ships, an ordinary retry exhaustion is the expected shape of a spent allowance, and the account lever in steps 6 to 8 still applies to it. What applies to neither shape is re-authentication.
+1. Confirm the classification before acting: the run parked on the typed usage-limit signal, and the signal names an account. If the run instead failed on message text or exhausted the provider's own retries, do not force it into this classification; the account lever in steps 6 to 8 still applies to it. What applies to neither shape is re-authentication.
 2. Identify the affected account by the `accountId` on the signal. The limit is scoped to the provider **account** — not to the node, not to the provider, and not to the session — so other accounts of the same provider are unaffected by it.
 3. Read the reset boundary and its provenance from the park. Where the driver stamped the boundary provider-reported, the parked phase carries a durable auto-resume instant and the run resumes itself when the window opens; the schedule is per-phase, so branches parked against different accounts each keep their own boundary. Where the provenance is the driver's default or its estimate, or where no boundary was reported at all, **no schedule is armed** and the park is shown as parked-without-a-schedule rather than as a countdown — a derived boundary is the driver's admission that the number is a guess, and a guess is never displayed as a real reset. An unscheduled park is a normal, fully visible, fully resumable state, not a stuck run.
-4. Do not read the boundary off the quota display. The account-scoped quota snapshot (`usage.rate_limit_update` — `{provider, providerAccountId, credentialGeneration, limitId?, windowMins, usedPercent, resetsAt?}` keyed `(providerAccountId, limitId)`, carrying the account identity and the credential generation it was observed with) is a display surface only: its `resetsAt` carries no provenance stamp and is deliberately not an input to the park, to the schedule, or to admission. It is node-local — refreshed per runtime node and describing this node's view of that account's standing — so it is not a control-plane fact and another operator's node holds its own ([Spec-005 §Usage Telemetry](../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), [Spec-026 §Provider quota is account-scoped](../specs/026-provider-accounts-and-credential-homes.md#provider-quota-is-account-scoped)).
-5. Leave a scheduled park alone unless the work is needed before the boundary. The park spends no attempt and consumes none of the retry budget priced in SLOs and Thresholds below — it sits outside that ladder by design. Firing early costs exactly one refused attempt and re-parks honestly against whatever boundary is then in force.
-6. Where progress is needed before the reset, direct **new** work at another registered account of the same provider: supply the per-run account override at run start, or make another account the provider's **current** one. **Making another account current moves the parked session too**, and that is usually what you want here: every running session on that provider that is not pinned to an account moves with the mark — an idle or parked one at once, a busy one at its next tool call — by the run ending at that boundary and the work continuing in a **new** run on the new account ([Spec-026 §Moving a session to another account](../specs/026-provider-accounts-and-credential-homes.md#moving-a-session-to-another-account)). No live run is ever repointed under itself: the account a run was admitted against is that run's for its whole life, so the spend before the move stays with the old account and the spend after it with the new. A session pinned to a specific account — a saved agent definition or a workflow step set to one — stays where it is pinned and keeps its own boundary ([Spec-026 §Selection at run start](../specs/026-provider-accounts-and-credential-homes.md#selection-at-run-start)).
+4. Do not read the boundary off the quota display. The account-scoped quota snapshot (`usage.rate_limit_update` — `{provider, providerAccountId, credentialGeneration, limitId?, windowMins, usedPercent, resetsAt?}` keyed `(providerAccountId, limitId)`, carrying the account identity and the credential generation it was observed with) is a display surface only: its `resetsAt` carries no provenance stamp and is deliberately not an input to the park, to the schedule, or to admission. It is machine-local — refreshed on each machine and describing that machine's view of the account's standing — so it is not a control-plane fact, and another of the person's machines holds its own ([Spec-005 §Usage Telemetry](../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry), [Spec-026 §Provider quota is account-scoped](../specs/026-provider-accounts-and-credential-homes.md#provider-quota-is-account-scoped)).
+5. Leave a scheduled park alone unless the work is needed before the boundary. The park spends no attempt, and nothing retries it on the person's behalf. Firing early costs exactly one refused attempt and re-parks honestly against whatever boundary is then in force.
+6. Where progress is needed before the reset, make another registered account of the same provider the provider's **current** one, on Settings › Providers or with `/account <name>` in a session's composer. Every running session on that provider that is not pinned to an account moves with the mark, in place, from its next request: the spend up to the provider's acknowledgment of the switch stays with the old account, and the spend after it goes to the new one ([Spec-026 §Moving a session to another account](../specs/026-provider-accounts-and-credential-homes.md#moving-a-session-to-another-account)). A session pinned to a specific account — a saved agent definition or a workflow step set to one — stays where it is pinned and keeps its own boundary ([Spec-026 §Selection at run start](../specs/026-provider-accounts-and-credential-homes.md#selection-at-run-start)).
 7. Expect continued progress, not extra throughput. Until the cross-account concurrency probe establishes concurrency against the pinned provider binaries, runs bound to two accounts of one provider serialize, and that serialization is visible in run state rather than presented as slowness ([Spec-026 §Concurrency Posture](../specs/026-provider-accounts-and-credential-homes.md#concurrency-posture)).
 8. Where no second account exists, register one on the node with its own label, its own credential home, and its own billing mode, then bring it to `authenticated` per [Provider Re-Authentication (Per Account)](#provider-re-authentication-per-account) before binding work to it. Never point the new account at the existing account's home.
 
@@ -84,42 +84,37 @@ Recognition is typed and only typed: the refusal is recognized from the driver's
 
 - The affected runs show a usage-limit park attributed to the correct `accountId` — not a `failed` run, and not a `recovery-needed` condition.
 - Runs bound to the node's other provider accounts, of this provider and of others, continued unaffected.
-- Where the boundary was provider-reported, the parked run resumed itself at the boundary with no operator action; where it was not, the park is visibly unscheduled and no countdown is displayed.
+- Where the boundary was provider-reported, the parked run resumed itself at the boundary with no action from the person; where it was not, the park is visibly unscheduled and no countdown is displayed.
 - The affected account's `credentialGeneration` is unchanged. If it moved, an account that was never broken was re-authenticated, and the outage's single attention record has split.
 - The account's quota snapshot carries that account's identity, and a two-account node attributes each snapshot to the correct account.
-- No run was re-bound to a different account mid-flight, and no two accounts resolve to one credential home.
+- No run changed account except by the provider-wide switch, and no two accounts resolve to one credential home.
 
 ## Escalation
 
-- Escalate when a driver regression affects multiple nodes, resume failures are systemic, or provider transport semantics have changed without a compatible driver update
+- When a driver regression or systemic resume failure persists after these steps, or provider transport semantics have changed without a compatible driver update, report it to the project as a bug with the daemon's logs and the provider's version attached
 
 ## CLI Commands
 
 ```bash
-sidekicks driver status
-sidekicks driver capabilities <driver-name>
-sidekicks run retry <run-id>
-sidekicks driver health <driver-name>
-sidekicks driver logs <driver-name> --tail 50
-sidekicks run inspect <run-id> --failure-detail
+sidekicks daemon status
 ```
+
+A provider is read and checked again on Settings › Providers, and a run is read from its session; the command line has no `driver`, `run` or `provider-account` command.
 
 ## SLOs and Thresholds
 
-| Metric                                    | Target                                            |
-| ----------------------------------------- | ------------------------------------------------- |
-| Provider response timeout                 | 30s                                               |
-| Retry budget                              | 3 attempts with exponential backoff (1s, 5s, 15s) |
-| Provider driver capability probe interval | every 15s                                         |
-| Capability refresh latency                | < 5s                                              |
-| Recovery action timeout                   | 60s                                               |
+| Threshold | Value |
+| --- | --- |
+| Provider response timeout | 30s |
+| Providers' own retries | Claude Code retries a rate limit or an overload ten times over about three minutes; Codex retries a transport error; neither retries a plan limit |
+| Codex service restart | At once; after three deaths within five minutes it stays down until `Restart` |
+| Process starts | At most three per account per five minutes |
+| Capability refresh latency | < 5s |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
-- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
-- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
-- **Severity 3** (warning): Log alert. Review during business hours.
-- **Domain routing**: Provider issues route to **integrations on-call**.
+- The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
+- A provider failure that stays after these steps is reported to the project as a bug, with the daemon's logs and the provider's version attached.
 
 ## Related Architecture Docs
 

@@ -26,7 +26,7 @@ Primary actors:
 
 - provide durable sessions the user can reach from any linked device
 - keep execution local to the user's runtime nodes
-- coordinate device registration, liveness, relay, and notifications through the control plane
+- link devices, register machines and relay their channels through the person's own control plane, and send each notification from the machine, sealed so the control plane cannot read it
 - expose one canonical event model for chat, runs, approvals, interventions, and artifacts
 - support repo-bound coding flows with worktree isolation and attributable diffs
 
@@ -34,19 +34,19 @@ Primary actors:
 
 - `Desktop App` and `CLI` are clients. They render and control; they do not become the system of record.
 - `Local Runtime Daemon` is the execution kernel on each of the user's machines.
-- `Control Plane` owns the device registry, device and node liveness, relay, and notification concerns.
+- `Control Plane` owns the account's statement chain, the device and machine registry, the relay, and the delivery of push notices each machine has already sealed.
 - `Provider Drivers` adapt external AI runtimes into the daemon's normalized run contract.
 - `Git Engine` and workspace services stay inside the local execution boundary because they touch local code and filesystem state.
 
 ## Data Flow
 
 1. The user creates a session from the desktop app or CLI, or opens an existing one from another linked device.
-2. The control plane authenticates the device, resolves the session from its directory, and negotiates relay connectivity to the runtime node the session is bound to.
-3. The user's local runtime daemon attaches runtime nodes, workspaces, and agents to the session.
+2. The control plane authenticates the device and relays its channel to each of the user's machines; the device asks each machine whether it holds the session and opens it on the one that does.
+3. The local runtime daemon on the session's machine provides the session's workspaces and agents.
 4. Runs execute locally through provider drivers and workspace services.
 5. Local runtime events append to the canonical local event log and publish live updates.
-6. Session metadata, device and node liveness, and notification signals flow through the control plane.
-7. Clients read projections from both local runtime and control-plane surfaces to render the session.
+6. Device linking, machine registration, channel frames and sealed push notices flow through the control plane.
+7. Clients read projections from the session's machine, over local IPC on that machine and over the device's channel from anywhere else, to render the session.
 
 ## Client Delivery Path
 
@@ -57,13 +57,13 @@ Primary actors:
 ## Trust Boundaries
 
 - The boundary between client and local daemon separates presentation from execution authority.
-- The boundary between local daemon and control plane separates code execution from device-to-node coordination.
+- The boundary between local daemon and control plane separates code execution from linking, registration and the relay.
 - The boundary between daemon and external providers separates normalized run semantics from provider-native behavior.
 
 ## Failure Modes
 
 - The local daemon is unavailable, preventing execution on that node.
-- The control plane is unavailable, preventing device linking, liveness, or remote access to a running session.
+- The control plane is unavailable, preventing device linking or remote access to a running session.
 - Provider drivers fail or drift from expected capability behavior.
 - Event projection lag causes stale client views until catch-up completes.
 
@@ -73,12 +73,12 @@ Primary actors:
 - [Session Model](../domain/session-model.md)
 - [User And Device Model](../domain/user-and-device-model.md)
 - [Runtime Node Model](../domain/runtime-node-model.md)
-- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+- [Agent And Run Model](../domain/agent-and-run-model.md)
 
 ## Related Specs
 
 - [Session Core](../specs/001-session-core.md)
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Remote Control](../specs/028-remote-control.md)
 
 ## Related ADRs

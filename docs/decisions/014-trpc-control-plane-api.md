@@ -11,7 +11,7 @@
 
 ## Context
 
-The control plane needs request-response APIs, streaming notifications, and a bidirectional channel between the user's devices and the machine running their session. tRPC v11 provides end-to-end TypeScript type safety with zero codegen, covering queries, mutations, and SSE-based subscriptions. However, SSE is unidirectional -- device liveness and a device driving a live session require WebSocket.
+The control plane needs request-response APIs for sign-in, the account's statement chain, device linking and machine registration, and a bidirectional path between each of the user's devices and each of their machines. tRPC v11 provides end-to-end TypeScript type safety with zero codegen, covering queries, mutations, and SSE-based subscriptions. However, SSE is unidirectional, and a device driving a live session on a machine needs a bidirectional, sealed path that the control plane cannot read, which requires WebSocket.
 
 ## Problem Statement
 
@@ -19,18 +19,18 @@ What API layer should the control plane expose given a need for typed request-re
 
 ### Trigger
 
-The control plane was about to gain multiple consumers (CLI, desktop app, browser clients, relay) and needed a single API contract before surface area fragmented into ad-hoc REST and WebSocket shapes. Remote Control (device liveness, and a device driving a session it does not execute) made an SSE-only answer insufficient.
+The control plane serves several consumers (CLI, desktop app, browser clients, relay) and needs a single API contract so its surface does not fragment into ad-hoc REST and WebSocket shapes. Remote Control (a device driving a session it does not execute) makes an SSE-only answer insufficient.
 
 ## Decision
 
-Use tRPC v11 for control plane request-response operations and SSE subscriptions (notifications, run streaming). Use WebSocket with JSON-RPC 2.0 payloads for the bidirectional device channel (device liveness and device-to-node control traffic (relay traffic is outside this JSON-RPC subset: relay negotiation rides tRPC request-response and the relay WSS connection speaks the sealed relay frames [Spec-028](../specs/028-remote-control.md) defines — ciphertext envelopes and broker control frames alike); session-timeline and run-output event streams stay on tRPC SSE per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment).
+Use tRPC v11 for control plane request-response operations and SSE subscriptions. Use one WebSocket (WSS) connection to the relay for each device and each machine as the bidirectional device channel: it carries the sealed Noise channel frames [Spec-028](../specs/028-remote-control.md) defines, one channel per device and machine, and inside each channel the device calls the machine's own JSON-RPC 2.0 methods per [ADR-009](./009-json-rpc-ipc-wire-format.md). Session timelines and run output ride those channels, per [ADR-008](./008-default-transports-and-relay-boundaries.md)'s transport assignment; the control plane carries no session stream.
 
 ## Alternatives Considered
 
 ### Option A: tRPC + WebSocket (JSON-RPC 2.0) (Chosen)
 
 - **What:** tRPC for typed request-response and SSE streaming; WebSocket for the bidirectional device channel.
-- **Steel man:** Full type safety for the majority of API surface. WebSocket handles only the subset that genuinely requires bidirectional communication. JSON-RPC 2.0 on the WebSocket aligns with ADR-009.
+- **Steel man:** Full type safety for the majority of API surface. WebSocket handles only the path that genuinely requires bidirectional communication. JSON-RPC 2.0 inside the device's channel aligns with ADR-009.
 
 ### Option B: Plain REST + WebSocket (Rejected)
 
@@ -45,16 +45,16 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 ### Option D: oRPC (Rejected)
 
 - **What:** oRPC as a lighter tRPC alternative.
-- **Why rejected:** Too immature (approximately 4 months old at time of evaluation). Insufficient production track record and ecosystem support for a foundational API layer.
+- **Why rejected:** Too immature: an insufficient production track record and ecosystem support for a foundational API layer.
 
 ## Assumptions Audit
 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | tRPC v11 end-to-end TypeScript inference works well on Cloudflare Workers with no codegen. | tRPC v11 documents Workers as a supported adapter target; published examples run on Workers without codegen steps. | We would need a REST+OpenAPI layer, losing inference and adding schema maintenance. |
-| 2 | SSE is adequate for one-directional streaming (notifications, run events) in browser and CLI contexts. | SSE is a W3C standard, widely deployed, and supported by modern browsers and HTTP clients. | If intermediaries strip or buffer SSE, we would have to route streaming traffic through WebSocket too. |
-| 3 | A separate WebSocket channel using JSON-RPC 2.0 (per ADR-009) is the right transport for the bidirectional device channel. | ADR-009 commits to JSON-RPC 2.0 for daemon IPC, so reusing the same payload shape avoids a second serialization contract. | If that channel needs a different protocol (e.g., CRDT-native), we would run a third transport on the control plane. |
-| 4 | Non-TypeScript clients are a minority use case and can be served by a narrow REST facade. | First-party clients (CLI, desktop, browser) are all TypeScript; relay and integrations target the typed tRPC and relay surfaces (relay negotiation on tRPC request-response, the relay WSS connection on the sealed relay frames [Spec-028](../specs/028-remote-control.md) defines — not JSON-RPC), so none needs a REST facade. | If enterprise customers demand OpenAPI-first contracts, we would need to publish and maintain a generated REST surface from day one. |
+| 2 | SSE is adequate for the control plane's own one-directional subscriptions in browser and CLI contexts. | SSE is a W3C standard, widely deployed, and supported by modern browsers and HTTP clients. | If intermediaries strip or buffer SSE, we would have to route streaming traffic through WebSocket too. |
+| 3 | A WebSocket to the relay carrying each device's sealed channel, with JSON-RPC 2.0 payloads inside it (per ADR-009), is the right transport for the bidirectional device channel. | ADR-009 commits to JSON-RPC 2.0 for daemon IPC, so reusing the same payload shape inside the channel avoids a second serialization contract. | If that channel needs a different protocol (e.g., CRDT-native), we would run a third transport on the control plane. |
+| 4 | Non-TypeScript clients are a minority use case and can be served by a narrow REST facade. | First-party clients (CLI, desktop, browser, phone) are all TypeScript; the relay carries only the sealed channel frames [Spec-028](../specs/028-remote-control.md) defines, which it never reads, so none needs a REST facade. | If an integration demands an OpenAPI-first contract, we would need to publish and maintain a generated REST surface. |
 
 ## Failure Mode Analysis
 
@@ -62,7 +62,7 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 | --- | --- | --- | --- | --- |
 | tRPC type inference degrades at large router scales (build time, IDE lag) | Med | Med | Build-time metrics, developer experience feedback | Split routers by domain; lazy-load procedure modules |
 | SSE connections drop through corporate proxies or Cloudflare edge intermediaries | Med | Med | Connection drop rate metrics and user support tickets | Fall back to WebSocket streaming for affected clients; provide a transport-preference flag |
-| WebSocket transport drifts from JSON-RPC 2.0 framing used for daemon IPC | Med | Med | Conformance tests that share fixtures with ADR-009 daemon tests | Share the JSON-RPC adapter codebase between daemon and control-plane WebSocket |
+| The methods a device calls over its channel drift from the daemon's local JSON-RPC methods | Med | Med | One suite run against the local transport and the relay arm | Serve both from the daemon's one set of methods |
 | tRPC upstream breaking change forces a v12 migration mid-lifecycle | Low | Med | tRPC release tracker | Pin major versions, follow tRPC migration guides, schedule upgrade windows |
 | A non-TypeScript integration partner cannot consume tRPC | Med | Low | Partner feedback and integration requirements | Publish a narrow REST facade generated from the tRPC router for external consumers |
 
@@ -78,7 +78,7 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 ### Positive
 
 - End-to-end type safety from server to client with zero codegen for the majority of the API
-- SSE covers streaming and notifications without WebSocket connection overhead
+- SSE covers the control plane's own subscriptions without WebSocket connection overhead
 - WebSocket is scoped to the device channel, keeping the connection count minimal
 
 ### Negative (accepted trade-offs)
@@ -88,21 +88,13 @@ Use tRPC v11 for control plane request-response operations and SSE subscriptions
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| End-to-end type safety across CLI/desktop/browser without codegen | 100% of first-party client calls | TypeScript build checks and client CI | `2026-07-01` |
-| Control plane round-trip latency (query/mutation) on Cloudflare Workers | < 150 ms at p95 globally | Control plane metrics | `2026-10-01` |
-| Device liveness and device-to-node control traffic working over WebSocket/JSON-RPC with no fallback | 100% of sessions at desktop launch | Session telemetry | `2026-12-01` |
+| End-to-end type safety across CLI/desktop/browser without codegen | 100% of first-party client calls | TypeScript build checks and client CI | When the first client of the control-plane routers lands |
+| Control plane round-trip latency (query/mutation) on Cloudflare Workers | < 150 ms at p95 globally | Control plane metrics | When the Workers relay is first deployed |
+| Every method the local transport serves is also served over a device's channel through the relay | 100% of daemon methods | One suite run against both transports | When Remote Control's method proxy lands |
 
 ## References
 

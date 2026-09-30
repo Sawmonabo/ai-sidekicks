@@ -71,7 +71,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 | --- | --- | --- | --- | --- |
 | Queue persistence is unavailable | Low | High | Queue creation fails and runtime health degrades | Block new queued work explicitly and expose repair state |
 | Concurrent clients race on the same queue | Med | Med | Duplicate or conflicting intervention outcomes appear | Use daemon-owned receipts and serialized queue mutation |
-| Intervention outcome is hidden from UI | Med | Med | Timeline and run state diverge from operator expectation | Make intervention results canonical events |
+| Intervention outcome is hidden from UI | Med | Med | Timeline and run state diverge from what the person expects | Make intervention results canonical events |
 
 ## Reversibility Assessment
 
@@ -98,20 +98,12 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| Queue state survives daemon restart | 100% of persisted queue items | Recovery test suite | `2026-04-14` |
-| Intervention outcomes are visible in canonical history | 100% of accepted or rejected interventions | Audit log review | `2026-04-14` |
+| Queue state survives daemon restart | 100% of persisted queue items | Recovery test suite | Each run of the recovery test suite |
+| Intervention outcomes are visible in canonical history | 100% of accepted or rejected interventions | Audit log review | At every audit log review |
 
 ## References
 
@@ -127,7 +119,7 @@ Client-side queueing fails the durability and shared-observation requirements ou
 
 - [Queue And Intervention Model](../domain/queue-and-intervention-model.md)
 - [Run State Machine](../domain/run-state-machine.md)
-- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+- [Agent And Run Model](../domain/agent-and-run-model.md)
 
 ### Related Architecture Docs
 

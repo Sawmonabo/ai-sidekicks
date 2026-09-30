@@ -19,17 +19,17 @@ Recover RepoMount records, workspace bindings, and worktrees when execution root
 
 ## Preconditions
 
-- Access to the RuntimeNode that owns the RepoMount
+- Access to the machine that holds the project's folder
 - Ability to inspect and modify local worktree state
 - Authority to retire or recreate affected worktrees
 
 ## Recovery Steps
 
-1. Verify the canonical repo root still exists and is readable by the owning runtime node.
+1. Verify the canonical repo root still exists and is readable by the daemon on the machine that holds it.
 2. Refresh repo and workspace projections before changing filesystem state.
-3. If a worktree is failed or incompatible, retire it and create a new clean worktree instead of mutating the broken one in place.
+3. If a worktree is failed or incompatible, retire it — `Remove` on it under its project on Settings › Runtime, or in the worktree switcher — and create a new clean worktree instead of mutating the broken one in place.
 4. Rebind the workspace to the healthy execution root and refresh branch context.
-5. Regenerate diff artifacts only after the workspace and worktree state is healthy again.
+5. Reopen Review only after the workspace and worktree state is healthy again, so its diff is read from the healthy tree.
 
 ## Validation
 
@@ -39,18 +39,15 @@ Recover RepoMount records, workspace bindings, and worktrees when execution root
 
 ## Escalation
 
-- Escalate when repo root canonicalization is inconsistent, repeated worktree creation fails, or local git state is damaged beyond safe automated recovery
+- When repo root canonicalization is inconsistent, repeated worktree creation fails, or local git state is damaged beyond safe automated recovery, report it to the project as a bug with the daemon's logs attached
 
 ## CLI Commands
 
 ```bash
-sidekicks workspace list --session <id>
-sidekicks worktree list --repo <mount-id>
-sidekicks worktree retire <worktree-id>
-sidekicks workspace reprovision <workspace-id>
-sidekicks workspace health --session <id>
-sidekicks worktree create --repo <mount-id> --branch <name>
+sidekicks daemon status
 ```
+
+The command line has no `workspace` or `worktree` command. A worktree the app made is removed from its project's row on Settings › Runtime or from the worktree switcher, and a project's folder is removed with `Delete` on Settings › Projects.
 
 ## SLOs and Thresholds
 
@@ -61,12 +58,10 @@ sidekicks worktree create --repo <mount-id> --branch <name>
 | Repo health check        | < 3s   |
 | Worktree retire-to-clean | < 15s  |
 
-## On-Call Routing
+## Who Runs It And Where To Report
 
-- **Severity 1** (service down): Page on-call engineer immediately. Escalate to team lead after 15min.
-- **Severity 2** (degraded): Alert on-call via Slack. Investigate within 30min.
-- **Severity 3** (warning): Log alert. Review during business hours.
-- **Domain routing**: Repo and worktree issues route to **platform on-call**.
+- The machine belongs to one person, who runs this procedure on it; there is no paging, no chat alert and no on-call rotation.
+- A repo or worktree that stays unusable after these steps is reported to the project as a bug, with the daemon's logs attached.
 
 ## Related Architecture Docs
 

@@ -13,7 +13,7 @@
 
 ## Context
 
-The session screen's centre is the transcript: the person's messages, the agent's replies, tool calls, commands, approvals and the rows that mark an act. The product has one user ([ADR-001](001-session-is-the-primary-domain-object.md) and the product scope), so there is never a second person to tell apart from the first. The console's design language, Meridian, is specified in [Spec-021 §Meridian, the design language](../specs/021-desktop-shell-and-renderer.md#meridian-the-design-language).
+The session screen's center is the transcript: the person's messages, the agent's replies, tool calls, commands, approvals and the system messages that mark an act. The product has one user ([ADR-001](001-session-is-the-primary-domain-object.md) and the product scope), so there is never a second person to tell apart from the first. The console's design language, Meridian, is specified in [Spec-021 §Meridian, the design language](../specs/021-desktop-app-and-renderer.md#meridian-the-design-language).
 
 ## Problem Statement
 
@@ -21,7 +21,7 @@ How does the transcript show who said what, and how much chrome does each turn c
 
 ### Trigger
 
-Spec-021 described timeline rows as flush-left ledger lines with no bubbles. The locked console design keeps the single flow and removes the identity chrome, but gives the person's own words a bubble. The two must say the same thing before the transcript is built.
+The transcript could be drawn as a uniform list, every row flush left with no bubbles, or as a single flow with no identity chrome in which the person's own words sit in a bubble. [Spec-021 §Meridian, the design language](../specs/021-desktop-app-and-renderer.md#meridian-the-design-language) and the transcript's build need one answer before the transcript is built.
 
 ---
 
@@ -33,8 +33,8 @@ The transcript is **one flow**, and role is carried by asymmetry alone.
 - The person's words sit in a **tinted bubble, right-aligned**, with one asymmetric corner. The bubble has no width cap: it is as wide as its own text needs, out to the full column. A message longer than about twelve of its own lines folds to twelve with a control that names its line count, and opening it never moves the page.
 - There is **no left-and-right alternation**: the agent's turns never move to a side, and nothing else in the flow is aligned by author.
 - An agent turn carries **no avatar, no name label and no eyebrow** naming the speaker.
-- **The one user carries no identity mark anywhere** on the console: no avatar, no initial, no hue, no "You" label on a reply or a pull-request header, no colour bar for who changed a file. The word "you" appears only where it says who acted, such as a command row that reads `Stopped by you` or a session row that reads `Waiting on you`.
-- A row that marks an act names the act in words, such as `Goal set` or `Committed`, never the actor. The only swatches on the screen belong to agents.
+- **The one user carries no identity mark anywhere** on the console: no avatar, no initial, no hue, no "You" label on a reply or a pull-request header, no color bar for who changed a file. The word "you" appears only where it says who acted, such as a command row that reads `Stopped by you` or a session row that reads `Waiting on you`.
+- A system message names the act in words, such as `Goal set` or `Committed`, never the actor. The only swatches on the screen belong to agents.
 
 ### Thesis — Why This Option
 
@@ -45,11 +45,11 @@ The transcript is **one flow**, and role is carried by asymmetry alone.
 
 ### Antithesis — The Strongest Case Against [T2]
 
-A pure ledger, every row flush left with a coloured edge, is more uniform and is what Spec-021 first specified; a bubble is the one element that breaks the ledger and imports the look of a chat application. When several agents work in one session, a reader does need to know which agent wrote a row, and removing name labels seems to make that harder.
+A pure list, every row flush left with a colored edge, is more uniform; a bubble is the one element that breaks the list and imports the look of a chat application. When several agents work in one session, a reader does need to know which agent wrote a row, and removing name labels seems to make that harder.
 
 ### Synthesis — Why It Still Holds [T2]
 
-The ledger reading holds for everything the agent produces, which is nearly all of the screen; the bubble marks the few rows that are the person's own instructions, which are the rows a reader scrolls back to find. That is a job the coloured edge did poorly, because an instruction and a reply looked alike. Several agents are told apart where it matters: a child's work is inside its own dispatch block and child view, headed by that agent's swatch and name, so the lead's flow needs no per-row label.
+A uniform list suits everything the agent produces, which is nearly all of the screen; the bubble marks the few rows that are the person's own instructions, which are the rows a reader scrolls back to find. That is a job the colored edge did poorly, because an instruction and a reply looked alike. Several agents are told apart where it matters: a child's work is inside its own dispatch block and child view, headed by that agent's swatch and name, so the lead's flow needs no per-row label.
 
 ---
 
@@ -59,13 +59,13 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 
 - **What:** As decided above.
 - **Steel man:** The least chrome that still answers "whose words are these?" at a glance.
-- **Weaknesses:** One element departs from the ledger look.
+- **Weaknesses:** One element departs from the uniform list.
 
-### Option B: A pure ledger, every row flush left with an author edge (Rejected)
+### Option B: A pure list, every row flush left with an author edge (Rejected)
 
-- **What:** A thin coloured edge and an author gutter on every row, no bubbles.
+- **What:** A thin colored edge and an author gutter on every row, no bubbles.
 - **Steel man:** Perfectly uniform, reads as a work log.
-- **Why rejected:** The person's instructions are the landmarks of a session, and in a uniform ledger they do not stand out. The author gutter also spends width on a fact that is constant.
+- **Why rejected:** The person's instructions are the landmarks of a session, and in a uniform list they do not stand out. The author gutter also spends width on a fact that is constant.
 
 ### Option C: A chat layout with alternating sides, avatars and names (Rejected)
 
@@ -80,7 +80,7 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | The product has one user per console | The product scope: one user and their agents | With several people in one transcript, an identity mark would be needed |
-| 2 | A tint and a right edge are readable in both themes and both colour schemes | The design's contrast check runs at run time against the theme tokens | The bubble would need a border in the failing theme |
+| 2 | A tint and a right edge are readable in both themes and both color schemes | The design's contrast check runs at run time against the theme tokens | The bubble would need a border in the failing theme |
 | 3 | Child agents are distinguishable without per-row labels | Their work is grouped in dispatch blocks headed by swatch and name | Per-row swatches would return inside the lead's flow |
 
 ---
@@ -91,12 +91,12 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 | --- | --- | --- | --- | --- |
 | A long pasted message dominates the screen | Med | Low | A message over twelve lines | It folds, and opening it holds the page still |
 | A reader cannot tell an agent reply from quoted text | Low | Low | The user says so | Quoted text carries one hairline rule down its left and reads a little quieter, which no agent reply does |
-| A later feature adds a second human to a session | Low | High | A design that needs a name on a person's row | A new record; this one rests on one user |
+| A later feature adds a second human to a session | Low | High | A design that needs a name on a person's row | Identity marks return with it; this design rests on one user |
 
 ## Reversibility Assessment
 
 - **Reversal cost:** Days for the renderer, but every screenshot, test scenario and the design language text change with it.
-- **Blast radius:** The transcript, Review's authorship marks, pull-request headers and the act rows.
+- **Blast radius:** The transcript, Review's authorship marks, pull-request headers and the system messages.
 - **Migration path:** Change the row component and the design-language rule together.
 - **Point of no return:** None technical; the cost is coherence.
 
@@ -109,7 +109,7 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 
 ### Negative (accepted trade-offs)
 
-- The transcript is not a uniform ledger. Accepted because the one exception is the row people look for.
+- The transcript is not a uniform list. Accepted because the one exception is the row people look for.
 
 ### Unknowns
 
@@ -118,14 +118,6 @@ The ledger reading holds for everything the agent produces, which is nearly all 
 ---
 
 ## Decision Validation [T2]
-
-### Pre-Implementation Checklist
-
-- [x] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [x] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
 
 ### Success Criteria
 

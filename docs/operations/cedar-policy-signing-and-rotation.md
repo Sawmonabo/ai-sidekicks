@@ -2,101 +2,100 @@
 
 ## Purpose
 
-Sign, distribute, verify, and rotate the operator-signed artifacts that underpin Cedar approval policy evaluation: the daemon image plus the build-embedded compiled Cedar policy set it carries (V1 — the policy set carries its own detached signature under the daemon's pinned operator signing algorithm (Ed25519 by default, ECDSA P-256 compliance fallback per [ADR-012 §Signing Algorithm](../decisions/012-cedar-approval-policy-engine.md#signing-algorithm)), verified on every daemon start before any `PermissionCheck` is served) and the runtime Cedar policy bundle (V1.1+). Cover the four operational scenarios: signing a new bundle, diagnosing a daemon that refuses to enforce approvals because of signature failure, rotating the operator signing key, and responding to a suspected compromise of the operator signing key.
+Publish, verify, rotate and retire the signed approval-rules bundles the service evaluates with Cedar. One bundle form carries the built-in approval rules and every later one: the set built into the service is the first bundle, a later one arrives on the update feed, and each passes the same verifier — an Ed25519 and an ML-DSA-65 signature both required against the two key pairs pinned in the service build ([ADR-012 §Signing Algorithm](../decisions/012-cedar-approval-policy-engine.md#signing-algorithm)), a required Sigstore keyless record verified offline, and a strictly rising version with no expiry ([ADR-012 §Policy Chain of Custody](../decisions/012-cedar-approval-policy-engine.md#policy-chain-of-custody)). Covers four procedures: publishing a new bundle, reading a refused bundle or a service that will not start, rotating a signing key, and retiring a key early after a suspected compromise.
 
 ## Symptoms
 
-- `RecoveryStatusRead` reports `ApprovalPolicyEngineUnavailable` on one or more daemon nodes.
-- Daemon logs show one of: `policy-bundle-signature-invalid`, `policy-bundle-hash-mismatch`, `policy-bundle-version-rollback`, `policy-bundle-timestamp-expired`, `policy-bundle-algorithm-mismatch`, `policy-bundle-pinned-key-unknown`.
-- Approval requests stall: new `ApprovalRequestCreate` calls return `ApprovalPolicyEngineUnavailable`; in-flight approvals pause.
-- A newly deployed daemon image fails to start and logs `image-signature-verification-failed` against the pinned operator public key.
-- An operator security incident ticket indicates suspected exposure of the operator release signing key.
-- Scope and blast radius:
-  - V1 image-signature failure: one daemon node fails to start; approvals on that node unavailable.
-  - V1 policy-set signature failure (typed log `policy-artifact-signature-invalid`, per [ADR-012](../decisions/012-cedar-approval-policy-engine.md) and Plan-010 D-010-9): the daemon **refuses to start** — fail-closed; approvals on that node unavailable until a correctly signed daemon artifact is redeployed — the compiled set is build-embedded, so restoration replaces the daemon build itself (container-image redeploy in containerized topologies; reinstall/rebuild of the signed desktop daemon where no container image exists, per ADR-012's both-topologies custody rule), never a bundle push.
-  - V1.1 bundle-signature failure: daemon continues running but suspends approval evaluation; existing authorized sessions on that node continue until they require a new approval decision.
-  - Suspected operator-key compromise: fleet-wide; every daemon pinned to the compromised key is in scope.
+- The service records `policy_bundle.rejected {version, reason}`, with `reason` one of `signature`, `key_retired`, `record`, `not_newer`, `malformed` or `cedar`. The service keeps evaluating with the bundle it already runs, so approvals go on under the last verified rules.
+- `sidekicks daemon status` still prints an older `Approval rules: bundle <n> · built <date>` after a newer bundle was published.
+- The service will not start, and `sidekicks daemon status` and Settings › Runtime's service line read `Stopped: its approval rules did not pass their signature check. Reinstall the app to restore them.` No bundle verified, not even the one built into the service.
+- The project's transparency-log watch alerts on an entry under the release workflow's identity that the project did not make.
+- A signing key, or the release workflow's protected environment that holds the keys, is suspected to be exposed.
+- Scope:
+  - A refused candidate changes nothing on the machine that refused it; the machine waits on a verifiable newer bundle.
+  - The start refusal stops one machine's service until the app is reinstalled or updated.
+  - A suspected key compromise concerns every machine whose build pins that key.
 
 ## Detection
 
-- Read `RecoveryStatusRead` and `FailureDetailRead` for the affected node(s) before taking any action.
-- Correlate the specific error code from daemon logs against the failure modes in the Recovery Steps table below.
-- Check operator release infrastructure audit logs for unexpected signing events in the 7 days preceding the report.
-- For suspected compromise: confirm with operator security whether the private key material or the release infrastructure itself is suspected to be exposed. The two cases have different response scope.
+- Run `sidekicks daemon status` on the machine: `Approval rules: bundle <n> · built <date>` names the bundle it runs (`built in` for the first). `sidekicks daemon status --json` carries the same as `approvalRules {version, builtAt, source}`, where `source` is `built_in` or `update`.
+- Read the machine's `policy_bundle.rejected` events for the version refused and the reason, and match the reason against Scenario B's table.
+- Compare the running version with the newest bundle published on the update feed.
+- For a log-watch alert: open the transparency-log entry, read the certificate's workflow identity, the ref and the repository ids, and match them against the release workflow's own runs. An entry no run of the project made is Scenario D.
+- For a suspected compromise: establish whether the key material alone or the release workflow and its protected environment are suspected. The second widens the response (Scenario D, step 2).
 
 ## Preconditions
 
-- Access to the operator release infrastructure (for signing and rotation scenarios).
-- Access to the affected daemon node(s) and permission to restart them.
-- Access to the most recent known-good signed policy bundle (for bundle-verification failure diagnostics).
-- For rotation: scheduled maintenance window coordinated with all daemon operators (hosted + self-hosted) because V1 does not support dual-pinning.
-- For compromise response: incident-response authority to publish an emergency daemon image out of the normal release cadence.
+- The project owner's approval as required reviewer of the release workflow's protected environment, which holds the signing keys as environment secrets readable only by the tag-triggered release workflow.
+- Both pinned pairs, `current` and `next`, present in that environment; each pair is one Ed25519 key and one ML-DSA-65 key.
+- Access to the update feed the service fetches from.
+- For a retirement: the pinned pair other than the one being retired is not suspected.
+- For reading a machine's state: a shell on the machine to run `sidekicks daemon status`.
 
 ## Recovery Steps
 
-### Scenario A — Sign and publish a new policy bundle (V1.1+)
+### Scenario A — Publish a new approval-rules bundle
 
-1. Build the policy bundle tarball: `sidekicks policy bundle build --out policy-bundle-v{N}.cedar.tar.gz` where `{N}` is `last_published_version + 1`.
-2. Inspect the manifest in the built tarball to confirm version, algorithm, and Cedar target version are as expected.
-3. Sign the bundle with the operator release key: `sidekicks policy bundle sign --bundle policy-bundle-v{N}.cedar.tar.gz --key <operator-release-key-ref>`
-4. Verify the signature locally before publishing: `sidekicks policy bundle verify --bundle policy-bundle-v{N}.cedar.tar.gz --sig policy-bundle-v{N}.cedar.tar.gz.sig --pubkey <operator-public-key>`
-5. Publish bundle and signature to the operator distribution endpoint.
-6. Monitor daemon fleet telemetry for bundle pickup and successful verification counts.
+1. Change the YAML policy sources under `packages/runtime-daemon/policies/`, merge the change, and tag the release (`v<major>.<minor>.<patch>`); the release workflow runs on the tag, and only a run on a release tag produces a record the service accepts.
+2. Approve the workflow's use of the protected environment as the required reviewer.
+3. The workflow compiles the policies and builds `approval-rules-<version>.bundle`, with a `version` higher than any published and a current `builtAt`, and the service's Cedar version as `cedarVersion`.
+4. The workflow signs the canonical manifest with the `current` pair's Ed25519 and ML-DSA-65 keys, then signs the bundle keyless through Sigstore, which puts an entry in the transparency log, and writes the Sigstore record beside the bundle.
+5. The workflow runs the service's own verifier over the bundle against the release pins before publishing; a bundle it refuses is not published.
+6. Publish the bundle and its Sigstore record on the update feed.
+7. On a machine, after its next update check, confirm that `sidekicks daemon status` prints `Approval rules: bundle <version> · built <date>`.
 
-(CLI flag names are proposed; concrete surface is finalized in [Plan-010](../plans/010-approvals-permissions-and-trust-boundaries.md).)
+Building and signing are the release workflow's own scripts; there is no `sidekicks` verb for them, because the person never handles a bundle.
 
-### Scenario B — Daemon refuses to start or enforce approvals (policy artifact or bundle verification failed)
+### Scenario B — A bundle was refused, or the service will not start
 
-| Error code | Meaning | Action |
+A refused bundle changes nothing on the machine: it keeps evaluating with the bundle it runs until a verifiable newer one arrives, so the fix is always a newer bundle, never an action on the machine.
+
+| `reason` | Meaning | Action |
 | --- | --- | --- |
-| `policy-artifact-signature-invalid` (V1) | Build-embedded compiled policy set failed startup verification; the daemon refuses to start. | Replace the daemon build itself — container-image redeploy, or reinstall/rebuild of the signed desktop daemon where no image exists (§Symptoms); confirm the release pipeline signed the embedded set with the daemon's pinned algorithm and key before redeploying. |
-| `policy-bundle-signature-invalid` | Signature does not verify against pinned key. | Confirm correct bundle/signature pair; confirm daemon's pinned key matches the key that signed this bundle; if mismatch, daemon was built against a different operator key and needs rebuild/reinstall. |
-| `policy-bundle-hash-mismatch` | Tarball hash does not match manifest hash. | Bundle is truncated or altered; re-fetch from distribution endpoint. |
-| `policy-bundle-version-rollback` | Candidate `N` is not greater than `last_verified_bundle_version`. | Expected when replaying an older bundle; publish `N > last_verified_bundle_version` or, if the daemon's persisted version is itself wrong, escalate. |
-| `policy-bundle-timestamp-expired` | Manifest timestamp is outside the freshness window. | Publish a newer bundle with a current timestamp. |
-| `policy-bundle-algorithm-mismatch` | Bundle signed with an algorithm other than the daemon's pinned algorithm. | Re-sign the bundle with the daemon's expected algorithm or rebuild the daemon with the desired algorithm pinned. |
-| `policy-bundle-pinned-key-unknown` | Daemon has no pinned operator public key. | Daemon image is built incorrectly; rebuild with `OPERATOR_PUBLIC_KEY` build arg set. |
+| `signature` | An Ed25519 or ML-DSA-65 signature is missing or does not verify against the pinned pairs. | Confirm the release workflow signed with the pinned `current` or `next` pair, then publish a newer bundle signed correctly. A dev or test build pins test material and refuses release bundles by design. |
+| `key_retired` | The bundle was signed by a key the machine has recorded as retired. | Sign with the other pair and publish a newer bundle; a retired key never signs again. |
+| `record` | The Sigstore record is missing, has no transparency-log entry, or names a signer outside the pinned issuer, identity pattern or repository and owner ids. | Confirm the bundle came from the project's release workflow on its own repository at a release tag, and republish from such a run. A record naming any other identity is not the project's: go to Scenario D. |
+| `not_newer` | The version is not higher, or `builtAt` is earlier, than the running bundle's. | Expected when an older bundle is replayed. Publish a bundle with a higher version and a current `builtAt`. |
+| `malformed` | The manifest does not parse, or a content hash does not match the bundle's contents. | Rebuild and republish; if the published file is intact, the fetch was damaged and the next update check fetches it again. |
+| `cedar` | The manifest's `cedarVersion` is not the service's, or the policy set does not parse. | Rebuild the bundle for the service's Cedar version, or ship it with the service update that moves the Cedar pin. |
 
-After correcting the underlying cause, restart the daemon and confirm `RecoveryStatusRead` moves out of `ApprovalPolicyEngineUnavailable`.
+**The service will not start.** When no bundle verifies, not even the built-in one, the install is damaged or was built with other pins. Reinstall or update the app from the project's own release, which restores a built-in bundle that verifies; the service then starts on it and fetches the newest bundle at its next update check.
 
-### Scenario C — Rotate the operator signing key (no compromise)
+### Scenario C — Rotate a signing key (no compromise)
 
-V1 does not support dual-pinning. Rotation is a coordinated fleet upgrade.
+Each service build pins two pairs, `current` and `next`, so rotation needs no coordinated upgrade.
 
-1. Generate the new operator signing keypair on the operator release infrastructure.
-2. Update the release build configuration to pin the new public key (`OPERATOR_PUBLIC_KEY` build arg) in the next daemon image.
-3. Build and sign the next daemon build with the new key — both the daemon image (containerized topologies) and the build-embedded compiled policy set's detached signature (all topologies). Verify the embedded set locally against the new public key before publishing: an image pinned to the new key but carrying a policy set still signed by the old key fails startup with `policy-artifact-signature-invalid`.
-4. (V1.1+) Sign one final policy bundle with the old key that is valid for the freshness window; this keeps not-yet-upgraded daemons operational during the rollout.
-5. Publish the new daemon image and announce the rotation to all daemon operators with a target upgrade deadline before the freshness window on the last old-key-signed bundle expires.
-6. Self-hosters rebuild their daemon images with the new operator public key on the same schedule.
-7. After the deadline, verify fleet telemetry shows all daemons running the new-key image. Decommission the old signing key from the release infrastructure.
+1. Generate a new pair — one Ed25519 key and one ML-DSA-65 key — in the protected environment.
+2. Sign the next bundles with the `next` pair; every machine already verifies it.
+3. Ship the following service build pinning the old `next` as its `current` and the new pair as its `next`.
+4. Remove the old `current` pair from the protected environment once no release signs with it. If it must stop verifying on machines that still pin it, retire it with a statement (Scenario D, steps 3 and 4).
 
-### Scenario D — Respond to suspected compromise of the operator signing key
+### Scenario D — Retire a key early (suspected compromise, or a log entry the project did not make)
 
 Treat as a Severity 1 incident.
 
-1. Immediately revoke access to the compromised key on the operator release infrastructure. Preserve audit logs.
-2. Generate a replacement operator signing keypair on a clean release environment.
-3. Build and sign an emergency daemon build pinned to the replacement public key — re-sign the build-embedded compiled policy set under the replacement key and verify it locally, so the compromised key is out of the policy-artifact chain, not just the image signature. Mark the release as emergency in the release notes.
-4. Publish the emergency image out-of-band and notify all daemon operators (hosted + self-hosted) to upgrade immediately.
-5. (V1.1+) Do not publish any further policy bundles signed with the compromised key, even if the freshness window would still accept them.
-6. Acknowledge in the incident record the gap period: daemons that have not yet upgraded will continue to accept artifacts signed by the compromised key until they upgrade. V1 has no online revocation channel to close this gap. Track each non-upgraded daemon until it upgrades.
-7. If the suspected compromise is of the release infrastructure itself (not just the key material), rebuild the release infrastructure from known-good state before generating the replacement keypair.
+1. Remove the suspected key's pair from the protected environment. Preserve the workflow run history, the environment's access record and the transparency-log entries.
+2. If the release workflow or its protected environment is suspected, not only the key material, lock the environment and review its required reviewers and secrets before any further signing.
+3. With the other pinned pair, sign a retirement statement naming the retired key ids, and re-sign the newest bundle with that pair at a version higher than any published.
+4. Publish the retirement statement together with the re-signed bundle on the update feed, never the statement alone, so no machine is left without verifiable rules. Each machine records the retired ids for good, refuses anything they signed, and swaps to the re-signed bundle.
+5. Generate a new pair to become `next`, and ship the service build that pins it.
+
+A copied key alone ships nothing the service accepts: every bundle also needs a Sigstore record that only the project's own release workflow on its own repository can make, and any such attempt shows in the public log the project watches.
 
 ## Validation
 
-- `RecoveryStatusRead` moves out of `ApprovalPolicyEngineUnavailable` on affected nodes.
-- Daemon logs show successful bundle or image signature verification.
-- A test `ApprovalRequestCreate` on the affected node returns a normal approval flow rather than `ApprovalPolicyEngineUnavailable`.
-- For rotation: fleet telemetry shows 100% of active daemons running an image pinned to the new operator public key.
-- For compromise response: the incident record includes the list of daemons that upgraded to the emergency image and the timestamp each one upgraded.
+- `sidekicks daemon status` prints `Approval rules: bundle <version> · built <date>` for the published version, and `--json` reads `approvalRules.source` as `update`.
+- The machine recorded `policy_bundle.loaded {version, builtAt}` for that version and no `policy_bundle.rejected` for it.
+- After a start refusal: the service starts, and the status line names a bundle again.
+- After a rotation: the newest bundle, signed with the pair that was `next`, is the one running.
+- After a retirement: the re-signed bundle is the one running, and the transparency-log watch shows no entry the project did not make.
 
 ## Escalation
 
-- Escalate when image signature verification fails against the pinned key with no explainable cause (suggests the pinned key in the deployed image is not the key the release infrastructure actually signed with — either the wrong image was deployed or the release pipeline is misconfigured).
-- Escalate when bundle verification continues to fail after re-fetching and the hash matches the distribution endpoint.
-- Escalate on any case of suspected compromise of the operator signing key or the release infrastructure that holds it.
-- Escalate when the daemon's persisted `last_verified_bundle_version` is higher than any bundle that has actually been published (possible local SQLite state corruption; cross-reference [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md)).
+- Escalate when both pinned pairs are suspected: no retirement statement can then be signed by an uncompromised pair, and only a service update pinning new pairs recovers. Until it lands, the required Sigstore record still keeps bundles made outside the project's own release workflow from being accepted.
+- Escalate when a transparency-log entry verifies under the project's release identity but no one on the project ran that release: the workflow or its repository is compromised, not only a key.
+- Escalate when the service still refuses to start after a reinstall from the project's own release.
+- Escalate when a machine's stored highest `version` is higher than any bundle the project has published (possible damage to the service's database; see [Local Persistence Repair And Restore](./local-persistence-repair-and-restore.md)).
 
 ## Related Architecture Docs
 

@@ -73,7 +73,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 | --- | --- | --- | --- | --- |
 | Driver abstraction becomes too generic and blocks useful provider features | Med | Med | Feature work repeatedly needs driver bypasses | Add capability extensions and diagnostic side channels without breaking core semantics |
 | Provider-native behavior leaks into session engine anyway | Med | High | Provider-name branches appear in core code and docs | Enforce adapter-only normalization boundary in review |
-| Capability declarations become stale or inaccurate | Med | Med | UI offers unsupported controls or hides valid ones | Refresh capabilities on attach and capability-change events |
+| Capability declarations become stale or inaccurate | Med | Med | UI offers unsupported controls or hides valid ones | Re-read capabilities at daemon start, when a provider's command path changes, on `Check again`, when a provider process starts, and when a model catalog goes stale |
 
 ## Reversibility Assessment
 
@@ -100,20 +100,12 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 
 ## Decision Validation
 
-### Pre-Implementation Checklist
-
-- [ ] All unvalidated assumptions have a validation plan
-- [x] At least one alternative was seriously considered and steel-manned
-- [ ] Antithesis was reviewed by someone other than the author
-- [x] Failure modes have detection mechanisms
-- [x] Point of no return is identified and communicated to the team
-
 ### Success Criteria
 
 | Metric | Target | Measurement Method | Check Date |
 | --- | --- | --- | --- |
-| New providers integrate without changing session or run semantics | 100% of supported providers | Driver integration review | `2026-04-14` |
-| Unsupported controls are hidden or degraded correctly | 100% of capability-checked controls | Spec and UI test coverage | `2026-04-14` |
+| New providers integrate without changing session or run semantics | 100% of supported providers | Driver integration review | When each provider driver is integrated |
+| Unsupported controls are hidden or degraded correctly | 100% of capability-checked controls | Spec and UI test coverage | Each run of the spec and UI tests |
 
 ## References
 
@@ -128,7 +120,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 ### Related Domain Docs
 
 - [Runtime Node Model](../domain/runtime-node-model.md)
-- [Agent Channel And Run Model](../domain/agent-channel-and-run-model.md)
+- [Agent And Run Model](../domain/agent-and-run-model.md)
 
 ### Related Architecture Docs
 
@@ -139,7 +131,7 @@ Leaky abstraction is a manageable risk if the driver contract is intentionally s
 ### Related Specs
 
 - [Provider Driver Contract And Capabilities](../specs/004-provider-driver-contract-and-capabilities.md)
-- [Runtime Node Attach](../specs/002-runtime-node-attach.md)
+- [Machine Registration](../specs/002-runtime-node-attach.md)
 - [Observability And Failure Recovery](../specs/018-observability-and-failure-recovery.md)
 
 ### Related ADRs

@@ -12,11 +12,11 @@
 
 ## Purpose
 
-Define the operator- and user-facing contract for detecting failures, diagnosing them, and recovering from degraded runtime conditions.
+Define the contract by which the person detects failures, diagnoses them, and recovers from degraded runtime conditions.
 
 ## Scope
 
-This spec covers failure categories, health signals, stuck-run detection, replay-health visibility, and degraded-mode behavior.
+This spec covers failure categories, the daemon's health signals and where each is read, the product's retry rules, an app and its service on different versions, and degraded-mode behavior.
 
 ## Non-Goals
 
@@ -40,81 +40,74 @@ This spec covers failure categories, health signals, stuck-run detection, replay
 
 ## Required Behavior
 
-- The system must expose health and failure signals for local daemon, provider drivers, replay state, queue state, control-plane connectivity, and run latency and run duration distributions.
-- The system must detect and surface `stuck-suspected` runs, projection lag, failed recovery attempts, and provider-session recovery failures.
-- Operators and users must be able to distinguish:
+- The daemon must keep health and failure signals for itself, provider drivers, replay state, queue state, control-plane connectivity, and run latency and run duration distributions, and it gives them out in three places, none of them a console read: its diagnostic logs, its loopback `/metrics` endpoint, and `sidekicks daemon status`. No `health.*` read serves the console. Settings › Runtime shows the service's status as its supervisor reports it, and reads the service's processor and memory when the page opens and again on `Check again`, each reading stamped with its time, never on a timer.
+- A failed recovery is never silent. A provider-session recovery that fails leaves the session showing that the provider ended, with `Restart`; a projection rebuild that fails puts the daemon in the degraded read-only mode of §Fallback Behavior.
+- The person must be able to distinguish:
   - transport failure
   - provider failure
   - local persistence failure
   - projection failure
   - policy or approval blockage
-- Operators and users must be able to distinguish canonical `RunState` from derived health signals, failure categories, and recovery conditions.
+- The person must be able to distinguish canonical `RunState` from derived health signals, failure categories, and recovery conditions.
 - Degraded modes must be explicit and must preserve as much read visibility as possible.
-- Non-canonical observability payloads such as driver raw events, raw command output, high-volume tool traces, and policy-permitted detailed reasoning payloads must use explicit bounded retention separate from canonical event and failure-detail retention.
+- Non-canonical observability payloads such as driver raw events, raw command output, high-volume tool traces and the workflow engine's event record must use explicit bounded retention separate from canonical event and failure-detail retention.
 - Losing the connection to the local daemon must be one explicit reading in one place — never a banner, a toast, a modal, or a badge. In the console that place is the session's working line: it turns amber, reads `Connection lost` where the action words stand, says `Reconnecting…` while the connection is still being retried and `Not connected.` once retrying has stopped, keeps the elapsed clock of a turn that was under way and omits it on an idle session, and carries a `Retry` at its right that asks for the connection again and says so while it tries. Nothing is said while the connection is healthy — no green line, no `Connected` word — and the reading raises no notification and no second mark anywhere ([Spec-017 §Required Behavior](017-notifications-and-attention-model.md#required-behavior)). It arms only once the daemon has answered at least once since the client started, so a client started into an outage reports a daemon that would not start rather than a connection that was lost.
-- A connection gap must not empty what was already read. No session row dims, greys, moves, or leaves its list; no pane closes; no control is disabled; a draft keeps its text; a surface holding last-read facts keeps them until the daemon has re-read them rather than drawing its own empty state; and a list that could not be refreshed says only that it could not be refreshed. When the connection returns, the reading goes back to what it showed before, or away if nothing was running.
+- A connection gap must not empty what was already read. No session row dims, grays, moves, or leaves its list; no pane closes; no control is disabled; a draft keeps its text; a surface holding last-read facts keeps them until the daemon has re-read them rather than drawing its own empty state; and a list that could not be refreshed says only that it could not be refreshed. When the connection returns, the reading goes back to what it showed before, or away if nothing was running.
 - A provider process that ends on its own under a running session is a provider failure the product states rather than absorbs. The statement names the provider and carries the exit code or signal the daemon observed — never one the product composed — with the last output the process produced before it went, so a person can tell whether restarting will help, and it offers a restart that puts the provider back on the same session. The turn that was running ends where it was and leaves one record in the session's timeline: live calls stop at the figure they reached, the approval the process held dies, the command it was waiting on ends, and the agents it had dispatched end with it — each reading as having ended with the process rather than as having been stopped by a person. It is never silent, never attributed to a person, and never reported as an interruption.
+- A provider process the daemon slept is not a failure, and nothing on screen reports it. An idle Claude Code session is slept once it has been idle for 30 minutes and holds nothing the stop would end — no turn running, no message queued, no approval or question open, no background task, no pending wake-up or session-only scheduled job, no side question and no voice call. The next message to it wakes it through Claude Code's own resume on the same conversation, account, folder, settings and permission level, with nothing on screen: no banner, no row. Codex is never slept, and no process is stopped for memory pressure.
+- The app and the service accept being one version apart: each app accepts the service version before its own. Outside that range the console is read-only, and the session's working line names in words the side that is behind — the background service or the app — with a press that opens its fix: the service update on Settings › Runtime, or the app update on Settings › General. There is no separate banner for it.
+- The product's retry policy is the providers' own retries plus three bounded rules of the daemon's, and nothing else:
+  - Claude Code retries a rate limit or an overload itself: ten tries over about three minutes, shown as `Retrying…` on the working line, and when they give out the turn ends with `<Provider> did not answer · Try again`. Codex retries a transport error itself, shown the same way. A plan limit is not retried on either provider.
+  - The daemon retries a failed read for a pane — a diff, a file's lines, a directory listing — once, after 100 ms, before anything reaches the screen.
+  - The daemon restarts a Codex service that died at once and resumes its conversations. A Codex service that dies three times within five minutes is left down, and each of its sessions shows that the provider ended, with `Restart`; process starts stay at three per account per five minutes.
+  - Nothing retries a turn on the person's behalf: `Try again` and `Restart` are the person's own acts.
+
+  A driver marks a failure non-retryable and never defines a retry budget of its own.
 
 ## Default Behavior
 
-- Local runtime health defaults to visible status categories `healthy`, `degraded`, and `blocked`.
-- A run is considered `stuck-suspected` after 60 seconds without new progress events, and auto-escalates to a health signal after 5 minutes.
-- Replay health defaults to visible status when the daemon is rebuilding projections or recovering bindings after restart.
-- Canonical health and failure-detail projections remain durable even after bounded raw diagnostic payloads are compacted or removed.
+- A run's failure detail, carried on its run event, remains durable after bounded raw diagnostic payloads are compacted or removed.
 
 ## Fallback Behavior
 
-- If remote telemetry export is unavailable, local logs, traces, and canonical event replay remain sufficient for diagnosis.
 - If projection rebuild fails, the system enters degraded read-only mode instead of accepting unsafe new mutable work.
 - If provider recovery fails, the affected run remains visible in canonical state `failed` with `provider failure` detail and `recovery-needed` condition rather than disappearing.
-- If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events, health projections, failure detail, and any retained summaries rather than failing closed.
+- If bounded diagnostic payload retention has expired, diagnosis must fall back to canonical events, the run event's failure detail, and any retained summaries rather than failing closed.
 
 ## Interfaces And Contracts
 
-- `HealthStatusRead` must expose daemon, control-plane, provider, and replay health. For the local daemon it must carry, in one response, what a runtime surface prints about it: whether it is answering, since when, its version, and how much of the machine's processor and memory it is using. Every reading carries the time it was taken, and the read is served when it is asked for — no client samples it on a timer.
-- `FailureDetailRead` must expose machine-readable failure category, recovery condition where applicable, and human-readable summary. For a provider process that exited it must also carry the exit code or signal the daemon observed and the last output the process produced, so the summary is not the only evidence of why it went.
-- `StuckRunInspect` must expose the last known progress point, last event time, blocking reason if any, and whether the run is currently `stuck-suspected`.
-- `RecoveryActionRequest` must support safe operator-triggered retry where allowed.
+- No `health.*` method exists. What a runtime surface prints about the service — whether it is answering, since when, its version, and how much of the machine's processor and memory it uses, each reading with the time it was taken — is `daemon.status.read` ([Plan-006 §Phase R1 — Namespace Handlers](../plans/006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)), which Settings › Runtime and `sidekicks daemon status` read, backed by the supervisor's own status.
+- A run's failure carries its machine-readable failure category on the run's state-transition event, with the recovery condition where one applies. For a provider process that exited, the session's record carries the exit code or signal the daemon observed and the last output the process produced, so the one-line statement is not the only evidence of why it went.
+- The daemon's loopback `/metrics` carries the families [Spec-024 row 9a](./024-self-host-secure-defaults.md#required-behavior) names.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
 ## State And Data Implications
 
 - Failure and recovery signals must be derived from canonical state and observability pipelines.
-- Health projections must remain queryable even when full timeline UIs are not open.
 - Recovery actions and outcomes must be auditable.
 - Raw diagnostic payloads are non-canonical observability records with bounded retention and must not become the only source for audit or recovery truth.
 
 ## PII in Diagnostics
 
-Diagnostic pipelines (driver raw events, raw command output, tool traces, detailed reasoning payloads, OpenTelemetry spans/logs, error-tracker events) carry PII-carrying content by default of their purpose — they capture the full model prompt, the full command arguments, the full tool-call result — so the baseline question is not _"does this carry PII"_ but _"what is the redaction and retention discipline that keeps diagnostics from becoming an Article-17 escape hatch."_ This section establishes that discipline as a required-behavior policy; Spec-020 owns the storage-and-shred side.
+Diagnostic pipelines (driver raw events, raw command output, tool traces, the workflow engine's event record) carry PII-carrying content by default of their purpose — they capture the full model prompt, the full command arguments, the full tool-call result — so the baseline question is not _"does this carry PII"_ but _"what is the redaction and retention discipline that keeps diagnostics from becoming an Article-17 escape hatch."_ This section establishes that discipline as a required-behavior policy; Spec-020 owns the storage-and-erasure side.
 
 ### Required Behavior (policy)
 
-- **Default-deny on outbound telemetry.** Free-text fields that may contain user input (OTel span attributes like `gen_ai.prompt` / `gen_ai.completion`, OTel log `body`, error-tracker `request`/`extra`) MUST be redacted at the exporter before any network egress to a third-party sink. "Redacted" means either replaced by a shape-preserving placeholder or dropped entirely; partial masking (last-4-characters, asterisks over substrings) is NOT acceptable because partial PII is still PII.
-- **Opt-in for raw content.** Operators may enable raw-content capture on a per-deployment, per-sink basis with a durable configuration record. The opt-in MUST name the sink, the field set, and the operator who authorized it. Enabling raw capture flips no default; each captured event carries a flag so downstream consumers can distinguish raw-opt-in events from default-redacted events.
-- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, `reasoning_detail` per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) MUST apply a ≤ 7-day TTL by default. The daemon MAY expose a per-deployment override but MUST emit a `retention_policy_override` warning metric if the override exceeds 30 days.
-- **Shred fan-out coverage.** Every diagnostic bucket that stores PII MUST be included in the crypto-shred fan-out per [Spec-020 §Shred Fan-Out](020-data-retention-and-gdpr.md#shred-fan-out) Path 3. A diagnostic pipeline that emits PII-carrying records to a sink outside the shred fan-out's reach is a spec violation; either the pipeline must be redacted or a per-user scoped-flush mechanism must be added to the sink.
-- **Summary-only retention.** Where detailed reasoning or high-volume tool traces are compacted, the summary form MUST be constructed from non-PII signals (counts, categories, durations) by construction. A summary derived by truncation of free-text input is NOT compliant because truncated PII is still PII.
-
-### Industry Precedent
-
-**OpenTelemetry Generative AI semantic conventions.** [OTel GenAI semconv v1.36.0](https://opentelemetry.io/docs/specs/semconv/gen-ai/) (accessed 2026-04-19) defines attributes `gen_ai.prompt`, `gen_ai.completion`, `gen_ai.system`. The spec states verbatim regarding these attributes: _"Instrumentations SHOULD NOT capture them by default"_ — a baseline opt-in posture this spec mirrors for outbound telemetry.
-
-**Datadog Sensitive Data Scanner.** [Datadog Sensitive Data Scanner documentation](https://docs.datadoghq.com/sensitive_data_scanner/) (accessed 2026-04-19) publishes a managed-rule library of default scanners (email addresses, US/EU national IDs, credit cards, API tokens, private IPs) that redact matching substrings at ingest. Our default-deny-on-outbound policy is stricter than Datadog's default-allow-with-redaction posture because we redact the entire field when PII-risk is suspected rather than attempting substring identification — consistent with the "partial PII is still PII" invariant.
-
-**Sentry server-side scrubbing.** [Sentry data scrubbing documentation](https://docs.sentry.io/product/data-management-settings/scrubbing/server-side-scrubbing/) (accessed 2026-04-19) publishes a default keyname list (`password`, `secret`, `passwd`, `api_key`, `apikey`, `auth`, `credentials`, `mysql_pwd`, `privatekey`, `private_key`, `token`) scrubbed at ingest before persistence. Our operator opt-in record mirrors Sentry's "advanced data scrubbing" pattern where operators can declare custom rules but the defaults remain default-deny.
+- **Nothing leaves the machine.** The daemon runs no telemetry exporter and sends no diagnostic content to any sink off the machine. The providers' own telemetry is pointed at the daemon on this machine, read there and dropped. A crash report is built on the machine that crashed, stripped of personal data there, and kept there under `Keep crash reports`.
+- **Bounded local retention.** Local diagnostic buckets (`driver_raw_events`, `command_output`, `tool_traces`, and `workflow_engine_events`, the files the workflow engine's event record of [Spec-015 §Engine event record (SA-43)](015-workflow-authoring-and-execution.md#engine-event-record-sa-43) writes, per [Spec-020 §PII Data Map](020-data-retention-and-gdpr.md#pii-data-map) bounded-retention tier) MUST apply a ≤ 7-day TTL by default. The daemon MAY expose a per-deployment override but MUST emit a `retention_policy_override` warning metric if the override exceeds 30 days.
+- **Bound and erase.** Every diagnostic bucket that stores PII MUST drop its rows past `Keep diagnostic logs for` ([Spec-020 §Erasure Paths](020-data-retention-and-gdpr.md#erasure-paths) Path 3), and `Erase all data` deletes it with the data folder. A diagnostic pipeline that keeps PII-carrying records outside both is a spec violation. There is no per-person flush.
+- **Summary-only retention.** Where high-volume tool traces are compacted, the summary form MUST be constructed from non-PII signals (counts, categories, durations) by construction. A summary derived by truncation of free-text input is NOT compliant because truncated PII is still PII.
 
 ### Cross-Reference To Spec-020
 
-- [Spec-020 §PII Data Map — bounded-retention tier](020-data-retention-and-gdpr.md#pii-data-map) — owns the durability-and-retention side of the four diagnostic buckets
-- [Spec-020 §Shred Fan-Out — Path 3](020-data-retention-and-gdpr.md#shred-fan-out) — owns the crypto-shred fan-out for the bounded-retention diagnostic tier
-- [Spec-005 §Event Maintenance](005-session-event-taxonomy-and-audit-log.md#event-maintenance-event_maintenance) — `event.shredded` records the shred operation
+- [Spec-020 §PII Data Map — bounded-retention tier](020-data-retention-and-gdpr.md#pii-data-map) — owns the durability-and-retention side of the diagnostic buckets
+- [Spec-020 §Erasure Paths — Path 3](020-data-retention-and-gdpr.md#erasure-paths) — owns the age bound and the erase for the bounded-retention diagnostic tier
 
 ## Example Flows
 
-- `Example: A provider session stops emitting events without reaching a terminal state. The run is marked stuck-suspected, the health projection turns degraded, and an operator can inspect the last known progress point. If resume later fails, the run moves to failed with provider failure detail and recovery-needed condition.`
-- `Example: Replay rebuild fails on startup. The daemon enters blocked read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
+- `Example: The Codex service for one account dies. The daemon restarts it at once and resumes its conversations, each transcript carrying one faint row that says so. It dies twice more within five minutes, so the daemon leaves it down: each of its sessions shows that Codex ended, with Restart, and nothing restarts it until the person presses Restart.`
+- `Example: Replay rebuild fails on startup. The daemon enters degraded read-only mode, surfaces a recovery error, and refuses new mutable work until repaired.`
 
 ## Implementation Notes
 
@@ -131,19 +124,15 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces, detail
 
 ## Acceptance Criteria
 
-- [ ] Users and operators can distinguish blocked, degraded, and healthy runtime conditions.
-- [ ] Stuck-run suspicion and replay-health state are visible without opening raw logs.
+- [ ] No `health.*` method is registered, and Settings › Runtime shows the service status from `daemon.status.read`, with processor and memory read only when the page opens and on `Check again`.
+- [ ] A Claude Code session slept after 30 idle minutes wakes on the next message with no banner and no row, and a Codex session is never slept.
+- [ ] An app running against the service version before its own works normally; with any other pair of different versions the console is read-only and the working line names the side that is behind, with a press that opens its fix.
+- [ ] A Codex service that dies three times within five minutes is not restarted a fourth time until the person presses `Restart`, and no turn is retried except by `Try again` or `Restart`.
 - [ ] Recovery failures remain visible and auditable until resolved.
 
-## ADR Triggers
+## Open Questions
 
-- If the system changes how replay or health truth is derived, update `../decisions/004-sqlite-local-state-and-postgres-control-plane.md` or create a new observability ADR.
-
-## Resolved Questions and V1 Scope Decisions
-
-- No blocking open questions remain for v1.
-- V1 decision: automated recovery retries use one product-defined bounded policy across providers in v1. Drivers may mark failures non-retryable, but they do not define independent retry budgets.
-- V1 decision: raw diagnostic payload retention is bounded and non-canonical in v1. The product does not standardize one global duration, but every implementation must apply explicit retention policy for driver raw events, raw command output, high-volume tool traces, and any policy-permitted detailed reasoning payloads.
+None.
 
 ## References
 
