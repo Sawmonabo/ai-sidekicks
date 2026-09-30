@@ -1,17 +1,7 @@
-// `CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'`) refusal contract.
-//
-// What we verify, end-to-end through `buildControlPlaneFetchHandler`:
-//
-//   1. The handler refuses with HTTP 503 + body "Service Unavailable" when
-//      gate #1 fails — even when gate #2 (`ENVIRONMENT === 'development'`)
-//      would pass on its own. This isolates gate #1's contribution by
-//      pinning gate #2 to its passing value.
-//
-//   2. The refusal logger receives a message that names the
-//      `CONTROL_PLANE_BOOTSTRAP_ENABLED` key (operator-facing
-//      diagnostic — without it, a misconfigured dev instance gives a
-//      generic 503 with no breadcrumb to the missing env var).
-//
+// The feature-flag gate refuses unless `CONTROL_PLANE_BOOTSTRAP_ENABLED` is exactly '1', driven
+// through `buildControlPlaneFetchHandler` with the environment gate pinned to 'development' so only
+// the flag can refuse. The refusal log must name the flag, or a misconfigured dev instance gives a
+// bare 503 with no hint of the missing variable.
 
 import { describe, expect, it } from "vitest";
 import { buildControlPlaneFetchHandler, type ControlPlaneEnv } from "../host.js";
@@ -38,8 +28,6 @@ async function runGate(env: ControlPlaneEnv): Promise<HarnessResult> {
 
 describe("T1 / gate #1: feature-flag refusal", () => {
   it("refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED is undefined (gate #2 passing)", async () => {
-    // Gate #2 is pinned to its allow-list value to isolate gate #1's
-    // contribution — only the missing flag should drive the refusal.
     const result = await runGate({ ENVIRONMENT: "development" });
     expect(result.status).toBe(503);
     expect(result.body).toBe("Service Unavailable");
@@ -66,8 +54,7 @@ describe("T1 / gate #1: feature-flag refusal", () => {
   });
 
   it("refuses when CONTROL_PLANE_BOOTSTRAP_ENABLED is 'true' (only literal '1' passes)", async () => {
-    // Documents the strict-equality semantics — operator typos like 'true',
-    // 'yes', 'on' all refuse. The flag is a single canonical pass-value.
+    // Strict equality: 'true', 'yes' and 'on' all refuse.
     const result = await runGate({
       CONTROL_PLANE_BOOTSTRAP_ENABLED: "true",
       ENVIRONMENT: "development",
@@ -77,8 +64,7 @@ describe("T1 / gate #1: feature-flag refusal", () => {
   });
 
   it("does NOT refuse when CONTROL_PLANE_BOOTSTRAP_ENABLED is '1' AND ENVIRONMENT is 'development'", async () => {
-    // Sanity-check the inverse: with both gates passing the request leaves
-    // the gate layer and reaches `fetchRequestHandler`, which answers it.
+    // With both gates passing, the request reaches `fetchRequestHandler`.
     const logs: string[] = [];
     const handler = buildControlPlaneFetchHandler({
       refusalLogger: (msg) => logs.push(msg),

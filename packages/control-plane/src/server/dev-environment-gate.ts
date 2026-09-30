@@ -1,18 +1,11 @@
-// Gate #2: approved-dev-environment allow-list.
-//
-// Refuses every request unless `env.ENVIRONMENT === 'development'`. The
-// allow-list semantics (only one passing value) is deliberate: it cannot be
-// satisfied by a typo, omission, or any of `'production'` / `'staging'` /
-// `'test'` / `''`. Co-located with the feature flag in `.dev.vars` so neither
-// security-load-bearing key reaches a deployable Wrangler surface.
-//
-// A deny-list here would be weak (any unknown value passes); the allow-list
-// closes that exposure path.
-//
+// The environment gate is an allow-list, not a deny-list: only `'development'` passes, so a typo,
+// an omission or any other value (`'production'`, `'staging'`, `''`) is refused, where a deny-list
+// would let an unknown value through. The value lives in `.dev.vars` beside the feature flag so
+// neither security-relevant key reaches a deployable Wrangler surface.
 
 import type { GateResult } from "./feature-flag-gate.js";
 
-/** The Worker environment key gate #2 reads. */
+/** The Worker environment key the environment gate reads. */
 export interface DevEnvironmentEnv {
   readonly ENVIRONMENT?: string;
 }

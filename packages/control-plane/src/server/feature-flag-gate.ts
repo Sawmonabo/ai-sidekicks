@@ -1,11 +1,7 @@
-// Gate #1: bootstrap feature-flag check.
-//
-// Refuses every request unless `env.CONTROL_PLANE_BOOTSTRAP_ENABLED === '1'`.
-// This is the operator-development-only kill-switch — defaulting to off keeps
-// the bootstrap unreachable on any deploy that doesn't explicitly set it.
-//
+// The feature-flag gate is a kill-switch that defaults to off, so the bootstrap stays unreachable
+// on any deploy that does not set the flag explicitly.
 
-/** The Worker environment key gate #1 reads. */
+/** The Worker environment key the feature-flag gate reads. */
 export interface FeatureFlagEnv {
   readonly CONTROL_PLANE_BOOTSTRAP_ENABLED?: string;
 }
