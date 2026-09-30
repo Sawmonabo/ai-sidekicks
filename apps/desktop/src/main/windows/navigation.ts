@@ -1,6 +1,6 @@
 // Navigation policy for every window this process constructs. The locked `webPreferences`
-// block (kept locked by `apps/desktop/build/assert-webprefs.ts`) governs what the renderer can
-// do, not where it may go: a link, a redirect or a compromised dependency can navigate the
+// block (held by the window-security rules in `eslint.config.mjs`) governs what the renderer
+// can do, not where it may go: a link, a redirect or a compromised dependency can navigate the
 // top-level frame to a remote origin, which would then run with the same preload, bridge and
 // storage partition. Electron's security checklist names both halves (limit navigation, limit
 // new windows) and neither is on by default.

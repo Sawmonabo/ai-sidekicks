@@ -12,9 +12,9 @@
   "scripts": {
     "postinstall": "node --experimental-strip-types scripts/materialize-electron.ts",
     "dev": "electron-vite dev",
-    "build": "electron-vite build && node --experimental-strip-types build/assert-webprefs.ts",
-    "build:smoke": "electron-vite build --mode=smoke && node --experimental-strip-types build/assert-webprefs.ts",
-    "build:fixtures": "electron-vite build --mode=fixtures && node --experimental-strip-types build/assert-webprefs.ts",
+    "build": "electron-vite build",
+    "build:smoke": "electron-vite build --mode=smoke",
+    "build:fixtures": "electron-vite build --mode=fixtures",
     "typecheck": "tsc -b && tsc -p tsconfig.test.json && tsc -p src/renderer/tsconfig.test.json && tsc -p tsconfig.bench-test.json && tsc -p tsconfig.browser-test.json && tsc -p tsconfig.electron-test.json && tsc -p tsconfig.build.json && tsc -p tsconfig.scripts.json",
     "lint": "eslint build scripts src fixtures tests vitest",
     "test:coverage": "vitest run --project=renderer --coverage",

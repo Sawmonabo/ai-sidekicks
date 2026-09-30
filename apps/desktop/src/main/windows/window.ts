@@ -1,8 +1,7 @@
 // `BrowserWindow` factories for the main process. One private function,
-// `constructLockedWindow`, owns the `webPreferences` literal, so the build-time assertion
-// (`apps/desktop/build/assert-webprefs.ts`) covers every window through one block and requires
-// that block to appear exactly once. Any drift fails `pnpm build`, which makes
-// `nodeIntegration: true` or `sandbox: false` a build error rather than a shipped one.
+// `constructLockedWindow`, owns the `webPreferences` literal. ESLint refuses a window built
+// anywhere else under `src/main/` and a security setting written as anything but its hardened
+// literal, so `nodeIntegration: true` or `sandbox: false` is a lint error, never a shipped one.
 //
 // The window is served over `sidekicks-renderer://`, never `file://`, because the hardening
 // baseline disables the `GrantFileProtocolExtraPrivileges` fuse (`../services/renderer-protocol.ts`
@@ -40,9 +39,8 @@ export interface LockedWindowOptions {
 }
 
 /**
- * The single owner of the locked `webPreferences` block. Keep this the only
- * `new BrowserWindow(...)` call site under `src/main/`: `apps/desktop/build/assert-webprefs.ts`
- * fails the build if a second one appears.
+ * The single owner of the locked `webPreferences` block, and the only `new BrowserWindow(...)`
+ * call site under `src/main/`; ESLint refuses a second one.
  */
 function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
   const browserWindow = new BrowserWindow({

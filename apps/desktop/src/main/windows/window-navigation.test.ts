@@ -1,6 +1,6 @@
-// The navigation policy as installed. `assert-webprefs.ts` proves the locked `webPreferences`
-// literal; it says nothing about navigation, and a locked window navigated to a remote origin
-// runs attacker markup with the same preload, bridge and partition. `./navigation.test.ts` covers
+// The navigation policy as installed. The lint rules hold the locked `webPreferences` literal,
+// which says nothing about navigation, and a locked window navigated to a remote origin runs
+// attacker markup with the same preload, bridge and partition. `./navigation.test.ts` covers
 // the pure classifier; this covers the wiring: every seam that can change a window's document
 // carries the classification and takes the same decision. The redirect cases are the navigate
 // cases with one string changed, because `will-navigate` fires on the original target and

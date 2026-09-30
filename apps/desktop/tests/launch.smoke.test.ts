@@ -53,7 +53,7 @@ describe("desktop main process boot", () => {
       expect(probe.probe.desktopBridge).toBe("object");
 
       // Invariant 3: no Node API leak. `"function"` here means `nodeIntegration: true` slipped
-      // past `assert-webprefs.ts`.
+      // past the lint rules.
       expect(probe.probe.require).toBe("undefined");
 
       // Invariant 4: `window.process` is `undefined`.

@@ -43,9 +43,9 @@
       // No `entry` declaration, deliberately. knip's defaults already cover the three process
       // entries (`src/main/index.ts`, `src/preload/index.ts`, `src/renderer/src/main.tsx`) and the
       // two tool configs (`vitest.config.ts`, `electron.vite.config.ts`), and knip resolves the
-      // rest from this package's manifest: a file named in a `scripts` entry is an entry, so
-      // `build/assert-webprefs.ts` and both `scripts/budget/measure-*.mts` are roots because the
-      // `build`, `budget:bundle` and `budget:heap` scripts run them. Measured: dropping the globs
+      // rest from this package's manifest: a file named in a `scripts` entry is an entry, so both
+      // `scripts/budget/measure-*.mts` are roots because the `budget:bundle` and `budget:heap`
+      // scripts run them. Measured: dropping the globs
       // moved no file into `Unused files`.
       //
       // Declaring `scripts/**` as an entry glob would be worse: every helper under it becomes a

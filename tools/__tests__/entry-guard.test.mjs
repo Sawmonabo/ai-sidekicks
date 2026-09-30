@@ -10,37 +10,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, symlinkSync, unlinkSync, rmSync, existsSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, unlinkSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 
-// A window factory whose locked `webPreferences` block has drifted. The violation is inside the
-// file, so the verdict does not depend on how the script resolves the repo.
-const DRIFTED_WINDOW_FIXTURE = [
-  "new BrowserWindow({",
-  "  webPreferences: {",
-  "    contextIsolation: true,",
-  "    sandbox: false,",
-  "    nodeIntegration: true,",
-  "  },",
-  "});",
-  "",
-].join("\n");
-
-// `args` takes the fixture directory so an entry can point at a scratch input. `nodeOptions` are
-// the flags a script needs to load; the TypeScript CLIs run from source, as CI and lefthook do.
+// `args` makes a running script fail with a diagnostic. `nodeOptions` are the flags a script needs
+// to load; the TypeScript CLIs run from source, as CI and lefthook do.
 const CLI_SCRIPTS = [
   { relativePath: "tools/run-node-tests.mjs", args: () => ["no/such/**/*.test.mjs"] },
   { relativePath: ".claude/skills/plan-execution/scripts/preflight.mjs", args: () => [] },
   { relativePath: ".claude/skills/plan-execution/scripts/codex-gate.mjs", args: () => [] },
-  {
-    relativePath: "apps/desktop/build/assert-webprefs.ts",
-    nodeOptions: ["--experimental-strip-types"],
-    args: (fixtureDirectory) => [join(fixtureDirectory, "drifted-window.ts")],
-  },
   {
     relativePath: "apps/desktop/scripts/budget/measure-bundle.mts",
     nodeOptions: ["--experimental-strip-types"],
@@ -69,9 +51,8 @@ function withSpacedSymlinkedRepo(runBody) {
   const containingDirectory = mkdtempSync(join(tmpdir(), "entry-guard-"));
   const spacedRepoLink = join(containingDirectory, "repo root with spaces");
   symlinkSync(REPO_ROOT, spacedRepoLink, "dir");
-  writeFileSync(join(containingDirectory, "drifted-window.ts"), DRIFTED_WINDOW_FIXTURE);
   try {
-    return runBody(spacedRepoLink, containingDirectory);
+    return runBody(spacedRepoLink);
   } finally {
     // Unlink first so the recursive delete below never walks a link into the working repo.
     unlinkSync(spacedRepoLink);
@@ -81,15 +62,15 @@ function withSpacedSymlinkedRepo(runBody) {
 
 for (const { relativePath, args, nodeOptions = [], stdin = "", env } of CLI_SCRIPTS) {
   test(`${relativePath}: does not silently no-op through a spaced, symlinked path`, () => {
-    withSpacedSymlinkedRepo((spacedRepoLink, fixtureDirectory) => {
+    withSpacedSymlinkedRepo((spacedRepoLink) => {
       const scriptPath = join(spacedRepoLink, relativePath);
-      assert.ok(existsSync(scriptPath), `fixture script missing: ${scriptPath}`);
+      assert.ok(existsSync(scriptPath), `script missing: ${scriptPath}`);
 
-      const result = spawnSync(
-        process.execPath,
-        [...nodeOptions, scriptPath, ...args(fixtureDirectory)],
-        { encoding: "utf8", input: stdin, env: { ...process.env, ...env } },
-      );
+      const result = spawnSync(process.execPath, [...nodeOptions, scriptPath, ...args()], {
+        encoding: "utf8",
+        input: stdin,
+        env: { ...process.env, ...env },
+      });
 
       assert.notEqual(
         result.status,

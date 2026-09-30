@@ -237,6 +237,38 @@ const CHILD_PROCESS_DYNAMIC_REACH = [
   },
 ];
 
+const WINDOW_CLASS_NAME = "/^(BrowserWindow|BaseWindow|WebContentsView)$/";
+
+/**
+ * A window or web view built outside the window factory. The factory holds the one locked
+ * `webPreferences` block, so a construction anywhere else ships a window that block does not govern.
+ */
+const WINDOW_CONSTRUCTION_OUTSIDE_FACTORY = {
+  selector: `NewExpression:matches([callee.name=${WINDOW_CLASS_NAME}], [callee.property.name=${WINDOW_CLASS_NAME}])`,
+  message:
+    "Every window and web view is built by the window factory in `src/main/windows/window.ts`, which holds the one locked `webPreferences` block. Build it there.",
+};
+
+const HARDENED_WHEN_TRUE = "/^(contextIsolation|sandbox|webSecurity)$/";
+const HARDENED_WHEN_FALSE = "/^(nodeIntegration|nodeIntegrationInWorker)$/";
+
+/**
+ * A window security setting written as anything but its hardened literal: `sandbox: false`, and also
+ * `sandbox: someFlag`, whose value no reader of the source can vouch for.
+ */
+const WEAKENED_WINDOW_SETTING = [
+  {
+    selector: `Property:matches([key.name=${HARDENED_WHEN_TRUE}], [key.value=${HARDENED_WHEN_TRUE}]):not([value.raw="true"])`,
+    message:
+      "`contextIsolation`, `sandbox` and `webSecurity` are written as the literal `true` in the main process. A window with any of them off runs the renderer with more reach than the hardening allows.",
+  },
+  {
+    selector: `Property:matches([key.name=${HARDENED_WHEN_FALSE}], [key.value=${HARDENED_WHEN_FALSE}]):not([value.raw="false"])`,
+    message:
+      "`nodeIntegration` and `nodeIntegrationInWorker` are written as the literal `false` in the main process. Either one on hands Node to the renderer.",
+  },
+];
+
 /**
  * A text snapshot in a package whose Vitest runs resolve `UPDATE_SNAPSHOT=all`.
  *
@@ -360,6 +392,17 @@ const TIER_SYNTAX_BANS = [
   ...TEST_SYNTAX_BANS,
   ...TIME_READING_SELECTORS,
   EXPORTED_COLLECTION_SELECTOR,
+];
+
+/** What every main-process file carries. */
+const MAIN_SYNTAX_BANS = [
+  ENUM_DECLARATION,
+  EXPORT_DEFAULT_DECLARATION,
+  DIRECTORY_SOURCE_GLOB,
+  TEXT_SNAPSHOT_MATCHER_REACH,
+  ...CHILD_PROCESS_DYNAMIC_REACH,
+  WINDOW_CONSTRUCTION_OUTSIDE_FACTORY,
+  ...WEAKENED_WINDOW_SETTING,
 ];
 
 /**
@@ -604,16 +647,17 @@ export default [
   {
     // The main process spawns for real (the daemon supervisor and the PTY sidecar) through its own
     // supervised lifetimes, not the test door, so it carries the dynamic-reach pair beside the
-    // import ban below.
+    // import ban below, and the window-security bans, which main alone can break.
     files: ["src/main/**/*.ts"],
+    rules: { "no-restricted-syntax": ["error", ...MAIN_SYNTAX_BANS] },
+  },
+  {
+    // The window factory is where windows are built; its settings stay held to their literals.
+    files: ["src/main/windows/window.ts"],
     rules: {
       "no-restricted-syntax": [
         "error",
-        ENUM_DECLARATION,
-        EXPORT_DEFAULT_DECLARATION,
-        DIRECTORY_SOURCE_GLOB,
-        TEXT_SNAPSHOT_MATCHER_REACH,
-        ...CHILD_PROCESS_DYNAMIC_REACH,
+        ...withoutSelectors(MAIN_SYNTAX_BANS, WINDOW_CONSTRUCTION_OUTSIDE_FACTORY),
       ],
     },
   },
