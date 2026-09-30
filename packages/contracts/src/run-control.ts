@@ -22,22 +22,26 @@ import {
 import {
   ArtifactIdSchema,
   DRIVER_FAILURE_DETAIL_MAX_LEN,
+  InterventionTypeSchema,
+  RunIdSchema,
+  type ArtifactId,
+  type ExecutionPosture,
+  type InterventionType,
+  type RunId,
+} from "./provider-driver.js";
+import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
-  InterventionTypeSchema,
+} from "./provider-driver-wire.js";
+import {
   RecoveryConditionSchema,
   RecoverySpanClassificationSchema,
-  RunIdSchema,
-  type ArtifactId,
-  type ExecutionPosture,
-  type InterventionType,
   type RecoveryCondition,
   type RecoverySpanClassification,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-recovery.js";
 import {
   ChildInterruptRequestSchema,
   ChildInterruptResponseSchema,

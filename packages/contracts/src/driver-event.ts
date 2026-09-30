@@ -32,7 +32,7 @@ import { defineMethodDescriptors, type SubscriptionMethodDescriptor } from "./me
 import {
   DriverSubscribeEventsParamsSchema,
   type DriverSubscribeEventsParams,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
 
 // The seven `EventCategory` values a driver event may carry. Hand-written because nothing
 // derives the choice; everything below is derived from it.

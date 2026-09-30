@@ -15,11 +15,8 @@ import {
   type AgentProviderBinding,
 } from "./agent-definition.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
-import {
-  DeclaredLossKindSchema,
-  DRIVER_WIRE_TOKEN_MAX_LEN,
-  type DeclaredLossKind,
-} from "./provider-driver.js";
+import { DeclaredLossKindSchema, type DeclaredLossKind } from "./provider-driver-transcript.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
   SessionIdSchema,
   UserIdSchema,

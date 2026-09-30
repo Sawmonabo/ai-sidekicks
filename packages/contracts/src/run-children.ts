@@ -14,9 +14,8 @@ import { countSchema } from "./internal/wire-scalars.js";
 import {
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  RunIdSchema,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
+import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
 import { wireFreeFormString } from "./session.js";
 

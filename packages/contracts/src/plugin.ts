@@ -19,7 +19,7 @@ import {
   type ProviderAccountId,
   type ProviderName,
 } from "./provider-account.js";
-import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { wireFreeFormString, FILE_PATH_MAX_LEN } from "./session.js";
 
 /** A token in a provider's own plugin vocabulary: a plugin id, a name, a marketplace. */

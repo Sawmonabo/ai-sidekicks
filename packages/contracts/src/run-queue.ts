@@ -5,13 +5,12 @@ import { z } from "zod";
 
 import { ChildHandleSchema, type ChildHandle } from "./agent.js";
 import { brandedUuidIdSchema } from "./internal/branded.js";
+import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import {
-  ArtifactIdSchema,
   DRIVER_WIRE_REASON_MAX_LEN,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  type ArtifactId,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
 import { WorkspaceIdSchema, type WorkspaceId } from "./repo.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 

@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import {
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-} from "../provider-driver.js";
+} from "../provider-driver-wire.js";
 import {
   QueueChangeRefusedDetailsSchema,
   QueueItemCancelRequestSchema,

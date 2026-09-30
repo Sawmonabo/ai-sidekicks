@@ -5,7 +5,8 @@ import { z } from "zod";
 import { AgentIdSchema, type AgentId } from "./agent-definition.js";
 import { AgentListEntrySchema, type AgentListEntry } from "./agent.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
-import { DRIVER_WIRE_HANDLE_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
+import { DRIVER_WIRE_HANDLE_MAX_LEN } from "./provider-driver-wire.js";
+import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { UsdMicrosSchema } from "./session-cost.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 

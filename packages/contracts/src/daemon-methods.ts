@@ -35,7 +35,7 @@ import type { PreviewPageLinkMethodDescriptors } from "./preview-page-host.js";
 import type { PreviewPortMethodDescriptors } from "./preview-port.js";
 import type { PreviewMethodDescriptors } from "./preview.js";
 import type { ProviderAccountMethodDescriptors } from "./provider-account-methods.js";
-import type { DriverMethodDescriptors } from "./provider-driver.js";
+import type { DriverMethodDescriptors } from "./provider-driver-wire.js";
 import type { SessionImportMethodDescriptors } from "./provider-import.js";
 import type { ProviderMethodDescriptors } from "./provider.js";
 import type { PtyMethodDescriptors, TerminalControlMethodDescriptors } from "./pty.js";

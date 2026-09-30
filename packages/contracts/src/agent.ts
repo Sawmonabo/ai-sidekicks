@@ -55,15 +55,12 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
+import { DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
-  DRIVER_TOOL_NAME_MAX_LEN,
-  DRIVER_WIRE_HANDLE_MAX_LEN,
-  DRIVER_WIRE_TOKEN_MAX_LEN,
   ProviderOutputSpeedStateSchema,
-  RunIdSchema,
   type ProviderOutputSpeedState,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-transcript.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // The session's agent tree

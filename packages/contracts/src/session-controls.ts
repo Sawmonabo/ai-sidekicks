@@ -20,15 +20,19 @@ import { defineMethodDescriptors } from "./method-descriptor.js";
 import {
   DRIVER_FAILURE_DETAIL_MAX_LEN,
   DRIVER_PROVIDER_COMMAND_ENTRIES_MAX,
+  RunIdSchema,
+  type McpServerStatus,
+  type RunId,
+} from "./provider-driver.js";
+import {
   DRIVER_WIRE_HANDLE_MAX_LEN,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
   DRIVER_WIRE_TOKEN_MAX_LEN,
+} from "./provider-driver-wire.js";
+import {
   ProviderCommandEntrySchema,
-  RunIdSchema,
-  type McpServerStatus,
   type ProviderCommandEntry,
-  type RunId,
-} from "./provider-driver.js";
+} from "./provider-driver-transcript.js";
 import { SessionIdSchema, wireFreeFormString, type SessionId } from "./session.js";
 
 // The unbranded UUID text form, since the `agentId` brand belongs to the live agent contract.

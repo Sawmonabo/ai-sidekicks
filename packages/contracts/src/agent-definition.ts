@@ -19,7 +19,8 @@ import { z } from "zod";
 
 import { brandedUuidIdSchema, uuidTextFormSchema } from "./internal/branded.js";
 import { ProviderAccountIdSchema, type ProviderAccountId } from "./provider-account.js";
-import { DRIVER_TOOL_NAME_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver.js";
+import { DRIVER_TOOL_NAME_MAX_LEN } from "./provider-driver.js";
+import { DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import { FILE_PATH_MAX_LEN, wireFreeFormString } from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
 

@@ -12,7 +12,7 @@ import { describe, expect, it } from "vitest";
 
 import * as contracts from "../index.js";
 import type { InterventionType } from "../provider-driver.js";
-import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver.js";
+import { RECOVERY_CONDITIONS, RECOVERY_SPAN_CLASSIFICATIONS } from "../provider-driver-recovery.js";
 import {
   InterventionRequestPayloadSchema,
   InterventionRequestResponseSchema,

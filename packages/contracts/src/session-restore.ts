@@ -9,12 +9,11 @@
 import { z } from "zod";
 
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { ArtifactIdSchema, type ArtifactId } from "./provider-driver.js";
 import {
-  ArtifactIdSchema,
   DRIVER_WIRE_STEER_ATTACHMENTS_MAX,
   DRIVER_WIRE_STEER_CONTENT_MAX_LEN,
-  type ArtifactId,
-} from "./provider-driver.js";
+} from "./provider-driver-wire.js";
 import {
   EventCursorSchema,
   FILE_PATH_MAX_LEN,
