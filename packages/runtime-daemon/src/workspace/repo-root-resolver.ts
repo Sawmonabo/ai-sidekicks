@@ -114,8 +114,12 @@ export const DEFAULT_GIT_EXECUTABLE: string = "git";
 /** Milliseconds allowed for one `rev-parse` (a network mount can hang); a kill is `vcs_error`. */
 export const DEFAULT_GIT_COMMAND_TIMEOUT_MS: number = 10_000;
 
-/** Cap on captured git stdio; overflow fails the invocation, which lands on `vcs_error`. */
-export const GIT_STDIO_MAX_BUFFER_BYTES: number = 1024 * 1024;
+/**
+ * Cap on captured stdio for every daemon git invocation, sized for the largest one: a `-z` path
+ * listing of a whole worktree. A cap, not an allocation; overflow fails the invocation and never
+ * truncates (here it lands on `vcs_error`).
+ */
+export const GIT_STDIO_MAX_BUFFER_BYTES: number = 64 * 1024 * 1024;
 
 /** git's exit code for a fatal error (`die()`); half of the not-a-repository verdict. */
 export const GIT_FATAL_EXIT_CODE: number = 128;

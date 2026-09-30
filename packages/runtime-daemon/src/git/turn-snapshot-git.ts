@@ -8,6 +8,7 @@ import { mkdir, rm } from "node:fs/promises";
 import {
   DEFAULT_GIT_EXECUTABLE,
   DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
+  GIT_STDIO_MAX_BUFFER_BYTES,
 } from "../workspace/repo-root-resolver.js";
 import type {
   TurnSnapshotDiagnostic,
@@ -25,10 +26,6 @@ export const SNAPSHOT_INDEX_SEGMENT = ".snapshot-indexes";
 
 /** Matches `./worktree-service.ts`: the staging legs walk the whole worktree. */
 export const DEFAULT_TURN_SNAPSHOT_GIT_TIMEOUT_MS = 120_000;
-
-// Eight times `./worktree-service.ts`'s 8 MiB (a `-z` listing holds one path per file); overflow
-// fails the capture and never truncates.
-const GIT_STDIO_MAX_BUFFER_BYTES = 64 * 1024 * 1024;
 
 /**
  * Stops `refs/replace/<oid>` swapping another object for a frozen id, on the legs that read an
