@@ -134,7 +134,6 @@ export class AttachmentIngestStreamDriver {
       ...settled,
       state: "ingesting",
       ingestId: opened.ingestId,
-      openedAtMilliseconds: this.#clock.now(),
       lastProgressAtMilliseconds: this.#clock.now(),
     });
     return true;

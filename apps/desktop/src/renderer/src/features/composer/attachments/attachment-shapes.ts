@@ -104,8 +104,6 @@ export interface AttachmentIngestRecord {
   readonly derived: SessionAttachmentSummary | undefined;
   readonly refusal: { readonly code: string; readonly detail: string } | undefined;
   readonly disposition: IngestRefusalDisposition | undefined;
-  /** When the stream opened, for the stream ceiling. Absent before it opened. */
-  readonly openedAtMilliseconds: number | undefined;
   /** When a chunk was last acknowledged, for the stall disclosure. */
   readonly lastProgressAtMilliseconds: number | undefined;
 }
@@ -176,7 +174,6 @@ export function attachmentIngestEntryFrom(
     derived: record.derived,
     refusal: record.refusal,
     disposition: record.disposition,
-    openedAtMilliseconds: record.openedAtMilliseconds,
     lastProgressAtMilliseconds: record.lastProgressAtMilliseconds,
     declared: standing.declared,
   };

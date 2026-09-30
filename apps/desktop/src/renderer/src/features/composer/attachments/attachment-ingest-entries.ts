@@ -100,7 +100,6 @@ export class AttachmentIngestEntries {
       derived: undefined,
       refusal: undefined,
       disposition: undefined,
-      openedAtMilliseconds: undefined,
       lastProgressAtMilliseconds: undefined,
     });
     this.#publish();

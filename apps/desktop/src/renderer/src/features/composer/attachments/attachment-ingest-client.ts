@@ -80,9 +80,7 @@ export class AttachmentIngestClient {
       state: "declared",
       refusal: undefined,
       disposition: undefined,
-      ...(restarting
-        ? { ingestId: undefined, receivedBytes: 0, openedAtMilliseconds: undefined }
-        : {}),
+      ...(restarting ? { ingestId: undefined, receivedBytes: 0 } : {}),
     });
     void this.#streams.drive(localId);
   }

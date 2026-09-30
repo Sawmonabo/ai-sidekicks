@@ -30,7 +30,6 @@ function entryDeclaring(byteLength: number, receivedBytes = 0): AttachmentIngest
     derived: undefined,
     refusal: undefined,
     disposition: undefined,
-    openedAtMilliseconds: 1_000,
     lastProgressAtMilliseconds: 1_000,
   };
 }

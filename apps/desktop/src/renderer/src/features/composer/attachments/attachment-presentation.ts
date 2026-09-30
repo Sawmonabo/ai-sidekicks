@@ -7,10 +7,7 @@
 
 import type { SessionAttachmentUnresolvedCause } from "@ai-sidekicks/contracts";
 
-import {
-  INGEST_STALL_DISCLOSURE_MS,
-  INGEST_STREAM_LIFETIME_CEILING_MS,
-} from "./attachment-caps.js";
+import { INGEST_STALL_DISCLOSURE_MS } from "./attachment-caps.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** What a cause means, and what a user can do about it. */
@@ -53,18 +50,6 @@ export const UNRESOLVED_ATTACHMENT_PRESENTATION: Readonly<
   },
 };
 
-/** Milliseconds left on this stream's six-hour ceiling, or `undefined` before it opened. */
-export function ingestCeilingRemainingMs(
-  entry: AttachmentIngestEntry,
-  nowMilliseconds: number,
-): number | undefined {
-  if (entry.openedAtMilliseconds === undefined) {
-    return undefined;
-  }
-  const elapsed = nowMilliseconds - entry.openedAtMilliseconds;
-  return Math.max(0, INGEST_STREAM_LIFETIME_CEILING_MS - elapsed);
-}
-
 /**
  * The instant this upload's silence becomes worth disclosing, or `undefined` when nothing is
  * outstanding. A deadline rather than a predicate because the card and the staged list need the
@@ -77,7 +62,7 @@ export function ingestStallDisclosureAtMs(entry: AttachmentIngestEntry): number 
   return entry.lastProgressAtMilliseconds + INGEST_STALL_DISCLOSURE_MS;
 }
 
-/** Whether this upload has been silent long enough to disclose the ceiling. */
+/** Whether this upload has been silent long enough to say so. */
 export function isIngestStalled(entry: AttachmentIngestEntry, nowMilliseconds: number): boolean {
   const disclosureAtMilliseconds = ingestStallDisclosureAtMs(entry);
   return disclosureAtMilliseconds !== undefined && nowMilliseconds >= disclosureAtMilliseconds;
