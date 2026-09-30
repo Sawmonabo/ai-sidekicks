@@ -59,6 +59,7 @@ import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
+  composeResolvedAgent,
   composeScenarioInstant,
   findScenarioMember,
 } from "../data/opening-entries.js";
@@ -144,12 +145,14 @@ const TRANSCRIPT_STATES_AGENTS: readonly ScenarioAgent[] = [
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
+    definitionId: "019b793b-7b60-7de1-8120-d1a4c1150122",
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
+    definitionId: "019b793b-7b60-7de1-8130-d1a4c1150123",
   },
 ];
 
@@ -214,6 +217,11 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_IMPLEMENTER),
+      lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 320),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
@@ -261,6 +269,11 @@ const TRANSCRIPT_STATES_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_REVIEWER),
+      lead: findScenarioMember(TRANSCRIPT_STATES_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 960),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_REVIEWER, {

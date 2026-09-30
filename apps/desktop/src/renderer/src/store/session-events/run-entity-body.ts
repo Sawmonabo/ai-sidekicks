@@ -11,6 +11,7 @@
 // the projector imports the body walk and this module imports nothing of the fold.
 
 import type {
+  RunQueuedPayload,
   RunRolledBackEvent,
   RunStateChangeEvent,
   SessionEventType,
@@ -77,14 +78,24 @@ const RUN_BODY_MEMBER_READERS = {
 } as const satisfies Readonly<Record<DurableRunMemberName, WireMemberReaderName>>;
 
 /**
- * The registered kinds whose durable payload names members no contracts shape
- * declares.
+ * The members the creation row's own payload declares beyond the two stream shapes:
+ * its provenance, its admission-resolved limits and the account it was admitted
+ * against. `agentId` is already in the base table, and `resolvedAgent` is the agent's
+ * record rather than the run's, read by the agent roster and never onto the body.
+ */
+type RunQueuedOwnMemberName = Exclude<
+  keyof RunQueuedPayload,
+  RegisteredRunMemberName | "sessionId" | "agentId" | "resolvedAgent"
+>;
+
+/**
+ * The registered kinds whose durable payload names members of its own.
  *
  * `Extract`ed from the census rather than typed `string`, so a kind misspelled
  * here fails against the taxonomy instead of quietly claiming members for an
  * event no daemon emits.
  */
-type RunKindWithUndeclaredMembers = Extract<
+type RunKindWithPerTypeMembers = Extract<
   SessionEventType,
   "run.queued" | "run.provider_initialized" | "run.turn_started" | "run.worker_shutdown"
 >;
@@ -104,16 +115,17 @@ type RunKindWithUndeclaredMembers = Extract<
  * member either one DOES declare belongs in the derived table above and would be
  * a second spelling of it here, which the co-located test refuses.
  */
-const UNDECLARED_RUN_BODY_MEMBER_READERS: Readonly<
-  Record<RunKindWithUndeclaredMembers, Readonly<Record<string, WireMemberReaderName>>>
+const PER_TYPE_RUN_BODY_MEMBER_READERS: Readonly<
+  Record<RunKindWithPerTypeMembers, Readonly<Record<string, WireMemberReaderName>>>
 > = Object.freeze({
-  // The creation row's provenance, its admission-resolved configuration, and the
-  // account it was admitted against. No contracts shape declares them.
+  // The creation row's provenance, its admission-resolved limits, and the account it
+  // was admitted against, keyed by the contract's own payload so a member it gains or
+  // loses fails to compile here.
   "run.queued": Object.freeze({
     reachedBy: "string",
     effectiveRunConfig: "object",
     admittedProviderAccountId: "string",
-  }),
+  } satisfies Record<RunQueuedOwnMemberName, WireMemberReaderName>),
   // The provider's own initialization report, which is what names the provider and
   // the model a run is actually running against.
   "run.provider_initialized": Object.freeze({ provider: "string", model: "string" }),
@@ -125,7 +137,7 @@ const UNDECLARED_RUN_BODY_MEMBER_READERS: Readonly<
 });
 
 /** The reader table for a kind that registers no members of its own. */
-const NO_UNDECLARED_MEMBERS: Readonly<Record<string, WireMemberReaderName>> = Object.freeze({});
+const NO_PER_TYPE_MEMBERS: Readonly<Record<string, WireMemberReaderName>> = Object.freeze({});
 
 /**
  * One reader per shape, and the only place a payload member is type-checked.
@@ -170,7 +182,7 @@ export function readRunEntityBody(
   payload: Readonly<Record<string, unknown>> | undefined,
 ): Readonly<Record<string, unknown>> | undefined {
   const body: Record<string, unknown> = {};
-  for (const readers of [RUN_BODY_MEMBER_READERS, undeclaredMemberReadersFor(eventKind)]) {
+  for (const readers of [RUN_BODY_MEMBER_READERS, perTypeMemberReadersFor(eventKind)]) {
     for (const [member, readerName] of Object.entries(readers)) {
       const value = WIRE_MEMBER_READERS[readerName](payload?.[member]);
       if (value !== undefined) {
@@ -189,10 +201,10 @@ export function readRunEntityBody(
  * `"constructor"` reaches this lookup exactly as a real kind does and an indexed
  * read would answer it with something off `Object.prototype`.
  */
-function undeclaredMemberReadersFor(
+function perTypeMemberReadersFor(
   eventKind: string,
 ): Readonly<Record<string, WireMemberReaderName>> {
-  return Object.hasOwn(UNDECLARED_RUN_BODY_MEMBER_READERS, eventKind)
-    ? UNDECLARED_RUN_BODY_MEMBER_READERS[eventKind as RunKindWithUndeclaredMembers]
-    : NO_UNDECLARED_MEMBERS;
+  return Object.hasOwn(PER_TYPE_RUN_BODY_MEMBER_READERS, eventKind)
+    ? PER_TYPE_RUN_BODY_MEMBER_READERS[eventKind as RunKindWithPerTypeMembers]
+    : NO_PER_TYPE_MEMBERS;
 }

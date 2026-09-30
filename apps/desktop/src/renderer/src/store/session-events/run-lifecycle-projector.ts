@@ -45,24 +45,21 @@
 //
 // AND THE DERIVATION IS NOT THE WHOLE PAYLOAD, WHICH IS THE SECOND TABLE'S
 // SUBJECT. Those two shapes are both `run.subscribeState` projections, and this
-// projector folds the DURABLE rows off `session.subscribe`. Four of the thirteen
-// kinds register per-type members that neither projection declares and that
-// `packages/contracts` therefore holds no schema for at all — `SessionEventSchema`
-// registers no run-lifecycle payload variant, so there is nothing to derive them
-// from. Treating the two subscription shapes as exhaustive dropped every one of
-// them: the run's creation lost its `reachedBy` provenance (`provider_subagent`,
-// `bridge_run` or `workflow_step`), its admission-resolved `effectiveRunConfig`, and the
-// account it was admitted against, and the
-// three forward, non-state rows lost the whole of what they carry — the provider
-// and model an initialization reports, the position a turn opened at, the reason a
-// worker shut down. Each reached the timeline and none reached the `run` partition
-// a pane reads. `UNDECLARED_RUN_BODY_MEMBER_READERS` is those four rows, keyed by
-// the kind that registers them so the parse is PER TYPE — a member registered on
-// one kind is never read off another — and typed against the census so a
-// misspelled kind fails to compile rather than reading a payload no daemon sends.
-// The day a contracts shape declares one of these members, it enters
-// `DurableRunMemberName`, the base table classifies it, and the co-located test's
-// no-second-spelling case fails until the entry here is deleted.
+// projector folds the DURABLE rows off `session.subscribe`. Some kinds carry
+// per-type members that neither projection declares: the run's creation carries its
+// `reachedBy` provenance, its admission-resolved `effectiveRunConfig` and the account
+// it was admitted against, which the contract's `RunQueuedPayload` declares; the
+// forward, non-state rows carry the provider and model an initialization reports,
+// the position a turn opened at and the reason a worker shut down, which no
+// contracts schema holds. Treating the two subscription shapes as exhaustive would
+// drop every one of them from the `run` partition a pane reads.
+// `PER_TYPE_RUN_BODY_MEMBER_READERS` holds those rows, keyed by the kind that
+// carries them so the parse is PER TYPE — a member registered on one kind is never
+// read off another — and typed against the census so a misspelled kind fails to
+// compile rather than reading a payload no daemon sends. The day a stream shape
+// declares one of these members, it enters `DurableRunMemberName`, the base table
+// classifies it, and the co-located test's no-second-spelling case fails until the
+// entry here is deleted.
 //
 // THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated. That
 // module says so itself: the `run.subscribeState` projection carries no `sessionId`,

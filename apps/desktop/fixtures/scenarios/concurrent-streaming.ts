@@ -79,6 +79,8 @@ import type { Scenario } from "../scenario.js";
 import {
   type ScenarioAgent,
   composeOpeningEntry,
+  composeResolvedAgent,
+  composeScenarioInstant,
   findScenarioMember,
 } from "../data/opening-entries.js";
 
@@ -147,18 +149,21 @@ const CONCURRENT_STREAMING_AGENTS: readonly ScenarioAgent[] = [
     name: "Implementer",
     driverName: "claude",
     modelId: "claude-sonnet-5",
+    definitionId: "019b79ee-0280-7de1-8120-d1a4c1150022",
   },
   {
     agentId: AGENT_REVIEWER,
     name: "Reviewer",
     driverName: "codex",
     modelId: "gpt-5.6-sol",
+    definitionId: "019b79ee-0280-7de1-8130-d1a4c1150023",
   },
   {
     agentId: AGENT_SCOUT,
     name: "Scout",
     driverName: "codex",
     modelId: "gpt-5.4-mini",
+    definitionId: "019b79ee-0280-7de1-8140-d1a4c1150024",
   },
 ];
 
@@ -263,6 +268,11 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_IMPLEMENTER,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_IMPLEMENTER),
+      lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 400),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_IMPLEMENTER, {
@@ -286,6 +296,11 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_REVIEWER,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_REVIEWER),
+      lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 600),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_REVIEWER, {
@@ -305,6 +320,11 @@ const CONCURRENT_STREAMING_SCRIPT: readonly ScriptEntry[] = [
     runVersion: 1,
     newState: "queued",
     agentId: AGENT_SCOUT,
+    resolvedAgent: composeResolvedAgent({
+      agent: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_SCOUT),
+      lead: findScenarioMember(CONCURRENT_STREAMING_AGENTS, AGENT_ARCHITECT),
+      resolvedAt: composeScenarioInstant(startedAtMs, 750),
+    }),
     actorId: USER_YOU,
   }),
   lane.transition(RUN_SCOUT, {

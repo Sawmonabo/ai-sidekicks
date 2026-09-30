@@ -16,7 +16,7 @@ import {
 // this suite, and an entry export no production module imports is a dead export.
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
-import { leadCreatedBeat } from "./lead-created-beat.test-support.js";
+import { definitionAgentQueuedBeat, leadCreatedBeat } from "./agent-entry-beats.test-support.js";
 import {
   capabilityReadout as readout,
   declaredFlags,
@@ -134,25 +134,34 @@ describe("the session's own projection is what names a run's driver", () => {
     );
   }
 
-  it("gates the lead's run on the lead's own driver on a node running both", () => {
-    const claudeLed = foldRunDriverBindings(runsBoundTo([CLAUDE_RUN, LEAD_AGENT]), [
-      leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "claude" }),
-    ]);
-    const codexLed = foldRunDriverBindings(runsBoundTo([CODEX_RUN, LEAD_AGENT]), [
-      leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "codex" }),
-    ]);
-    const claudeCapabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), claudeLed);
-    const codexCapabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), codexLed);
+  it("gates each run on its own agent's driver in one session running both", () => {
+    // A Codex lead, and a Claude agent started from its saved definition by its run's
+    // creation. The Claude run is not the lead's, and its driver declared steer, so it
+    // is offered steer; the lead's Codex run is refused it by its own driver.
+    const bindings = foldRunDriverBindings(
+      runsBoundTo([CODEX_RUN, LEAD_AGENT], [CLAUDE_RUN, OTHER_AGENT]),
+      [
+        leadCreatedBeat({ sessionId: SESSION_ID, leadAgentId: LEAD_AGENT, driverName: "codex" }),
+        definitionAgentQueuedBeat({
+          sessionId: SESSION_ID,
+          runId: CLAUDE_RUN,
+          agentId: OTHER_AGENT,
+          leadAgentId: LEAD_AGENT,
+          driverName: "claude",
+        }),
+      ],
+    );
+    const capabilities = withRunDriverBindings(readout(BOTH_DRIVERS_INSTALLED), bindings);
 
     // The Codex run's own driver declared steer absent, which is a DECLARATION
     // rather than an absence of one — and the Claude run, whose driver declared it,
     // is offered it.
-    expect(readingForRun(codexCapabilities, CODEX_RUN, "steer")).toBe("undeclared");
-    expect(isControlOffered("steer", codexCapabilities, CODEX_RUN)).toBe(false);
-    expect(isControlOffered("steer", claudeCapabilities, CLAUDE_RUN)).toBe(true);
+    expect(readingForRun(capabilities, CODEX_RUN, "steer")).toBe("undeclared");
+    expect(isControlOffered("steer", capabilities, CODEX_RUN)).toBe(false);
+    expect(isControlOffered("steer", capabilities, CLAUDE_RUN)).toBe(true);
   });
 
-  it("withholds the control for a run whose agent the birth record does not name, and says which fact that is", () => {
+  it("withholds the control for a run whose agent no row brings into the session, and says which fact that is", () => {
     // Three answers and they are three different facts. This is `undefined` — the
     // console cannot say — and never the `false` the case above asserts, so a row
     // whose binding is unknown is never reported as a driver that declined.

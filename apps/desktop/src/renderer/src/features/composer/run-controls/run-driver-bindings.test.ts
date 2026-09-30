@@ -4,12 +4,11 @@
 // `driver.listCapabilities` names no run, so on a machine with both drivers
 // installed every run's gated controls depended on this join existing. The negative
 // controls are the halves that must contribute nothing rather than a default — a run
-// whose agent the session's birth record does not name, and a birth record that names
-// another session.
+// whose agent no row brings into the session, and a row that names another session.
 
 import { describe, expect, it } from "vitest";
 
-import { leadCreatedBeat } from "./lead-created-beat.test-support.js";
+import { definitionAgentQueuedBeat, leadCreatedBeat } from "./agent-entry-beats.test-support.js";
 import { foldRunDriverBindings } from "./run-driver-bindings.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 
@@ -17,6 +16,7 @@ const SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55a5";
 const OTHER_SESSION_ID = "019b7a33-3300-75e5-8510-ada11a5a55b6";
 const LEAD_AGENT_ID = "019b7a33-3300-7a6e-8110-d1a4c1150301";
 const OTHER_AGENT_ID = "019b7a33-3300-7a6e-8120-d1a4c1150302";
+const DEFINITION_RUN_ID = "019b7a33-3300-740e-8120-d1a4c1150312";
 
 /** One run row as the run partition holds it, with the agent its creation named. */
 function runBoundTo(runId: string, agentId: string | undefined): StoredEntity {
@@ -46,7 +46,40 @@ describe("the run-to-driver join", () => {
     expect(bindings.get("run-one")).toBe("codex");
   });
 
-  it("names nothing for a run whose agent the birth record does not name", () => {
+  it("names a run's driver through the agent its creation started from a saved definition", () => {
+    const bindings = foldRunDriverBindings(
+      partitionOf(runBoundTo(DEFINITION_RUN_ID, OTHER_AGENT_ID)),
+      [
+        CODEX_LEAD,
+        definitionAgentQueuedBeat({
+          sessionId: SESSION_ID,
+          runId: DEFINITION_RUN_ID,
+          agentId: OTHER_AGENT_ID,
+          leadAgentId: LEAD_AGENT_ID,
+          driverName: "claude",
+        }),
+      ],
+    );
+    expect(bindings.get(DEFINITION_RUN_ID)).toBe("claude");
+  });
+
+  it("negative control: a run's creation naming another session binds nothing", () => {
+    const strayBeat = definitionAgentQueuedBeat({
+      sessionId: SESSION_ID,
+      payloadSessionId: OTHER_SESSION_ID,
+      runId: DEFINITION_RUN_ID,
+      agentId: OTHER_AGENT_ID,
+      leadAgentId: LEAD_AGENT_ID,
+      driverName: "claude",
+    });
+    const bindings = foldRunDriverBindings(
+      partitionOf(runBoundTo(DEFINITION_RUN_ID, OTHER_AGENT_ID)),
+      [strayBeat],
+    );
+    expect(bindings.size).toBe(0);
+  });
+
+  it("names nothing for a run whose agent no row brings into the session", () => {
     const bindings = foldRunDriverBindings(partitionOf(runBoundTo("run-one", OTHER_AGENT_ID)), [
       CODEX_LEAD,
     ]);

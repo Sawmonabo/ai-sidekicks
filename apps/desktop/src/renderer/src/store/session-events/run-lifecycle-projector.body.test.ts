@@ -185,7 +185,7 @@ describe("the registered payload members the body carries", () => {
           newState: "queued",
           agentId: "agent-1",
           reachedBy: "provider_subagent",
-          effectiveRunConfig: { turnLimit: 8 },
+          effectiveRunConfig: { tokenLimit: 200_000 },
           admittedProviderAccountId: "provider-account-1",
         }),
       ),
@@ -194,7 +194,7 @@ describe("the registered payload members the body carries", () => {
       newState: "queued",
       agentId: "agent-1",
       reachedBy: "provider_subagent",
-      effectiveRunConfig: { turnLimit: 8 },
+      effectiveRunConfig: { tokenLimit: 200_000 },
       admittedProviderAccountId: "provider-account-1",
     });
   });
@@ -255,7 +255,7 @@ describe("the registered payload members the body carries", () => {
 
   it("negative control: no per-type member is a second spelling of a derived one", () => {
     // The gate on the two tables staying disjoint. The derived table is the two
-    // registered shapes' own key union, so the day a contracts shape declares
+    // stream shapes' own key union, so the day a stream shape declares
     // `reachedBy` — or any other member below — this case fails and the per-type
     // entry is deleted rather than left to shadow the derivation it duplicates.
     const derivedMembers = Object.keys(

@@ -11,7 +11,9 @@
 // an opening, because an opening is not a run's.
 
 import {
+  AgentListEntrySchema,
   SessionCreatedPayloadSchema,
+  type AgentListEntry,
   type SessionCreatedPayload,
   type SessionShape,
 } from "@ai-sidekicks/contracts";
@@ -31,6 +33,17 @@ export interface ScenarioAgent {
   readonly name: string;
   readonly driverName: string;
   readonly modelId: string;
+  /** The saved definition an agent other than the lead was started from. */
+  readonly definitionId?: string;
+}
+
+/** An agent started from its saved definition by a run's creation. */
+interface ResolvedAgentInput {
+  readonly agent: ScenarioAgent;
+  /** The session's lead, which heads every other agent's ancestry. */
+  readonly lead: ScenarioAgent;
+  /** The instant the run that starts the agent is created, as the ISO string a beat carries. */
+  readonly resolvedAt: string;
 }
 
 /** A session's birth: the room and the lead born with it. */
@@ -98,6 +111,43 @@ export function composeSessionCreatedPayload(input: SessionCreatedInput): Sessio
       createdAt: input.createdAt,
     },
     actor: input.openedBy,
+  });
+}
+
+/**
+ * The agent a `run.queued` beat brings into the session, as the live agent list names
+ * it, with the configuration it was resolved from.
+ *
+ * Parsed through the registered schema here for the reason the birth record is. The
+ * definition's own fields are the plainest a definition can hold (no posture, no tool
+ * list, no instructions, no goal), because no scenario reads them, and the binding
+ * resolved from it is the agent's own.
+ */
+export function composeResolvedAgent(input: ResolvedAgentInput): AgentListEntry {
+  const { agent } = input;
+  if (agent.definitionId === undefined) {
+    throw new RangeError(`agent ${agent.agentId} names no saved definition to be started from`);
+  }
+  const binding = {
+    driverName: agent.driverName,
+    modelId: agent.modelId,
+    providerAccountId: null,
+    effort: null,
+  };
+  return AgentListEntrySchema.parse({
+    agentId: agent.agentId,
+    name: agent.name,
+    binding,
+    resolvedConfiguration: {
+      resolvedFromDefinitionId: agent.definitionId,
+      resolvedBinding: binding,
+      executionPostureMode: null,
+      toolAllowlist: null,
+      instructions: "",
+      goal: null,
+    },
+    ancestry: [{ kind: "agent", agentId: input.lead.agentId }],
+    createdAt: input.resolvedAt,
   });
 }
 
