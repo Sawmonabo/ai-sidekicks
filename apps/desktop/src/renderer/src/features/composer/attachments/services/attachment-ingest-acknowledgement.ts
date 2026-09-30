@@ -9,7 +9,7 @@ import type { AttachmentIngestEntry } from "../attachment-shapes.js";
 
 /** Where this reading's tripwire reports from, so a firing names a module. */
 export const ATTACHMENT_ACKNOWLEDGEMENT_SITE =
-  "console/repos/attachments/attachment-ingest-acknowledgement.ts";
+  "features/composer/attachments/services/attachment-ingest-acknowledgement.ts";
 
 /**
  * Why the console stopped an ingest on the strength of the daemon's own reply. It is the

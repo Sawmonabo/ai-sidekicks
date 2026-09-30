@@ -14,7 +14,7 @@ const LINE_KIND_BY_PREFIX: Readonly<Record<string, DiffLineKind>> = {
 };
 
 /** What a tripwire report from this module names as the site it fired at. */
-const HUNK_LINES_SITE = "console/repos/diff-pane/hunk-lines.ts";
+const HUNK_LINES_SITE = "features/repos/diff/hunk-lines.ts";
 
 /**
  * The prefix the unified format reserves for its one annotation. The prefix is read, not
