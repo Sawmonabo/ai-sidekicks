@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "type": "module",
   "license": "Apache-2.0",
-  "description": "The one fuzzy scorer the desktop's label searches and the daemon's file search rank with.",
+  "description": "The product's one fuzzy matcher: scores a query as a case-insensitive subsequence of a candidate and returns the matched positions.",
   "engines": {
     "node": ">=24.16.0"
   },
