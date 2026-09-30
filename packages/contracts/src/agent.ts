@@ -55,6 +55,7 @@ import {
   type MethodDescriptor,
   type SubscriptionMethodDescriptor,
 } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { DRIVER_TOOL_NAME_MAX_LEN, RunIdSchema, type RunId } from "./provider-driver.js";
 import { DRIVER_WIRE_HANDLE_MAX_LEN, DRIVER_WIRE_TOKEN_MAX_LEN } from "./provider-driver-wire.js";
 import {
@@ -185,7 +186,7 @@ const switchMemberSchema = (label: string): z.ZodString =>
  */
 export interface AgentConfigUpdateRequest {
   agentId: AgentId;
-  driverName?: string | undefined;
+  driverName?: ProviderName | undefined;
   modelId?: string | undefined;
   effort?: string | undefined;
   outputSpeed?: string | undefined;
@@ -198,7 +199,7 @@ export const AgentConfigUpdateRequestSchema: z.ZodType<
 > = z
   .object({
     agentId: AgentIdSchema,
-    driverName: switchMemberSchema("driverName").optional(),
+    driverName: ProviderNameSchema.optional(),
     modelId: switchMemberSchema("modelId").optional(),
     effort: switchMemberSchema("effort").optional(),
     outputSpeed: switchMemberSchema("outputSpeed").optional(),

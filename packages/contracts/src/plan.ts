@@ -13,6 +13,7 @@ import { z } from "zod";
 import { brandedUuidIdSchema } from "./internal/branded.js";
 import type { MethodDescriptor } from "./method-descriptor.js";
 import { defineMethodDescriptors } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import { RunIdSchema, type RunId } from "./provider-driver.js";
 import { FILE_PATH_MAX_LEN, SessionIdSchema, type SessionId } from "./session.js";
 import { ExecutionPostureModeSchema, type ExecutionPostureMode } from "./session-controls.js";
@@ -106,7 +107,7 @@ export const PlanHandedOffPayloadSchema: z.ZodType<PlanHandedOffPayload> = z
  * never looser.
  */
 export interface PlanFreshSession {
-  driverName: string;
+  driverName: ProviderName;
   level: ExecutionPostureMode;
 }
 
@@ -122,7 +123,7 @@ export const PlanResolveRequestSchema: z.ZodType<PlanResolveRequest, PlanResolve
     planId: PlanIdSchema,
     verdict: PlanVerdictSchema,
     fresh: z
-      .object({ driverName: z.string().min(1), level: ExecutionPostureModeSchema })
+      .object({ driverName: ProviderNameSchema, level: ExecutionPostureModeSchema })
       .strict()
       .optional(),
   })

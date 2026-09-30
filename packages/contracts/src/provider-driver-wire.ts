@@ -2,6 +2,7 @@
 
 import { z } from "zod";
 import { defineMethodDescriptors, type MethodDescriptor } from "./method-descriptor.js";
+import { ProviderNameSchema, type ProviderName } from "./provider-account.js";
 import {
   DriverCompactionResultSchema,
   ProviderCommandEntrySchema,
@@ -165,7 +166,7 @@ export const DriverCapabilitiesSchema: z.ZodType<DriverCapabilities, DriverCapab
  * own tool names in its own words; every driver has them, so the member is required).
  */
 export interface DriverCapabilityReport {
-  driverName: string;
+  driverName: ProviderName;
   capabilities: DriverCapabilities;
   outputSpeedLevels?: string[] | undefined;
   builtInTools: string[];
@@ -177,9 +178,7 @@ export interface ListCapabilitiesResult {
 }
 
 /**
- * Validates a {@link DriverCapabilityReport}. `driverName` is only `.min(1)`: it is the daemon's
- * own registry key (`"claude"`, `"codex"`) quoted back on a reply, so an empty one is a
- * composition bug and nothing else about it is known here. That `outputSpeedLevels` is present iff
+ * Validates a {@link DriverCapabilityReport}. That `outputSpeedLevels` is present iff
  * `output_speed` is true is enforced by the daemon's cache at composition time, not here (absence
  * is also the shape for every driver whose flag is false); the schema enforces that a present
  * member is a bounded array of bounded tokens.
@@ -189,7 +188,7 @@ export const DriverCapabilityReportSchema: z.ZodType<
   DriverCapabilityReport
 > = z
   .object({
-    driverName: z.string().min(1),
+    driverName: ProviderNameSchema,
     capabilities: DriverCapabilitiesSchema,
     outputSpeedLevels: z
       .array(
@@ -243,7 +242,7 @@ export const ProviderModeSchema: z.ZodType<ProviderMode, ProviderMode> = z
 
 /** One driver's models in the `listModels` reply. */
 export interface DriverModelReport {
-  driverName: string;
+  driverName: ProviderName;
   models: ProviderModel[];
 }
 
@@ -255,7 +254,7 @@ export interface ListModelsResult {
 /** Validates a {@link DriverModelReport}. */
 export const DriverModelReportSchema: z.ZodType<DriverModelReport, DriverModelReport> = z
   .object({
-    driverName: z.string().min(1),
+    driverName: ProviderNameSchema,
     models: z.array(ProviderModelSchema).max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
   })
   .strict();
@@ -267,7 +266,7 @@ export const ListModelsResultSchema: z.ZodType<ListModelsResult, ListModelsResul
 
 /** One driver's modes in the `listModes` reply. */
 export interface DriverModeReport {
-  driverName: string;
+  driverName: ProviderName;
   modes: ProviderMode[];
 }
 
@@ -279,7 +278,7 @@ export interface ListModesResult {
 /** Validates a {@link DriverModeReport}. */
 export const DriverModeReportSchema: z.ZodType<DriverModeReport, DriverModeReport> = z
   .object({
-    driverName: z.string().min(1),
+    driverName: ProviderNameSchema,
     modes: z.array(ProviderModeSchema).max(DRIVER_WIRE_CATALOG_ENTRIES_MAX),
   })
   .strict();
@@ -456,7 +455,7 @@ export const ProviderCommandBindingGroupSchema: z.ZodType<
     runId: RunIdSchema.nullable(),
     binding: z
       .object({
-        driverName: z.string().min(1),
+        driverName: ProviderNameSchema,
         providerAccountId: z.string().min(1).nullable(),
       })
       .strict(),

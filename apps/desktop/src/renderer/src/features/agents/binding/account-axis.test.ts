@@ -34,7 +34,7 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("refuses a driver it cannot match to a provider rather than offering another provider's accounts", () => {
-    // `driverName` is a bare wire string and provider is a closed set; falling through to a
+    // The form's `driverName` is a free string and provider is a closed set; falling through to a
     // list would pin a run to an account of a provider nobody chose.
     const reading = accountAxisReadingFor(served([account()]), "gemini");
 

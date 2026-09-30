@@ -31,7 +31,7 @@ const LEAD = {
   agentId: "01970000-0000-7000-8000-00000000b001" as AgentId,
   name: "Implementer",
   binding: {
-    driverName: "claude",
+    driverName: "claude" as const,
     modelId: "claude-opus-4-5",
     providerAccountId: null,
     effort: "high",

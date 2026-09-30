@@ -137,8 +137,8 @@ export function registryCarriesAccount(reading: AccountAxisReading, accountId: s
 }
 
 /**
- * The provider a driver name speaks for, or `undefined`. The one place the wire's bare
- * driver string is narrowed to the contract's closed provider set.
+ * The provider a driver name speaks for, or `undefined`. The one place the form's driver
+ * string is narrowed to the contract's closed provider set.
  */
 function providerForDriver(driverName: string | undefined): ProviderName | undefined {
   return driverName === undefined
