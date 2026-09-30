@@ -13,8 +13,7 @@
 // ever mounts to grow it back.
 //
 // These cases assert the sheet, not a composition: the two class names under the real
-// stylesheet in the two child arrangements that ship (one in-flow child and two). The
-// pane-level measurement is `pane-layout-pane-fill.test.tsx`'s.
+// stylesheet in the two child arrangements that ship (one in-flow child and two).
 
 import { describe, expect, it } from "vitest";
 

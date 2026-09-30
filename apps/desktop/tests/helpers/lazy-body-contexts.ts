@@ -1,11 +1,10 @@
 // The synthetic contexts and the controllable loader every loader-form case is written over.
 //
-// One home because the pane registry's and screen registry's `lazy-body` suites and
-// `tests/browser/app-harness.test.tsx` all need a context the fallback can render from and a
-// promise the case decides when to settle. The contexts are casts on purpose: a loader-form case
-// reads only what the reserved region reads (the pane's `kind` and `sessionStore`, and the route
-// kind a pending screen names), and building a bridge and stores to reach those would be a
-// fixture proving the fixture.
+// One home because the pane registry's and screen registry's `lazy-body` suites all need a context
+// the fallback can render from and a promise the case decides when to settle. The contexts are
+// casts on purpose: a loader-form case reads only what the reserved region reads (the pane's `kind`
+// and `sessionStore`, and the route kind a pending screen names), and building a bridge and stores
+// to reach those would be a fixture proving the fixture.
 
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";

@@ -10,8 +10,7 @@
 // signals readiness (the document `load` event, then the console's frame element); everything
 // before that is charged to the cold-start budget and this witness bounds the interval after it.
 //
-// The frame source is a constructor argument so that interval is testable without Electron
-// (`frame-paint-probe.test.ts`).
+// The frame source is a constructor argument, so the interval does not depend on Electron.
 
 import { FRAME_PAINT_PROBE_TIMEOUT_MS } from "./launch-budgets.js";
 
@@ -82,7 +81,7 @@ export class FramePaintProbe {
     // Racing, not only bounding, keeps an abandoned probe handled: `Promise.race` calls `then` on
     // both promises. When the budget wins and the caller closes the application, the late
     // rejection then cannot fail the tier. A rejection before the budget expires still
-    // propagates, so a crashed renderer reports as a crash. `frame-paint-probe.test.ts` pins it.
+    // propagates, so a crashed renderer reports as a crash.
     try {
       const frameIntervalMs = await Promise.race([framesDelivered, budgetExpired]);
       const waitedMs = Date.now() - startedAt;

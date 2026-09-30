@@ -1,7 +1,6 @@
 // The command line one console launch is given, and the graphics stack it names.
 //
-// Split out of `electron-harness.ts` so the array's contents can be checked without starting
-// Electron (`launch-args.test.ts`). Every switch the harness passes is decided here.
+// Every switch the harness passes is decided here.
 //
 // The harness supplies the graphics stack, not the CI job: `_electron.launch` takes an executable
 // path, not a shell command, so no `xvfb-run`-style wrapper can inject switches, and the job's
