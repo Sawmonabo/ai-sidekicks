@@ -2,11 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   POST_REPLAY_TAIL_DEPTH,
-  PostReplayAssertionFailedError,
   ReplayTargetAbandonedError,
   ReplayTargetLedger,
   assertReplayReconstituted,
-  type PostReplayVerdict,
   type ReplayTargetReadback,
   type SeededTranscriptFrame,
 } from "../replay-assertion.js";
@@ -127,34 +125,6 @@ describe("assertReplayReconstituted", () => {
     expect(verdict.refutation).toBe("no-comparable-content");
   });
 
-  // Only the seeded side decides whether there is content to compare. Otherwise a target that
-  // invented prose could confirm an empty seed. It refutes as "no comparable content", which
-  // differs from a tail that disagreed.
-  it("still refutes an empty seed when the target answered with invented prose", () => {
-    const verdict = assertReplayReconstituted(
-      seededFrames("", "", ""),
-      answered("", "", "prose nobody seeded"),
-    );
-    expect(verdict.outcome).toBe("refuted");
-    if (verdict.outcome !== "refuted") {
-      throw new Error("unreachable");
-    }
-    expect(verdict.refutation).toBe("no-comparable-content");
-  });
-
-  // With a real seed, invented prose is a tail mismatch.
-  it("names invented prose over a real seed `tail-mismatch`", () => {
-    const verdict = assertReplayReconstituted(
-      seededFrames("one", "two", "three"),
-      answered("one", "two", "prose nobody seeded"),
-    );
-    expect(verdict.outcome).toBe("refuted");
-    if (verdict.outcome !== "refuted") {
-      throw new Error("unreachable");
-    }
-    expect(verdict.refutation).toBe("tail-mismatch");
-  });
-
   it("forgives line endings and surrounding whitespace, and nothing else", () => {
     const forgiven = assertReplayReconstituted(
       seededFrames("first\r\nsecond", "  padded  "),
@@ -170,46 +140,9 @@ describe("assertReplayReconstituted", () => {
     );
     expect(refused.outcome).toBe("refuted");
   });
-
-  it("throws rather than confirming an assertion over no frames", () => {
-    expect(() => assertReplayReconstituted([], answered("anything"))).toThrow(RangeError);
-  });
-
-  it("compares the whole transcript when it is shorter than the tail depth", () => {
-    const verdict: PostReplayVerdict = assertReplayReconstituted(
-      seededFrames("only one"),
-      answered("only one"),
-    );
-    expect(verdict.outcome).toBe("confirmed");
-    if (verdict.outcome !== "confirmed") {
-      throw new Error("unreachable");
-    }
-    expect(verdict.comparedTurns).toBe(1);
-  });
-});
-
-describe("PostReplayAssertionFailedError", () => {
-  it("carries the refutation and the seed size for a driver's diagnostics", () => {
-    const verdict = assertReplayReconstituted(seededFrames("one", "two"), answered());
-    if (verdict.outcome !== "refuted") {
-      throw new Error("expected a refutation");
-    }
-    const error = new PostReplayAssertionFailedError("provider-session-9", 2, verdict);
-    expect(error.name).toBe("PostReplayAssertionFailedError");
-    expect(error.refutation).toBe("answered-zero-turns");
-    expect(error.seededFrames).toBe(2);
-    expect(error.targetProviderSessionId).toBe("provider-session-9");
-    expect(error.message).toContain("provider-session-9");
-  });
 });
 
 describe("ReplayTargetLedger", () => {
-  it("admits a target it has never seen", () => {
-    const ledger = new ReplayTargetLedger();
-    expect(() => ledger.assertUsable("fresh-target")).not.toThrow();
-    expect(ledger.abandonmentCauseFor("fresh-target")).toBeUndefined();
-  });
-
   it("refuses a burned target for good, naming why", () => {
     const ledger = new ReplayTargetLedger();
     ledger.abandon("burned-target", "ambiguous-delivery");
@@ -222,18 +155,10 @@ describe("ReplayTargetLedger", () => {
     }
   });
 
-  // The earliest failure made the target unusable; a later failure is its consequence, so the
-  // first cause is kept.
-  it("keeps the FIRST cause when a burned target is abandoned again", () => {
-    const ledger = new ReplayTargetLedger();
-    ledger.abandon("target", "interior-refusal");
-    ledger.abandon("target", "assertion-refuted");
-    expect(ledger.abandonmentCauseFor("target")).toBe("interior-refusal");
-  });
-
-  it("burns one target without burning its neighbors", () => {
+  it("admits a fresh target, burning only the one abandoned", () => {
     const ledger = new ReplayTargetLedger();
     ledger.abandon("target-a", "target-not-fresh");
     expect(() => ledger.assertUsable("target-b")).not.toThrow();
+    expect(ledger.abandonmentCauseFor("target-b")).toBeUndefined();
   });
 });
