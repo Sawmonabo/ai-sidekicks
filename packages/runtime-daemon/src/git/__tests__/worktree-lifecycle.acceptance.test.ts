@@ -78,7 +78,8 @@ import {
   WorktreeReuseConflictError,
 } from "../worktree-errors.js";
 import { WorktreeEventEmitter } from "../worktree-event-emitter.js";
-import { WorktreeService, deriveWorktreeBranchName } from "../worktree-service.js";
+import { WorktreeService } from "../worktree-service.js";
+import { deriveWorktreeBranchName } from "../worktree-branch-name.js";
 
 // ----------------------------------------------------------------------------
 // Constants

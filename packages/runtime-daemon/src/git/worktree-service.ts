@@ -12,12 +12,8 @@
 //     `worktree.create_failed`, not a collision, and `suffix` cannot advance. A second arbiter
 //     would race, and git's stderr has paths.
 
-import { execFile } from "node:child_process";
-import { mkdir, rm } from "node:fs/promises";
 import { join } from "node:path";
-
 import type { Database, Statement } from "better-sqlite3";
-
 import {
   WORKTREE_GIT_REF_MAX_LEN,
   WorktreeIdSchema,
@@ -25,13 +21,7 @@ import {
   type WorktreeRetireResponse,
   type WorktreeState,
 } from "@ai-sidekicks/contracts";
-
 import { RepoMountNotFoundError } from "../workspace/repo-errors.js";
-import {
-  DEFAULT_GIT_EXECUTABLE,
-  DISCOVERY_REDIRECTING_GIT_ENV_KEYS,
-} from "../workspace/repo-root-resolver.js";
-
 import {
   WorktreeBranchCollisionError,
   WorktreeCreateFailedError,
@@ -41,36 +31,16 @@ import {
 } from "./worktree-errors.js";
 import type { WorktreeEventEmitter } from "./worktree-event-emitter.js";
 import { mintUuidV7 } from "../ids/uuid-v7.js";
-
-/** Captured stdio from one completed git invocation. */
-export interface WorktreeGitInvocationResult {
-  readonly stdout: string;
-  readonly stderr: string;
-}
-
-/** Per-invocation bounds. */
-interface WorktreeGitInvocationOptions {
-  /** Wall-clock ceiling; the child is killed past it. */
-  readonly timeoutMs: number;
-}
-
-/**
- * The git process seam: takes the complete argv (including `-C <dir>`) and no working directory.
- * Rejections are opaque, since git `stderr` is exactly what the typed errors must not carry.
- */
-export type WorktreeGitRunner = (
-  argv: readonly string[],
-  options: WorktreeGitInvocationOptions,
-) => Promise<WorktreeGitInvocationResult>;
-
-/**
- * Two idempotent verbs: create tolerates an existing directory, remove a missing one. The sweep
- * retries removal until `cleaned_at` is stamped, so the tolerance is load-bearing.
- */
-export interface WorktreeFilesystem {
-  createDirectory(path: string): Promise<void>;
-  removeDirectory(path: string): Promise<void>;
-}
+import {
+  DEFAULT_WORKTREE_FILESYSTEM,
+  DEFAULT_WORKTREE_GIT_TIMEOUT_MS,
+  HOOK_NEUTRALIZATION_SEGMENT,
+  runGitWithExecFile,
+  type WorktreeFilesystem,
+  type WorktreeGitInvocationResult,
+  type WorktreeGitRunner,
+} from "./worktree-git.js";
+import { MAX_BRANCH_NAME_ORDINAL } from "./worktree-branch-name.js";
 
 /** Dependencies of {@link WorktreeService}; only the first three are required. */
 export interface WorktreeServiceDeps {
@@ -178,36 +148,7 @@ export interface WorktreeCleanupPassResult {
   readonly cleanedWorktreeIds: readonly string[];
 }
 
-/** Inputs for {@link deriveWorktreeBranchName}. */
-export interface WorktreeBranchNameInput {
-  /** The session whose last 8 hex digits form the `<session-short-id>` segment. */
-  readonly sessionId: string;
-  /** The run behind the `run-<run-short-id>` fallback; `null` when there is none. */
-  readonly runId: string | null;
-  /** The queue-item summary, the preferred `<task-slug>` source. */
-  readonly taskSummary?: string | null;
-}
-
 const WORKTREE_ROOTS_SEGMENT = "worktrees";
-
-// A dotted sibling of the per-mount root directories, so it can never collide with a mount id.
-const HOOK_NEUTRALIZATION_SEGMENT = ".hook-neutralization";
-
-const DERIVED_BRANCH_NAME_PREFIX = "sidekicks";
-const SHORT_ID_LENGTH = 8;
-const TASK_SLUG_MAX_LENGTH = 40;
-
-// Suffixes run `-2` to `-100`; past that the daemon is looping on an unresolvable condition, and a
-// typed `branch_name_unavailable` beats an endless retry.
-const MAX_BRANCH_NAME_ORDINAL = 100;
-
-// Well above `DEFAULT_GIT_COMMAND_TIMEOUT_MS`: `worktree add` materializes a full checkout, and 10
-// seconds would kill a healthy provisioning on a large repository.
-const DEFAULT_WORKTREE_GIT_TIMEOUT_MS = 120_000;
-
-// Only `status --porcelain` can approach it; an overflow rejects and the cleanliness path refuses,
-// which fails closed.
-const GIT_STDIO_MAX_BUFFER_BYTES = 8 * 1024 * 1024;
 
 // Spelled to match `idx_worktrees_active_branch` exactly, so "live" reads agree with the arbiter.
 const LIVE_WORKTREE_STATE_PREDICATE = "worktrees.state NOT IN ('retired', 'failed')";
@@ -316,124 +257,6 @@ interface WorktreeMaterialization {
   readonly branchName: string;
   readonly baseRef: string;
 }
-
-/**
- * The default branch name `sidekicks/<session-short-id>/<task-slug>`: the slug is the summary
- * lowercased, non-alphanumeric runs collapsed to `-`, cut to 40 characters at a `-` boundary, or
- * `run-<run-short-id>` without one. Throws `branch_name_underivable` when neither exists.
- */
-export function deriveWorktreeBranchName(input: WorktreeBranchNameInput): string {
-  const taskSlug = slugifyTaskSummary(input.taskSummary ?? null) ?? runFallbackSlug(input.runId);
-  if (taskSlug === null) {
-    throw new WorktreeCreateFailedError("branch_name_underivable");
-  }
-  return `${DERIVED_BRANCH_NAME_PREFIX}/${shortId(input.sessionId)}/${taskSlug}`;
-}
-
-/** The last 8 hex digits, hyphens stripped: a v7 id's random tail, so the handle keeps entropy. */
-function shortId(identifier: string): string {
-  return identifier.replace(/-/g, "").slice(-SHORT_ID_LENGTH).toLowerCase();
-}
-
-/** The `run-<short-id>` slug, or `null` when there is no run id. */
-function runFallbackSlug(runId: string | null): string | null {
-  if (runId === null || runId.length === 0) {
-    return null;
-  }
-  return `run-${shortId(runId)}`;
-}
-
-/**
- * ASCII alphanumerics only: the slug must round-trip across platforms whose normalization and
- * case folding differ, so a non-ASCII letter is a separator, not transliterated.
- */
-function slugifyTaskSummary(taskSummary: string | null): string | null {
-  if (taskSummary === null) {
-    return null;
-  }
-  const collapsed = taskSummary
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+/, "")
-    .replace(/-+$/, "");
-  if (collapsed.length === 0) {
-    return null;
-  }
-  return truncateSlugAtBoundary(collapsed, TASK_SLUG_MAX_LENGTH);
-}
-
-/** Truncates at a `-` boundary so the tail is not a half-word; without one, cuts hard. */
-function truncateSlugAtBoundary(slug: string, maxLength: number): string {
-  if (slug.length <= maxLength) {
-    return slug;
-  }
-  const clipped = slug.slice(0, maxLength);
-  if (slug.charAt(maxLength) === "-") {
-    return clipped;
-  }
-  const lastBoundary = clipped.lastIndexOf("-");
-  if (lastBoundary <= 0) {
-    return clipped;
-  }
-  return clipped.slice(0, lastBoundary);
-}
-
-// Imported from the resolver: two copies of this security list would drift.
-const DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED = new Set(
-  DISCOVERY_REDIRECTING_GIT_ENV_KEYS.map((key) => key.toUpperCase()),
-);
-
-/** The environment for every git call, read at call time so a mutated environment is followed. */
-function buildWorktreeGitEnvironment(): NodeJS.ProcessEnv {
-  const environment: NodeJS.ProcessEnv = {};
-  for (const [key, value] of Object.entries(process.env)) {
-    if (DISCOVERY_REDIRECTING_GIT_ENV_KEYS_UPPERCASED.has(key.toUpperCase())) {
-      continue;
-    }
-    environment[key] = value;
-  }
-  environment["LC_ALL"] = "C";
-  environment["LANG"] = "C";
-  // Defense in depth: a git that prompted would block on a terminal the daemon lacks.
-  environment["GIT_TERMINAL_PROMPT"] = "0";
-  return environment;
-}
-
-/** `execFile` with an argv array, never a shell string. */
-function runGitWithExecFile(
-  argv: readonly string[],
-  options: WorktreeGitInvocationOptions,
-): Promise<WorktreeGitInvocationResult> {
-  return new Promise<WorktreeGitInvocationResult>((resolve, reject) => {
-    execFile(
-      DEFAULT_GIT_EXECUTABLE,
-      [...argv],
-      {
-        encoding: "utf8",
-        timeout: options.timeoutMs,
-        maxBuffer: GIT_STDIO_MAX_BUFFER_BYTES,
-        env: buildWorktreeGitEnvironment(),
-        windowsHide: true,
-      },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(Object.assign(error, { stdout, stderr }));
-          return;
-        }
-        resolve({ stdout, stderr });
-      },
-    );
-  });
-}
-
-const DEFAULT_WORKTREE_FILESYSTEM: WorktreeFilesystem = {
-  async createDirectory(path: string): Promise<void> {
-    await mkdir(path, { recursive: true });
-  },
-  async removeDirectory(path: string): Promise<void> {
-    await rm(path, { recursive: true, force: true });
-  },
-};
 
 /**
  * Owns every `worktrees` transition and worktree-scoped git call. Each `UPDATE` carries its

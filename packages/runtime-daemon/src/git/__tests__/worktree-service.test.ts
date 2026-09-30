@@ -44,15 +44,18 @@ import {
   WorktreeReuseConflictError,
 } from "../worktree-errors.js";
 import type { WorktreeCreateFailureReason } from "../worktree-errors.js";
-import { WorktreeService, deriveWorktreeBranchName } from "../worktree-service.js";
+import { WorktreeService } from "../worktree-service.js";
+import { deriveWorktreeBranchName } from "../worktree-branch-name.js";
 import type {
   CreateWorktreeInput,
   CreatedWorktree,
+  WorktreeServiceDeps,
+} from "../worktree-service.js";
+import type {
   WorktreeFilesystem,
   WorktreeGitInvocationResult,
   WorktreeGitRunner,
-  WorktreeServiceDeps,
-} from "../worktree-service.js";
+} from "../worktree-git.js";
 
 // ----------------------------------------------------------------------------
 // Fixtures

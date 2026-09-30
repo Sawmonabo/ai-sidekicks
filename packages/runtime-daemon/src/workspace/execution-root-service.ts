@@ -28,8 +28,8 @@ import {
   WorkspaceBranchNameRequiredError,
   WorktreeReuseConflictError,
 } from "../git/worktree-errors.js";
+import { deriveWorktreeBranchName } from "../git/worktree-branch-name.js";
 import {
-  deriveWorktreeBranchName,
   type CreateWorktreeInput,
   type CreatedWorktree,
   type ReusableWorktreeCandidate,
