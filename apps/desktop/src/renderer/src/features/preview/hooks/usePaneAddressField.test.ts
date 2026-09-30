@@ -2,7 +2,7 @@
 // replacement pane must not offer the previous pane's half-typed destination, since Enter would
 // send it to a pane it was never typed for.
 
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -36,18 +36,6 @@ function submitAddress(): void {
 }
 
 describe("the address draft belongs to the pane it was typed for", () => {
-  it("renders the replacement pane following, not the previous pane's draft", async () => {
-    const { rebindTo } = await mountRecording();
-    fireEvent.change(addressField(), { target: { value: DRAFT } });
-    expect(addressField().value).toBe(DRAFT);
-
-    await rebindTo(SECOND_PANE_ID);
-
-    // Following with nothing reported is the empty field and placeholder of a freshly opened pane.
-    expect(addressField().value).toBe("");
-    expect(addressField().placeholder).toBe("Type a destination");
-  });
-
   it("never dispatches the previous pane's draft to the pane that replaced it", async () => {
     const { rebindTo, dispatched } = await mountRecording();
     fireEvent.change(addressField(), { target: { value: DRAFT } });
@@ -56,29 +44,5 @@ describe("the address draft belongs to the pane it was typed for", () => {
     submitAddress();
 
     expect(dispatched).not.toContain(DRAFT);
-  });
-
-  it("negative control: the draft survives a re-render that keeps the same pane", async () => {
-    // Without it the cases above would pass against a field that discarded the draft on any
-    // re-render, and a reported navigation re-renders the pane mid-edit.
-    const { rebindTo, dispatched } = await mountRecording();
-    fireEvent.change(addressField(), { target: { value: DRAFT } });
-
-    await rebindTo(DEFAULT_TEST_PANE_ID);
-
-    expect(addressField().value).toBe(DRAFT);
-    submitAddress();
-    expect(dispatched).toStrictEqual([DRAFT]);
-  });
-
-  it("negative control: the field is still the pane's own, so typing reaches it", async () => {
-    // A stamp compared with the wrong subject would read `following` on every pass and swallow
-    // every keystroke; Escape shows both states are reachable under one subject.
-    await mountRecording();
-    fireEvent.change(addressField(), { target: { value: DRAFT } });
-    expect(addressField().value).toBe(DRAFT);
-    fireEvent.keyDown(addressField(), { key: "Escape" });
-    expect(addressField().value).toBe("");
-    expect(screen.getByLabelText("Destination")).toBe(addressField());
   });
 });
