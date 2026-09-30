@@ -82,7 +82,7 @@ const CODEX_CAPABILITY_DETECTION_TABLE: DriverCapabilityDetectionTable = Object.
     detectionSource: "static",
     failingConjuncts: ["decisive-at-consumption-granularity"],
     rationale:
-      "Daemon-registered tools reach the model through turn construction and return over the tool-call surface; no client-request method names the capability, so the enumeration cannot decide it.",
+      "Delivered as the daemon's per-session MCP url entry, never as a thread's dynamic tools. The capability is the daemon's to deliver, so no provider answer decides it.",
   },
   subagents: {
     detectionSource: "static",

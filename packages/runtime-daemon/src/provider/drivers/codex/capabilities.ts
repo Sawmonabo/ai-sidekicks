@@ -65,7 +65,7 @@ export const CODEX_CAPABILITY_FLAGS: Readonly<Record<DriverCapabilityFlag, boole
     rollback: true,
     // Durable per-thread goal set/clear operations exist on the wire.
     session_goals: true,
-    // Daemon-registered tools can be surfaced to the model and dispatched back for execution.
+    // The daemon's tools reach the model through its per-session MCP `url` entry.
     callback_tools: true,
     // Peer agents can be spawned, messaged, and closed from within a turn.
     subagents: true,
