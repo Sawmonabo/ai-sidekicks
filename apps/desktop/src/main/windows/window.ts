@@ -1,64 +1,25 @@
-// `BrowserWindow` factories for the Electron main process.
+// `BrowserWindow` factories for the main process. One private function,
+// `constructLockedWindow`, owns the `webPreferences` literal, so the build-time assertion
+// (`apps/desktop/build/assert-webprefs.ts`) covers every window through one block and requires
+// that block to appear exactly once. Any drift fails `pnpm build`, which makes
+// `nodeIntegration: true` or `sandbox: false` a build error rather than a shipped one.
 //
-// One private function, `constructLockedWindow`, owns the `webPreferences`
-// literal — the hardening lock-in — so the build-time assertion
-// (`apps/desktop/build/assert-webprefs.ts`) covers every window through a single
-// block, and asserts that block appears EXACTLY ONCE so a second factory cannot
-// smuggle in a second, unchecked one.
-// Any drift fails `pnpm build` before the bundle ships. That assertion is what
-// makes `nodeIntegration: true` or `sandbox: false` in any window a build-time
-// error rather than a shipped one.
+// The window is served over `sidekicks-renderer://`, never `file://`, because the hardening
+// baseline disables the `GrantFileProtocolExtraPrivileges` fuse (`../services/renderer-protocol.ts`
+// registers the scheme). Navigation policy lives in `./navigation.ts` and load recovery in
+// `./window-load-failure.ts`; this file is construction, the document-URL resolution, and the
+// load ordering.
 //
-// The window is served over `sidekicks-renderer://`, never `file://`, because
-// the hardening baseline disables the `GrantFileProtocolExtraPrivileges` fuse —
-// see `./protocol.ts` for the scheme registration and the handler.
+// The preload path uses `import.meta.dirname`, not a `__dirname` reconstruction: electron-vite's
+// `esmShim` plugin injects `const __filename`/`__dirname` into ESM bundles when it sees those
+// tokens in user code, and a second declaration in this file collides with it as
+// `SyntaxError: Identifier '__filename' has already been declared` at boot (verified
+// empirically).
 //
-// Two neighbors own the rest of a window's life, split by role rather than
-// by size: `./navigation.ts` (which navigations are admitted) and
-// `./window-load-failure.ts` (what a window does when its document will not
-// load). What stays here is construction: the one locked `webPreferences`
-// literal, the one document-URL resolution, and the load ordering.
-//
-// Preload path: resolved relative to `import.meta.dirname` so the factory
-// works under the `electron-vite build` output layout (`out/main/index.js`
-// → `out/preload/index.cjs`).
-//
-// Why `import.meta.dirname` and NOT a `__dirname` reconstruction:
-//   The build pipeline swapped from `tsc -b` to `electron-vite build`
-//   (electron-vite v5). electron-vite's `esmShim` plugin
-//   (chunks/lib-q6ns0vZr.js line 812:
-//   `const CJSShim = supportImportMetaPaths() ? CJSShim_node_20_11 : CJSShim_normal;`)
-//   auto-injects a CommonJS shim into ESM-target bundles whenever it
-//   detects a `__filename` / `__dirname` / `require(` token in user code
-//   (lines 786 + 818-819: `CJSyntaxRe = /__filename|__dirname|require\(|require\.resolve\(/`
-//   tested in `renderChunk`). The shim variant is gated on
-//   `supportImportMetaPaths()` (lines 137-139: `parseInt(majorVer) >= 30`,
-//   reading the bundled Electron major version). We target Electron 44, so the
-//   active shim is `CJSShim_node_20_11` (lines 796-802):
-//
-//     const __filename = import.meta.filename;
-//     const __dirname  = import.meta.dirname;
-//     const require    = __cjs_mod__.createRequire(import.meta.url);
-//
-//   On Electron < 30 the plugin falls back to `CJSShim_normal` (lines
-//   787-795), which derives `__filename` from `fileURLToPath(import.meta.url)`
-//   instead — equivalent semantics, slightly older Node target.
-//
-//   In either branch, if THIS file ALSO declared `const __filename = …`
-//   at module scope, the two would collide as `SyntaxError: Identifier
-//   '__filename' has already been declared` at app boot (verified
-//   empirically). Sticking to `import.meta.dirname` directly keeps the source
-//   bundler-agnostic and avoids triggering the shim's `CJSyntaxRe` detection
-//   altogether.
-//
-// Why `.cjs` (not `.js`) for the preload filename:
-//   Electron's sandboxed preload runtime (`sandbox: true` below) ONLY
-//   supports CommonJS — verified empirically on Electron 41.6.1 and still
-//   true on the 44.x pin: an ESM preload fails to register with
-//   `"SyntaxError: Cannot use import statement outside a module"`. The explicit
-//   `.cjs` extension overrides the package-level `"type": "module"` so Node
-//   loads the file as CJS regardless of the package field. See
-//   `electron.vite.config.ts` header.
+// The preload is `.cjs`, not `.js`: Electron's sandboxed preload runtime (`sandbox: true`
+// below) supports only CommonJS (verified on Electron 41.6.1 and the 44.x pin; an ESM preload
+// fails with `SyntaxError: Cannot use import statement outside a module`), and the extension
+// overrides the package's `"type": "module"`.
 
 import { app, BrowserWindow } from "electron";
 import path from "node:path";
@@ -79,14 +40,9 @@ export interface LockedWindowOptions {
 }
 
 /**
- * The single owner of the locked `webPreferences` block.
- *
- * Every window this process creates is constructed here, so the build-time
- * assertion covers all of them by covering one literal. Keep this the only
- * `new BrowserWindow(...)` call site in the package —
- * `apps/desktop/build/assert-webprefs.ts` fails the build if a second one
- * appears anywhere under `src/main/`, so a neighbor cannot declare an unlocked
- * one.
+ * The single owner of the locked `webPreferences` block. Keep this the only
+ * `new BrowserWindow(...)` call site under `src/main/`: `apps/desktop/build/assert-webprefs.ts`
+ * fails the build if a second one appears.
  */
 function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
   const browserWindow = new BrowserWindow({
@@ -107,9 +63,7 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
   installNavigationPolicy(browserWindow);
   applyRevealPreferences(browserWindow);
 
-  // The reveal is delegated so every window this process creates takes the same
-  // decision — an ordinary `show()`, or the inactive reveal the automated tiers
-  // ask a test build for (see `./window-reveal.ts`).
+  // Delegated so every window takes the same reveal decision (`./window-reveal.ts`).
   browserWindow.once("ready-to-show", () => {
     revealWindow(browserWindow);
   });
@@ -118,24 +72,15 @@ function constructLockedWindow(options: LockedWindowOptions): BrowserWindow {
 }
 
 /**
- * Resolves the document URL a window loads.
+ * Resolves the document URL a window loads. Under `electron-vite dev` the dev server is loaded
+ * so HMR works; in a packaged app, or with no dev server running, the built bundle is loaded
+ * over the renderer scheme. `./navigation.ts` reads the same variable for the allowed origins.
+ * The dev server serves the same Content-Security-Policy as the protocol handler
+ * (`../services/renderer-scheme.ts`, `electron.vite.config.ts`).
  *
- * The load half of the `ELECTRON_RENDERER_URL` branch; `./navigation.ts` reads
- * the same variable for the origins a window may navigate within. Under
- * `electron-vite dev` both conditions hold and the dev server is loaded so HMR
- * works; in a packaged app, or with no dev server running, the built bundle is
- * loaded over the renderer scheme. The dev server serves the same
- * Content-Security-Policy the protocol handler does (see
- * `../services/renderer-scheme.ts` and `electron.vite.config.ts`), so the document's
- * policy does not depend on which branch ran.
- *
- * The two origins differ, so the renderer's browser-storage partition differs
- * between `electron-vite dev` and the built bundle — accepted and stated,
- * because of what is allowed to live there. That store holds UI state only —
- * layouts, selection, pins, expansion — while composer text, form values,
- * paths, and code stay in window memory and are never written to it. So a
- * partition split costs a pane its remembered layout and can never cost a
- * draft, and every console test tier runs the built bundle regardless.
+ * The two origins have different browser-storage partitions. That store holds UI state only
+ * (layouts, selection, pins, expansion); composer text, form values, paths and code stay in
+ * window memory, so a partition split can cost a pane its layout and never a draft.
  */
 function resolveRendererDocumentUrl(): string {
   const devServerUrl = process.env["ELECTRON_RENDERER_URL"];
@@ -146,33 +91,18 @@ function resolveRendererDocumentUrl(): string {
 }
 
 /**
- * How a caller attaches to a window before its load begins.
- *
- * Every load-lifecycle event a caller cares about — `did-finish-load`,
- * `did-fail-load`, `dom-ready` — is emitted by a load these factories start
- * themselves. A caller that registers after the factory returns is relying on
- * Electron emitting on a later tick: true today, and a guarantee nobody wrote
- * down. `beforeLoad` moves that from timing to construction. It is invoked with
- * the constructed window as the last act before `loadURL`, so a listener
- * registered inside it cannot be late.
- *
- * The window is NOT handed back unloaded with a separate load call instead,
- * because that spreads the same ordering obligation across two call sites and
- * lets a caller get it wrong in a new way — load first, attach after — while
- * also making "forgot to load at all" representable. One call that cannot be
- * mis-sequenced is the stronger shape.
- *
- * A throw from `beforeLoad` destroys the window rather than leaving a live,
- * blank, unloaded one behind.
+ * How a caller attaches to a window before its load begins. `beforeLoad` runs with the
+ * constructed window as the last act before `loadURL`, so a listener for `did-finish-load`,
+ * `did-fail-load` or `dom-ready` registered inside it cannot be late. One call that cannot be
+ * mis-sequenced beats handing back an unloaded window, which would allow load-first and
+ * forgot-to-load. A throw from `beforeLoad` destroys the window rather than leaving a blank
+ * one behind.
  */
 export interface WindowLoadOptions {
   readonly beforeLoad?: (browserWindow: BrowserWindow) => void;
 }
 
-/**
- * Runs the caller's pre-load hook, then starts the load, so the ordering the hook
- * exists to guarantee lives in one place.
- */
+/** Runs the caller's pre-load hook, then starts the load, so the ordering lives in one place. */
 function prepareAndLoad(
   browserWindow: BrowserWindow,
   documentUrl: string,

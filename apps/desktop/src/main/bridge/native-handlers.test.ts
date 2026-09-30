@@ -1,5 +1,4 @@
-// The open dialog and the clipboard: what reaches the page is a token, never a path, and
-// nothing the page sends is acted on before it is checked.
+// The page gets a token, never a path, and nothing it sends is acted on unchecked.
 
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";

@@ -1,17 +1,11 @@
-// The keyboard map's file, `keyboard-map.json` in the app's user-data folder, which main
-// alone reads and writes.
-//
-// It holds only the rows a person changed, keyed by the act's command id, a chord or `null`.
-// Every read goes to disk, so main holds no copy that could drift from the file. A missing
-// file reads as the empty map and is left missing until the first write. A broken file, one
-// that is not JSON or that the schema refuses, reads as the empty map (the chords the app
-// ships with) and is rewritten as that, and the repair is carried on every reading until the
-// next write, so the Keyboard page can say both happened. Reads and writes run one at a time,
-// and a write replaces the whole file through a temporary file and a rename, readable and
-// writable by the person alone, so a crash mid-save never leaves half a keyboard.
-//
-// Which command ids still name an act is the renderer's to decide; main keeps whatever map
-// the renderer last wrote.
+// `keyboard-map.json` in the user-data folder holds only the rows a person changed, keyed by
+// command id, each a chord or `null`. Every read goes to disk, so main keeps no copy that
+// could drift. A missing file reads as the empty map and stays missing until the first write.
+// A broken file (not JSON, or refused by the schema) reads as the empty map, is rewritten as
+// that, and the repair rides on every reading until the next write. Reads and writes run one
+// at a time, and a write goes through a temporary file and a rename with owner-only
+// permissions, so a crash mid-save never leaves half a file. Which command ids still name an
+// act is the renderer's to decide.
 
 import { randomBytes } from "node:crypto";
 import { mkdir, open, readFile, rename, rm } from "node:fs/promises";
@@ -45,6 +39,7 @@ export function parseKeyboardMap(candidate: unknown): KeyboardMap {
   return KeyboardMapSchema.parse(candidate);
 }
 
+/** Where the keyboard map file lives and the clock that stamps a repair. */
 export interface KeyboardMapFileOptions {
   /** The file's full path. */
   readonly filePath: string;
@@ -53,6 +48,7 @@ export interface KeyboardMapFileOptions {
 
 const EMPTY_MAP: KeyboardMap = Object.freeze({});
 
+/** Main's reader and writer for the keyboard map file. */
 export class KeyboardMapFile {
   readonly #filePath: string;
   readonly #now: () => Date;
@@ -80,8 +76,8 @@ export class KeyboardMapFile {
 
   #oneAtATime<Result>(work: () => Promise<Result>): Promise<Result> {
     const result = this.#pending.then(work);
-    // The next piece of work waits for this one to settle, whether it succeeded or not; its
-    // own caller still receives the failure through `result`.
+    // The next piece of work waits for this one to settle either way; its caller still gets
+    // the failure through `result`.
     this.#pending = result.then(
       () => undefined,
       () => undefined,
@@ -122,8 +118,7 @@ export class KeyboardMapFile {
     return this.#repair === undefined ? { map } : { map, repair: this.#repair };
   }
 
-  // A temporary file beside the real one, flushed to disk, then renamed over it: a reader
-  // sees the old file or the new one, never half of either.
+  // A flushed temporary file renamed over the real one: a reader sees the old file or the new.
   async #writeAtomically(map: KeyboardMap): Promise<void> {
     await mkdir(dirname(this.#filePath), { recursive: true, mode: KEYBOARD_MAP_FOLDER_MODE });
     const temporaryPath = `${this.#filePath}.${randomBytes(8).toString("hex")}.tmp`;

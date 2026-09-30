@@ -1,51 +1,21 @@
-// The main process's own JSONL log.
+// Main's own JSONL log: async append, size rotation, level filter. Main's failures have no
+// other reporter, since a window that never opened has no renderer to capture from. It
+// forwards nowhere; it writes a file and stops. It is built in-house because it is one append
+// path, one rotation rule and one level filter, and a library such as `electron-log` would add
+// a transport registry and a renderer hook.
 //
-// Main needs a JSONL log of its own, and this is it: async append, size rotation,
-// level filter. Main is the one process whose
-// failures nothing else can report — a window that never opened has no
-// renderer to capture from, and the sidecar supervisor's refusals happen before any
-// window exists to show them.
+// The file operations are injected, so a test drives real rotation in a temporary directory
+// and a failure case drives a sink that throws.
 //
-// IT FORWARDS NOWHERE, which is a scope statement rather than an omission. The
-// renderer's capture hands its batches to a forwarder the window's composition
-// installs; this log writes a file and stops, because the failures it exists to record
-// are the ones that happen before there is a window to install anything into. Whatever
-// reads the file is where the two halves meet, and it is not this module.
+// The size ceiling belongs to the file, not the process: main appends to the same path every
+// launch, so the byte count is seeded from the file on the first queued write (lazily, so a
+// log that never writes never touches the disk). The seeded count is still per process: two
+// processes appending would rotate the file out from under each other. The single-instance
+// lock in `index.ts` prevents that except for a relaunch overlapping a first instance that is
+// still failing to start.
 //
-// OWN-BUILT ON PURPOSE. No library is adopted here and `electron-log` is deliberately
-// avoided: this is one append path, one rotation rule, and one level filter, and a
-// library for it would bring a transport registry, a renderer-side hook, and a format
-// layer for a file three tests read.
-//
-// ONE SINK, AND THE SINK IS INJECTED. The file operations arrive through the
-// constructor rather than being imported, so a test drives real rotation against a
-// temporary directory and a failure case drives a sink that throws — neither of
-// which is reachable if the module reaches for `node:fs` itself.
-//
-// THE CEILING IS A PROPERTY OF THE FILE, NOT OF THIS PROCESS. Main writes to the
-// same path on every launch, so a byte count that started at zero would let the log
-// grow by a whole ceiling per launch and would rotate a file already several
-// ceilings long. The count is therefore seeded from the file, lazily, on the first
-// write that reaches the queue — lazily because a log built on a startup path that
-// then never writes has no business touching a disk.
-//
-// AND THE SEEDED COUNT IS STILL PER-PROCESS, which is narrowed by the single-instance
-// lock rather than solved: two processes appending to one `main.jsonl` would each carry
-// their own count, and a rotation by one renames the file out from under the other,
-// whose carried count then rotates a freshly-created file away a line later.
-// `index.ts` takes `app.requestSingleInstanceLock()` and a second instance quits, so
-// the residual is a relaunch overlapping a first instance still on its failed-startup
-// path — recorded here because a later reader looking at the lazy seed should find the
-// bound of the claim beside it.
-//
-// OWNER. This sits with the console's observability floor: the same work that owns
-// the renderer-side measurement owns the always-on main-side record.
-//
-// A WRITE NEVER THROWS AT ITS CALLER, AND NEVER SILENTLY SUCCEEDS EITHER. Callers are
-// startup paths whose own failure handling is the thing being logged, so a logger
-// that rejected into them would turn one failure into two. What a failed write does
-// instead is stop accepting and count: `writeFailureCount` and `lastWriteFailure` are
-// the record, and the process's exit path reads them.
+// A write never throws at its caller and never fails silently: it stops accepting and counts
+// (`writeFailureCount`, `lastWriteFailure`), which the exit path reads.
 
 import { isMissingPath } from "./missing-path.js";
 
@@ -67,13 +37,7 @@ export interface MainDiagnosticEntry {
 
 /** The file operations the log performs. Injected, so a test owns all four. */
 export interface DiagnosticLogFileSink {
-  /**
-   * Bytes the file already holds, or `0` when there is no such file.
-   *
-   * A missing file is `0` rather than a failure because "nothing has been written
-   * yet" is the ordinary first-launch state, and a log that refused to start over an
-   * absent file would fail on exactly the launch it exists to record.
-   */
+  /** Bytes the file already holds, or `0` when there is no such file (the first launch). */
   byteCountOf(filePath: string): Promise<number>;
   /** Append, creating the containing directory if it is not there yet. */
   appendUtf8(filePath: string, text: string): Promise<void>;
@@ -102,11 +66,8 @@ function levelRank(level: DiagnosticLogLevel): number {
 }
 
 /**
- * One entry as one JSON line, newline-terminated.
- *
- * Field order is fixed by the object literal so two entries of the same shape encode
- * to the same bytes, which is what lets a test compare a written file against an
- * expected one rather than against a parse of itself.
+ * One entry as one JSON line, newline-terminated. Field order is fixed, so equal entries encode
+ * to equal bytes and a test can compare a written file against an expected one.
  */
 export function toLogLine(entry: MainDiagnosticEntry): string {
   return `${JSON.stringify({
@@ -118,14 +79,9 @@ export function toLogLine(entry: MainDiagnosticEntry): string {
 }
 
 /**
- * The main process's log.
- *
- * WRITES ARE SERIALIZED THROUGH ONE PROMISE CHAIN rather than issued concurrently.
- * Two overlapping appends to one file interleave at the byte level under Node's
- * append path on at least one supported platform, and a JSONL file with a half line
- * in it is a file no reader can parse past. The chain also makes the byte count this
- * class keeps exact: it is advanced by the write that succeeded, in the order the
- * writes happened.
+ * The main process's log. Writes are serialized through one promise chain: overlapping
+ * appends to one file can interleave at the byte level on at least one supported platform,
+ * and a half line breaks every reader. The chain also keeps the byte count exact.
  */
 export class MainDiagnosticLog {
   readonly #filePath: string;
@@ -150,10 +106,8 @@ export class MainDiagnosticLog {
   }
 
   /**
-   * Write one entry, if its level passes the filter.
-   *
-   * Returns nothing: a caller that awaited each line would serialize its own startup
-   * behind a disk. `drain()` is how a test — and the quit path — waits.
+   * Write one entry, if its level passes the filter. Returns nothing so a caller never waits
+   * on the disk; `drain()` is how a test and the quit path wait.
    */
   public write(entry: MainDiagnosticEntry): void {
     if (levelRank(entry.level) > this.#minimumRank) {
@@ -179,9 +133,8 @@ export class MainDiagnosticLog {
         this.#liveFileByteCount = liveByteCount + lineByteCount;
         this.#writtenEntryCount += 1;
       } catch (writeFailure) {
-        // Stop accepting rather than retry. A failing append is a full disk or a
-        // revoked path, and a logger that kept trying would spend the quit budget
-        // failing once per line.
+        // Stop accepting rather than retry: a full disk or a revoked path would fail once
+        // per line and spend the quit budget.
         this.#accepting = false;
         this.#writeFailureCount += 1;
         this.#lastWriteFailure =
@@ -191,10 +144,8 @@ export class MainDiagnosticLog {
   }
 
   /**
-   * How many bytes the live file holds, read once and then carried.
-   *
-   * Inside the write chain, so the read is serialized with the appends that advance
-   * the count and two writes issued in the same tick cannot both seed it.
+   * How many bytes the live file holds, read once and then carried. It runs inside the write
+   * chain, so two writes issued in the same tick cannot both seed it.
    */
   async #resolveLiveFileByteCount(): Promise<number> {
     const carried = this.#liveFileByteCount;
@@ -207,20 +158,10 @@ export class MainDiagnosticLog {
   }
 
   /**
-   * Rotate: the previous rotation is removed and the live file becomes the rotation.
-   *
-   * The remove comes first and tolerates a missing file, because `replace` onto an
-   * existing path is not atomic on every supported platform and the failure it takes
-   * there would be indistinguishable from the append failure above.
-   *
-   * THE ROTATION RESETS THE COUNT IT INVALIDATED, rather than leaving that to the
-   * caller. The rename is what makes the carried figure wrong, so the act that renames
-   * is the one owner of the correction — and the caller re-reads through
-   * `#resolveLiveFileByteCount`, which answers the field without a syscall now that it
-   * is set. Left to the caller the field kept its pre-rotation value whenever the
-   * append that followed threw: `#accepting` goes false in the same `catch` so nothing
-   * reads it today, and that is exactly the shape that becomes a bug the day someone
-   * adds a resume path.
+   * Rotate: the previous rotation is removed and the live file becomes the rotation. The
+   * remove comes first and tolerates a missing file, because `replace` onto an existing path
+   * is not atomic on every supported platform. The rename invalidates the carried byte count,
+   * so the rotation resets it here rather than leaving that to the caller.
    */
   async #rotate(): Promise<void> {
     const rotatedPath = rotatedPathFor(this.#filePath);
@@ -267,11 +208,8 @@ export class MainDiagnosticLog {
 }
 
 /**
- * The sink over the real file system.
- *
- * A class rather than a returned literal because it carries one piece of state: the
- * directory has to be created before the first append and creating it before every
- * append would be a `mkdir` syscall per logged line.
+ * The sink over the real file system. A class because it carries one piece of state: the
+ * directory is created before the first append, not before every one.
  */
 class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
   /** The directory this sink has already created, or `null` before the first append. */
@@ -290,16 +228,10 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
   }
 
   /**
-   * Append, creating the directory the first time this sink writes into it.
-   *
-   * `app.getPath("logs")` names a directory Electron does not necessarily create,
-   * and the first line main writes there is the record of a startup that failed —
-   * the one line with nowhere else to go, so the append cannot assume a home.
-   *
-   * The memo holds the directory rather than a boolean, so a sink handed a second
-   * path still creates that path's directory. One string rather than a growing set:
-   * a sink serves one log, and remembering every directory it has ever seen would be
-   * an unbounded map inside the module that records a machine running out of room.
+   * Append, creating the directory the first time this sink writes into it:
+   * `app.getPath("logs")` names a directory Electron does not necessarily create, and the
+   * first line is often the record of a failed startup. The memo holds one directory, not a
+   * set, so a sink handed a second path still creates that path's directory without growing.
    */
   public async appendUtf8(filePath: string, text: string): Promise<void> {
     const { appendFile, mkdir } = await import("node:fs/promises");
@@ -324,12 +256,7 @@ class FileSystemDiagnosticLogSink implements DiagnosticLogFileSink {
   }
 }
 
-/**
- * The sink over the real file system.
- *
- * Here rather than at the call site so main constructs a log with one call and the
- * four operations are spelled once.
- */
+/** The sink over the real file system, so main builds a log with one call. */
 export function createFileSystemDiagnosticLogSink(): DiagnosticLogFileSink {
   return new FileSystemDiagnosticLogSink();
 }
@@ -338,11 +265,8 @@ export function createFileSystemDiagnosticLogSink(): DiagnosticLogFileSink {
 const MAIN_DIAGNOSTIC_LOG_BYTE_CEILING = 2 * 1024 * 1024;
 
 /**
- * Build main's log under `logDirectory`.
- *
- * `notice` is the floor because main writes few lines and the ones it writes are the
- * only record of a process that may not have produced a window; filtering them would
- * leave the quiet failure quiet.
+ * Build main's log under `logDirectory`. `notice` is the floor because main writes few lines
+ * and they are the only record of a process that may not have produced a window.
  */
 export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog {
   return new MainDiagnosticLog({
@@ -357,13 +281,9 @@ export function createMainDiagnosticLog(logDirectory: string): MainDiagnosticLog
 export type DiagnosticLogFailureReporter = (message: string) => void;
 
 /**
- * Settle the log and say, once, if anything it was handed never reached the file.
- *
- * The class refuses to throw at its callers, which are startup paths whose own
- * failure handling is the thing being logged — so without this the log going silent
- * is itself silent, and the JSONL file main's exit path relies on can be empty with
- * nothing anywhere saying why. Takes the reporter rather than reaching for
- * `console` so a test reads what was reported instead of patching a global.
+ * Settle the log and say, once, if anything it was handed never reached the file. The class
+ * refuses to throw at its callers, so without this a silent log is itself silent. Takes the
+ * reporter rather than reaching for `console` so a test reads what was reported.
  */
 export async function reportUnwrittenDiagnostics(
   log: MainDiagnosticLog,

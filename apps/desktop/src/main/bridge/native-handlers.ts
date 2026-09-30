@@ -1,8 +1,5 @@
-// The operating-system calls main makes for the renderer: the open dialog, the clipboard
-// and the system browser.
-//
-// Each takes what the renderer sent as untrusted input and checks it before acting; each
-// takes the Electron module it drives as an argument, so a test calls the real handler.
+// The OS calls main makes for the renderer. Each checks the renderer's untrusted input before
+// acting and takes the Electron module it drives as an argument, so a test calls the handler.
 
 import { stat } from "node:fs/promises";
 import { basename } from "node:path";
@@ -32,10 +29,9 @@ const OPEN_DIALOG_PROPERTIES: Readonly<
 };
 
 /**
- * Show the open dialog for a purpose and answer what was picked as tokens. `attachFiles`
- * picks several files at once and `importFile` one, each answered with the file's own name
- * and size, and none when the person canceled. `pickFolder` picks one folder and answers
- * its token, or `null` when the person canceled.
+ * Show the open dialog for a purpose and answer what was picked as tokens: files with their
+ * name and size for `attachFiles` (several) and `importFile` (one), or one folder token
+ * (`null` on cancel) for `pickFolder`. Throws a `TypeError` for an unknown purpose.
  */
 export async function showOpenDialog(
   host: OpenDialogHost,

@@ -1,30 +1,16 @@
-// The navigation classifier.
-//
-// `window.test.ts` asserts that the policy is INSTALLED on every window and that
-// each verdict is acted on. This file asserts the classification itself, where
-// the traps live:
-//
-//   • `URL.origin` is the string `"null"` for every non-special scheme, and
-//     `sidekicks-renderer:` is non-special in Node's WHATWG parser. A classifier
-//     comparing `.origin` would find `"null" === "null"` and admit `weird://app`,
-//     `nonsense://anything`, and every other non-special scheme as in-window.
-//   • `shell.openExternal` hands a string to the OS handler registry, so the
-//     allowlist is what keeps a "link" from being a local-execution primitive.
-//
-// Both are false-PASS directions: a wrong answer here does not break anything
-// visible, it quietly widens what a hardened window may become.
+// The navigation classifier. `window.test.ts` asserts the policy is installed and each verdict
+// acted on; this asserts the classification itself. Two traps: `URL.origin` is `"null"` for every
+// non-special scheme (and `sidekicks-renderer:` is non-special in Node's parser), so comparing
+// `.origin` would admit `weird://app` and the like; and `shell.openExternal` hands a string to the
+// OS handler registry, so the allowlist keeps a "link" from being a local-execution primitive.
+// Both are false-pass directions: a wrong answer breaks nothing visible.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// This suite keeps a LOCAL `electron` stub rather than the shared
-// `tests/helpers/electron-mock.ts`, and the reason is mechanical rather than
-// stylistic: it imports the module under test STATICALLY, so `electron` is
-// resolved during this file's own import phase — before a top-level
-// `const electronMock = createElectronMock(...)` would have initialized, which
-// would leave the hoisted `vi.mock` factory reading a binding in its temporal
-// dead zone. The stub also carries every `electron` member this file needs, and
-// it constructs no window, so it is not a second copy of the shared harness's
-// `BrowserWindow` machinery.
+// A local `electron` stub rather than the shared `tests/helpers/electron-mock.ts`: the module
+// under test is imported statically, so `electron` resolves before a top-level
+// `createElectronMock(...)` would initialize, leaving the hoisted `vi.mock` factory in its
+// temporal dead zone.
 const shellMock = vi.hoisted(() => {
   const openedUrls: string[] = [];
   return {
@@ -69,8 +55,7 @@ describe("classifyNavigation", () => {
     ).toEqual({ kind: "in-window" });
   });
 
-  // The `.origin` trap: both of these parse to `origin === "null"`, and a
-  // classifier comparing origins would call the second one in-window.
+  // The `.origin` trap: both parse to `origin === "null"`.
   it("refuses a different non-special scheme even though both origins are null", () => {
     expect(new URL("sidekicks-renderer://app/x").origin).toBe("null");
     expect(new URL("sidekicks-imposter://app/x").origin).toBe("null");
@@ -143,9 +128,7 @@ describe("openExternalUrl", () => {
     expect(shellMock.openedUrls).toEqual(["https://example.test/docs"]);
   });
 
-  // The re-check is the point: this function is the single place a URL reaches
-  // `shell.openExternal`, and a guard that only holds when the caller remembered
-  // to classify first is not a guard.
+  // The re-check is the point: this is the single place a URL reaches `shell.openExternal`.
   it("rejects and opens nothing for a target that is not a web address", async () => {
     await expect(openExternalUrl("file:///etc/passwd")).rejects.toThrow(
       "navigation target is outside every allowed scheme",

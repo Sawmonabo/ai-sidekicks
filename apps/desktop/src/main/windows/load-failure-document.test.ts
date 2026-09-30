@@ -1,14 +1,6 @@
-// The generated load-failure document.
-//
-// A rejected `loadURL` used to leave a live blank window; the window now loads
-// this instead. It is generated in the main process rather than emitted into the
-// bundle, because the failure it reports is "the bundle could not be loaded" —
-// a fallback living in the tree that just failed is missing exactly when it is
-// needed.
-//
-// No `electron` mock: the module under test imports only `./renderer-scheme.ts`.
-// What the HANDLER does with this document — the 200, the content type, the
-// locked headers, the exact-path match — is asserted in `./protocol.test.ts`.
+// The generated load-failure document. No `electron` mock: the module imports only
+// `../services/renderer-scheme.ts`. What the handler does with it (the 200, content type, locked
+// headers, exact-path match) is asserted in `../services/renderer-protocol.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -21,12 +13,10 @@ import {
 } from "./load-failure-document.js";
 import { RENDERER_ORIGIN } from "../services/renderer-scheme.js";
 
-// One unpaired high surrogate. `encodeURIComponent` throws `URIError` on exactly
-// this input and on nothing else, so it is the whole hazard class in one string.
+// One unpaired high surrogate: the only input on which `encodeURIComponent` throws `URIError`.
 const LONE_HIGH_SURROGATE = "\uD800";
 const LONE_LOW_SURROGATE = "\uDC00";
-// A paired surrogate — the negative control for the bounding rule below. This
-// is a legitimate astral codepoint (U+1F6A8) and must survive untouched.
+// A paired surrogate (U+1F6A8), the negative control for the bounding rule.
 const ASTRAL_CODEPOINT = "\u{1F6A8}";
 
 describe("boundLoadFailureReason", () => {
@@ -34,22 +24,19 @@ describe("boundLoadFailureReason", () => {
     expect(boundLoadFailureReason("ERR_FILE_NOT_FOUND (-6)")).toBe("ERR_FILE_NOT_FOUND (-6)");
   });
 
-  // Bounded, because an error message is neither bounded nor authored by us and
-  // a document that grew with it would be a memory cost driven by the failure.
+  // Bounded because an error message is unbounded and a longer document would cost memory.
   it("bounds a very long reason", () => {
     expect(boundLoadFailureReason("x".repeat(5000))).toBe("x".repeat(300));
   });
 
-  // By CODE POINT, not by UTF-16 code unit. `slice(0, 300)` on a string of
-  // astral characters cuts a surrogate pair in half at the boundary and yields
-  // a lone surrogate, which is the one input `encodeURIComponent` throws on —
-  // so the bound and the surrogate rule are the same defect seen twice.
+  // By code point, not code unit: `slice(0, 300)` on astral characters can cut a pair in half
+  // and yield a lone surrogate, which `encodeURIComponent` throws on.
   it("cuts at a code-point boundary rather than a code-unit one", () => {
     const bounded = boundLoadFailureReason(ASTRAL_CODEPOINT.repeat(400));
 
     expect(Array.from(bounded)).toHaveLength(300);
     expect(bounded).toBe(ASTRAL_CODEPOINT.repeat(300));
-    // The negative control the bound exists for: no half-pair survived.
+    // No half-pair survived.
     expect(/[\uD800-\uDFFF]/u.test(bounded)).toBe(false);
   });
 
@@ -77,9 +64,8 @@ describe("buildLoadFailureUrl", () => {
     expect(matchLoadFailureRequest(url)).toBe("boom");
   });
 
-  // The whole reason the bound runs BEFORE the encode. Without it this throws
-  // `URIError` — inside a `.catch` handler, where a throw becomes an unhandled
-  // rejection and the window stays live and blank.
+  // The bound runs before the encode; otherwise this throws `URIError` inside a `.catch`
+  // handler, leaving the window blank.
   it("does not throw on a reason carrying a lone surrogate", () => {
     const url = buildLoadFailureUrl(`ERR${LONE_HIGH_SURROGATE}FAIL`);
 
@@ -100,8 +86,7 @@ describe("matchLoadFailureRequest", () => {
     expect(matchLoadFailureRequest(`${RENDERER_ORIGIN}${LOAD_FAILURE_PATH}`)).toBe("");
   });
 
-  // Exact-path matching, never a prefix: anything else under the reserved path
-  // falls through to the ordinary resolver, which refuses it.
+  // Exact-path matching, never a prefix: anything else falls through to the resolver.
   it.each([
     ["a path that merely starts with the reserved one", `${LOAD_FAILURE_PATH}/../index.html`],
     ["a longer path under it", `${LOAD_FAILURE_PATH}/extra`],
@@ -128,9 +113,8 @@ describe("renderLoadFailureDocument", () => {
     );
   });
 
-  // The reason is assembled from an error message, one of the few strings in
-  // this process a remote input can shape. It must arrive as text even when it
-  // is markup — and the document carries no script for it to become part of.
+  // The reason comes from an error message that remote input can shape, so it must arrive as
+  // text even when it is markup.
   it("escapes a reason that is markup", () => {
     const document = renderLoadFailureDocument('</code><script>alert("x")</script>');
 

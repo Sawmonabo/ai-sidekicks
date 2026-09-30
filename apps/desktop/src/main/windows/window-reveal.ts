@@ -1,76 +1,48 @@
-// Unobtrusive windows for the automated tiers — test builds only.
+// Unobtrusive windows for the automated tiers, in test builds only.
 //
-// Every Electron tier (the smoke probe, the GC probe, end-to-end, endurance)
-// launches the real main process with a real window, and a window is revealed through
-// `BrowserWindow.show()`. On macOS that call ACTIVATES the application: the
-// Dock icon appears, keyboard focus moves to the new window, and an operator on
-// a full-screen Space is switched to the Space the window opened on. One
-// aggregate `test` run launches Electron about a dozen times, every worktree
-// running the gates repeats it, and each launch pulls the operator off whatever
-// they were doing.
+// Every Electron tier (smoke probe, GC probe, end-to-end, endurance) launches the real main
+// process with a real window. On macOS `BrowserWindow.show()` activates the application: the
+// Dock icon appears, focus moves, and an operator on a full-screen Space is switched away. The
+// tiers therefore ask for unobtrusive windows through one environment variable, and a test
+// build honors it in three places:
 //
-// The tiers therefore ask for UNOBTRUSIVE windows through one environment
-// variable, and a test build honors it in three places:
+//   1. the activation policy: macOS `accessory`, so the app has no Dock icon and is never
+//      activated on a window's behalf;
+//   2. the reveal: on macOS the window is never revealed and stays hidden as constructed (an
+//      accessory app can still be activated programmatically, and `show()` is such an
+//      activation); elsewhere it is revealed with `showInactive()`, which orders the window in
+//      front without making it key;
+//   3. background throttling is switched off: Chromium throttles timers and animation frames for
+//      a hidden or occluded window, and a measurement there describes a throttled renderer. With
+//      throttling off the document stays `visible` and frames are still drawn.
+//      `tests/helpers/launch-readiness.ts` asserts both on every launch.
 //
-//   1. the activation policy — macOS `accessory`, so the application has no
-//      Dock icon and is never activated on a window's behalf;
-//   2. the reveal itself. On macOS the window is NOT revealed at all: it stays
-//      the hidden window it was constructed as, so nothing is ordered onto any
-//      screen or Space and nothing can take focus. Everywhere else it is
-//      revealed with `showInactive()`, which orders the window in front without
-//      making it key — see the platform split below for why the two differ. The
-//      policy alone is not enough: an accessory application can still be
-//      activated programmatically, and `show()` is exactly such an activation;
-//   3. background throttling, switched OFF for the window. Chromium answers a
-//      hidden or occluded window by throttling timers and animation frames,
-//      reporting the document hidden, and letting the renderer take background
-//      memory reductions. A measurement taken there describes a throttled
-//      renderer, not the console: a green endurance budget that means nothing,
-//      which is worse than a focus steal. With throttling off, frames are still
-//      drawn and swapped and the document stays `visible`, so the unrevealed
-//      window runs the same code at the same rate a focused one does.
-//      `tests/helpers/electron-harness.ts` asserts both — the visibility state
-//      and that animation frames are actually delivered — on every launch
-//      rather than trusting it.
+// The platform split in (2) is measured: Electron's `disable_hidden` patch, which throttling-off
+// switches on, keeps animation frames running for an occluded, minimized and hidden window on
+// macOS, but on Windows only for the first two; a hidden window there stops painting
+// (electron/electron#31016). Linux runs under Xvfb, where there is no operator to disturb, and
+// takes the inactive reveal.
 //
-// The platform split in (2) is a measured one, not a preference. Electron's
-// `disable_hidden` patch, which is what a throttling-off setting switches on,
-// keeps animation frames running for an occluded, minimized, AND hidden window
-// on macOS, but on Windows only for the first two — a hidden window there stops
-// painting (electron/electron#31016). A never-revealed window is therefore one a
-// test can measure faithfully on macOS and not on Windows, so Windows keeps
-// the inactive reveal. Linux runs the tiers under Xvfb, where there is no
-// operator to disturb, and takes the inactive reveal as well.
-//
-// All three sit behind the compile-time build flag, so a release bundle carries
-// neither the environment read nor the branch — the same production-safety
-// shape as the smoke probe in `../index.ts`. Within a test build the variable is
-// still an opt-in, so a developer running a fixture build by hand to LOOK at
-// the console gets an ordinary, focused window.
+// All three sit behind the compile-time build flag, so a release bundle carries neither the
+// environment read nor the branch. Within a test build the variable is still an opt-in.
 
 import type { App, BrowserWindow, WebContents } from "electron";
 
-// Substituted by the `define` block in `electron.vite.config.ts` for the main
-// target, and by the Vitest project that reaches this module (see
-// `vitest.config.ts`): `true` in the smoke and fixtures builds the automated tiers
-// launch, `false` in every other build. Not the fixture flag, which the
-// development build turns on too: a developer's window is never hidden.
+// Substituted by the `define` block in `electron.vite.config.ts` and by the Vitest project
+// (`vitest.config.ts`): `true` in the smoke and fixtures builds the automated tiers launch,
+// `false` otherwise. Not the fixture flag, which the development build also turns on; a
+// developer's window is never hidden.
 declare const __TEST_TIER_BUILD__: boolean;
 
 /**
- * The environment variable the automated tiers set to `"1"`.
- *
- * Imported by every harness that spawns Electron (`tests/helpers/electron-harness.ts`,
- * `tests/helpers/smoke-probe-harness.ts`, `tests/helpers/gc-probe-harness.ts`) rather than
- * retyped, so a rename here is a compile error there and not a tier that
- * quietly starts stealing focus again.
+ * The environment variable the automated tiers set to `"1"`. The harnesses that spawn Electron
+ * import it, so a rename is a compile error rather than a tier that steals focus again.
  */
 export const UNOBTRUSIVE_WINDOWS_ENV = "SIDEKICKS_UNOBTRUSIVE_WINDOWS";
 
 /**
- * How a ready window is put on screen — or, for `hidden`, deliberately not.
- * `hidden` leaves the window exactly as the locked factory constructed it
- * (`show: false`); nothing is ever ordered onto a screen.
+ * How a ready window is put on screen. `hidden` leaves it as constructed (`show: false`), so
+ * nothing is ever ordered onto a screen.
  */
 type WindowRevealMode = "active" | "inactive" | "hidden";
 
@@ -78,15 +50,10 @@ type WindowRevealMode = "active" | "inactive" | "hidden";
 type ActivationPolicyChange = "accessory" | null;
 
 /**
- * Decides how a window is revealed, from the build kind, the environment, and
- * the platform.
- *
- * Pure so the decision is testable under a unit project whose build flag is
- * `false`: the flag is an ARGUMENT here and is read only by the
- * wrappers below. The check is against exactly the string `"1"`, the same
- * deliberate opt-in shape the smoke probe uses. A requested test build stays
- * hidden on macOS and reveals inactive elsewhere — the measured split the
- * header explains.
+ * Decides how a window is revealed from the build kind, the environment and the platform. Pure:
+ * the build flag is an argument so a unit project whose flag is `false` can reach the test-build
+ * arm. Only the exact string `"1"` opts in. A requested test build stays hidden on macOS and
+ * reveals inactive elsewhere.
  */
 export function resolveWindowRevealMode(
   testBuild: boolean,
@@ -100,13 +67,8 @@ export function resolveWindowRevealMode(
 }
 
 /**
- * Decides whether the activation policy changes, from the build kind, the
- * environment, and the platform.
- *
- * Only macOS has an activation policy; Electron exposes `setActivationPolicy`
- * nowhere else, so on every other platform the answer is `null` regardless of
- * the request. On Linux the tiers run against Xvfb and on Windows a window
- * without focus is an ordinary window, so nothing is lost there.
+ * Decides whether the activation policy changes. Only macOS has one (`setActivationPolicy`
+ * exists nowhere else), so every other platform answers `null`.
  */
 export function resolveActivationPolicyChange(
   testBuild: boolean,
@@ -122,26 +84,20 @@ export function resolveActivationPolicyChange(
 }
 
 /**
- * Puts a ready window on screen the way this launch asked for.
- *
- * Called from the locked window factory's `ready-to-show` handler — the ONE
- * reveal site, so every window this process creates takes the same decision.
+ * Puts a ready window on screen the way this launch asked for. Called from the `ready-to-show`
+ * handler in `./window.ts`, the one reveal site.
  */
 export function revealWindow(
   browserWindow: Pick<BrowserWindow, "show" | "showInactive">,
   platform: NodeJS.Platform = process.platform,
 ): void {
-  // The build flag is tested INLINE, as a literal, in every wrapper: Vite
-  // substitutes it textually, so a release bundle reads `if (false)` here and
-  // Rollup drops the branch, the resolver it called, and the variable name with
-  // it. Behind a helper the flag would be a call's return value and
-  // the environment read would survive into the release binary — verified by
-  // grepping `out/main/index.js` for the variable after `pnpm build`.
+  // The flag is tested inline as a literal in each wrapper: Vite substitutes it textually, so
+  // a release bundle reads `if (false)` and Rollup drops the branch and the variable name.
+  // Behind a helper the environment read would survive into the release binary.
   if (__TEST_TIER_BUILD__) {
     const mode = resolveWindowRevealMode(true, process.env, platform);
     if (mode === "hidden") {
-      // Left as constructed. The document still loads, `ready-to-show` has
-      // already fired, and with throttling off (below) it paints at full rate.
+      // Left as constructed; with throttling off it paints at full rate once loaded.
       return;
     }
     if (mode === "inactive") {
@@ -153,13 +109,9 @@ export function revealWindow(
 }
 
 /**
- * Keeps a window's renderer un-throttled when it will stay hidden or be
- * revealed inactive.
- *
- * Called from the locked window factory right after construction, before the
- * load starts, so no frame of the document's life runs under the default. The
- * release arm touches nothing: an ordinary window keeps Chromium's default
- * throttling, which is what a real user's backgrounded console should get.
+ * Keeps a window's renderer un-throttled when it will stay hidden or be revealed inactive.
+ * Called from `./window.ts` right after construction, before the load. The release arm touches
+ * nothing, so an ordinary window keeps Chromium's default throttling.
  */
 export function applyRevealPreferences(
   browserWindow: { readonly webContents: Pick<WebContents, "setBackgroundThrottling"> },
@@ -171,10 +123,9 @@ export function applyRevealPreferences(
 }
 
 /**
- * Applies the activation policy this launch asked for. Call inside
- * `app.whenReady()`, before the first window: the policy has to be in place
- * before a reveal could activate the application, and `NSApplication` is only
- * guaranteed to exist once the app is ready.
+ * Applies the activation policy this launch asked for. Call inside `app.whenReady()` before the
+ * first window: the policy must precede any reveal, and `NSApplication` exists only once the
+ * app is ready.
  */
 export function installActivationPolicy(
   app: Pick<App, "setActivationPolicy">,

@@ -1,27 +1,15 @@
-// The generated load-failure document.
+// The generated document a window loads when its renderer bundle could not be loaded, so a
+// load failure has a visible reason instead of a blank window.
 //
-// A rejected `loadURL` used to log and return, leaving a live, blank, retained
-// window: no content, no reason on screen, and nothing for the user to act on.
-// The window now loads this reserved path instead, so a load failure has a
-// visible, controlled shape.
+// It is generated in main and served from the renderer scheme's handler, not emitted into the
+// bundle: a fallback living in the tree that just failed is missing exactly when needed. This
+// path never reaches the asset resolver, so no file system call happens on it.
 //
-// The document is GENERATED in the main process and served from the renderer
-// scheme's handler. It is deliberately not a file emitted into the renderer
-// bundle, because the failure it reports is "the renderer bundle could not be
-// loaded" — a fallback document living in the tree that just failed is a
-// fallback that is missing exactly when it is needed. Being generated also makes
-// containment trivially true rather than checked: this path never reaches the
-// asset resolver, so no filesystem call happens on it at all and there is no
-// root for it to escape.
-//
-// It carries no script (the CSP's `script-src 'self'` would refuse an inline one
-// anyway), no link out, and no reload control — a retry affordance would need a
-// renderer-to-main channel that does not exist yet, and a control that claims a
-// capability nothing implements is exactly what the console's copy rules forbid.
-//
-// Split out of `./protocol.ts` so the document's own grammar — the reason
-// bound, the escaping, the URL round trip — is unit-testable with no Electron
-// import anywhere in its dependency graph.
+// It carries no script (the CSP would refuse an inline one), no link out, and no reload
+// control: a retry needs a renderer-to-main channel that does not exist, and a control that
+// claims a capability nothing implements is what the console's copy rules forbid. It is split
+// from `../services/renderer-protocol.ts` so its grammar is unit-testable with no Electron
+// import.
 
 import { RENDERER_HOST, RENDERER_ORIGIN, RENDERER_SCHEME } from "../services/renderer-scheme.js";
 
@@ -32,45 +20,26 @@ export const LOAD_FAILURE_PATH = "/-/load-failure";
 const LOAD_FAILURE_REASON_PARAMETER = "reason";
 
 /**
- * Longest reason rendered, counted in CODE POINTS.
- *
- * A reason is assembled from an Electron error message, which is neither
- * bounded nor authored by us; a document that grew with it would be a
- * main-process memory cost driven by the failure itself.
+ * Longest reason rendered, in code points. The reason comes from an Electron error message,
+ * which is unbounded, so an unbounded document would be a memory cost driven by the failure.
  */
 const LOAD_FAILURE_REASON_MAX_CODE_POINTS = 300;
 
 /**
- * The Unicode replacement character, substituted for an unpaired surrogate.
- *
- * Visible on purpose. The alternative — dropping the code unit — would make the
- * rendered reason silently differ from the message the process actually saw,
- * which is the one property a diagnostic must not have.
+ * The Unicode replacement character, substituted for an unpaired surrogate. Visible on
+ * purpose: dropping the code unit would make the rendered reason silently differ from the
+ * message the process saw.
  */
 const REPLACEMENT_CHARACTER = "�";
 
 /**
- * Bounds a reason to the rendered length without leaving an unpaired surrogate
- * behind.
- *
- * Two distinct hazards, and only the second is about truncation:
- *
- *   1. `String.prototype.slice` cuts by UTF-16 CODE UNIT, so a cut landing
- *      between the halves of a surrogate pair leaves a lone high surrogate.
- *      `Array.from` iterates by CODE POINT, so a pair is one element and the
- *      cut can never fall inside it.
- *   2. The SOURCE message may already contain an unpaired surrogate, which no
- *      truncation strategy can fix because it was never a boundary artifact.
- *
- * Both matter because `encodeURIComponent` throws `URIError` on a lone
- * surrogate, and the one caller of {@link buildLoadFailureUrl} is a rejected
- * load's own recovery path: a throw there would escape the `.catch` that called
- * it, become an unhandled rejection, and skip the recovery entirely — a window
- * left blank by the very code written to stop that happening.
- *
- * The `u` flag is what makes the second pass precise: under it the engine
- * matches by code point, so a well-formed pair is a single code point outside
- * `[\uD800-\uDFFF]` and only genuinely unpaired surrogates are replaced.
+ * Bounds a reason to the rendered length without leaving an unpaired surrogate behind. Two
+ * hazards: `slice` cuts by UTF-16 code unit and can split a pair (`Array.from` iterates by code
+ * point, so the cut cannot fall inside one), and the source message may already contain an
+ * unpaired surrogate. Both matter because `encodeURIComponent` throws `URIError` on a lone
+ * surrogate, and the caller is a rejected load's own recovery path, where a throw would skip
+ * the recovery. The `u` flag makes the replacement match by code point, so a well-formed pair
+ * is untouched.
  */
 export function boundLoadFailureReason(reason: string): string {
   const bounded = Array.from(reason).slice(0, LOAD_FAILURE_REASON_MAX_CODE_POINTS).join("");
@@ -78,13 +47,9 @@ export function boundLoadFailureReason(reason: string): string {
 }
 
 /**
- * Builds the URL a window loads to display `reason`.
- *
- * Total over every string: the bound above removes the only input
- * `encodeURIComponent` rejects, so this function does not throw. Its caller
- * guards the call anyway — see `./window-load-failure.ts` — because a recovery
- * path that depends on a totality proof is a recovery path that breaks the day
- * the proof stops holding.
+ * Builds the URL a window loads to display `reason`. Total over every string, since the bound
+ * removes the only input `encodeURIComponent` rejects; the caller guards it anyway because a
+ * recovery path should not depend on a totality proof.
  */
 export function buildLoadFailureUrl(reason: string): string {
   const bounded = boundLoadFailureReason(reason);
@@ -92,12 +57,9 @@ export function buildLoadFailureUrl(reason: string): string {
 }
 
 /**
- * The reason carried by `url` when it targets the failure document, or `null`
- * when it does not target it at all.
- *
- * Matches on scheme, host, and the EXACT decoded path — never a prefix — so
- * `/-/load-failure/../index.html` is not this document and falls through to the
- * ordinary resolver, which refuses it.
+ * The reason carried by `url` when it targets the failure document, or `null` otherwise.
+ * Matches scheme, host and the exact decoded path, never a prefix, so
+ * `/-/load-failure/../index.html` falls through to the resolver, which refuses it.
  */
 export function matchLoadFailureRequest(url: string): string | null {
   let parsedUrl: URL;
@@ -127,11 +89,9 @@ function escapeHtmlText(text: string): string {
 }
 
 /**
- * Renders the failure document.
- *
- * The reason is escaped rather than trusted: it is assembled from an error
- * message, and an error message is one of the few strings in this process that
- * a remote input can shape. Escaping keeps it text even when it is markup.
+ * Renders the failure document. The reason is escaped rather than trusted: it comes from an
+ * error message, which remote input can shape, and escaping keeps it text even when it is
+ * markup.
  */
 export function renderLoadFailureDocument(reason: string): string {
   const bounded = boundLoadFailureReason(reason);

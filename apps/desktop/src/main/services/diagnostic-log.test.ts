@@ -1,8 +1,6 @@
-// What the main-process log promises: a level filter that counts what it refused,
-// one-generation rotation at a named byte ceiling — against the bytes in the FILE and
-// not the bytes one process wrote — serialized appends that never interleave, a log
-// directory the sink creates rather than assumes, and a failure that stops the log and
-// is readable afterwards rather than reaching its caller.
+// The level filter counts what it refuses, rotation is one generation at a byte ceiling
+// measured on the file (not on one process's writes), appends never interleave, the sink creates
+// its directory, and a failure stops the log and is readable afterwards.
 
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -26,15 +24,7 @@ function entry(level: MainDiagnosticEntry["level"], message: string): MainDiagno
   return { at: AT, level, source: "main/test", message };
 }
 
-/**
- * The shipped file sink, not a copy of it.
- *
- * The suite drives the real one rather than a double for rotation, because rotation is
- * two file operations in an order that matters and a double would prove only that the
- * module called them — and because a hand-written copy here is the second
- * implementation of a seam that has one, which drifts the moment the shipped sink grows
- * an operation.
- */
+/** The shipped sink, not a double: rotation is two file operations whose order matters. */
 const realFileSink: DiagnosticLogFileSink = createFileSystemDiagnosticLogSink();
 
 /** A sink whose appends always fail, with the message the failure carries. */
@@ -171,10 +161,8 @@ describe("main diagnostic log", () => {
     await beforeRestart.drain();
     expect(beforeRestart.rotationCount).toBe(0);
 
-    // A restart: a second instance over the file the first one left full. The
-    // ceiling is a property of the FILE, so the very first line this instance
-    // writes has to rotate — a count that started at zero would let the log grow
-    // by a whole ceiling per launch and keep a rotation that holds two lines.
+    // A restart over the file the first instance left full: the first line must rotate, since a
+    // count starting at zero would let the log grow by a whole ceiling per launch.
     const afterRestart = new MainDiagnosticLog({
       filePath,
       sink: realFileSink,
@@ -191,9 +179,7 @@ describe("main diagnostic log", () => {
   });
 
   it("creates the log directory rather than assuming one exists", async () => {
-    // `app.getPath("logs")` names a directory Electron has not necessarily made,
-    // and the first thing main writes there is the record of a startup that
-    // failed — the one line that has nowhere else to go.
+    // `app.getPath("logs")` names a directory Electron has not necessarily made.
     const nestedFilePath = join(directory, "logs", "main.jsonl");
     const log = new MainDiagnosticLog({
       filePath: nestedFilePath,
@@ -211,11 +197,8 @@ describe("main diagnostic log", () => {
   });
 
   it("reads an absent log as zero bytes when its parent path is a file", async () => {
-    // ENOTDIR rather than ENOENT, which `stat` answers when a component that would have
-    // to be a directory is a file. Both codes say the same thing about the log — there
-    // is no such file — and only ENOENT was being read that way, so a log pointed under
-    // a stray file reported a failed SIZE READ. The append that follows still fails, and
-    // that failure is the honest one: it names the directory that cannot be created.
+    // `stat` answers ENOTDIR, not ENOENT, when a path component that must be a directory is a
+    // file. Both mean there is no such file; the append that follows still fails honestly.
     const parentThatIsAFile = join(directory, "occupied");
     await writeFile(parentThatIsAFile, "not a directory", "utf8");
 

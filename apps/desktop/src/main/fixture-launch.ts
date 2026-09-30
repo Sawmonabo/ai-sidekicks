@@ -1,13 +1,8 @@
-// The fixture launch: `--fixture <scenario>`, optionally with `--session <session-id>`.
-//
-// The command line is read in every build, so a build that carries no scenarios refuses
-// `--fixture` at startup instead of launching normally as though it had not been asked
-// (`./index.ts` makes that refusal). The catalog is reached only through the dynamic import
-// in `checkFixtureLaunchAgainstCatalog`, which `./index.ts` calls behind the fixture define,
-// so a release main bundle carries no scenario.
-//
-// Every refusal here is a startup error: `./index.ts`'s terminal handler records it and
-// exits before any window opens. There is no fallback scenario.
+// `--fixture <scenario>`, optionally with `--session <session-id>`. The command line is read
+// in every build, so a build with no scenarios can refuse `--fixture` at startup (`./index.ts`
+// does) instead of launching normally. The catalog is reached only through the dynamic import
+// in `checkFixtureLaunchAgainstCatalog`, so a release bundle carries no scenario. Every refusal
+// is a startup error with no fallback scenario.
 
 import { parseArgs } from "node:util";
 
@@ -21,12 +16,10 @@ const LAUNCH_OPTIONS = {
 /**
  * The fixture launch a command line asks for, or `undefined` when it names none.
  *
- * `argv` is the command line after the executable. Everything else on it (the app path,
- * Chromium's switches, a test driver's) is left alone: parsing is not strict and takes
- * positionals. The tokens are read rather than the parsed values, because a lenient parse
- * turns a bare `--fixture` into `true`, `--fixture --session s` into the scenario
- * `"--session"`, and a repeated option into its last value, and each of those is a
- * mistake to refuse.
+ * `argv` is the command line after the executable; other arguments (the app path,
+ * Chromium's switches) are left alone. Tokens are read rather than parsed values because a
+ * lenient parse turns a bare `--fixture` into `true`, `--fixture --session s` into the scenario
+ * `"--session"`, and a repeated option into its last value; each is a mistake to refuse.
  */
 export function parseFixtureLaunch(argv: readonly string[]): FixtureLaunch | undefined {
   const { tokens } = parseArgs({
@@ -66,7 +59,7 @@ export function parseFixtureLaunch(argv: readonly string[]): FixtureLaunch | und
  */
 export async function checkFixtureLaunchAgainstCatalog(launch: FixtureLaunch): Promise<void> {
   const { findScenario } = await import("../../fixtures/index.js");
-  // Throws naming every scenario the catalog holds.
+  // Throws, naming every scenario the catalog holds, for an unknown one.
   const scenario = findScenario(launch.scenarioId);
   if (launch.sessionId !== undefined && launch.sessionId !== scenario.sessionId) {
     throw new Error(

@@ -1,40 +1,22 @@
-// The main-process startup order.
-//
-// Two orderings are load-bearing and neither is visible from reading one file:
-//
-//   1. `protocol.registerSchemesAsPrivileged` must run BEFORE `app.whenReady()`.
-//      Electron refuses the call after ready, and a scheme that never became
-//      `standard` has no origin — so the renderer gets no IndexedDB and no
-//      `localStorage`.
-//   2. `protocol.handle` must run BEFORE the first `BrowserWindow` is
-//      constructed, or a window can begin loading against an unhandled scheme.
-//
-// This test records the real call sequence by importing `main/index.ts` under a
-// mocked `electron`, so a diff that moves either call fails here rather than at
-// runtime. When the crash reporter and single-instance lock join the sequence,
-// these same two orderings are re-asserted around them.
+// Two orderings are load-bearing: `protocol.registerSchemesAsPrivileged` before
+// `app.whenReady()` (Electron refuses it after ready, and a non-`standard` scheme has no
+// origin, so no IndexedDB or `localStorage`), and `protocol.handle` before the first
+// `BrowserWindow` (or a window loads against an unhandled scheme). This records the real call
+// sequence by importing `index.ts` under a mocked `electron`.
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createElectronMock } from "@test/helpers/electron-mock.js";
 
-// The one shared `electron` mock (`tests/helpers/electron-mock.ts`), with its
-// ordered log on — sequence is the whole subject of this file. Its
-// `app.whenReady()` is a DEFERRED the test resolves by hand through
-// `releaseReady()`: awaiting the dynamic `import()` below already drains
-// several microtask ticks, so a mock that returned an already-resolved promise
-// would run the ready continuation before the test could observe the
-// module-evaluation-only prefix — and the "registered before ready" claim would
-// be untestable.
+// The mock's `app.whenReady()` is a deferred the test releases by hand: awaiting the dynamic
+// `import()` already drains several microtask ticks, so an already-resolved promise would run
+// the ready continuation before the module-evaluation prefix could be observed.
 const electronMock = createElectronMock({ recordOrder: true });
 
 vi.mock("electron", () => electronMock.moduleExports);
 
-// The four operations this file is about, out of the fuller log the shared mock
-// records. Filtering to them keeps the assertion a FULL SEQUENCE — any swap of
-// any two still fails — without coupling this file to every operation the
-// window factory happens to perform between them, which is `window.test.ts`'s
-// subject and not this one's.
+// Filtering the mock's log to these four keeps the assertion a full sequence without
+// coupling it to the other operations the window factory performs between them.
 const STARTUP_OPERATIONS: readonly string[] = [
   "protocol.registerSchemesAsPrivileged",
   "app.whenReady",
@@ -64,18 +46,14 @@ describe("main-process startup order", () => {
   it("registers the scheme before ready and installs the handler before any window", async () => {
     await import("./index.js");
 
-    // Ready has not been released yet, so only the synchronous
-    // module-evaluation calls are recorded. A `registerRendererScheme()` moved
-    // inside `whenReady()` would leave this list without its first entry — the
-    // exact regression this ordering exists to prevent, and one that is
-    // invisible at runtime until the console finds it has no IndexedDB.
+    // Ready is not released yet, so only module-evaluation calls are recorded. A
+    // `registerRendererScheme()` moved inside `whenReady()` would drop the first entry.
     expect(startupSequence()).toEqual(["protocol.registerSchemesAsPrivileged", "app.whenReady"]);
 
     electronMock.releaseReady();
     await drainMicrotasks();
 
-    // The full sequence, not a pair of independent index comparisons: any swap
-    // of any two of these four operations fails this assertion.
+    // The full sequence, so a swap of any two operations fails.
     expect(startupSequence()).toEqual([
       "protocol.registerSchemesAsPrivileged",
       "app.whenReady",

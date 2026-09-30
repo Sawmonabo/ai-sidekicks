@@ -1,33 +1,22 @@
-// What a window does when its document will not load.
-//
-// Split out of `./window.ts` so the factories read as construction and the
-// recovery reads as one ladder: load, then the generated failure document, then
-// give up. The three rungs are three functions in one file, in the order they
-// run, because the property that matters — the recovery terminates — is a
-// property of the ladder and not of any one rung.
+// What a window does when its document will not load: load, then the generated failure
+// document, then give up. Split out of `./window.ts`; the three rungs sit in one file, in order,
+// because the property that matters, that the recovery terminates, belongs to the ladder.
 
 import { app, type BrowserWindow } from "electron";
 
 import { buildLoadFailureUrl } from "./load-failure-document.js";
 
 /**
- * Exit status when a window has no document it can serve — not even the
- * generated failure document.
- *
- * Joins the vocabulary `main/index.ts` already uses on its own exit paths (`0`
- * clean, `1` startup failed, `2` renderer probe failed, `4` index fetch
- * failed), so a harness reading the code can tell this apart from a probe
- * failure instead of seeing an undifferentiated `1`.
+ * Exit status when a window has no document it can serve, not even the generated failure
+ * document. Distinct from the other main exit codes (`1` startup failed, `2` and `4` smoke-probe
+ * failures) so a harness can tell them apart.
  */
 export const RENDERER_UNSERVABLE_EXIT_CODE = 5;
 
 /**
- * Renders an unknown thrown value as a bounded, single-line reason.
- *
- * `unknown` because a rejected `loadURL` is not guaranteed to reject with an
- * `Error`, and `String(error)` on a hostile object can be arbitrarily long or
- * multi-line. Newlines collapse so the reason stays one log line and one
- * paragraph in the failure document.
+ * Renders an unknown thrown value as a bounded, single-line reason. `unknown` because a
+ * rejected `loadURL` need not reject with an `Error`; newlines collapse so the reason stays one
+ * log line.
  */
 export function describeLoadFailure(error: unknown): string {
   const text = error instanceof Error ? error.message : String(error);
@@ -35,19 +24,11 @@ export function describeLoadFailure(error: unknown): string {
 }
 
 /**
- * Starts the load, and gives a rejected load a visible, controlled outcome.
- *
- * `loadURL` rejects on a navigation failure (a refused asset, a handler that
- * never installed, a bundle that is not there). Logging and returning left a
- * LIVE, BLANK, RETAINED window: nothing on screen, no reason, and nothing for
- * the user or a harness to act on. Instead the window loads the generated
- * failure document (`./load-failure-document.ts`), which carries the reason and
- * is servable precisely because it is not read from the tree that just failed.
- *
- * If that second load also rejects, no document can be served at all: the window
- * is destroyed rather than retained, and the process exits non-zero with the
- * diagnostic. There is no third attempt — the failure
- * document's own catch does not re-enter this path, so the recovery cannot loop.
+ * Starts the load, and gives a rejected load a visible outcome instead of a blank window. On
+ * rejection the window loads the generated failure document (`./load-failure-document.ts`),
+ * which is servable because it is not read from the tree that just failed. If that load also
+ * rejects, the window is destroyed and the process exits non-zero with the diagnostic; the
+ * failure document's own catch does not re-enter this path, so the recovery cannot loop.
  */
 export function loadDocument(browserWindow: BrowserWindow, documentUrl: string): void {
   browserWindow.loadURL(documentUrl).catch((error: unknown) => {
@@ -60,18 +41,10 @@ export function loadDocument(browserWindow: BrowserWindow, documentUrl: string):
 /** Loads the generated failure document, or gives up in a controlled way. */
 function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string): void {
   if (browserWindow.isDestroyed()) {
-    // The window is gone. Almost always this is the ordinary case: the user
-    // closed the window while its first load was still failing, and `loadURL`
-    // rejected afterwards against a window that no longer exists.
-    //
-    // Deliberately a plain return and NOT `abandonUnservableWindow`. Treating a
-    // closed window as unservable would exit the process with
-    // `RENDERER_UNSERVABLE_EXIT_CODE` straight out of `app.exit`, which runs no
-    // `before-quit` and no `will-quit` handler — so closing the main window
-    // during a slow failing load would skip the sidecar drain and report a
-    // renderer failure for a normal quit. Nothing is owed here: the window
-    // destroyed itself, so there is nothing to destroy, and there is no window
-    // left to show a failure document in.
+    // The user usually closed the window while its first load was still failing. A plain
+    // return, not `abandonUnservableWindow`: that calls `app.exit`, which runs no `before-quit`
+    // or `will-quit` handler, so a normal close would skip the quit drain and report a
+    // renderer failure.
     console.warn(
       `[ai-sidekicks/desktop] a window closed while its load was failing (${reason}); ` +
         `no failure document to serve.`,
@@ -79,16 +52,10 @@ function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string):
     return;
   }
 
-  // Inside the guarded path, deliberately. Building the URL percent-encodes the
-  // reason, and a reason is an unknown thrown value rendered as text — hostile
-  // enough to reach `encodeURIComponent`'s one throwing input. Evaluated in the
-  // argument position of the `loadURL` call above the `.catch`, a `URIError`
-  // would propagate out of this function instead of reaching the recovery, and
-  // out of the `.catch` handler that called it as an unhandled rejection: the
-  // window would stay live and blank, which is exactly the outcome this ladder
-  // exists to prevent. `buildLoadFailureUrl` already replaces unpaired
-  // surrogates, so this is the second guard on the same hazard and not the only
-  // one.
+  // Inside the guarded path: building the URL percent-encodes the reason, and a hostile
+  // reason can reach `encodeURIComponent`'s one throwing input. Outside this guard the
+  // `URIError` would escape the `.catch` that called it and leave the window blank.
+  // `buildLoadFailureUrl` already replaces unpaired surrogates; this is the second guard.
   let failureDocumentUrl: string;
   try {
     failureDocumentUrl = buildLoadFailureUrl(reason);
@@ -111,12 +78,9 @@ function serveLoadFailureDocument(browserWindow: BrowserWindow, reason: string):
 }
 
 /**
- * Destroys a window that has no document and exits the process.
- *
- * The window's document is the application, so with not even the generated
- * failure document to show there is nothing left to interact with; exiting
- * non-zero beats sitting as an invisible placeholder a harness can only detect
- * by timing out.
+ * Destroys a window that has no document and exits the process. With not even the failure
+ * document to show there is nothing to interact with, and exiting non-zero beats an invisible
+ * placeholder a harness can only detect by timing out.
  */
 function abandonUnservableWindow(browserWindow: BrowserWindow, reason: string): void {
   if (!browserWindow.isDestroyed()) {

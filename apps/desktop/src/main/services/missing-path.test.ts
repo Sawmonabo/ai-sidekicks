@@ -1,10 +1,6 @@
-// The absence predicate, driven with rejections the file system actually produced.
-//
-// Hand-built `{ code: "ENOTDIR" }` objects would prove only that the predicate reads a
-// property this file wrote. Both absence codes are raised here by real `stat` calls
-// against real paths, so the case fails if the kernel ever stops answering the way the
-// module's header says it does — and the negative controls are what keep "absence" from
-// quietly widening into "the call did not succeed".
+// Both absence codes are raised by real `stat` calls, so the case fails if the kernel stops
+// answering as the module expects; the negative controls keep "absence" from widening into
+// "the call did not succeed".
 
 import { mkdtemp, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -43,9 +39,6 @@ describe("isMissingPath", () => {
   });
 
   it("answers a path whose parent is a file", async () => {
-    // The code the two private predicates disagreed on. Asserted on the rejection the
-    // kernel raised rather than on a literal, so this reads ENOTDIR only for as long as
-    // `stat` keeps answering that way.
     const parentThatIsAFile = join(directory, "occupied");
     await writeFile(parentThatIsAFile, "not a directory", "utf8");
 
@@ -56,9 +49,8 @@ describe("isMissingPath", () => {
   });
 
   it("negative control: a directory that is there is not absent", async () => {
-    // The control for the two cases above. A predicate that had widened to "something
-    // went wrong" would still pass both of them and fail here, because this call does
-    // not reject at all.
+    // A predicate widened to "something went wrong" would pass both cases above and fail here,
+    // because this call does not reject at all.
     expect(await rejectionOf(() => stat(directory))).toBeNull();
   });
 

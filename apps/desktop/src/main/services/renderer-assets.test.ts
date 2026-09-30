@@ -1,17 +1,7 @@
-// Containment and resolution over the built renderer tree.
-//
-// The first `describe` below IS the containment failure matrix: one row per
-// escape class, each asserting the EXACT serialized result, so a refusal that
-// started echoing the attempted path would fail here rather than leak. The
-// matrix was written before the handler and is the reason `resolveRendererAsset`
-// reads the raw URL text instead of the parsed `pathname` — the WHATWG parser
-// silently collapses `..`, which would have made row 1 unreachable.
-//
-// No `electron` mock: `./renderer-assets.ts` imports the filesystem and
-// `./renderer-scheme.ts` and nothing else, which is the point of it being its
-// own module. The response POLICY those verdicts turn into — statuses, empty
-// refusal bodies, locked headers — is asserted against the real `Response`
-// objects in `./protocol.test.ts`, which is where `electron` enters.
+// The first `describe` is the containment failure matrix: one row per escape class, each
+// asserting the exact serialized result, so a refusal that echoed the attempted path would fail
+// here rather than leak. No `electron` mock: the response policy those verdicts turn into is
+// asserted in `./renderer-protocol.test.ts`.
 
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -21,10 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import { FALLBACK_CONTENT_TYPE, resolveRendererAsset } from "./renderer-assets.js";
 
-// Extensions the closed content-type map covers, paired with the exact type the
-// handler must serve. A row removed from the map without a row removed here
-// fails; a row added to the map without a row here is caught by the
-// closed-set assertion at the end of that block.
+// Extensions the closed content-type map covers, paired with the exact type served.
 const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
   ["index.html", "text/html; charset=utf-8"],
   ["bundle.js", "text/javascript; charset=utf-8"],
@@ -38,9 +25,8 @@ const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
   ["parser.wasm", "application/wasm"],
 ];
 
-// Planted beside the bundle exactly as a dev tree has them: present on disk,
-// and still refused. The fixture is what makes the 404 meaningful — a guard
-// that only passed because the file was missing would prove nothing.
+// Planted beside the bundle as a dev tree has them: present on disk and still refused, so a
+// pass is the guard working and not a missing file.
 const SOURCE_MAP_FIXTURES: readonly string[] = [
   "bundle.js.map",
   "sheet.css.map",
@@ -71,11 +57,9 @@ beforeAll(async () => {
   await writeFile(path.join(rendererRoot, "notes.txt"), "x", "utf8");
   await writeFile(path.join(rendererRoot, "assets", "app.js"), "x", "utf8");
 
-  // Escape symlink: lives INSIDE the root, points OUTSIDE it.
+  // Escape symlink: inside the root, pointing outside it.
   await symlink(path.join(outsideRoot, "secret.txt"), path.join(rendererRoot, "escape.txt"));
-  // Negative control: a symlink INSIDE the root pointing at a file INSIDE the
-  // root must still resolve. Without this, a guard that simply refused every
-  // symlink would pass the escape row and prove nothing.
+  // Negative control: a symlink inside the root to a file inside it must still resolve.
   await symlink(path.join(rendererRoot, "assets", "app.js"), path.join(rendererRoot, "inner.js"));
 });
 
@@ -85,8 +69,7 @@ afterAll(async () => {
   }
 });
 describe("resolveRendererAsset containment failure matrix", () => {
-  // Every row asserts the EXACT serialized result. `{"outcome":"forbidden"}` is
-  // the whole payload — no path, no reason, no filesystem shape.
+  // The exact serialized result is the whole payload: no path, no reason.
   const FORBIDDEN_ROWS: ReadonlyArray<readonly [string, string]> = [
     ["raw dot-dot segment", "sidekicks-renderer://app/../etc/passwd"],
     ["raw dot-dot mid-path", "sidekicks-renderer://app/assets/../../etc/passwd"],
@@ -111,8 +94,7 @@ describe("resolveRendererAsset containment failure matrix", () => {
 
   it.each(FORBIDDEN_ROWS)("refuses %s with an empty, path-free result", async (_label, url) => {
     const resolution = await resolveRendererAsset(rendererRoot, url);
-    // Exact serialization: proves both the verdict AND that nothing about the
-    // attempted path survives into the caller's hands.
+    // Exact serialization proves nothing about the attempted path survives.
     expect(JSON.stringify(resolution)).toBe('{"outcome":"forbidden"}');
   });
 
@@ -124,9 +106,7 @@ describe("resolveRendererAsset containment failure matrix", () => {
     expect(JSON.stringify(resolution)).toBe('{"outcome":"forbidden"}');
   });
 
-  // The escape row's negative control. A guard that refused every symlink would
-  // pass the row above while being wrong; this proves the guard is about
-  // CONTAINMENT, not about symlinks.
+  // The escape row's negative control: the guard is about containment, not symlinks.
   it("resolves a symlink that stays inside the root", async () => {
     const resolution = await resolveRendererAsset(
       rendererRoot,
@@ -150,8 +130,7 @@ describe("resolveRendererAsset misses", () => {
   });
 });
 describe("source maps", () => {
-  // Each fixture EXISTS on disk (see the setup above), so a passing row is the
-  // guard refusing a readable file and not the filesystem answering for it.
+  // Each fixture exists on disk, so a pass is the guard refusing a readable file.
   it.each(SOURCE_MAP_FIXTURES.map((fileName) => [fileName] as const))(
     "answers 'not found' for the planted %s",
     async (fileName) => {
@@ -159,8 +138,7 @@ describe("source maps", () => {
         rendererRoot,
         `sidekicks-renderer://app/${fileName}`,
       );
-      // Exact serialization: 404 with nothing else in the result, so the
-      // refusal cannot leak the path or the fact that the file is there.
+      // Exact serialization: nothing in the result leaks the path or that the file exists.
       expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
     },
   );
@@ -174,8 +152,7 @@ describe("source maps", () => {
   });
 
   it("answers 'not found' for a source map that is not on disk at all", async () => {
-    // The refusal must not be distinguishable from a miss, which is the whole
-    // reason it is 404 rather than 403.
+    // A refused map must be indistinguishable from a miss, hence 404 rather than 403.
     const resolution = await resolveRendererAsset(
       rendererRoot,
       "sidekicks-renderer://app/never-written.js.map",
@@ -184,8 +161,7 @@ describe("source maps", () => {
   });
 
   it("does not refuse a file whose name merely contains 'map'", async () => {
-    // Negative control: the guard is a suffix test, not a substring test, so
-    // `sitemap.json` and friends still resolve.
+    // Negative control: the guard is a suffix test, not a substring test.
     const resolution = await resolveRendererAsset(
       rendererRoot,
       "sidekicks-renderer://app/manifest.json",
@@ -227,9 +203,8 @@ describe("resolveRendererAsset content types", () => {
     );
     expect(resolution.outcome).toBe("resolved");
     if (resolution.outcome !== "resolved") return;
-    // Query and fragment are not part of the path, and the returned path sits
-    // under the root's realpath (`/var` is a symlink to `/private/var` on macOS,
-    // so the comparison is against the resolved root, not the raw one).
+    // Query and fragment are not part of the path. `/var` is a symlink to `/private/var` on
+    // macOS, so the returned path is checked by suffix, not against the raw root.
     expect(path.basename(resolution.absolutePath)).toBe("app.js");
     expect(resolution.absolutePath.endsWith(path.join("assets", "app.js"))).toBe(true);
   });
