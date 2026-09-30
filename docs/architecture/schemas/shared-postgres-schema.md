@@ -30,7 +30,7 @@ CREATE TABLE users (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   display_name    TEXT NOT NULL,                 -- Owner: Plan-016
-  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-016; the account's random WebAuthn user handle, carried by every passkey it holds — Plan-016 D-016-2
+  identity_ref    TEXT NOT NULL UNIQUE,          -- Owner: Plan-016; the account's random WebAuthn user handle as unpadded base64url, carried by every passkey it holds — Plan-016 D-016-2
   metadata        JSONB NOT NULL DEFAULT '{}'    -- Owner: Plan-016
 );
 ```
@@ -49,7 +49,7 @@ Plan-016 owns the identity columns of the [Plan-001 Users Identity Anchor](#user
 CREATE INDEX idx_users_identity ON users(identity_ref);
 ```
 
-**`identity_ref` is the account's WebAuthn user handle (Plan-016 D-016-2).** The account is keyed by its own id: `identity_ref` is random bytes minted when the account is created, at most 64 of them and carrying no personal data ([WebAuthn Level 3 §5.4.3](https://www.w3.org/TR/webauthn-3/#dictionary-user-credential-params)), and every passkey the account holds carries it as its user handle. A passkey resolves to its one user through its [`webauthn_credentials`](#webauthn-ceremony-plan-016) row, whose `credential_id UNIQUE` keeps one passkey from naming two users; no outside sign-in makes or finds the account.
+**`identity_ref` is the account's WebAuthn user handle (Plan-016 D-016-2).** The account is keyed by its own id: `identity_ref` is random bytes minted when the account is created, at most 64 of them and carrying no personal data ([WebAuthn Level 3 §5.4.3](https://www.w3.org/TR/webauthn-3/#dictionary-user-credential-params)), and every passkey the account holds carries it as its user handle. The column holds the handle's bytes as unpadded base64url, WebAuthn's own JSON form for the user id; `users.id` stays the key. A passkey resolves to its one user through its [`webauthn_credentials`](#webauthn-ceremony-plan-016) row, whose `credential_id UNIQUE` keeps one passkey from naming two users; no outside sign-in makes or finds the account.
 
 ---
 
