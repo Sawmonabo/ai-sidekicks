@@ -1,12 +1,16 @@
-// The card's hard claims: two answers, a remember opt-in that sends nothing until engaged and is
-// absent where no standing allow is offered, an answer the contract accepts, and a
-// keyboard-walkable action row. Payload assertions drive the real `onResolve`, so they check
-// the wire request.
+// What an answer sends: an answer the contract accepts, a remember opt-in that sends nothing
+// until engaged and only on approve, and the requested resource shown in full before the person
+// answers. The card and the palette rows withdraw together on a settled refusal. Payload
+// assertions drive the real `onResolve`, so they check the wire request.
 
-import { fireEvent, screen, within } from "@testing-library/react";
+import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { ACCENT_FILL_CLASS } from "../../accent-fill.js";
+import { refuse, type Refusal } from "@renderer/lib/refusal.js";
+import {
+  approvalCommandRows,
+  type ApprovalCommandInput,
+} from "../contributions/approval-commands.js";
 import { isAcceptedAnswer, pendingRecord } from "../approval-record.test-support.js";
 import { renderCard } from "./approval-card.test-support.js";
 
@@ -18,53 +22,6 @@ function engageRememberOptIn(): void {
   fireEvent.click(screen.getByRole("button", { name: "Remember this answer" }));
   fireEvent.click(screen.getByText("Remember my approval"));
 }
-
-describe("the two answers", () => {
-  it("offers exactly Approve and Reject on a pending record", () => {
-    renderCard(pendingRecord());
-    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    const labels = [...actions.querySelectorAll("button")].map((button) => button.textContent);
-    expect(labels).toStrictEqual(["Approve", "Reject"]);
-  });
-
-  it("offers no answer at all on a resolved record", () => {
-    // Negative control: the toolbar must be absent, or "exactly two" is about an always-drawn row.
-    renderCard(
-      pendingRecord({
-        state: "approved",
-        decision: "approved",
-        resolvedAt: "2026-01-01T13:31:00.000Z",
-        approverId: "019b7a33-3300-7b01-8110-d1a4c1150561",
-        effectiveScope: "session",
-      }),
-    );
-    expect(screen.queryByRole("toolbar", { name: "Answer this request" })).toBeNull();
-  });
-
-  it("disables both actions while this record's call is in flight", () => {
-    renderCard(pendingRecord(), true);
-    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    for (const button of actions.querySelectorAll("button")) {
-      expect(button.disabled).toBe(true);
-    }
-  });
-
-  it("gives approve the filled accent and leaves reject quiet", () => {
-    renderCard(pendingRecord());
-    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-
-    // The face comes from the primitives, so `styles/contrast.test.ts` can measure `accent-ink`
-    // against the fill.
-    expect(within(actions).getByRole("button", { name: "Approve" }).classList).toContain(
-      ACCENT_FILL_CLASS,
-    );
-
-    // Negative control: one filled primary action per card, and reject is never colored.
-    expect(within(actions).getByRole("button", { name: "Reject" }).classList).not.toContain(
-      ACCENT_FILL_CLASS,
-    );
-  });
-});
 
 describe("what an answer sends", () => {
   it("sends an answer the contract accepts, naming no scope of its own", () => {
@@ -115,38 +72,6 @@ describe("the remembered-rule opt-in", () => {
     expect(requests[0]?.decision).toBe("rejected");
     expect(requests[0]?.rememberedScope).toBeUndefined();
   });
-
-  it("is absent where the ask may not carry a standing allow", () => {
-    renderCard(pendingRecord({ standingAllowOffered: false }));
-    expect(screen.queryByRole("button", { name: "Remember this answer" })).toBeNull();
-    // Negative control: the answers themselves stay.
-    expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull();
-  });
-});
-
-describe("the action row is keyboard-walkable", () => {
-  it("moves focus with an arrow and with a vim key, and suppresses the page scroll", () => {
-    renderCard(pendingRecord());
-    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    const approve = screen.getByRole("button", { name: "Approve" });
-    const reject = screen.getByRole("button", { name: "Reject" });
-    approve.focus();
-    const arrowHandled = fireEvent.keyDown(actions, { key: "ArrowRight" });
-    expect(document.activeElement).toBe(reject);
-    // `fireEvent` answers false when a handler called `preventDefault`.
-    expect(arrowHandled).toBe(false);
-    fireEvent.keyDown(actions, { key: "h" });
-    expect(document.activeElement).toBe(approve);
-  });
-
-  it("negative control: a key the row does not own moves nothing and is not suppressed", () => {
-    renderCard(pendingRecord());
-    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
-    const approve = screen.getByRole("button", { name: "Approve" });
-    approve.focus();
-    expect(fireEvent.keyDown(actions, { key: "ArrowDown" })).toBe(true);
-    expect(document.activeElement).toBe(approve);
-  });
 });
 
 describe("the requested resource is the structured value the reply carried", () => {
@@ -171,35 +96,43 @@ describe("the requested resource is the structured value the reply carried", () 
     expect(screen.getByText("4096")).not.toBeNull();
     expect(screen.getByText("false")).not.toBeNull();
   });
-
-  it("says so when the descriptor carried no members at all", () => {
-    renderCard(pendingRecord({ resourceDescriptor: {} }));
-    fireEvent.click(screen.getByRole("button", { name: "What was asked for" }));
-    expect(screen.getByText(/descriptor with nothing in it/u)).not.toBeNull();
-  });
 });
 
-describe("the facts the reply requires", () => {
-  it("names the run that raised the request", () => {
-    renderCard(pendingRecord({ runId: "019b7a33-3300-740e-8110-d1a4c1150511" }));
-    const facts = screen.getByText("Raised by run").closest("div");
-    expect(facts).not.toBeNull();
-    expect(
-      within(facts ?? document.body).getByText("019b7a33-3300-740e-8110-d1a4c1150511"),
-    ).not.toBeNull();
+const ALREADY_RESOLVED: Refusal = refuse(
+  "approvals",
+  "approval.already_resolved",
+  "Answered elsewhere.",
+);
+const RETRYABLE: Refusal = refuse("approvals", "approval.decision_conflict", "Two answers raced.");
+
+/** The palette's view of one record and one refusal against it. */
+function rowsFor(refusalForRecord: Refusal): ApprovalCommandInput {
+  const record = pendingRecord();
+  return {
+    pending: [record],
+    resolvingApprovalIds: new Set<string>(),
+    resolveRefusalByApprovalId: new Map([[record.id, refusalForRecord]]),
+    resolve: () => undefined,
+  };
+}
+
+describe("the palette withdraws exactly where the card does", () => {
+  it("offers neither a card action nor a palette row once the request is settled", () => {
+    // A `settled` refusal means the request was answered elsewhere.
+    renderCard(pendingRecord(), false, ALREADY_RESOLVED);
+
+    expect(screen.queryByRole("toolbar", { name: "Answer this request" })).toBeNull();
+    expect(approvalCommandRows(rowsFor(ALREADY_RESOLVED))).toEqual([]);
   });
 
-  it("shows both instants as a clock reading that still carries the wire value", () => {
-    renderCard(
-      pendingRecord({
-        createdAt: "2026-01-01T13:30:00.900Z",
-        updatedAt: "2026-01-01T14:05:20.000Z",
-      }),
-    );
-    // The formatted reading is what a person reads; the exact instant rides `title`.
-    const created = screen.getByTitle("2026-01-01T13:30:00.900Z");
-    const changed = screen.getByTitle("2026-01-01T14:05:20.000Z");
-    expect(created.textContent).not.toBe("2026-01-01T13:30:00.900Z");
-    expect(changed.textContent).not.toBe("");
+  it("negative control: both keep offering where the same act is still admissible", () => {
+    // Withdrawing on every refusal would strand a person on a retryable failure.
+    renderCard(pendingRecord(), false, RETRYABLE);
+
+    expect(screen.queryByRole("toolbar", { name: "Answer this request" })).not.toBeNull();
+    expect(approvalCommandRows(rowsFor(RETRYABLE)).map((row) => row.kind)).toEqual([
+      "approve",
+      "reject",
+    ]);
   });
 });

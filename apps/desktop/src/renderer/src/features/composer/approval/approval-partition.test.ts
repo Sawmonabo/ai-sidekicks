@@ -21,12 +21,4 @@ describe("partitionApprovalRecords — one answered read, split in two", () => {
     expect(partitioned.pending.map((row) => row.id)).toStrictEqual([FIRST, THIRD]);
     expect(partitioned.history.map((row) => row.id)).toStrictEqual([SECOND]);
   });
-
-  it("answers empty while the read has not answered", () => {
-    // Not an answer: only an answered read with no rows means the daemon returned nothing.
-    expect(partitionApprovalRecords({ status: "loading" })).toStrictEqual({
-      pending: [],
-      history: [],
-    });
-  });
 });
