@@ -17,7 +17,7 @@ import {
 
 import { DaemonDomainError } from "../ipc/domain-error.js";
 import { registerDescribedMethod } from "../ipc/handlers/register-described-method.js";
-import type { StreamingPrimitive } from "../ipc/streaming-primitive.js";
+import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../ipc/streaming-primitive.js";
 
 import type { MachineSettingsFile } from "./machine-settings-file.js";
 
@@ -96,8 +96,8 @@ export function registerMachineSettingsMethods(
       try {
         subscription.next(reading);
       } catch (error) {
-        subscription.cancel();
-        console.error(
+        cancelAfterDetachedFailure(
+          subscription,
           `[daemon.machineSettingsSubscribe] emission failed for subscriptionId=${subscription.subscriptionId}; subscription canceled`,
           error,
         );

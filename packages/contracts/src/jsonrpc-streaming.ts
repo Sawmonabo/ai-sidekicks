@@ -179,16 +179,19 @@ export interface LocalSubscriptionProducer<T> {
   /**
    * Cancels from the server side: removes the subscription and fires `onCancel` handlers, without
    * sending a frame. Idempotent; later `next` calls are no-ops.
+   *
+   * @throws AggregateError carrying every handler failure, after all handlers ran.
    */
   cancel(): void;
 
   /**
    * Registers a callback for when the subscription is cancelled from outside: by `cancel()`, by
    * the client's cancel call, or by the connection closing. It does not fire on `complete()`. A
-   * handler releases upstream resources; on a cancel a throwing handler does not stop the others,
-   * and its error is swallowed. Handlers run in registration order after the subscription is
-   * removed. Registering on an already-cancelled subscription runs the handler at once and throws
-   * its failure to the registrant. Registering the same function twice runs it twice.
+   * handler releases upstream resources; a throwing handler does not stop the others, and the
+   * cancel then throws its failure (a closed connection has no caller, so the daemon logs it).
+   * Handlers run in registration order after the subscription is removed. Registering on an
+   * already-cancelled subscription runs the handler at once and throws its failure to the
+   * registrant. Registering the same function twice runs it twice.
    */
   onCancel(fn: () => void): void;
 }

@@ -58,6 +58,42 @@ interface SubscriptionEntry {
   readonly onCancelHandlers: Array<() => void>;
 }
 
+// Runs every handler, then throws one `AggregateError` carrying each failure: a throwing handler
+// does not stop its siblings, and whoever cancelled learns that a release failed.
+function fireCancelHandlers(handlers: Array<() => void>): void {
+  const failures: unknown[] = [];
+  for (const handler of handlers) {
+    try {
+      handler();
+    } catch (error) {
+      failures.push(error);
+    }
+  }
+  handlers.length = 0;
+  if (failures.length > 0) {
+    throw new AggregateError(failures, "one or more subscription cancel handlers failed");
+  }
+}
+
+/**
+ * Cancels `producer` after a failure no caller will receive (a source callback or a deferred
+ * replay) and logs it with any cancel-handler failure. Nothing escapes: an uncaught throw there
+ * would stop the daemon.
+ */
+export function cancelAfterDetachedFailure(
+  producer: Pick<LocalSubscriptionProducer<unknown>, "cancel">,
+  message: string,
+  failure: unknown,
+): void {
+  try {
+    producer.cancel();
+  } catch (cancelFailure) {
+    console.error(message, failure, cancelFailure);
+    return;
+  }
+  console.error(message, failure);
+}
+
 /**
  * `send` receives each outbound notification and must not throw; the caller frames and writes it.
  * `registry` gets `$/subscription/cancel` at construction, so a duplicate registration fails
@@ -131,18 +167,6 @@ export class StreamingPrimitive {
       }
     };
 
-    const fireOnCancelHandlers = (): void => {
-      // A throwing handler must not stop the others or block teardown.
-      for (const handler of entry.onCancelHandlers) {
-        try {
-          handler();
-        } catch {
-          // Intentional swallow, see above.
-        }
-      }
-      entry.onCancelHandlers.length = 0;
-    };
-
     const subscription: LocalSubscriptionProducer<T> = {
       subscriptionId,
       next(value: T): void {
@@ -186,7 +210,7 @@ export class StreamingPrimitive {
         entry.state = "canceled";
         removeFromTransport(subscriptionId);
         subscriptions.delete(subscriptionId);
-        fireOnCancelHandlers();
+        fireCancelHandlers(entry.onCancelHandlers);
       },
       onCancel(fn: () => void): void {
         // Fires at once on an already canceled subscription, so a late-acquired resource is freed.
@@ -219,32 +243,29 @@ export class StreamingPrimitive {
     const subscriptionIds = [...bucket];
     this.#subscriptionsByTransport.delete(transportId);
     for (const subscriptionId of subscriptionIds) {
-      // One subscription's failure must not stop the cleanup of its siblings.
+      const entry = this.#subscriptions.get(subscriptionId);
+      if (entry === undefined) {
+        continue;
+      }
+      // Mark canceled and remove before firing, as `cancel()` does.
+      entry.state = "canceled";
+      this.#subscriptions.delete(subscriptionId);
       try {
-        const entry = this.#subscriptions.get(subscriptionId);
-        if (entry === undefined) {
-          continue;
-        }
-        // Mark canceled and remove before firing, as `cancel()` does.
-        entry.state = "canceled";
-        this.#subscriptions.delete(subscriptionId);
-        for (const handler of entry.onCancelHandlers) {
-          try {
-            handler();
-          } catch {
-            // Per-handler isolation, as in `fireOnCancelHandlers`.
-          }
-        }
-        entry.onCancelHandlers.length = 0;
-      } catch {
-        // Best-effort: disconnect cleanup continues with the remaining subscriptions.
+        fireCancelHandlers(entry.onCancelHandlers);
+      } catch (error) {
+        // The connection is gone, so no caller is left to receive it; the siblings still release.
+        console.error(
+          `[streaming] cancel handlers failed for subscriptionId=${subscriptionId} on a closed transport`,
+          error,
+        );
       }
     }
   }
 
   /**
    * Cancels a subscription by id, firing its `onCancel` handlers, and returns whether it existed.
-   * Transport ownership is checked by the registered cancel handler, not here.
+   * Transport ownership is checked by the registered cancel handler, not here. Throws one
+   * `AggregateError` when a handler failed, after every handler ran.
    */
   cancelSubscription(subscriptionId: SubscriptionId): boolean {
     const entry = this.#subscriptions.get(subscriptionId);
@@ -260,14 +281,7 @@ export class StreamingPrimitive {
       }
     }
     this.#subscriptions.delete(subscriptionId);
-    for (const handler of entry.onCancelHandlers) {
-      try {
-        handler();
-      } catch {
-        // Per-handler isolation, as in `fireOnCancelHandlers`.
-      }
-    }
-    entry.onCancelHandlers.length = 0;
+    fireCancelHandlers(entry.onCancelHandlers);
     return true;
   }
 

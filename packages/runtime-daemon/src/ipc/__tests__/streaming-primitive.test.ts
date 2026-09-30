@@ -268,17 +268,25 @@ describe("LocalSubscriptionProducer.onCancel lifecycle hook", () => {
     expect(order).toStrictEqual([1, 2, 3]);
   });
 
-  it("per-handler error isolation: a handler that throws does NOT prevent siblings from firing", () => {
+  it("per-handler error isolation: every handler runs, then cancel throws the failure", () => {
     const { primitive } = makeFixture();
     const sub = primitive.createSubscription<unknown>(1, passthroughSchema<unknown>());
     const before = vi.fn<() => void>();
     const after = vi.fn<() => void>();
+    const failure = new Error("handler-internal failure");
     sub.onCancel(before);
     sub.onCancel(() => {
-      throw new Error("handler-internal failure");
+      throw failure;
     });
     sub.onCancel(after);
-    expect(() => sub.cancel()).not.toThrow();
+    let thrown: unknown;
+    try {
+      sub.cancel();
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(AggregateError);
+    expect((thrown as AggregateError).errors).toStrictEqual([failure]);
     expect(before).toHaveBeenCalledTimes(1);
     expect(after).toHaveBeenCalledTimes(1);
   });

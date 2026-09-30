@@ -33,7 +33,7 @@ import {
   SubscribeAckResponseSchema,
 } from "@ai-sidekicks/contracts";
 
-import type { StreamingPrimitive } from "../streaming-primitive.js";
+import { cancelAfterDetachedFailure, type StreamingPrimitive } from "../streaming-primitive.js";
 import { translateDriverError } from "./driver-handlers.js";
 
 /** Dependencies for `driver.subscribeEvents`. */
@@ -102,8 +102,8 @@ export function registerDriverSubscribeEvents(
           try {
             sub.next(event);
           } catch (thrown) {
-            sub.cancel();
-            console.error(
+            cancelAfterDetachedFailure(
+              sub,
               `[driver.subscribeEvents] live-tail event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
               thrown,
             );
@@ -126,8 +126,8 @@ export function registerDriverSubscribeEvents(
           sub.next(event);
         }
       } catch (thrown) {
-        sub.cancel();
-        console.error(
+        cancelAfterDetachedFailure(
+          sub,
           `[driver.subscribeEvents] replay event validation/emission failed for subscriptionId=${sub.subscriptionId}; subscription canceled`,
           thrown,
         );
