@@ -1,36 +1,29 @@
-# lefthook 2.1.6 configuration per ADR-023 §Axis 2.
+# lefthook 2.1.6 configuration.
 #
-# Job ORDER is load-bearing, not stylistic. `lint-staged` rewrites staged files
-# (`prettier --write`, `eslint --fix`) and re-stages them twice over: once itself
-# (`git add` inside lint-staged's `applyModifications`) and once via `stage_fixed: true`
-# when the job exits. Every screen below screens INDEX content — the blob set that
-# commits: `gitleaks --staged` scans the index. Run concurrently with lint-staged, a
-# screen can pass over a blob that is NOT the one committed: the commit then carries
-# unscreened content and the hook still reports clean. The screens therefore run AFTER
-# lint-staged, never beside it. Do not "optimize" this back to a flat parallel list.
+# Job order is load-bearing. `lint-staged` rewrites staged files (`prettier --write`,
+# `eslint --fix`) and re-stages them twice: once itself (`git add` inside lint-staged's
+# `applyModifications`) and once via `stage_fixed: true` when the job exits. Every screen below
+# reads index content, the blob set that commits (`gitleaks --staged` scans the index). Run
+# concurrently with lint-staged, a screen can pass over a blob that is not the one committed, so the
+# screens run after lint-staged, never beside it.
 #
-# Parallelism is preserved where it is safe and still pays: the screens run
-# concurrently with each other (ADR-023 §Axis 2 Synthesis item 1 — Husky has no
-# parallel primitive at all). The whole hook stays inside the <5s p99 budget.
+# The screens run concurrently with each other, and the whole hook stays inside the <5s p99 budget.
 #
-# CI parity for the `git commit --no-verify` bypass closure (ADR-023 §Axis 2 D-1) is
-# enforced via explicit `eslint .` + `prettier --check .` invocations in
-# `.github/workflows/ci.yml`. lint-staged reads the git staging index, which is empty
-# in a fresh CI checkout — running `lefthook run pre-commit --all-files` from CI
-# would be an empirical no-op.
+# CI closes the `git commit --no-verify` bypass with explicit `eslint .` and `prettier --check .`
+# runs in `.github/workflows/ci.yml`. It cannot reuse this hook: lint-staged reads the git staging
+# index, which is empty in a fresh CI checkout, so `lefthook run pre-commit --all-files` would do
+# nothing.
 
 min_version: "2.1.6"
 
-# Sourced by every generated git hook, immediately before lefthook is called
-# (`internal/templates/hook.tmpl` emits `[ -f <rc> ] && . <rc>`). For `pre-commit`
-# it takes a repository-wide mutex so two linked worktrees never sit inside
-# lefthook's unstaged-changes backup window at once — that backup lives in the
-# COMMON git dir (`--git-path info` resolves there for a linked worktree) plus the
-# shared `refs/stash`, so concurrent runs overwrite and drop each other's. The rc
-# file is the only repo-owned code that can wrap it: the backup opens before the
-# first job below runs and closes after the last one, so nothing declared in this
-# file is inside it. See `tools/lefthook-worktree-lock.mjs` for the primary sources
-# and `CONTRIBUTING.md` §Hooks for the operator-facing description.
+# Sourced by every generated git hook immediately before lefthook is called
+# (`internal/templates/hook.tmpl` emits `[ -f <rc> ] && . <rc>`). For `pre-commit` it takes a
+# repository-wide mutex so two linked worktrees never sit inside lefthook's unstaged-changes backup
+# window at once: that backup lives in the common git dir (`--git-path info` resolves there for a
+# linked worktree) plus the shared `refs/stash`, so concurrent runs overwrite and drop each other's.
+# The rc file is the only repo-owned code that can wrap the window, since it opens before the first
+# job below runs and closes after the last. See `tools/lefthook-worktree-lock.mjs` for the primary
+# sources and `CONTRIBUTING.md` §Hooks for the operator description.
 rc: tools/lefthook-rc.sh
 
 pre-commit:
@@ -47,21 +40,19 @@ pre-commit:
         parallel: true
         jobs:
           - name: gitleaks
-            # Canonical gitleaks version is v8.30.1 per ADR-023 §Axis 4 sub-axis 4,
-            # pinned identically here (local fast-feedback) and in
-            # `.github/workflows/gitleaks.yml` (`env.GITLEAKS_VERSION`, authoritative
-            # CI gate). The floor check below surfaces local-vs-CI drift loudly when
-            # the installed binary is below v8.30.1 — v8.25-v8.30 added rules +
-            # generic-api-key heuristics older binaries don't catch, so silently
-            # running an older version would defeat the hook's fast-feedback purpose
-            # (BL-126 closure). Floor (not exact-match) so future minor/patch bumps
-            # work without lockstep config; majors trigger a coordinated bump of
-            # workflow `env.GITLEAKS_VERSION` + ADR-023 + this floor + CONTRIBUTING.md.
+            # Canonical gitleaks version is v8.30.1, pinned identically here (local fast-feedback)
+            # and in `.github/workflows/gitleaks.yml` (`env.GITLEAKS_VERSION`, the authoritative CI
+            # gate). The floor check below surfaces local-versus-CI drift loudly when the installed
+            # binary is below v8.30.1: v8.25-v8.30 added rules and generic-api-key heuristics older
+            # binaries don't catch, so silently running an older version would defeat the hook's
+            # purpose. It is a floor, not an exact match, so minor and patch bumps need no lockstep;
+            # a major triggers a coordinated bump of the workflow `env.GITLEAKS_VERSION`, this floor
+            # and CONTRIBUTING.md.
+            #
             # `gitleaks protect --staged` was hidden in v8.19+ help and replaced by
-            # `gitleaks git --pre-commit --staged`; use the supported invocation.
-            # The hook surfaces drift via `WARNING:` (not exit-1) — CI is the
-            # authoritative gate, so local drift becomes visible without blocking
-            # the developer mid-flow.
+            # `gitleaks git --pre-commit --staged`; use the supported invocation. The hook surfaces
+            # drift via `WARNING:` (not exit 1): CI is the authoritative gate, so local drift
+            # becomes visible without blocking the developer mid-flow.
             run: |
               if command -v gitleaks >/dev/null 2>&1; then
                 required="8.30.1"

@@ -1,23 +1,19 @@
-// Layering gate for `apps/desktop` — one of the two structure-enforcement legs.
+// Layering gate for `apps/desktop`, one of the two structure-enforcement legs.
 //
-// It answers one question the type system cannot: which module is allowed to import which.
-// ESLint's `no-restricted-imports` already owns the renderer-untrusted specifier bans, and it
-// keeps them — a `files`-scoped specifier ban is exactly what that rule is for. What it cannot
-// express is an ORDERING over the renderer's layers, because flat config replaces a rule's
-// options at the last matching block, so every layer would have to restate the whole list of
-// layers above it. That table lives here instead.
+// It answers what the type system cannot: which module may import which. ESLint's
+// `no-restricted-imports` owns the renderer-untrusted specifier bans. It cannot express an ordering
+// over the renderer's layers, because flat config replaces a rule's options at the last matching
+// block, so every layer would have to restate the whole list above it. That table lives here.
 //
-// Resolution runs through `enhanced-resolve` with an explicit extension list, NOT through
-// `--ts-config`. dependency-cruiser resolves a tsconfig's `extends` chain against the process
-// directory rather than against the tsconfig's own directory, so a tsconfig whose `extends`
-// climbs above its package only loads when the cruise runs from that exact directory. The path
-// aliases come from `tsconfig.paths.json`, which extends nothing, so it has no such chain. The
-// extension list is what makes this tree's `./foo.js` specifiers resolve to `foo.ts` sources.
+// Resolution runs through `enhanced-resolve` with an explicit extension list, not `--ts-config`:
+// dependency-cruiser resolves a tsconfig's `extends` chain against the process directory rather
+// than the tsconfig's own, so a tsconfig whose `extends` climbs above its package loads only when
+// the cruise runs from that directory. The path aliases come from `tsconfig.paths.json`, which
+// extends nothing. The extension list is what makes this tree's `./foo.js` specifiers resolve to
+// `foo.ts` sources.
 //
-// Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`.
-//
-// The layer vocabulary this reasons over — the folders, the ladder, and the named
-// readers — is `.dependency-cruiser.layers.mjs` beside this file.
+// Paths are relative to `apps/desktop`; run it through `pnpm structure:layering`. The layer
+// vocabulary (folders, ladder, named readers) is `.dependency-cruiser.layers.mjs`.
 
 import {
   ABOVE_COMPONENTS_HOOKS,
@@ -87,12 +83,12 @@ export default {
           "\\.json$",
           "(^|/)[^/]+\\.config\\.(ts|mjs|cjs|js)$",
           "\\.test-support\\.(ts|tsx)$",
-          // A file kept whole for a consumer that is not built yet, exempted by its exact
-          // path beside its `ignoreFiles` entry in the root `knip.json`; each goes in the
-          // change that builds its consumer.
+          // A file kept whole for a consumer that is not built yet, exempted by its exact path
+          // beside its `ignoreFiles` entry in the root `knip.json`; each goes in the change that
+          // builds its consumer.
           //
-          // Scripted diff patches kept as the fixtures' test data (register WT-14); the diff
-          // read that plays them is built with the Review pane (build units DM-16 and B9).
+          // Scripted diff patches kept as the fixtures' test data, read by no module until the
+          // Review pane's diff read lands.
           "^fixtures/data/repos-diff-patches\\.ts$",
         ],
       },
@@ -142,11 +138,11 @@ export default {
         "three consumers.",
       severity: "error",
       from: { path: CROSS_PROCESS_SHARED },
-      // Both spellings of the one allowed target, and both are reachable: the contracts
-      // package resolves into `node_modules/@ai-sidekicks/contracts/` once it has been built
-      // and carries its bare specifier as its path when it has not, so the shape of this edge
-      // depends on the build state of a sibling package. Measured both ways — the graph grows
-      // by the resolved package's modules and the violation set does not move.
+      // Both spellings of the one allowed target are reachable: the contracts package resolves into
+      // `node_modules/@ai-sidekicks/contracts/` once built and carries its bare specifier as its
+      // path when not, so the edge's shape depends on the sibling's build state. Measured both
+      // ways: the graph grows by the resolved package's modules and the violation set does not
+      // move.
       to: {
         pathNot: "^(src/shared/|node_modules/@ai-sidekicks/contracts|@ai-sidekicks/contracts)",
       },
@@ -282,9 +278,9 @@ export default {
   ],
   options: {
     doNotFollow: { path: "node_modules" },
-    // Test files are not subjects of the layering rules: a renderer test legitimately
-    // reaches across folders to drive the module it covers, and reaches both process trees to
-    // assert the boundary between them.
+    // Test files are not subjects of the layering rules: a renderer test reaches across folders to
+    // drive the module it covers, and reaches both process trees to assert the boundary between
+    // them.
     exclude: { path: "\\.(test|bench)\\.(ts|tsx)$" },
     tsPreCompilationDeps: true,
     // A workspace package resolves to its path under `node_modules/` rather than to the

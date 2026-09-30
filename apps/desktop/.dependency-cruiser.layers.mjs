@@ -1,12 +1,11 @@
 // The renderer's layer vocabulary, for `.dependency-cruiser.mjs` beside it.
 //
-// SPLIT FROM THE RULE SET BECAUSE THEY ARE TWO JOBS AND TWO EDITORS. This half says what
-// the layers ARE — where each one lives and what sits above it — and it is what a branch
-// adding a top-level folder touches. The half beside it says what is FORBIDDEN over that
-// vocabulary, and it is what a branch tightening a rule touches.
+// Split from the rule set because they are two jobs: this half says what the layers are (where each
+// lives and what sits above it) and is what a branch adding a top-level folder touches; the other
+// half says what is forbidden over that vocabulary and is what a branch tightening a rule touches.
 //
-// Every name here is exported because the rule set is its only reader: a name it stops
-// using is a name to delete rather than one to hide.
+// Every name here is exported because the rule set is its only reader: a name it stops using is a
+// name to delete rather than one to hide.
 
 /** The renderer source root. */
 export const RENDERER = "^src/renderer/src";
@@ -28,19 +27,18 @@ export const LAYOUT = `${RENDERER}/layout/`;
 export const APP = `${RENDERER}/app/`;
 
 /**
- * The two stores held apart INSIDE `store/`: one per window, one per open session.
+ * The two stores held apart inside `store/`: one per window, one per open session.
  *
- * A flag copied across that line is a second record of one fact, and it is the record
- * the reconnect path cannot heal — the session store's degraded cause clears on a
- * re-pull, and a copy of it on the window store clears when somebody remembers to.
- * Neither store can read the other's state without importing something from it (there
- * is no global handle to either), so the import edge IS the reach and banning it is
- * exact rather than a proxy. The composition ABOVE the stores reads both by design —
- * the registry that opens session stores, the hooks, the schedulers — which is why
- * this names the two subtrees and not `store/`.
+ * A flag copied across that line is a second record of one fact that the reconnect path cannot
+ * heal: the session store's degraded cause clears on a re-pull, and a copy on the window store
+ * clears only when somebody remembers to. Neither store can read the other's state without
+ * importing from it (there is no global handle to either), so banning the import edge is exact
+ * rather than a proxy. The composition above the stores (the registry that opens session stores,
+ * the hooks, the schedulers) reads both by design, which is why this names the two subtrees and not
+ * `store/`.
  *
- * It is a capture group because the rule that spends it subtracts the SOURCE's own
- * subtree from its target set, which is what makes one rule cover both directions.
+ * It is a capture group because the rule that spends it subtracts the source's own subtree from its
+ * target set, which makes one rule cover both directions.
  */
 export const STORE_ISOLATED_SUBTREES = `${STORE}(window|session)/`;
 
@@ -81,12 +79,11 @@ export const FIXTURE_READERS = [
 ];
 
 /**
- * A feature's `fixtures/` folder: the fixture of a boundary that feature owns, which a
- * fixture build mounts in place of the real one.
+ * A feature's `fixtures/` folder: the fixture of a boundary that feature owns, which a fixture
+ * build mounts in place of the real one.
  *
- * A capture group, because the rule that keeps a fixture's stylesheet inside its folder
- * subtracts the importer's own folder from its target set, which makes it one rule over
- * every feature's fixtures rather than one rule per folder.
+ * A capture group, because the rule that keeps a fixture's stylesheet inside its folder subtracts
+ * the importer's own folder from its target set, making it one rule over every feature's fixtures.
  */
 export const FEATURE_FIXTURES = `${FEATURES}(.+)/fixtures/`;
 
@@ -99,10 +96,9 @@ export const FEATURE_PUBLIC_APIS = `${FEATURES}[^/]+/index\\.ts$`;
 /**
  * Every barrel in the renderer.
  *
- * Two alternatives rather than one `(?:[^/]+/)*` because dependency-cruiser refuses a rule
- * whose regular expression has a star height above one: a quantified group containing its own
- * quantifier is the catastrophic-backtracking shape, and the cruise bails on it outright
- * rather than running slowly.
+ * Two alternatives rather than one `(?:[^/]+/)*`: dependency-cruiser refuses a rule whose regular
+ * expression has a star height above one (a quantified group containing its own quantifier is the
+ * catastrophic-backtracking shape) and bails out of the cruise rather than running slowly.
  */
 export const BARRELS = [`${RENDERER}/index\\.ts$`, `${RENDERER}/.+/index\\.ts$`];
 
