@@ -2,9 +2,9 @@
 // with a live handle on its latest state (a new object each render, so a captured snapshot
 // goes stale). `mountForm` waits for the compiler chunk itself, never a turn count: a bare
 // `settle` races the first `import()` in a file's module registry, so that file's first
-// case would read a form with no verdict. Measured on `useSchemaForm.opening.test.ts`.
+// case would read a form with no verdict.
 
-import { act, render } from "@testing-library/react";
+import { render } from "@testing-library/react";
 
 import { answeredScalar, UNANSWERED_SCALAR } from "../answer/schema-draft.js";
 import { settle } from "@test/helpers/settle.js";
@@ -12,42 +12,6 @@ import { useSchemaForm, type SchemaFormState } from "./useSchemaForm.js";
 import { schemaFormAnswerBody } from "../schema-form-mounts.js";
 import { loadSchemaValidatorCompiler } from "../json-schema-validator-loader.js";
 import { type SchemaMemberPath } from "../schema-member-path.js";
-
-/** One mounted form: its latest state, the schema it is showing, and its ending. */
-export interface MountedSchemaForm {
-  /** The hook's latest state, read live. */
-  readonly form: () => SchemaFormState;
-  /** Re-render this same mount over another schema. */
-  readonly showSchema: (inputSchema: unknown) => void;
-  readonly unmount: () => void;
-}
-
-/**
- * Mount the hook and hand it back without waiting; for the suite whose subject is the window
- * before the compiler lands. Every other case wants {@link mountForm}.
- */
-export function mountFormUnsettled(inputSchema: unknown): MountedSchemaForm {
-  let latest: SchemaFormState | undefined;
-  function Probe(props: { readonly inputSchema: unknown }): React.JSX.Element {
-    latest = useSchemaForm(props.inputSchema);
-    return <div />;
-  }
-  const { rerender, unmount } = render(<Probe inputSchema={inputSchema} />);
-  return {
-    form: () => {
-      if (latest === undefined) {
-        throw new Error("the hook never rendered");
-      }
-      return latest;
-    },
-    showSchema: (nextSchema) => {
-      act(() => {
-        rerender(<Probe inputSchema={nextSchema} />);
-      });
-    },
-    unmount,
-  };
-}
 
 /**
  * Resolve the schema compiler's chunk, so a form mounted after this opens in one step. The
@@ -61,9 +25,9 @@ export async function resolveSchemaValidatorCompiler(): Promise<void> {
 /**
  * Resolve both chunks the form loads, so a form mounted after this opens armed: the compiler
  * and the kit's answer body. Warming only one either suspends on the body or leaves the submit
- * act disabled while the validator reads `compiling`; a pane suite that warmed only the kit
- * lost that race by ~13-21 ms and failed about one run in three. The answer mount is loaded,
- * not the bare chunk, because the loader-backed body holds a second memo.
+ * act disabled while the validator reads `compiling`, so a case that warms only the kit races
+ * the compiler and fails intermittently. The answer mount is loaded, not the bare chunk,
+ * because the loader-backed body holds a second memo.
  */
 export async function resolveSchemaFormChunks(): Promise<void> {
   await resolveSchemaValidatorCompiler();
@@ -74,9 +38,19 @@ export async function resolveSchemaFormChunks(): Promise<void> {
 export async function mountForm(inputSchema: unknown): Promise<() => SchemaFormState> {
   // Warmed before the mount so the hook's own load resolves off the registry.
   await resolveSchemaValidatorCompiler();
-  const mounted = mountFormUnsettled(inputSchema);
+  let latest: SchemaFormState | undefined;
+  function Probe(props: { readonly inputSchema: unknown }): React.JSX.Element {
+    latest = useSchemaForm(props.inputSchema);
+    return <div />;
+  }
+  render(<Probe inputSchema={inputSchema} />);
   await settle();
-  return mounted.form;
+  return () => {
+    if (latest === undefined) {
+      throw new Error("the hook never rendered");
+    }
+    return latest;
+  };
 }
 
 /** What one drawn control is displaying at a member. */

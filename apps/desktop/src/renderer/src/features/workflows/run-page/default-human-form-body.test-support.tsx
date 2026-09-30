@@ -1,6 +1,6 @@
-// What every human-form mount point suite needs before it can render a wait or put a press. The
+// What the human-form mount point cases need before they can render a wait or put a press. The
 // wait is derived from the probe run through `humanFormPhaseFor`, so a run read that stopped
-// carrying a prompt or a schema fails the suites instead of passing on a hand-built phase.
+// carrying a prompt or a schema fails the cases instead of passing on a hand-built phase.
 
 import { fireEvent, render, screen } from "@testing-library/react";
 
@@ -10,9 +10,8 @@ import { resolveSchemaFormChunks } from "../schema-form/hooks/useSchemaForm.test
 import { PARKED_RUN, settle } from "../workflows-probe.test-support.js";
 import { humanFormPhaseFor } from "./human-form-phase.js";
 import type { WorkflowHumanFormSubmitCall } from "./human-form-submit.js";
-import { ServedRunActContext, type RecordServedRunAct } from "./served-run-act.js";
 import { HumanFormMountPoint } from "./components/HumanFormMountPoint.js";
-import type { HumanFormBody, HumanFormPhase } from "./human-form-mount.js";
+import type { HumanFormPhase } from "./human-form-mount.js";
 
 export { resolveSchemaFormChunks };
 
@@ -22,15 +21,11 @@ export const SECOND_WAIT_PHASE_RUN_ID = "019b7a10-0280-7aa1-8100-701a11150009";
 /** The phase that second wait belongs to. */
 export const SECOND_WAIT_PHASE_ID = "security-sign-off";
 
-/**
- * A schema asking for one fractional figure and one whole one. `number` and `integer` draw one
- * control and differ only in precision, so each is the other's negative control.
- */
+/** A schema asking for one fractional figure, which a numeric control's default step refuses. */
 export const FIGURES_SCHEMA = {
   type: "object",
   properties: {
     ratio: { type: "number", title: "Ratio" },
-    attempts: { type: "integer", title: "Attempts" },
   },
 } as const;
 
@@ -53,8 +48,7 @@ function recordedReply(request: SubmitRequest, outputCount: number): SubmitReply
 }
 
 /** The call answering at once with a recorded submission, for a case that never presses. */
-export const answerSubmit: WorkflowHumanFormSubmitCall = async (request) =>
-  recordedReply(request, 1);
+const answerSubmit: WorkflowHumanFormSubmitCall = async (request) => recordedReply(request, 1);
 
 /** One submit the case settles by hand, and what it was asked. */
 export interface HeldSubmit extends SubmitProbe {
@@ -74,10 +68,6 @@ export interface HumanFormMountPointMounting {
   readonly phase: HumanFormPhase | undefined;
   /** The submit call. One that answers at once where a case has none. */
   readonly submitForm?: WorkflowHumanFormSubmitCall;
-  /** An owner body, for a case about what a supplied body is handed. */
-  readonly body?: HumanFormBody;
-  /** The run pane's re-arm, for a case about when a submission moves the run read. */
-  readonly recordServedAct?: RecordServedRunAct;
 }
 
 /**
@@ -167,13 +157,8 @@ export async function renderSwitchableMountPoint(
 ): Promise<SwitchableMountPoint> {
   await resolveSchemaFormChunks();
   const submitForm = mounting.submitForm ?? answerSubmit;
-  // Spread on the arm that carries one: `exactOptionalPropertyTypes` refuses an explicit
-  // `undefined`.
-  const ownerBody = mounting.body === undefined ? {} : { body: mounting.body };
   const mountPointFor = (phase: HumanFormPhase | undefined): React.JSX.Element => (
-    <ServedRunActContext.Provider value={mounting.recordServedAct}>
-      <HumanFormMountPoint phase={phase} submitForm={submitForm} {...ownerBody} />
-    </ServedRunActContext.Provider>
+    <HumanFormMountPoint phase={phase} submitForm={submitForm} />
   );
   const { container, rerender } = render(mountPointFor(mounting.phase));
   await settle();

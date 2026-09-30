@@ -1,5 +1,5 @@
-// What the run-control dispatch suites share: a probe that mounts the hook, and calls whose
-// cancel the case settles by hand.
+// A probe that mounts the run-control dispatch hook, and calls whose cancel the case settles by
+// hand or that reject.
 
 import { render } from "@testing-library/react";
 
@@ -16,7 +16,7 @@ export const RUN_A = "run-a";
 export const RUN_B = "run-b";
 
 /** A served cancel, in the shape the operation's own signature fixes. */
-export const CANCELED: WorkflowRunCancelReply = {
+const CANCELED: WorkflowRunCancelReply = {
   workflowRunId: RUN_A,
   state: "canceled",
   canceledEventId: "evt-cancel-01",
