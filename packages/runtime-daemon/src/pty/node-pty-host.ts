@@ -216,9 +216,9 @@ async function loadGenerateConsoleCtrlEvent(): Promise<
     throw new Error(
       "NodePtyHost: `koffi` is required for Windows kill-translation but " +
         "is not installed. Install with `pnpm add koffi` (or restore the " +
-        "optional dep via `pnpm install` without `--no-optional`), or use " +
-        "the Rust sidecar backend (AIS_PTY_BACKEND=rust-sidecar) once " +
-        "Phase 3 lands.",
+        "optional dep via `pnpm install` without `--no-optional`). The Rust " +
+        "sidecar backend is no alternative: it does not translate kills on " +
+        "Windows yet.",
       { cause },
     );
   }
