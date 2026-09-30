@@ -7,7 +7,7 @@
 # concurrently with lint-staged, a screen can pass over a blob that is not the one committed, so the
 # screens run after lint-staged, never beside it.
 #
-# The screens run concurrently with each other, and the whole hook stays inside the <5s p99 budget.
+# The screens run concurrently with each other.
 #
 # CI closes the `git commit --no-verify` bypass with explicit `eslint .` and `prettier --check .`
 # runs in `.github/workflows/ci.yml`. It cannot reuse this hook: lint-staged reads the git staging

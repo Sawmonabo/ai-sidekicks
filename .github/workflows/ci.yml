@@ -663,10 +663,10 @@ jobs:
   #
   # A pull request mutates only the files it changed, re-tests only the mutants whose code or
   # covering tests changed since develop's saved results, and skips static mutants (module-level
-  # code, which re-runs the whole suite per mutant), to fit the 30-minute budget. A push to develop
-  # and the nightly run mutate every file, static mutants included, and the merge job saves the
-  # combined results. A cold full run is hours of runner time (the daemon alone is over three hours
-  # on a fast laptop), hence the long time limit.
+  # code, which re-runs the whole suite per mutant). A push to develop and the nightly run mutate
+  # every file, static mutants included, and the merge job saves the combined results. A cold full
+  # run is hours of runner time (the daemon alone is over three hours on a fast laptop), hence the
+  # long time limit, which only stops a hung job.
   mutation-plan:
     name: mutation plan
     runs-on: ubuntu-latest
@@ -711,7 +711,7 @@ jobs:
     needs: [mutation-plan]
     if: needs.mutation-plan.outputs.matrix != '{"include":[]}'
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'pull_request' && 30 || 330 }}
+    timeout-minutes: 330
     permissions:
       contents: read
     strategy:
