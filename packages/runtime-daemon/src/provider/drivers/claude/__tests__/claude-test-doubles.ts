@@ -33,7 +33,7 @@ import type {
   ClaudeUserTextDelivery,
   ClaudeUserTextFrame,
   ClaudeUserTextWriteAttempt,
-} from "../lifecycle.js";
+} from "../session-transport.js";
 
 /** The session id every test session uses. */
 export const TEST_SESSION_ID: SessionId = "session-1" as SessionId;

@@ -13,11 +13,8 @@ import {
 import { describe, expect, it } from "vitest";
 
 import { CLAUDE_STEER_FALLBACK_ACTION, ClaudeInterventionDispatcher } from "../intervention.js";
-import {
-  ClaudeSessionUnavailableError,
-  type ClaudeRunChannelLookup,
-  type ClaudeSessionChannel,
-} from "../lifecycle.js";
+import { ClaudeSessionUnavailableError } from "../session-errors.js";
+import { type ClaudeRunChannelLookup, type ClaudeSessionChannel } from "../session-transport.js";
 import {
   buildCancelParams,
   buildInterruptParams,

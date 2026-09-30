@@ -31,7 +31,8 @@ import {
   type RunId,
 } from "@ai-sidekicks/contracts";
 
-import { ClaudeSessionUnavailableError, type ClaudeRunChannelLookup } from "./lifecycle.js";
+import { ClaudeSessionUnavailableError } from "./session-errors.js";
+import { type ClaudeRunChannelLookup } from "./session-transport.js";
 
 /**
  * The fallback the daemon applies for a steer this provider cannot do natively: queue the steer

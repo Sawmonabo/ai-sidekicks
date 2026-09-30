@@ -38,20 +38,21 @@ import type {
 
 import { resolveClaudeModelCatalog, type ClaudeModelCatalogExchange } from "./capabilities.js";
 import { ClaudeInterventionDispatcher } from "./intervention.js";
-import { ClaudeSessionLifecycle, type ClaudeSessionLifecycleDependencies } from "./lifecycle.js";
+import { ClaudeSessionLifecycle } from "./lifecycle.js";
+import { type ClaudeSessionLifecycleDependencies } from "./session-state.js";
 
 // The public surface is listed by name, not `export *`, so a symbol added to a module does not
 // become public by accident. From `capabilities.ts` only the model-catalog type is public, because
 // only `listModels` serves it; `tools.ts` is not exported.
 export { type ClaudeModelCatalogExchange } from "./capabilities.js";
 export { ClaudeInterventionDispatcher, CLAUDE_STEER_FALLBACK_ACTION } from "./intervention.js";
+export { ClaudeSessionLifecycle } from "./lifecycle.js";
+export { ClaudeSessionUnavailableError } from "./session-errors.js";
 export {
-  ClaudeSessionLifecycle,
-  ClaudeSessionUnavailableError,
   CLAUDE_CALLBACK_MCP_SERVER_NAME,
   composeClaudeProviderToolName,
-  type ClaudeHandshakeDeclaration,
-} from "./lifecycle.js";
+} from "./spawn-settings.js";
+export { type ClaudeHandshakeDeclaration } from "./session-transport.js";
 
 /** The contract operations this driver implements; the class declaration is checked against it. */
 export type ClaudeDriverOperations = Pick<

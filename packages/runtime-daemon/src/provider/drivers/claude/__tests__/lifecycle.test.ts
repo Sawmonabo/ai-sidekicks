@@ -35,21 +35,27 @@ import {
 import type { ClaudeTranscriptSeedingSurface } from "../capabilities.js";
 import {
   ClaudeAuthenticationRequiredError,
-  ClaudeControlRequestRefusedError,
-  ClaudeSessionLifecycle,
   ClaudeSessionUnavailableError,
-  ClaudeTranscriptReplayUnsupportedError,
+} from "../session-errors.js";
+import {
+  ClaudeControlRequestRefusedError,
+  CLAUDE_COMPACTION_WAIT_MS,
+  type ClaudeHandshakeDeclaration,
+} from "../session-transport.js";
+import { ClaudeSessionLifecycle } from "../lifecycle.js";
+import { ClaudeTranscriptReplayUnsupportedError } from "../transcript-replay.js";
+import {
   ClaudeSubagentConcurrencyGate,
+  CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
+} from "../subagent-policy.js";
+import {
   CLAUDE_CALLBACK_MCP_SERVER_NAME,
   CLAUDE_CALLBACK_TOOL_TRANSPORT_UNAVAILABLE_DETAIL,
-  CLAUDE_SUBAGENT_MAX_DEPTH_CEILING,
   composeClaudeCallbackMcpServer,
   composeClaudeProviderToolName,
   composeClaudeSandboxSettings,
-  CLAUDE_COMPACTION_WAIT_MS,
-  type ClaudeHandshakeDeclaration,
-  type ClaudeSessionLifecycleDependencies,
-} from "../lifecycle.js";
+} from "../spawn-settings.js";
+import { type ClaudeSessionLifecycleDependencies } from "../session-state.js";
 import type { CompactionWaitScheduler } from "../../../compaction-wait.js";
 import {
   buildCreateSessionParams,

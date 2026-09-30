@@ -22,12 +22,10 @@ import {
   CLAUDE_ORDINARY_TURN_RESULT_FRAME,
   CLAUDE_ZERO_TURN_RESULT_FRAME,
 } from "../claude/__fixtures__/turn-evidence-transcripts.js";
-import {
-  ClaudeSessionLifecycle,
-  ClaudeSessionUnavailableError,
-  type ClaudeRunDispatch,
-  type ClaudeSessionLifecycleDependencies,
-} from "../claude/lifecycle.js";
+import { ClaudeSessionLifecycle } from "../claude/lifecycle.js";
+import { ClaudeSessionUnavailableError } from "../claude/session-errors.js";
+import { type ClaudeRunDispatch } from "../claude/session-transport.js";
+import { type ClaudeSessionLifecycleDependencies } from "../claude/session-state.js";
 import {
   buildCreateSessionParams,
   buildStartRunParams,
