@@ -24,7 +24,7 @@ import { wireRejectionToError } from "../wire-errors.js";
 import { reportTripwire } from "../tripwires.js";
 
 /** The site name a tripwire report from this module carries. */
-const SITE = "console/store/unheld-value-disposal.ts";
+const SITE = "lib/subject-scoped/unheld-value-disposal.ts";
 
 /**
  * How a holder is built, for a caller whose value owns something. A value is dropped but a

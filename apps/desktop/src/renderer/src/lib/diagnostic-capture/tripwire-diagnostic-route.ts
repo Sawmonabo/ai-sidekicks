@@ -10,7 +10,7 @@ import { windowTripwires } from "../tripwires.js";
 import type { TripwireRegistry, TripwireReport } from "../tripwires.js";
 
 /** The subsystem name every routed record carries. */
-const TRIPWIRE_SOURCE = "console/core/tripwires";
+const TRIPWIRE_SOURCE = "lib/tripwires";
 
 /**
  * Route one registry's reports into one capture until the returned function is called.

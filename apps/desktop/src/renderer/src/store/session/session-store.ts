@@ -73,7 +73,7 @@ export interface SessionStoreOptions {
   readonly timelineCap?: number;
 }
 
-const SITE = "console/store/session/session-store.ts";
+const SITE = "store/session/session-store.ts";
 
 /** The one key the window generation is claimed under. A store has one window. */
 const WINDOW_GENERATION_KEY = "window";

@@ -56,7 +56,7 @@ export interface UnreadableProbe {
 }
 
 /** The source string every record this module mints for itself carries. */
-const CAPTURE_SOURCE = "console/core/diagnostic-capture";
+const CAPTURE_SOURCE = "lib/diagnostic-capture";
 
 /** The probe name the forward seam is blind under when no forwarder is installed. */
 export const DIAGNOSTIC_FORWARD_PROBE = "diagnostic-band-forward";

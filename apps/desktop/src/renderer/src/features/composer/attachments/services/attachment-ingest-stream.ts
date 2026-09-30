@@ -14,7 +14,8 @@ import { AttachmentChunkStream } from "./attachment-ingest-chunks.js";
 import type { AttachmentIngestEntries } from "../attachment-ingest-entries.js";
 
 /** Where the protocol's own diagnostic reports from, so a firing names a module. */
-export const INGEST_STREAM_SITE = "console/repos/attachments/attachment-ingest-stream.ts";
+export const INGEST_STREAM_SITE =
+  "features/composer/attachments/services/attachment-ingest-stream.ts";
 
 /** What one ingest stream driver is given to run an upload. */
 export interface AttachmentIngestStreamDriverOptions {

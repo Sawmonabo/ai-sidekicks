@@ -3,9 +3,10 @@
 // `not-loaded` absence until it lands. This component names the region and leaves the live text
 // to xterm's own `aria-live` region, since announcing the grid again would read every cell twice.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator-loader.js";
 import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
 import type { TerminalRendererMode } from "../xterm-adapter.js";
@@ -123,19 +124,6 @@ export function XtermMountPoint(props: XtermMountPointProps): React.JSX.Element 
       )}
     </div>
   );
-}
-
-/**
- * Hold the newest value where a long-lived consumer can read it without depending on its
- * identity. Written in a layout effect, not the render body, so a discarded render cannot
- * move what a live emulator calls.
- */
-function useLatestRef<Value>(value: Value): { readonly current: Value } {
-  const ref = useRef(value);
-  useLayoutEffect(() => {
-    ref.current = value;
-  });
-  return ref;
 }
 
 /** The adapter instance type, taken from the class the loader resolves. */

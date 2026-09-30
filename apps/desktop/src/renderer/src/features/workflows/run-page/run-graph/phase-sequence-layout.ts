@@ -113,10 +113,11 @@ export function layoutPhaseSequence(
 
   const nodes: PositionedPhaseNode[] = phases.map((phase, index) => ({
     phase,
-    rank: rankOf(index),
-    // A single column, read top to bottom as the pane scrolls. Centring is the viewport's job.
+    // The run's own order: a reading order, not a claim about dependencies.
+    rank: index,
+    // A single column, read top to bottom as the pane scrolls. Centering is the viewport's job.
     x: 0,
-    y: rankOf(index) * PHASE_RANK_PITCH_PX,
+    y: index * PHASE_RANK_PITCH_PX,
   }));
 
   if (topology === undefined) {
@@ -149,11 +150,6 @@ export function phaseSequenceSignature(
     ]),
     topology?.map((declaration) => [declaration.phaseId, declaration.dependsOn ?? null]) ?? null,
   ]);
-}
-
-/** The rank of the phase at `index`: the run's own order, a reading order and not a claim. */
-function rankOf(index: number): number {
-  return index;
 }
 
 /** Every phase id that appears more than once, in first-repeat order and once each. */
