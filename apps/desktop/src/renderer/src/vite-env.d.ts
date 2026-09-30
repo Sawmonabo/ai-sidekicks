@@ -1,26 +1,21 @@
-// Ambient declarations for the console's two build-time environment signals.
+// Ambient declarations for the console's build-time environment signals. The renderer's
+// `tsconfig.json` sets `types: []` (no Node types in a browser-context program), so `vite/client`
+// is not pulled in wholesale; the members the console reads are declared here instead.
 //
-// The renderer's `tsconfig.json` sets `types: []` deliberately (no Node types in
-// a browser-context program), so Vite's own `vite/client` types are not pulled
-// in wholesale; the two members the console actually reads are declared here
-// instead of widening that config.
-//
-// `__FIXTURE_BUILD__` is the console's compile-time fixture gate. The
-// fixture composition, and through it the fixture bridge and every scenario, sits behind
-// a `define`-substituted identifier so Rollup collapses `if (false)` and the bodies are
-// physically absent from a release bundle; a runtime `process.env` check around any of
-// them would ship them.
+// `__FIXTURE_BUILD__` is the compile-time fixture gate. The fixture composition, the fixture
+// bridge and every scenario sit behind a `define`-substituted identifier so Rollup collapses
+// `if (false)` and the bodies are absent from a release bundle; a runtime `process.env` check
+// would ship them.
 
 /**
- * `true` only in a build that carries the scenario catalog: the development and fixtures
- * builds.
- * Substituted textually by Vite's `define` before parsing, so this is a literal
- * at build time and never a variable read.
+ * `true` only in a build that carries the scenario catalog: the development and fixtures builds.
+ * Vite's `define` substitutes it textually before parsing, so it is a literal at build time,
+ * never a variable read.
  */
 declare const __FIXTURE_BUILD__: boolean;
 
 interface ImportMetaEnv {
-  /** Vite's development-mode flag. Used only to decide whether a tripwire throws. */
+  /** Vite's development-mode flag. */
   readonly DEV: boolean;
   /** Vite's production-mode flag. */
   readonly PROD: boolean;
@@ -31,26 +26,20 @@ interface ImportMeta {
 }
 
 /**
- * A compiled icon face — `~icons/tabler/<name>` or `~icons/signature/<name>`.
- *
- * `unplugin-icons` resolves these specifiers at build time and `@svgr` compiles
- * each one to a React component that forwards its props onto the root `<svg>`,
- * so a caller sets the size and the accessible name and the face carries the
- * icon set's geometry (see `vitest/icon-compilation.ts`). There is no file on
- * disk for a Tabler face and no `.d.ts` beside a signature one, so the shape is
- * declared here — the same reason the two build-time signals above are.
+ * A compiled icon face, `~icons/tabler/<name>` or `~icons/signature/<name>`. `unplugin-icons`
+ * resolves the specifier at build time and `@svgr` compiles it to a React component that forwards
+ * its props onto the root `<svg>`, so a caller sets the size and accessible name (see
+ * `vitest/icon-compilation.ts`). No file or `.d.ts` exists for a face, so the shape is declared
+ * here.
  */
 declare module "~icons/*" {
   const IconFace: import("react").ComponentType<import("react").SVGProps<SVGSVGElement>>;
   export default IconFace;
 }
 
-// Vite's `?url` asset imports, declared for the same reason the two build-time
-// signals above are: `types: []` keeps `vite/client` out of a browser-context
-// program, and the console reads exactly one member of it. The suffix asks the
-// bundler to emit the file and hand back its URL rather than inlining its bytes,
-// which is what an `@font-face` `src` needs — the face is fetched by the style
-// engine, not embedded in the module graph.
+// Vite's `?url` asset imports: the suffix asks the bundler to emit the file and return its URL
+// rather than inline its bytes, which an `@font-face` `src` needs. Declared here because
+// `types: []` keeps `vite/client` out.
 declare module "*.woff2?url" {
   const assetUrl: string;
   export default assetUrl;
