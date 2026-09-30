@@ -1,11 +1,6 @@
-// Tests for the daemon's single UUIDv7 generator (`../uuid-v7.js`).
-//
-// Every structural assertion in this file runs through one helper,
-// `assertRfc9562UuidV7`, so the negative control at the bottom is meaningful:
-// the same assertion that passes for `mintUuidV7()` is shown to REJECT
-// `crypto.randomUUID()`, which is the v4 the daemon used to mint everywhere
-// while the contracts claimed v7. A shape assertion that never fails proves
-// nothing about the shape it claims to check.
+// Every structural assertion runs through `assertRfc9562UuidV7`, and the negative control at the
+// bottom shows that same assertion rejecting `crypto.randomUUID()`, so a shape check that can
+// never fail cannot pass unnoticed.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,7 +22,7 @@ function parseUuidBytes(text: string): Uint8Array {
   return bytes;
 }
 
-/** RFC 9562 section 5.7 — the 48-bit big-endian `unix_ts_ms` field. */
+/** The 48-bit big-endian `unix_ts_ms` field. */
 function readTimestampMilliseconds(text: string): number {
   const bytes: Uint8Array = parseUuidBytes(text);
   const highHalf: number = (bytes[0]! << 8) | bytes[1]!;
@@ -36,30 +31,26 @@ function readTimestampMilliseconds(text: string): number {
   return highHalf * 2 ** 32 + lowHalf;
 }
 
-/** RFC 9562 section 6.2 Method 1 — the 12-bit counter occupying `rand_a`. */
+/** The 12-bit counter occupying `rand_a`. */
 function readSubMillisecondCounter(text: string): number {
   const bytes: Uint8Array = parseUuidBytes(text);
   return ((bytes[6]! & 0x0f) << 8) | bytes[7]!;
 }
 
-/**
- * The single structural assertion. Throws with a named cause on the first
- * violated RFC 9562 rule; the negative control depends on this throwing for a
- * v4 input.
- */
+/** The single structural assertion: throws naming the first violated RFC 9562 rule. */
 function assertRfc9562UuidV7(text: string): void {
   if (!CANONICAL_TEXT_FORM.test(text)) {
     throw new Error(`not the canonical lowercase UUID text form: ${text}`);
   }
   const bytes: Uint8Array = parseUuidBytes(text);
 
-  // RFC 9562 section 4.2 — version in the most significant 4 bits of octet 6.
+  // Version: the most significant 4 bits of octet 6.
   const version: number = bytes[6]! >>> 4;
   if (version !== 7) {
     throw new Error(`expected UUID version 7 (RFC 9562 section 4.2), read version ${version}`);
   }
 
-  // RFC 9562 section 4.1 — variant `0b10` in the two most significant bits of octet 8.
+  // Variant `0b10`: the two most significant bits of octet 8.
   const variantBits: number = bytes[8]! >>> 6;
   if (variantBits !== 0b10) {
     throw new Error(
@@ -152,8 +143,7 @@ describe("UuidV7Minter — RFC 9562 section 6.2 monotonicity", () => {
       readCurrentTimestampMilliseconds: frozenClockAt(FIXED_TIMESTAMP_MILLISECONDS),
       fillWithRandomBytes: fillWithSaturatedBytes,
     });
-    // An all-ones random draw masks to the largest admissible seed, which is
-    // the guard bit clear and the low 11 bits set.
+    // An all-ones draw masks to the largest seed: guard bit clear, low 11 bits set.
     expect(readSubMillisecondCounter(minter.mint())).toBe(0x7ff);
   });
 
