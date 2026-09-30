@@ -189,8 +189,8 @@ The editor is one column and no wizard, over one definition, in this order: name
 
 ### Cost and causation
 
-- A bridged agent's spend lands on **its own** cost-receipt row and is paid by **that agent's** provider account — an ordinary value of the receipt's existing per-account axis, and the reason a cross-provider agent's cost is legible at all: it runs on its own account, not on the lead's.
-- The receipt MUST NOT roll a bridged agent's spend into the row of the run that reached it. [Spec-014 §Session Cost Receipt](./014-multi-agent-orchestration.md#session-cost-receipt)'s per-run partition stays run-scoped, and the causal relationship between the two is carried by the existing parent/child run link, which the receipt reads and never re-folds.
+- A bridged agent's spend lands on **its own** paying account's row of the cost receipt and in its own per-agent figure, and is paid by **that agent's** provider account — an ordinary value of the receipt's existing per-account axis, and the reason a cross-provider agent's cost is legible at all: it runs on its own account, not on the lead's.
+- A bridged agent's spend MUST NOT count toward the asking agent's own spend figure. [Spec-014 §Session Cost Receipt](./014-multi-agent-orchestration.md#session-cost-receipt) has no per-run rows, and the causal relationship between the two is carried by the existing parent/child run link, never by a receipt row.
 
 ## Default Behavior
 
@@ -298,7 +298,7 @@ The editor is one column and no wizard, over one definition, in this order: name
 - [ ] Steer and stop from the row reach the provider running the agent, and the agent that reached it learns the outcome on its next wait.
 - [ ] A denied invocation is answered `denied` on the already-running leg, with no respawn required and no registry rebuild.
 - [ ] A wait outstanding on an agent that fails, is canceled, or finishes having produced nothing is settled by that terminal state rather than left waiting.
-- [ ] A bridged agent's spend appears on its own cost-receipt row under its own paying account, and the row of the run that reached it is unchanged.
+- [ ] A bridged agent's spend appears on its own paying account's row of the cost receipt and in its own per-agent figure, and the asking agent's own figure is unchanged.
 - [ ] Targeting a provider or a model rather than an agent is refused.
 - [ ] Every refusal on the definition and resolution paths carries one of the registered `agent.*` definition codes, and none surfaces as a generic or untyped failure; every peer-invocation refusal arrives on a callback-tool result arm instead, carrying no code.
 - [ ] A definition whose pinned account is registered but not currently authenticated resolves, and is refused by the spawn gate rather than by the resolver.
