@@ -163,15 +163,13 @@
         "src/renderer/src/features/sessions/session-header/hooks/useSessionHeaderRead.ts",
         "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
+        "src/renderer/src/services/daemon/session-reads.ts",
         // The operating-system notification permission fold, which moves to main beside the
         // notification poster (registers SH-09 and ATT-1; build unit B14).
         "src/renderer/src/features/settings/pages/notifications/os-notification-delivery.ts",
         // A footnote's definition at the foot of its reply (session design S-657; build unit
         // A20).
         "src/renderer/src/features/transcript/rows/markdown/footnotes/DefinitionBody.tsx",
-        // The replay of a hole by the position a read kept, the repair the catching-up line
-        // under the session header stands for (session design S-987, S-1089).
-        "src/renderer/src/features/transcript/window/components/TranscriptGapFill.tsx",
         // A run's page refreshing live (build unit WF-15).
         "src/renderer/src/features/workflows/run-page/hooks/useWorkflowRunLiveRefresh.ts"
       ]

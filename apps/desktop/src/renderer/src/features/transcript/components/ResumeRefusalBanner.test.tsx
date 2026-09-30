@@ -99,8 +99,7 @@ async function renderSessionScreen(input: {
   // views composed into it read the bridge the way every view in the console does. The
   // scenario is the quiet one: this suite's subject is the resume decision, which the
   // registry above settles, so a scenario with a script would be beats nothing here
-  // reads. The gap fill mounted beside the resume notice renders nothing for a window
-  // that is missing nothing, which every case here is.
+  // reads.
   render(
     <FixtureBridgeProvider fixture={createFixtureBridge({ scenario: EMPTY_SESSION_SCENARIO })}>
       {descriptor.render({
