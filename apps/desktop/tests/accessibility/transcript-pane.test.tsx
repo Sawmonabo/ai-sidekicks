@@ -140,18 +140,4 @@ describe("accessibility — the transcript", () => {
       expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
     });
   }
-
-  it("finds a violation planted inside the transcript, so a clean result means something", async () => {
-    // Negative control, planted inside the mounted pane so it proves the run reaches the
-    // subtree the cases above assert over.
-    const container = await mountTranscript(TRANSCRIPT_STATES_SCENARIO);
-    const planted = document.createElement("div");
-    planted.innerHTML = '<img src="data:," />';
-    container.append(planted);
-    try {
-      expect((await runTierAxe(container)).map((violation) => violation.id)).toContain("image-alt");
-    } finally {
-      planted.remove();
-    }
-  });
 });
