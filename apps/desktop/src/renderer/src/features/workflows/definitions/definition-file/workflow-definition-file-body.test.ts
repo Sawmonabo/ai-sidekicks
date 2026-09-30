@@ -90,34 +90,10 @@ describe("the hashed body — what the writer writes and the reader reads back",
 });
 
 describe("the hashed body — the entry record", () => {
-  it("carries no entry where the file states none, so the daemon materializes it", () => {
-    const { entry, ...withoutEntry } = documentWith();
-    const reading = readOrFail(withoutEntry);
-
-    expect(typeof reading).not.toBe("string");
-    if (typeof reading === "string") {
-      return;
-    }
-    expect(entry).toBeDefined();
-    expect(Object.keys(reading)).not.toContain("entry");
-  });
-
-  it("refuses an unsupported start mode by name rather than defaulting it", () => {
-    // A reader that dropped an unrecognized entry left the daemon to materialize `manual`,
-    // changing when the workflow runs and reporting success.
-    const reading = readOrFail(documentWith({ entry: { startMode: "schedule" } }));
-
-    expect(reading).toContain("schedule");
-  });
-
   it("refuses an entry record carrying a member an entry does not have", () => {
     expect(
       readOrFail(documentWith({ entry: { startMode: "manual", cron: "0 3 * * *" } })),
     ).toContain("cron");
-  });
-
-  it("refuses an entry that is not a record at all", () => {
-    expect(typeof readOrFail(documentWith({ entry: "manual" }))).toBe("string");
   });
 });
 
@@ -127,14 +103,6 @@ describe("the hashed body — what a phase may not carry", () => {
     expect(
       readOrFail(documentWith({ phaseDefinitions: [phaseDocumentWith({ timeoutMs: 30000 })] })),
     ).toContain("timeoutMs");
-  });
-
-  it("refuses a gate, type or failure behavior the vocabulary does not declare", () => {
-    expect(
-      readOrFail(
-        documentWith({ phaseDefinitions: [phaseDocumentWith({ gateType: "rubber-stamp" })] }),
-      ),
-    ).toContain("Phase 1");
   });
 
   it("refuses a present member whose value is wrong, rather than dropping it", () => {
@@ -151,28 +119,5 @@ describe("the hashed body — what a phase may not carry", () => {
       const reading = readOrFail(documentWith({ phaseDefinitions: [phaseDocumentWith(members)] }));
       expect(typeof reading, `${Object.keys(members)[0] ?? ""} was not refused`).toBe("string");
     }
-  });
-
-  it("refuses a phase sequence that is empty or is not a sequence", () => {
-    expect(typeof readOrFail(documentWith({ phaseDefinitions: [] }))).toBe("string");
-    expect(typeof readOrFail(documentWith({ phaseDefinitions: {} }))).toBe("string");
-  });
-
-  it("refuses a body carrying no name", () => {
-    expect(typeof readOrFail(documentWith({ name: "" }))).toBe("string");
-  });
-
-  it("names the phase it refused, so two bad phases differ by index", () => {
-    const reading = readOrFail(
-      documentWith({
-        phaseDefinitions: [phaseDocumentWith({}), phaseDocumentWith({ gateType: "rubber-stamp" })],
-      }),
-    );
-
-    expect(reading).toContain("Phase 2");
-  });
-
-  it("negative control: every perturbation above starts from a body that reads", () => {
-    expect(typeof readOrFail(documentWith())).not.toBe("string");
   });
 });

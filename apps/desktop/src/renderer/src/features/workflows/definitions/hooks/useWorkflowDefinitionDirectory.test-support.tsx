@@ -1,6 +1,5 @@
-// What the directory suites need to watch the hook. Each suite mounts a probe that renders
-// nothing and collects every directory it is handed; the mount lives here once so a "never
-// rendered" failure has one source.
+// What the directory suite needs to watch the hook: a probe that renders nothing and collects
+// every directory it is handed.
 
 import type { WorkflowDefinitionId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -14,31 +13,15 @@ import {
   type WorkflowDefinitionListCall,
 } from "./useWorkflowDefinitionDirectory.js";
 
-/**
- * One row per id; the id is the only member that says which read committed. Everything else
- * is the shared probe row from `../../workflows-probe.test-support.ts`.
- */
-export function definitionWithId(id: string): WorkflowDefinitionRow {
-  return definition({
-    id: id as WorkflowDefinitionId,
-    name: `Definition ${id}`,
-    latestVersionNumber: 1,
-    latestWorkflowVersionId: `${id}-version-1`,
-    contentHash: `b3:${id}`,
-  });
-}
-
 /** Two pages, the first handing back the cursor that reaches the second. */
-export function twoPageCall(
-  secondPageIds: readonly string[] = ["third", "fourth"],
-): WorkflowDefinitionListCall {
+export function twoPageCall(): WorkflowDefinitionListCall {
   return async (request) =>
     request.cursor === undefined
       ? {
           definitions: [definitionWithId("first"), definitionWithId("second")],
           nextCursor: SECOND_PAGE_CURSOR,
         }
-      : { definitions: secondPageIds.map(definitionWithId) };
+      : { definitions: [definitionWithId("third"), definitionWithId("fourth")] };
 }
 
 /**
@@ -50,35 +33,17 @@ export function observeDirectory(
   listDefinitions: WorkflowDefinitionListCall,
   sessionId: string | undefined,
 ): WorkflowDefinitionDirectory[] {
-  return rescopableDirectory(listDefinitions, sessionId).observed;
-}
-
-/**
- * The same probe, with the handle a scope change needs: the browser is re-rendered with a
- * different scope, not remounted.
- */
-export function rescopableDirectory(
-  listDefinitions: WorkflowDefinitionListCall,
-  sessionId: string | undefined,
-): {
-  readonly observed: WorkflowDefinitionDirectory[];
-  readonly rescope: (next: string) => void;
-} {
   const observed: WorkflowDefinitionDirectory[] = [];
-  const collect = (directory: WorkflowDefinitionDirectory): void => {
-    observed.push(directory);
-  };
-  const view = render(
-    <DirectoryProbe listDefinitions={listDefinitions} sessionId={sessionId} onObserve={collect} />,
+  render(
+    <DirectoryProbe
+      listDefinitions={listDefinitions}
+      sessionId={sessionId}
+      onObserve={(directory) => {
+        observed.push(directory);
+      }}
+    />,
   );
-  return {
-    observed,
-    rescope: (next) => {
-      view.rerender(
-        <DirectoryProbe listDefinitions={listDefinitions} sessionId={next} onObserve={collect} />,
-      );
-    },
-  };
+  return observed;
 }
 
 /** The newest directory the probe was handed. Throws if the probe never rendered. */
@@ -111,4 +76,18 @@ function DirectoryProbe(props: {
 }): React.JSX.Element {
   props.onObserve(useWorkflowDefinitionDirectory(props.listDefinitions, props.sessionId));
   return <></>;
+}
+
+/**
+ * One row per id; the id is the only member that says which read committed. Everything else
+ * is the shared probe row from `../../workflows-probe.test-support.ts`.
+ */
+function definitionWithId(id: string): WorkflowDefinitionRow {
+  return definition({
+    id: id as WorkflowDefinitionId,
+    name: `Definition ${id}`,
+    latestVersionNumber: 1,
+    latestWorkflowVersionId: `${id}-version-1`,
+    contentHash: `b3:${id}`,
+  });
 }

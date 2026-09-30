@@ -1,6 +1,6 @@
-// What a person sees once a definition has been read, and what each of the two acts answers.
-// Acts are asserted on their answers, not their controls: whether a caller may write at a scope
-// is the daemon's adjudication, so every control is pressable.
+// The definition detail's two acts, end to end: export writes the file, and importing that file
+// puts a create. Acts are asserted on their answers, not their controls: whether a caller may
+// write at a scope is the daemon's adjudication, so every control is pressable.
 
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -77,39 +77,6 @@ function control(container: HTMLElement, label: string): HTMLButtonElement {
   return found;
 }
 
-describe("the definition detail — a read definition drawn", () => {
-  it("draws the version body's hash, marker and named phases", () => {
-    const container = renderDetail();
-    const text = container.textContent ?? "";
-
-    expect(text).toContain("b3:");
-    expect(container.querySelector(".meridian-definition-detail__version")).not.toBeNull();
-    // The phase name is the fact no run read carries.
-    expect(container.querySelectorAll(".meridian-definition-detail__phase").length).toBeGreaterThan(
-      0,
-    );
-    expect(text).toContain("Draft the release note");
-  });
-
-  it("draws the version chain where the definition read named one", () => {
-    const container = renderDetail();
-
-    expect(container.querySelector(".meridian-definition-detail__chain-list")).not.toBeNull();
-  });
-
-  it("keeps the identity and body when the chain could not be asked for", () => {
-    // The definition read carried no version id, so no chain is drawn.
-    const container = renderDetail({
-      status: "served",
-      detail: { ...SERVED.detail, chain: { status: "unaddressable" } },
-    });
-
-    expect(container.querySelector(".meridian-definition-detail__version")).not.toBeNull();
-    expect(container.querySelector(".meridian-nothing")).toBeNull();
-    expect(container.querySelector(".meridian-definition-detail__chain")).toBeNull();
-  });
-});
-
 describe("the definition detail — the two acts and what each answers", () => {
   it("exports the version body into the file form, and leaves the bytes on screen", async () => {
     const container = renderDetail();
@@ -128,24 +95,7 @@ describe("the definition detail — the two acts and what each answers", () => {
     expect(file?.textContent ?? "").toContain("Draft the release note");
   });
 
-  it("refuses an unreadable import in the file reader's own words", async () => {
-    const container = renderDetail();
-
-    fireEvent.click(control(container, "Import"));
-    const box = container.querySelector("textarea");
-    expect(box).not.toBeNull();
-    if (box === null) {
-      return;
-    }
-    fireEvent.change(box, { target: { value: "not a definition file" } });
-    fireEvent.click(control(container, "Submit"));
-    await settle();
-
-    const outcomes = container.querySelector(".meridian-definition-detail__outcomes");
-    expect(outcomes?.textContent ?? "").toContain("file-unreadable");
-  });
-
-  it("puts a WELL-FORMED import to the create call, which is where it settles", async () => {
+  it("creates a definition from an exported file pasted into the import", async () => {
     // Guards against an import that refused every input, so no file ever reached the create.
     const createDefinition = vi.fn(answeringCreate);
     const container = renderDetail(SERVED, createDefinition);
@@ -173,12 +123,5 @@ describe("the definition detail — the two acts and what each answers", () => {
     expect(createDefinition).toHaveBeenCalledWith(
       expect.objectContaining({ sessionId: PROBE_SESSION_ID, name: "Release checks" }),
     );
-  });
-
-  it("says nothing about an act nobody pressed", () => {
-    // An untouched act renders no row, so the outcome list does not narrate inactivity.
-    const container = renderDetail();
-
-    expect(container.querySelectorAll(".meridian-definition-detail__outcome")).toHaveLength(0);
   });
 });

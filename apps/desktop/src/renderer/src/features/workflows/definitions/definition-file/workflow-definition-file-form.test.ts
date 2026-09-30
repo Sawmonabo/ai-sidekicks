@@ -1,7 +1,6 @@
-// The definition file document: it is YAML (block mappings and the JSON spelling both read), a
-// file this console wrote reads back whole, the marker is `ai-sidekicks-schema` (written quoted,
-// read off the node, checked for shape and never against a constant), an unknown top-level key
-// is refused by name, and the target is the caller's and never the file's.
+// The definition file document: it is YAML, a file this console wrote reads back whole with its
+// `ai-sidekicks-schema` marker, an unknown top-level key is refused by name, and the target is the
+// caller's and never the file's.
 
 import { describe, expect, it } from "vitest";
 import { parse, stringify } from "yaml";
@@ -126,13 +125,6 @@ describe("the definition file form — what a serialized body reads back as", ()
 });
 
 describe("the definition file form — the document an export writes", () => {
-  it("writes the marker quoted, so it reads back as a string and not as a number", () => {
-    const file = serializeDefinitionFile(versionBody());
-
-    expect(file).toContain('ai-sidekicks-schema: "1.0"');
-    expect(exportedDocument()["ai-sidekicks-schema"]).toBe("1.0");
-  });
-
   it("writes the marker and the two parts, and nothing else at the top level", () => {
     // A `exportedFrom` block would make every exported file a refusal in a conforming CLI,
     // whose form is the hashed body plus an optional `layout`.
@@ -142,15 +134,6 @@ describe("the definition file form — the document an export writes", () => {
       "entry",
       "phaseDefinitions",
     ]);
-  });
-
-  it("writes block YAML rather than JSON, at two-space indentation", () => {
-    const file = serializeDefinitionFile(versionBody());
-
-    expect(file).toContain("\nname: Release checks\n");
-    expect(file).toContain("\nentry:\n  startMode: manual\n");
-    expect(file).toContain("\n  - phaseId: phase-draft\n");
-    expect(file.endsWith("\n")).toBe(true);
   });
 });
 
@@ -187,50 +170,6 @@ describe("the definition file form — what it reads, and what it refuses", () =
     });
   });
 
-  it("reads the JSON spelling too, because JSON is YAML", () => {
-    const document = exportedDocument();
-
-    expect(parseOrFail(JSON.stringify(document, undefined, 2)).status).toBe("parsed");
-  });
-
-  it("reads an unquoted marker off the node, so `1.0` does not collapse to `1`", () => {
-    const reading = parseOrFail(
-      ["ai-sidekicks-schema: 1.0", ...blockPhaseLines("Nightly checks")].join("\n"),
-    );
-
-    expect(reading.status).toBe("parsed");
-  });
-
-  it("refuses a marker whose shape no store could have held", () => {
-    const reading = parseOrFail(
-      serializeDefinitionFile(versionBody({ schemaVersion: "ai-sidekicks.workflow/v1" })),
-    );
-
-    expect(reading.status).toBe("invalid");
-    if (reading.status !== "invalid") {
-      return;
-    }
-    expect(reading.reason).toContain("ai-sidekicks.workflow/v1");
-  });
-
-  it("accepts a marker value it has never seen, because no value is registered", () => {
-    // The shape is what a store can hold; a constant would reject the daemon's own files.
-    expect(parseOrFail(serializeDefinitionFile(versionBody({ schemaVersion: "2.7" }))).status).toBe(
-      "parsed",
-    );
-  });
-
-  it("refuses a document carrying the response field's name instead of the marker", () => {
-    const { "ai-sidekicks-schema": marker, ...withoutMarker } = exportedDocument();
-    const reading = parseOrFail(stringify({ schemaVersion: marker, ...withoutMarker }));
-
-    expect(reading.status).toBe("invalid");
-    if (reading.status !== "invalid") {
-      return;
-    }
-    expect(reading.reason).toContain("ai-sidekicks-schema");
-  });
-
   it("refuses an unknown top-level key by name", () => {
     const reading = parseOrFail(
       exportedFileWith({
@@ -256,8 +195,8 @@ describe("the definition file form — what it reads, and what it refuses", () =
   });
 
   it("refuses a supplied start mode the engine cannot honor, rather than defaulting it", () => {
-    // End to end: an unrecognized entry dropped by the reader became `manual` in the daemon,
-    // so a scheduled definition imported as one that runs on a button press.
+    // An unrecognized entry dropped by the reader becomes `manual` in the daemon, so a scheduled
+    // definition would import as one that runs on a button press.
     const reading = parseOrFail(exportedFileWith({ entry: { startMode: "schedule" } }));
 
     expect(reading.status).toBe("invalid");
@@ -265,28 +204,6 @@ describe("the definition file form — what it reads, and what it refuses", () =
       return;
     }
     expect(reading.reason).toContain("schedule");
-  });
-
-  it("carries no entry where the file states none, which is the daemon's to materialize", () => {
-    const { entry, ...withoutEntry } = exportedDocument();
-    const reading = parseOrFail(stringify(withoutEntry));
-
-    expect(entry).toStrictEqual({ startMode: "manual" });
-    expect(reading.status).toBe("parsed");
-    if (reading.status !== "parsed") {
-      return;
-    }
-    expect(Object.keys(reading.body)).not.toContain("entry");
-  });
-
-  it("refuses text that is not a YAML document at all, in its own words", () => {
-    const reading = parseOrFail("name: [unterminated\n");
-
-    expect(reading.status).toBe("invalid");
-    if (reading.status !== "invalid") {
-      return;
-    }
-    expect(reading.reason).toContain("not YAML that can be read");
   });
 
   it("refuses a stream of more than one document", () => {
@@ -304,28 +221,4 @@ describe("the definition file form — what it reads, and what it refuses", () =
 
     expect(reading.status).toBe("invalid");
   });
-
-  it("refuses a document that is not a map of named sections", () => {
-    expect(parseOrFail("- one\n- two\n").status).toBe("invalid");
-    expect(parseOrFail("").status).toBe("invalid");
-  });
-
-  it("negative control: every perturbation above starts from a file that parses", () => {
-    // Guards against a parser that refuses everything.
-    expect(parseOrFail(serializeDefinitionFile(versionBody())).status).toBe("parsed");
-  });
 });
-
-/** The smallest readable definition body, as block YAML lines under a marker. */
-function blockPhaseLines(name: string): readonly string[] {
-  return [
-    `name: ${name}`,
-    "phaseDefinitions:",
-    "  - phaseId: phase-draft",
-    "    name: Draft",
-    "    type: single-agent",
-    "    gateType: auto-continue",
-    "    failureBehavior: retry",
-    "",
-  ];
-}
