@@ -18,7 +18,7 @@
 // an answer the daemon owns. So the press always opens the pane, and the pane says
 // what it found.
 
-import { Glyph } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 

@@ -29,7 +29,7 @@ import { describe, expect, it } from "vitest";
 
 import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
-import { screenRegistry } from "@renderer/console/seats/index.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { mountApp } from "@test/helpers/mount-app.js";
 
 /** A key no console chord binds, and one that needs no modifier to press. */

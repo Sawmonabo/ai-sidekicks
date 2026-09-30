@@ -7,7 +7,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { fixtureSessionSnapshot } from "@renderer/services/daemon/session-snapshot.fixture.js";
 import { TERMINAL_LEASE_SCENARIO } from "../../../../../../../fixtures/scenarios/terminal-lease.js";
-import type { PaneContextOf } from "@renderer/console/seats/index.js";
+import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";

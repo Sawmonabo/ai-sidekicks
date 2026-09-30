@@ -5,12 +5,12 @@
 // page's waiting-phase form and a definition's phase preview — are loader-backed bodies
 // of their own, so every module in this directory is needed only once one of them
 // mounts. A symbol reachable both statically and dynamically is assigned to the STATIC
-// chunk, so exporting the two forms statically from `console/seats/index.ts`, which the
-// initial graph reaches, would put this whole directory and the JSON-Schema validator
-// behind it on the document every session downloads, whether or not a form is ever drawn.
+// chunk, so importing the two forms statically from a module the initial graph reaches
+// would put this whole directory and the JSON-Schema validator behind it on the document
+// every session downloads, whether or not a form is ever drawn.
 //
-// So `console/seats/index.ts` exports `schema-form-mounts.ts` instead, and that module
-// reaches this one through `import()` and through nothing else. This module is therefore
+// So the workflow views import `schema-form-mounts.ts` instead, and that module reaches
+// this one through `import()` and through nothing else. This module is therefore
 // the bundler's split point: everything only it reaches is emitted as its own chunk and
 // fetched the first time a form mounts.
 //

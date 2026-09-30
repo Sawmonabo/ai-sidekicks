@@ -24,7 +24,7 @@ import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/li
 import { ManualClock, type Clock } from "@renderer/lib/clock.js";
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { settle as settleReactWork } from "@test/helpers/settle.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { AgentLibrary } from "./AgentLibrary.js";
 import type { AgentRegistryCalls } from "./library-view.js";
 

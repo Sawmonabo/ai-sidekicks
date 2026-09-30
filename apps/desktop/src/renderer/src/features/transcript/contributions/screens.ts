@@ -4,7 +4,9 @@
 import { createElement, type ComponentType, type ReactNode } from "react";
 
 import { routeSessionId } from "@renderer/routing/route-readers.js";
-import { type ScreenContext, type ScreenRegistry } from "@renderer/console/seats/index.js";
+import { type Refusal } from "@renderer/lib/refusal.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
+import { type ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { ResumeRefusalBanner } from "../components/ResumeRefusalBanner.js";
 import { SessionScreenContainer } from "../SessionScreenContainer.js";
 
@@ -59,9 +61,14 @@ export const TRANSCRIPT_OWNER = "transcript";
  * carried here without a second declaration to keep in step. `sessionStoreRegistry` is
  * subtracted because the session screen renders ONE session — a screen that has to offer
  * sessions reads the registry, and this one is handed the session it is a view of — and
- * `chooseScheme` because nothing in a session chooses the color scheme.
+ * `chooseScheme` because nothing in a session chooses the color scheme. The one thing it
+ * asks of the registry, reading a session again when a person presses `Try again`, is
+ * handed over as that act alone.
  */
-type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme">;
+type SessionScreenMountProps = Omit<ScreenContext, "sessionStoreRegistry" | "chooseScheme"> & {
+  /** Reads one session again through the registry, for a person's press. */
+  readonly rereadSession: (sessionId: string) => Refusal | undefined;
+};
 
 /**
  * Mount the session screen: the session header, the pane layout, and the composer.
@@ -108,6 +115,8 @@ function mountSessionScreen(
       draftStore: context.draftStore,
       route: context.route,
       paneRegistry: context.paneRegistry,
+      rereadSession: (sessionIdToReread: string) =>
+        context.sessionStoreRegistry.requestRefresh(sessionIdToReread, "user-request"),
     }),
   );
 }

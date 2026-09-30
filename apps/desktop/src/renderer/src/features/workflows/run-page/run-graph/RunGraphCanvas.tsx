@@ -1,6 +1,6 @@
 // The canvas, and the whole of what the graph library is allowed to do here.
 //
-// THIS MODULE IS INSIDE THE LAZY CHUNK, which `index.ts` beside it enters, so the library,
+// THIS MODULE IS THE LAZY CHUNK'S ENTRY, which `run-graph-loader.ts` imports, so the library,
 // its runtime sibling and the two sheets below are fetched together the first time a run's
 // phases are drawn. THE ORDER OF THE TWO SHEETS IS LOAD-BEARING: `run-graph.css` redefines
 // the library's fallback palette from `base.css` at equal specificity, so it loads second.

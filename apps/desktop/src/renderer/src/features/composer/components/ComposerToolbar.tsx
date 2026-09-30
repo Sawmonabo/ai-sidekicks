@@ -7,7 +7,7 @@
 // the session and not to a run asks the fold for nothing.
 
 import { useMemo } from "react";
-import type { ComposerProps } from "@renderer/console/seats/index.js";
+import type { ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { type SessionStoreState } from "@renderer/store/session/session-state.js";

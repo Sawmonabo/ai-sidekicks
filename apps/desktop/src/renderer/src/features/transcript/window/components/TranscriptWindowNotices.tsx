@@ -1,18 +1,15 @@
-import { WindowNotices } from "@renderer/console/primitives/index.js";
+import { WindowNotices } from "../../components/WindowNotices/WindowNotices.js";
 
 /**
- * The two ways this window holds less than the session: rows the cap took, and
- * sequences that never arrived. Two notices because a person's next move differs.
+ * The rows the cap took from this window, said at the top of the history that is
+ * loaded until the control that loads earlier history stands there.
  */
 export function TranscriptWindowNotices(
   props: TranscriptWindowNoticesProps,
 ): React.JSX.Element | null {
   return (
     <WindowNotices
-      absences={[
-        { kind: "dropped", count: props.droppedRowCount },
-        ...(props.hasUnreceivedEntries ? ([{ kind: "never-received" }] as const) : []),
-      ]}
+      absences={[{ kind: "dropped", count: props.droppedRowCount }]}
       subject="entries"
     />
   );
@@ -21,6 +18,4 @@ export function TranscriptWindowNotices(
 interface TranscriptWindowNoticesProps {
   /** Rows the log holds and this window does not, because the cap took them. */
   readonly droppedRowCount: number;
-  /** The store recorded sequences it never received. */
-  readonly hasUnreceivedEntries: boolean;
 }

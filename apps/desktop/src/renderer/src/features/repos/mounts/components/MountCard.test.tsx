@@ -7,7 +7,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";

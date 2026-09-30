@@ -28,7 +28,8 @@ import {
 } from "./attachment-provenance.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 import { ATTACHMENT_BYTE_CAP_DEFAULT } from "./attachment-caps.js";
-import { formatByteQuantity, type ChipTone } from "@renderer/console/primitives/index.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
+import { type ChipTone } from "@renderer/components/Chip/Chip.js";
 
 /** What one chip renders, and which acts it offers. */
 export interface ComposerAttachmentChipModel {

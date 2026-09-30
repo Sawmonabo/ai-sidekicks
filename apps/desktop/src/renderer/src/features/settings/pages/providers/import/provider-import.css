@@ -1,9 +1,5 @@
-/* The provider-import panel's styles. */
-
-.meridian-session-import__submit:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
+/* The provider-import panel's styles. The submit wears the shared action button at
+   its regular size in the outline face, from `styles/action-buttons.css`. */
 
 /* Why the import cannot be put yet. Attention rather than failure: an import already
    running is a condition to know about, not a thing that broke. */
@@ -46,14 +42,6 @@
 
 .meridian-session-import__submit {
   align-self: flex-start;
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface);
-  color: var(--meridian-text);
-  font: inherit;
-  font-size: var(--meridian-text-sm);
-  cursor: pointer;
 }
 
 .meridian-session-import__submit:disabled {

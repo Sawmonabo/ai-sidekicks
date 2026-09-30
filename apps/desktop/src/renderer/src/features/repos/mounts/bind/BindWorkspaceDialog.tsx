@@ -19,7 +19,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing, OverlayDialogPopup, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../../repo-operations.js";
 import { executionModeRows } from "../execution-mode-rows.js";

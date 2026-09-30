@@ -1,6 +1,6 @@
 import { memo } from "react";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import { Glyph } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { diffFileChangeNotes, type DiffViewMode } from "../diff-model.js";
 import type { DiffRow } from "../diff-row-model.js";
 import type { DiffRowIndex } from "../diff-row-index.js";

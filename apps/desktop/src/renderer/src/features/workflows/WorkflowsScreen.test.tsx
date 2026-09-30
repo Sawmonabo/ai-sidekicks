@@ -13,8 +13,9 @@
 import { render } from "@testing-library/react";
 import { beforeAll, describe, expect, it, vi } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { paneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";
 import { PROBE_RUNS, settle } from "./workflows-probe.test-support.js";
 import {

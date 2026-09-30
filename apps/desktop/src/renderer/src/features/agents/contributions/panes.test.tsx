@@ -26,7 +26,7 @@ import { type PlatformBridge } from "@renderer/services/platform/platform-bridge
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { PaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { registerAgentsPane } from "./panes.js";
 import { settleReads } from "../pane/agents-pane.test-support.js";
 
@@ -78,7 +78,6 @@ function registeredPaneContext(
     bridge,
     sessionStore: playedSessionStore(),
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
   } as unknown as RegisteredPaneContext;
 }
 

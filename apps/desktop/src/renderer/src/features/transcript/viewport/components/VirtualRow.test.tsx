@@ -10,7 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/console/primitives/index.js";
+import { WINDOWED_ROW_INDEX_ATTRIBUTE } from "@renderer/lib/windowed-row-markers.js";
 import { VirtualRow } from "./VirtualRow.js";
 import type { ViewportRow } from "../viewport-snapshot.js";
 

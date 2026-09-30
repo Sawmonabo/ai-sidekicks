@@ -18,7 +18,10 @@
 
 import { describe, expect, it } from "vitest";
 
-import type { Announce, AnnouncementPoliteness } from "@renderer/console/primitives/index.js";
+import type {
+  Announce,
+  AnnouncementPoliteness,
+} from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { PANE_LAYOUT_RESTORED_PANE_CAP, PaneLayoutStore } from "./pane-layout-store.js";
 import {
   PANE_LAYOUT_DRAG_KEY,

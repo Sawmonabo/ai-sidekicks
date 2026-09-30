@@ -62,10 +62,7 @@ export function useSessionProjectionRevision(store: SessionStore): number {
  * A boolean rather than the cause, because both readers ask only whether one is
  * standing, and a primitive is compared by value under zustand v5's `Object.is` —
  * so a transition between two causes costs no render to a view that renders
- * neither. A reader that renders the cause itself takes `useSessionStore` with a
- * selector that returns the stored value.
- *
- * @consumedBy a view that says when the session projection is incomplete
+ * neither. A reader that renders the cause itself takes `useSessionDegradedCause`.
  */
 export function useSessionDegraded(store: SessionStore): boolean {
   return useStore(store.readable, readDegraded);

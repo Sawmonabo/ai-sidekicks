@@ -11,7 +11,7 @@ import {
   InlineCardRegistry,
   inlineCardRegistry,
   type DiffInlineCardProps,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { INLINE_DIFF_CARD_HEIGHT_CAP_PX } from "../../diff-caps.js";
 import { buildDiffFixture } from "@test/helpers/diff-fixture.js";
 import { SMALL_DIFF_SHAPE } from "@test/helpers/diff-fixture-shapes.js";

@@ -60,11 +60,6 @@
   translate: 0 2px;
 }
 
-.command-palette__popup:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
-}
-
 /* The scoped-context row: what the commands below act on. */
 .command-palette__scope {
   display: flex;
@@ -106,13 +101,6 @@
 
 .command-palette__input::placeholder {
   color: var(--meridian-text-faint);
-}
-
-.command-palette__input:focus {
-  /* The popup already carries the boundary; a second ring inside it would read
-     as two focused things. The list's highlight is where focus is legible. */
-  outline: none;
-  border-bottom-color: var(--meridian-edge-strong);
 }
 
 .command-palette__list {

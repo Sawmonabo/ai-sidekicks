@@ -1,4 +1,4 @@
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { type AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 
 /**

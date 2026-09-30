@@ -31,7 +31,9 @@
 // `continuity` or loss value onto a fallback phrase would silently stop reporting
 // the newest kind of loss.
 
-import { Glyph, TranscriptRowLayout, Nothing } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { TranscriptRowLayout } from "../../components/TranscriptRowLayout/TranscriptRowLayout.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type AgentHueAssignment } from "@renderer/styles/agent-hue.js";
 import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
 import { type SystemMessageReading } from "../system-message-classifier.js";

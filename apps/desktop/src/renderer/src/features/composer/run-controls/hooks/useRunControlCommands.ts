@@ -13,7 +13,7 @@ import { useMemo } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { useLatestRef } from "@renderer/console/primitives/index.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { RUN_CONTROL_PRESENTATION } from "../run-control-presentation.js";
 import {
   RUN_CONTROL_COMMAND_OWNER,

@@ -33,11 +33,10 @@ function chromedBody(
   kind: PaneContext["kind"],
   text: string,
 ): (context: PaneContext) => React.ReactNode {
-  return (context: PaneContext): React.ReactNode =>
+  return (): React.ReactNode =>
     createElement(PaneFrame, {
       kind,
       sessionId: undefined,
-      focusHue: context.focusHue,
       children: createElement("p", null, text),
     });
 }
@@ -100,7 +99,9 @@ describe("the pane layout's board — a loader-form registration", () => {
     const pendingSection = container.querySelector(".meridian-pane");
     const pendingHeadText = container.querySelector(".meridian-pane__head")?.textContent;
     const pendingBodyText = container.querySelector(".meridian-pane__body")?.textContent;
-    expect(pendingSection?.className).toBe("meridian-pane meridian-pane--workflow-builder");
+    expect(pendingSection?.className).toBe(
+      "meridian-pane meridian-pane--workflow-builder meridian-focus-inset",
+    );
     // The reserved body is EMPTY rather than a spinner or a skeleton: the marker rides a
     // `hidden` element, which contributes no box, so nothing moves when the body lands.
     expect(pendingBodyText).toBe("");

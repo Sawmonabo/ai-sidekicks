@@ -1,29 +1,22 @@
 /*
  * The one filled-accent treatment: a control whose whole face is the accent, with
- * `accent-ink` as its label.
+ * `accent-ink` as its label. The approval card's approve action wears it.
  *
- * A sheet of its own rather than a rule in a shared primitives sheet: a stylesheet
- * nobody can hold in their head is where a second treatment for one thing gets added
- * without anybody noticing.
- * Imported by `accent-fill.ts`, which names the class, so a control that reads the
- * name cannot render without these rules.
+ * A sheet of its own, imported by `accent-fill.ts`, which names the class, so a
+ * control that reads the name cannot render without these rules.
  *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `console/tokens/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
+ * Hand-authored composition: the token values are generated at mount from
+ * `styles/palette.ts` by `styles/generate-css.ts`, and this sheet reads every one of
+ * them back out as a custom property.
  *
  * Two design rules govern this sheet: one accent hue and no other color, and motion
- * that settles without bouncing. Two controls reach for this — an approval's approve
- * action and a goal's save — and both were painting `accent-text` on `accent`, which
- * is 1.53:1 in light and 1.48:1 in dark against the 4.5:1 floor for text. One class,
- * so the pairing is made once and `tokens/contrast.test.ts` measures the pair it makes.
+ * that settles without bouncing. `accent-text` painted on `accent` is 1.53:1 in light
+ * and 1.48:1 in dark against the 4.5:1 floor for text, so the fill takes `accent-ink`
+ * as its label, and `styles/contrast.test.ts` measures the pair it makes.
  *
- * A BLOCK RATHER THAN A `--modifier`, deliberately. These primitives carry no
- * `.meridian-button` block, and minting one here would mean minting a button
- * primitive — geometry, disabled state, sizes — that the console has not settled
- * and that neither consumer needs: both already own their control's padding and
- * type. So this class carries the FILL and what the fill implies (its own edge,
- * its corner, its ink, and how it responds to a pointer) and nothing about size.
+ * The class carries the fill and what the fill implies (its own edge, its corner, its
+ * ink, and how it responds to a pointer) and nothing about size: approve takes its
+ * size from the shared action button in `styles/action-buttons.css`.
  *
  * The border matches the fill rather than being omitted, so a control that sits
  * against `surface-raised` still has a definite boundary at its edge — and so a
@@ -46,7 +39,7 @@
  * Hover LIFTS the face, and a filter is the right instrument for that one
  * direction: the ink is dark in both schemes, so brightening the fill moves the
  * pair apart — 4.73:1 to 5.26:1 in light, 7.41:1 to 8.32:1 in dark, both measured
- * in `tokens/contrast.test.ts` against the same brightness this rule spends.
+ * in `styles/contrast.test.ts` against the same brightness this rule spends.
  */
 .meridian-accent-fill:hover {
   filter: brightness(1.06);
@@ -63,15 +56,10 @@
  *
  * The boundary takes the control's own ink, and it is carrying most of the press in
  * the light scheme: the ink floor leaves that face about 6% of luminance to spend
- * (see `tokens/palette.ts`), which is below what an eye resolves on its own. A ring
+ * (see `styles/palette.ts`), which is below what an eye resolves on its own. A ring
  * in a color already measured against this face costs no ratio to add.
  */
 .meridian-accent-fill:active {
   border-color: var(--meridian-accent-ink);
   background: var(--meridian-accent-pressed);
-}
-
-.meridian-accent-fill:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }

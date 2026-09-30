@@ -24,7 +24,7 @@ import { useCallback, useMemo, useState } from "react";
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import type { DraftStore } from "@renderer/store/draft-store.js";
-import { requestComposerFocus } from "@renderer/console/seats/index.js";
+import { requestComposerFocus } from "../../../composer-focus-requests.js";
 import {
   WORKFLOW_COMMAND_ROOT,
   WORKFLOW_START_COMMAND_PREFILL,

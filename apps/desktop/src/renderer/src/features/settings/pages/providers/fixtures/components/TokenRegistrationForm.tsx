@@ -115,7 +115,7 @@ export function TokenRegistrationForm(props: {
 
       <button
         type="submit"
-        className="meridian-settings-page__action meridian-settings-page__action--primary"
+        className="meridian-settings-page__action meridian-settings-page__action--primary meridian-action-button"
         disabled={outcome.kind === "submitting"}
       >
         Register account

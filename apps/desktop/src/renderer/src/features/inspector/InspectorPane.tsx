@@ -21,17 +21,13 @@
 // would be a second place eligibility is decided, which is exactly the kind of
 // renderer-held truth this console must never keep.
 
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { InspectorPaneBody } from "./components/InspectorPaneBody.js";
 
 export function InspectorPane(context: PaneContextOf<"inspector">): React.JSX.Element {
   return (
-    <PaneFrame
-      kind="inspector"
-      sessionId={context.sessionStore?.sessionId}
-      entity={context.entity}
-      focusHue={context.focusHue}
-    >
+    <PaneFrame kind="inspector" sessionId={context.sessionStore?.sessionId} entity={context.entity}>
       <InspectorPaneBody context={context} />
     </PaneFrame>
   );

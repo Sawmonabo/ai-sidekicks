@@ -1,8 +1,8 @@
 // The pane layout: the panes a person is looking at, side by side.
 //
 // The pane layout holds independent panes, each headed by an entity breadcrumb and a kind
-// glyph, with the actor's hue as the focus ring; one entity opens one pane,
-// structurally — a single pane registry and a tripwire that fails on a second owner.
+// glyph; one entity opens one pane, structurally — a single pane registry and a tripwire
+// that fails on a second owner.
 //
 // WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
 // separators, the keyboard paths, and the one place each pane body is mounted
@@ -53,13 +53,12 @@ import { Group, Separator } from "react-resizable-panels";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import {
-  InlineRefusal,
-  Nothing,
-  isEditableTarget,
-  useAnnounce,
-} from "@renderer/console/primitives/index.js";
-import { type PaneContext, type PaneRegistry } from "@renderer/console/seats/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { isEditableTarget } from "@renderer/lib/editable-target.js";
+import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { usePaneLayoutState } from "../hooks/usePaneLayoutState.js";
 import { type PaneLayoutStore } from "../pane-layout-store.js";
 import { paneLayoutActsOn } from "../pane-layout-acts.js";
@@ -293,7 +292,6 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
               )}
               <SessionPaneSlot
                 pane={pane}
-                isFocused={pane.paneId === state.focusedPaneId}
                 density={state.density}
                 registry={props.registry}
                 paneContextFor={props.paneContextFor}

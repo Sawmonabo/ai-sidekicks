@@ -58,12 +58,6 @@
   color: var(--meridian-text-muted);
 }
 
-.meridian-settings__search:focus-within {
-  border-color: var(--meridian-accent);
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-settings__search-input {
   flex: 1 1 auto;
   min-width: 0;
@@ -72,10 +66,6 @@
   color: var(--meridian-text);
   font: inherit;
   font-size: var(--meridian-text-sm);
-}
-
-.meridian-settings__search-input:focus-visible {
-  outline: none;
 }
 
 .meridian-settings__search-input::placeholder {
@@ -113,11 +103,6 @@
 .meridian-settings__section:hover {
   background: var(--meridian-surface);
   color: var(--meridian-text);
-}
-
-.meridian-settings__section:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
 }
 
 /* The current section carries a hairline in the accent rather than a fill: the
@@ -182,22 +167,4 @@
 .meridian-settings__page--settling {
   animation: meridian-settings-settle var(--meridian-motion-thread) var(--meridian-ease-settle);
   border-radius: var(--meridian-radius-md);
-}
-
-/* The heading takes focus so the platform scrolls it into the pane. It is not a
-   control, so it carries no persistent focus ring — only the one the browser draws
-   while a keyboard is driving.
-
-   The ring is written width-style-color like every other focus rule in the tree, and
-   that is load-bearing rather than tidy: `outline` is a shorthand, so a value naming
-   only a color resets `outline-style` to its initial `none` and draws nothing. The
-   rule above has already removed the browser's own outline, so the search destination
-   of a keyboard-driven act would have had no focus indicator at all. */
-.meridian-settings__page-heading:focus {
-  outline: none;
-}
-
-.meridian-settings__page-heading:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: var(--meridian-space-1);
 }

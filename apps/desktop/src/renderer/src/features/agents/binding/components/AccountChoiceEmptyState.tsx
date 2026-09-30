@@ -11,7 +11,8 @@
 // is terminal until something asks again, so without the re-read this field would say
 // one line of error text for the life of the field.
 
-import { InlineRefusal, Nothing } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { AccountAxisReading } from "../account-axis.js";
 
 export interface AccountChoiceEmptyStateProps {

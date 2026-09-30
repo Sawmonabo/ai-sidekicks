@@ -21,7 +21,7 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 
-import { OverlayComboboxPopup } from "@renderer/console/primitives/index.js";
+import { OverlayComboboxPopup } from "../../components/OverlayComboboxPopup/OverlayComboboxPopup.js";
 
 export interface AxisComboboxProps {
   /** The field label a person reads, e.g. "Effort". */

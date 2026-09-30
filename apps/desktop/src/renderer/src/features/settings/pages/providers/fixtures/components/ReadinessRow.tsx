@@ -2,7 +2,9 @@ import type { ProviderReadiness } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
-import { Chip, DerivedFigure, formatDateTime } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { RemedyLine } from "./RemedyLine.js";
 
 /**

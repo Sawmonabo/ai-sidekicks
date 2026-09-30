@@ -33,7 +33,7 @@
 
 import { useCallback, useEffect, useId, useMemo } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 import {
@@ -217,13 +217,17 @@ export function SteerBox(props: SteerBoxProps): React.JSX.Element {
       <div className="meridian-run-composer__actions">
         <button
           type="submit"
-          className="meridian-run-composer__confirm"
+          className="meridian-run-composer__confirm meridian-action-button meridian-action-button--small meridian-action-button--raised"
           disabled={isConfirmLatched}
           aria-busy={isSending}
         >
           Send steer
         </button>
-        <button type="button" className="meridian-run-composer__dismiss" onClick={onDismiss}>
+        <button
+          type="button"
+          className="meridian-run-composer__dismiss meridian-action-button meridian-action-button--small meridian-action-button--raised"
+          onClick={onDismiss}
+        >
           Cancel
         </button>
       </div>

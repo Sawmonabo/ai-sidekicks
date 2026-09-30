@@ -1,33 +1,33 @@
-// The session screen's banner stack: what it coalesces, and what it deliberately keeps.
+// The session screen's banner column: what it says, what it coalesces, and what it keeps.
 //
-// A refusal that changes what the whole room can do takes the banner shape, and the
-// session screen is where those land. Two properties are this stack's own, because neither
-// is a property of one refusal:
+// A banner sits directly under the session header in the header's banner shape and
+// speaks in plain words; the code of the failure behind it goes to the window's
+// diagnostic capture, never onto the screen. Two properties are this column's own,
+// because neither is a property of one banner:
 //
-//   • **A REPEATED REFUSAL IS ONE BANNER WITH A COUNT.** A failing store raises
-//     `layout-save-failed` on every pane the person moves, so a drag produced a
-//     column of identical banners all saying one thing. Identical is exact and is the
-//     whole triple — origin, code and detail — because two refusals that differ in
-//     any of the three are two different facts and a reader has to see both.
-//   • **AND THE TRIPLE IS THE IDENTITY, WHICH IS WHY THE RENDER KEYS ON IT.** The
-//     list was keyed by array position over a list that supports removal, so
-//     dismissing the first banner renumbered every one below it: React unmounted and
-//     remounted banners that had not changed, which takes focus off the dismiss
-//     control somebody was tabbing through and makes a screen reader read them again.
+//   • **A REPEATED BANNER IS ONE BANNER.** A failing store refuses a save on every
+//     pane the person moves, so a drag produced a column of identical banners all
+//     saying one thing. A repeat leaves the standing banner as it is, and draws no count.
+//   • **AND THE WORDS ARE THE IDENTITY, WHICH IS WHY THE RENDER KEYS ON THEM.** A list
+//     keyed by array position renumbers every banner below a dismissed one: React
+//     unmounts and remounts banners that had not changed, which takes focus off the
+//     dismiss control somebody was tabbing through.
 //
 // NOTHING IS DROPPED. There is no cap here and no eviction: coalescing bounds the
-// repeat, and every banner left is a different sentence about a different thing the
-// room can no longer do. A cap would decide, silently, which of those a person does
-// not get to read.
+// repeat, and every banner left says a different thing.
 
-import { type Refusal } from "@renderer/lib/refusal.js";
-
-/** One banner on screen, and how many raises it stands for. */
+/** One banner on screen: its words, in the order they read, parted by ` · ` when drawn. */
 export interface SessionBanner {
-  readonly refusal: Refusal;
-  /** 1 for a refusal raised once. Rendered only above 1: a count of one is noise. */
-  readonly repeatCount: number;
+  readonly words: readonly string[];
 }
+
+/**
+ * The banner a failed save of the pane layout raises. The arrangement stays on screen
+ * and is saved again on the next change.
+ */
+export const PANE_LAYOUT_NOT_SAVED_BANNER: SessionBanner = Object.freeze({
+  words: Object.freeze(["Pane layout not saved", "it will save again on your next change"]),
+});
 
 /**
  * A column with nothing on it, as one value.
@@ -39,49 +39,35 @@ export interface SessionBanner {
 export const NO_SESSION_BANNERS: readonly SessionBanner[] = Object.freeze([]);
 
 /**
- * The identity of a refusal as this stack counts it.
+ * The identity of a banner as this column counts it.
  *
- * Joined on a NUL rather than on a separator a code or a sentence could contain:
- * with a printable joiner, an origin ending in one and a code starting with one
- * compose the same string as a different pair, and two unrelated refusals would
- * coalesce into one banner carrying a count of both.
+ * Joined on a NUL rather than on a separator the words could contain: with a printable
+ * joiner, two banners whose words split at different places would compose the same
+ * string and coalesce into one.
  */
-export function sessionBannerKey(refusal: Refusal): string {
-  return [refusal.origin, refusal.code, refusal.detail].join("\u0000");
+export function sessionBannerKey(banner: SessionBanner): string {
+  return banner.words.join("\u0000");
 }
 
 /**
- * Raise one, coalescing it into the banner that already says it.
- *
- * The repeat REPLACES its entry in place rather than moving it to the end: the
- * banner is already on screen and somebody is reading it, and re-ordering the stack
- * under them to record that the same thing happened again would move the dismiss
- * control they were reaching for.
+ * Raise one. A banner already saying the same words stands as it is, in its place, so
+ * the column a person is reading does not move under them.
  */
 export function raiseSessionBanner(
   current: readonly SessionBanner[],
-  refusal: Refusal,
+  banner: SessionBanner,
 ): readonly SessionBanner[] {
-  const key = sessionBannerKey(refusal);
-  const standing = current.find((banner) => sessionBannerKey(banner.refusal) === key);
-  if (standing === undefined) {
-    return [...current, { refusal, repeatCount: 1 }];
+  const key = sessionBannerKey(banner);
+  if (current.some((standing) => sessionBannerKey(standing) === key)) {
+    return current;
   }
-  return current.map((banner) =>
-    banner === standing ? { refusal: banner.refusal, repeatCount: banner.repeatCount + 1 } : banner,
-  );
+  return [...current, banner];
 }
 
-/**
- * Put one away, by the identity the render keyed it on.
- *
- * Keyed rather than by object identity, because the entry a dismiss control closed
- * over is the one from the render that drew it, and a raise since then has replaced
- * that object with a counted one that is the same banner.
- */
+/** Put one away, by the identity the render keyed it on. */
 export function dismissSessionBanner(
   current: readonly SessionBanner[],
   key: string,
 ): readonly SessionBanner[] {
-  return current.filter((banner) => sessionBannerKey(banner.refusal) !== key);
+  return current.filter((banner) => sessionBannerKey(banner) !== key);
 }

@@ -11,7 +11,7 @@ import {
   InlineCardRegistry,
   inlineCardRegistry,
   type ArtifactInlineCardProps,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { registerInspectorInlineCards } from "../../contributions/inline-cards.js";
 import { InlineArtifactCard } from "./InlineArtifactCard.js";
 

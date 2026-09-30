@@ -28,7 +28,9 @@
 import { memo } from "react";
 
 import type { InstantReading } from "@renderer/lib/instant.js";
-import { Chip, WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { ParkBadge } from "../../components/ParkBadge.js";
 import type { OpenRun, WorkflowRunListRow } from "../run-list-projection.js";
 import type { WorkflowRunState } from "../run-list-rows.js";

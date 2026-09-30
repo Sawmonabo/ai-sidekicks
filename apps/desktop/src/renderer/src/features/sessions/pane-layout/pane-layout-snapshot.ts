@@ -44,11 +44,8 @@
 
 import { isRefusal, refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { isWireRecord } from "@renderer/lib/wire-record.js";
-import {
-  isEphemeralPaneKind,
-  isPaneKind,
-  parsePaneAddress,
-} from "@renderer/console/seats/index.js";
+import { isEphemeralPaneKind, isPaneKind } from "@renderer/routing/panes/pane-kinds.js";
+import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import { isPaneLayoutDensity } from "./pane-layout-density.js";
 import {

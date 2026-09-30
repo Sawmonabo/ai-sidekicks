@@ -65,7 +65,7 @@
 import { waitFor } from "@testing-library/react";
 
 import { renderSettled } from "../app-harness.js";
-import { schemaFormChunk } from "@renderer/console/seats/index.js";
+import { schemaFormChunk } from "@renderer/features/workflows/schema-form/schema-form-mounts.js";
 // The form's own wait for its two chunks, taken from the module that owns them rather
 // than restated: that wait has one home for this job, and the three console-unit supports
 // already take it from there. Re-exported below rather than merely used, so this file

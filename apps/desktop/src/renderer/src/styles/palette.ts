@@ -10,7 +10,7 @@
 //   • Hue answers "who" and never "how urgent". The twelve user steps
 //     below are one scheme-independent set, because a person's identity does not
 //     change when the operator flips the theme. One lightness (`ACTOR_HUE_
-//     LIGHTNESS`) clears 3:1 as an edge, ring, or mark against BOTH schemes'
+//     LIGHTNESS`) clears 3:1 as an edge or mark against BOTH schemes'
 //     grounds — which is exactly what the 3:1 floor asks for and why the lightness sits
 //     mid-scale rather than at either extreme.
 //   • Amber means a person is needed; red means something failed; the accent is
@@ -156,7 +156,6 @@ export const ATTENTION_TOKENS: Readonly<Record<string, SchemePair>> = {
   // 5.82 dark) and are measured there, because a pressed control's own face is
   // still the boundary a person has to find.
   "accent-pressed": { light: oklch(0.565, 0.099, 215), dark: oklch(0.68, 0.095, 205) },
-  "focus-ring": { light: oklch(0.55, 0.11, 215), dark: oklch(0.8, 0.09, 205) },
 };
 
 /**

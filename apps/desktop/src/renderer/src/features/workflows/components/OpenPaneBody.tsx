@@ -6,7 +6,9 @@
 // reading the file. The screen imports it by relative path and the feature's `index.ts`
 // does not export it, because nothing outside the workflows feature composes it.
 
-import type { PaneAddress, PaneContext, ScreenContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /**
  * The registered body for one address, or nothing when the kind has none.
@@ -45,7 +47,6 @@ export function OpenPaneBody(props: {
     linkedSourcePaneId: undefined,
     // No actor to attribute this pane to on a bare route, which is the fail-closed
     // answer: an unattributed pane takes the neutral boundary and not someone's hue.
-    focusHue: undefined,
   };
   return <>{descriptor.render(paneContext)}</>;
 }

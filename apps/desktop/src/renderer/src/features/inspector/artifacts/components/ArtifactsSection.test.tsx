@@ -3,7 +3,7 @@
 import { fireEvent, render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatByteQuantity, formatCount } from "@renderer/console/primitives/index.js";
+import { formatByteQuantity, formatCount } from "@renderer/lib/wire-figures.js";
 import { ARTIFACT_PRODUCER_ID, artifactRow } from "@test/helpers/artifact-summaries.js";
 import { ArtifactsSection } from "./ArtifactsSection.js";
 

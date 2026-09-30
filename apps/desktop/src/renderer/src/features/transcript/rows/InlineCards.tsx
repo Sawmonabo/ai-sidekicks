@@ -5,12 +5,13 @@
 // the chip is the message's own statement that it carries a diff or an attachment,
 // and the body is the part only the feature that registers that card kind can fill.
 
-import { Chip, Nothing } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
   inlineCardBody,
   inlineCardRegistry,
   type InlineCardProps,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 
 export interface InlineCardsProps {
   readonly cards: readonly InlineCardProps[];

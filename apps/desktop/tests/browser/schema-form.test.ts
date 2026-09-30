@@ -21,7 +21,7 @@
 // local re-reading of the selector would prove nothing about either wait.
 //
 // WHY THIS TIER. The module under test mounts the schema form through `app-harness.ts`
-// and reaches the renderer's own barrels, so it belongs to a browser-mode project rather
+// and reaches the renderer's own modules, so it belongs to a browser-mode project rather
 // than a Node one — and this is the project whose glob claims a `tests/browser/`
 // file, and whose neighbors already drive that mount. The cases below build detached
 // documents and mount nothing, which is what lets them state the shapes a mount cannot.

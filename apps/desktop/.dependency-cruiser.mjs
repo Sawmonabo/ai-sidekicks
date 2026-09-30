@@ -50,7 +50,6 @@ import {
   STYLES,
   TEST_HELPERS,
   TEST_SUPPORT_MODULES,
-  UNPLACED,
   upwardEdge,
 } from "./.dependency-cruiser.layers.mjs";
 
@@ -88,6 +87,16 @@ export default {
           "\\.json$",
           "(^|/)[^/]+\\.config\\.(ts|mjs|cjs|js)$",
           "\\.test-support\\.(ts|tsx)$",
+          // A file kept whole for a consumer that is not built yet, exempted by its exact
+          // path beside its `ignoreFiles` entry in the root `knip.json`; each goes in the
+          // change that builds its consumer.
+          //
+          // Scripted diff patches kept as the fixtures' test data (register WT-14); the diff
+          // read that plays them is built with the Review pane (build units DM-16 and B9).
+          "^fixtures/data/repos-diff-patches\\.ts$",
+          // The artifact refusal codes, which move to the contracts package (registers CMP-2
+          // and ART-2); the exemption leaves with the move.
+          "^src/renderer/src/features/composer/attachments/artifact-refusal-copy\\.ts$",
         ],
       },
       to: {},
@@ -151,7 +160,7 @@ export default {
     upwardEdge("store", STORE, ABOVE_STORE),
     upwardEdge("services", SERVICES, ABOVE_SERVICES),
     upwardEdge("registries", REGISTRIES, ABOVE_REGISTRIES),
-    upwardEdge("features", [FEATURES, UNPLACED], ABOVE_FEATURES),
+    upwardEdge("features", FEATURES, ABOVE_FEATURES),
     upwardEdge("layout", LAYOUT, ABOVE_LAYOUT),
     {
       name: "feature-isolation",
@@ -281,6 +290,10 @@ export default {
     // assert the boundary between them.
     exclude: { path: "\\.(test|bench)\\.(ts|tsx)$" },
     tsPreCompilationDeps: true,
+    // A workspace package resolves to its path under `node_modules/` rather than to the
+    // real path its pnpm link points at, so the contracts edge from `src/shared/` reads the
+    // same whether or not the package has been built, and `doNotFollow` above holds for it.
+    preserveSymlinks: true,
     enhancedResolveOptions: {
       extensions: [".ts", ".tsx", ".mts", ".js", ".jsx", ".mjs", ".cjs", ".json"],
     },

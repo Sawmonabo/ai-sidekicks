@@ -1,6 +1,7 @@
 import type { ReactNode } from "react";
 
-import { InlineRefusal, WireFigure } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { TokenRegistrationOutcome } from "../sign-in-flow.js";
 
 /**

@@ -21,7 +21,10 @@
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import { type AppRoute } from "@renderer/routing/routes.js";
-import { findScreenNameForRoute, type ScreenRegistry } from "@renderer/console/seats/index.js";
+import {
+  findScreenNameForRoute,
+  type ScreenRegistry,
+} from "@renderer/registries/screens/screen-registry.js";
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**

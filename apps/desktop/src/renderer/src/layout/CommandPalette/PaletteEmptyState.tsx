@@ -21,7 +21,7 @@
 // skeleton, the two badge arms, and the two error arms are the arms themselves —
 // each is rendered once, from one branch, and takes nothing a caller supplies.
 
-import { formatCount } from "@renderer/console/primitives/index.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { QuietEmptyState } from "./QuietEmptyState.js";
 

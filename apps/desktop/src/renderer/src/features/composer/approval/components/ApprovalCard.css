@@ -3,8 +3,11 @@
 
    Every color, space, and radius is a Meridian token. Nothing here spends a hue:
    the pending state's amber and a refusal's red arrive through `Chip` and
-   `Refusal`, which own those two marks. The controls this card shares its treatment
-   with in other features are global rules in `styles/action-buttons.css`. */
+   `Refusal`, which own those two marks. The disclosure triggers wear the shared
+   disclosure trigger class, and the scope choice and the actions wear the shared
+   action button at its regular size, both from `styles/action-buttons.css`: reject
+   and the scope choice in the outline face, approve in the filled accent. This sheet
+   adds only the actions' disabled state. */
 
 .meridian-approval-card {
   display: flex;

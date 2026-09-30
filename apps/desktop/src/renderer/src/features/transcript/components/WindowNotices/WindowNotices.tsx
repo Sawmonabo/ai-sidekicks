@@ -11,12 +11,9 @@ import { buildWindowNoticeTexts, type WindowAbsence } from "../../window-notices
 
 export interface WindowNoticesProps {
   /**
-   * Every way this window is less than the thing it is a window onto.
-   *
-   * The set rather than one, because a window that dropped older rows AND was told of
-   * a sequence it never received is short twice over, and a person's move differs for
-   * each. Counted absences at zero are dropped by the model, so a caller hands over
-   * what it derived without filtering first.
+   * Every way this window is less than the thing it is a window onto. Counted absences
+   * at zero are dropped by the model, so a caller hands over what it derived without
+   * filtering first.
    */
   readonly absences: readonly WindowAbsence[];
   /** What the window holds, as a lowercase plural noun phrase: "entries", "rows". */

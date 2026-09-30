@@ -16,7 +16,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { refuse } from "@renderer/lib/refusal.js";
-import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import {
   AttentionSummary,
   type AttentionReading,

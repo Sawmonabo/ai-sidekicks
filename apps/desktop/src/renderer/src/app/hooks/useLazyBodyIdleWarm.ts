@@ -30,10 +30,10 @@ import { useEffect, useState } from "react";
 import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
-  type PaneRegistry,
-  type ScreenRegistry,
   type IdleWarmScheduler,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/components/LazyBody/lazy-body-warm.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 
 /**
  * Warm both boards' loader-backed bodies once, after this window's first frame.

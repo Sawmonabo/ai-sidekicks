@@ -209,14 +209,11 @@
 }
 
 .meridian-saved-definition-row__action {
-  font: inherit;
   font-size: var(--meridian-text-xs);
   padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
+  border-color: var(--meridian-edge);
   background: var(--meridian-surface-raised);
   color: var(--meridian-text);
-  cursor: pointer;
 }
 
 .meridian-saved-definition-row__action:hover:enabled {
@@ -242,25 +239,8 @@
  * so the lede keeps its measure. */
 .meridian-agent-library__new {
   align-self: flex-start;
-  font: inherit;
   font-size: var(--meridian-text-xs);
   padding: var(--meridian-space-1) var(--meridian-space-3);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  background: var(--meridian-surface-raised);
-  color: var(--meridian-text);
-  cursor: pointer;
-}
-
-.meridian-agent-library__new:hover {
-  border-color: var(--meridian-edge-strong);
-}
-
-/* Focus is visible on every control on this page, with one rule rather than one per
- * class, so a control added later cannot arrive without it. */
-.meridian-agent-library :focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /* The row the detail column is holding. A left edge in the accent rather than a

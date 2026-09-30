@@ -13,7 +13,9 @@
 // never deleted — so every one of the five states renders as a row rather than as
 // an absence. Cancel is offered on the one state that can still be taken back.
 
-import { DerivedFigure, Nothing, formatCount } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { QueueFeed } from "../queue-reading.js";
 import { QueueRow } from "./QueueRow.js";
 

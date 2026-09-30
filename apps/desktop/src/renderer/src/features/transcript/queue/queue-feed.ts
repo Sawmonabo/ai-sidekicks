@@ -13,7 +13,7 @@
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
-import { useLatestRef } from "@renderer/console/primitives/index.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { useSessionReadTriggers } from "@renderer/store/reads/hooks/useSessionReadTriggers.js";
 import { useWindowReadTriggers } from "@renderer/store/reads/hooks/useWindowReadTriggers.js";
 import { type ReadTriggerTarget } from "@renderer/store/reads/read-triggers.js";

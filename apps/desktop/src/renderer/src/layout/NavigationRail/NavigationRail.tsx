@@ -15,8 +15,8 @@
 //     destination. It is the console's most-seen component, so it is the one that most
 //     has to stay quiet.
 
-import type { GlyphName } from "@renderer/console/primitives/index.js";
-import { Glyph } from "@renderer/console/primitives/index.js";
+import type { GlyphName } from "@renderer/styles/glyphs.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import type { RailDestination } from "@renderer/routing/route-readers.js";
 
 import "./navigation-rail.css";

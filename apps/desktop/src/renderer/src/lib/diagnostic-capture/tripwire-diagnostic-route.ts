@@ -16,7 +16,7 @@
 // reaches the band at a lower severity.
 
 import type { Clock } from "../clock.js";
-import { windowDiagnosticCapture } from "./diagnostic-capture.js";
+import { diagnosticStampAt, windowDiagnosticCapture } from "./diagnostic-capture.js";
 import type { DiagnosticCapture } from "./diagnostic-capture.js";
 import { windowTripwires } from "../tripwires.js";
 import type { TripwireRegistry, TripwireReport } from "../tripwires.js";
@@ -57,12 +57,10 @@ export function routeTripwiresToDiagnosticCapture(
  * would hand every feature above a second way to record. One exported function arms
  * both and hands out neither.
  *
- * Takes the clock the console runs on rather than reaching for `Date`, so a window
- * driven by a frozen clock stamps its records at the instant the rest of the window
- * agrees it is.
+ * Takes the clock the console runs on, through `diagnosticStampAt`.
  */
 export function routeWindowTripwiresToDiagnosticCapture(clock: Clock): () => void {
   return routeTripwiresToDiagnosticCapture(windowTripwires, windowDiagnosticCapture, () =>
-    new Date(clock.now()).toISOString(),
+    diagnosticStampAt(clock),
   );
 }

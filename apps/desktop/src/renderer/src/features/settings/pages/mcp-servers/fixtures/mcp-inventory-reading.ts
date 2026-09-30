@@ -18,7 +18,7 @@
 import type { Clock } from "@renderer/lib/clock.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { McpServerInventoryEntry } from "@ai-sidekicks/contracts";
-import { PushDrivenRead } from "@renderer/console/seats/index.js";
+import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 
 /** Names this read in a refusal, so a failure says which read failed. */
 export const MCP_INVENTORY_READ_ORIGIN = "mcp-servers";

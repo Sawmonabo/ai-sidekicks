@@ -1,7 +1,8 @@
 import type { ProviderReadiness } from "@ai-sidekicks/contracts";
 import type { ReactNode } from "react";
 
-import { InlineRefusal, WireFigure } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { Refusal } from "@renderer/lib/refusal.js";
 
 /**
@@ -63,7 +64,7 @@ export function RemedyLine(props: {
       </p>
       <button
         type="button"
-        className="meridian-settings-page__action meridian-settings-page__action--primary"
+        className="meridian-settings-page__action meridian-settings-page__action--primary meridian-action-button"
         disabled={startBlockedReason !== undefined}
         onClick={() => {
           onStartSignIn(remedy.accountId);

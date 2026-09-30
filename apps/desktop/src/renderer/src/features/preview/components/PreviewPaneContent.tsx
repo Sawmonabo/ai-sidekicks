@@ -30,12 +30,15 @@ import { describeChordEvent, isCloseTabChord } from "../handback/chord-claim.js"
 import { type NavigationReading } from "../types.js";
 import { activePageOf, type PageListReading } from "../page-list-reading.js";
 import { PageTabStrip } from "./PageTabStrip.js";
-import { HOST_CHORD_PLATFORM, Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
+import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { usePreviewPaneActs } from "../hooks/usePreviewPaneActs.js";
 import { useGeometryPublisher } from "../hooks/useGeometryPublisher.js";
 import { usePaneAddressField } from "../hooks/usePaneAddressField.js";
 import { AddressLineButton } from "./AddressLineButton.js";
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import type { PreviewPaneRejectionFallback } from "../pane-refusals.js";
 
 /** What the control that hands the page to the system browser refuses with. */
@@ -70,7 +73,7 @@ export interface PreviewPaneContentProps extends PaneContextOf<"browser"> {
 
 /** The pane body: tab strip, address line, and the viewport a native view is placed over. */
 export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.Element {
-  const { bridge, paneId, focusHue, sessionStore, navigation, pages, acts, pageHost } = props;
+  const { bridge, paneId, sessionStore, navigation, pages, acts, pageHost } = props;
   const sessionId = sessionStore?.sessionId;
   const geometry = useGeometryPublisher(bridge, paneId, pageHost);
   const { addressField, setAddressField } = usePaneAddressField(bridge, paneId);
@@ -148,12 +151,7 @@ export function PreviewPaneContent(props: PreviewPaneContentProps): React.JSX.El
   return (
     // The chord claim rides the frame's own section, so it covers the head the frame
     // draws above the body as well as everything inside it.
-    <PaneFrame
-      kind="browser"
-      sessionId={sessionId}
-      focusHue={focusHue}
-      onKeyDownCapture={onCloseTabChord}
-    >
+    <PaneFrame kind="browser" sessionId={sessionId} onKeyDownCapture={onCloseTabChord}>
       <div className="meridian-preview-pane" tabIndex={-1}>
         <PageTabStrip
           reading={pages}

@@ -11,7 +11,7 @@ import { act, render, type RenderResult } from "@testing-library/react";
 import { createFixtureComposition } from "@renderer/app/fixture-composition.js";
 import { AppProviders } from "@renderer/app/providers.js";
 import { TRANSCRIPT_STATES_SCENARIO_ID } from "../../fixtures/scenarios/transcript-states.js";
-import { screenRegistry } from "@renderer/console/seats/index.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 
 /** Where a window with no particular address lands. */

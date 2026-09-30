@@ -24,7 +24,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { useLatestRef } from "@renderer/console/primitives/index.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 
 /** What a drop-and-paste binding needs, and what it hands back. */
 export interface AttachmentDropOptions {

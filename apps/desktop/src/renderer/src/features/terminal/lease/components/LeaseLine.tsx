@@ -8,7 +8,8 @@
 
 import type { ReactNode } from "react";
 
-import { Chip, WireFigure, type ChipTone } from "@renderer/console/primitives/index.js";
+import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { LeaseHolderSentence } from "./LeaseHolderSentence.js";
 import { type TerminalLeaseHolder, type TerminalLeaseState } from "../lease-model.js";
 

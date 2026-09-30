@@ -32,7 +32,7 @@ import { Checkbox } from "@base-ui/react/checkbox";
 import { Collapsible } from "@base-ui/react/collapsible";
 import { Select } from "@base-ui/react/select";
 
-import { OverlaySelectPopup } from "@renderer/console/primitives/index.js";
+import { OverlaySelectPopup } from "../../components/OverlaySelectPopup/OverlaySelectPopup.js";
 import {
   REMEMBERED_SCOPE_KINDS,
   RULE_SCOPE_LABELS,
@@ -86,7 +86,7 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
 
   return (
     <Collapsible.Root className="meridian-approval-card__remember">
-      <Collapsible.Trigger className="meridian-approval-card__disclosure-trigger">
+      <Collapsible.Trigger className="meridian-disclosure-trigger">
         Remember this answer
       </Collapsible.Trigger>
       <Collapsible.Panel className="meridian-approval-card__disclosure-panel">
@@ -119,7 +119,7 @@ export function RememberDecision(props: RememberDecisionProps): React.JSX.Elemen
           }}
         >
           <Select.Trigger
-            className="meridian-approval-card__scope-trigger"
+            className="meridian-approval-card__scope-trigger meridian-action-button meridian-action-button--regular meridian-action-button--outline"
             aria-label="Remembered scope"
             disabled={!intent.isRemembering}
           >

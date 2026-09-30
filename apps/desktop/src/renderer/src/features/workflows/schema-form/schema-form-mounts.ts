@@ -2,7 +2,7 @@
 //
 // WHAT THIS MODULE IS. `schema-form-body.ts` is the kit's chunk root and states why the
 // kit is off the initial import graph; this module is the half that stays ON it — the
-// chunk's loader and the two mounts that `console/seats/index.ts` exports in place of the
+// chunk's loader and the two mounts the workflow views import in place of the
 // components themselves, and nothing else. It holds no schema knowledge and imports no
 // module of this directory at run time: the two `import type` lines below are erased by
 // the compiler, so the only runtime edge into the chunk is the `import()` inside

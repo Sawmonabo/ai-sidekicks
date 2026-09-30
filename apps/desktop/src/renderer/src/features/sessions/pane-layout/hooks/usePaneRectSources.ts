@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 
-import { observeElementResize } from "@renderer/console/primitives/index.js";
+import { observeElementResize } from "@renderer/lib/element-resize.js";
 import { type PaneRectTracker } from "../pane-rect-tracker.js";
 
 /**

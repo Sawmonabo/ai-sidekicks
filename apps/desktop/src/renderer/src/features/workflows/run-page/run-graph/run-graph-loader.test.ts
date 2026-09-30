@@ -17,9 +17,7 @@ describe("the graph loader", () => {
   it("resolves the real canvas component, not a stand-in for it", async () => {
     const { RunGraphCanvas: loaded } = await new RunGraphLoader().load();
     // Identity, not shape: a wrapper that merely looked like the component would let
-    // a caller draw a graph this directory does not own. The import above names the
-    // DECLARING module while the loader goes through the chunk's entry, `index.ts`, so
-    // this also holds that entry to re-exporting the declaration rather than wrapping it.
+    // a caller draw a graph this directory does not own.
     expect(loaded).toBe(RunGraphCanvas);
   });
 

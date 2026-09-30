@@ -2,7 +2,7 @@
 //
 // A LOADER-BACKED BODY for `features/preview/preview-pane-body.ts`'s reason, and this pane
 // is the one that makes the case hardest to argue with: the emulator chunk was already
-// lazy, and everything around it — the lease line, the pane, the focus ring — was not,
+// lazy, and everything around it — the lease line, the pane, its frame — was not,
 // so the initial graph carried the whole terminal pane for every session that never
 // opens one.
 //
@@ -18,7 +18,8 @@ import "./pane.css";
 import "../lease/lease.css";
 import "../emulator/emulator.css";
 
-import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { TerminalPane } from "./components/TerminalPane.js";
 
 /**

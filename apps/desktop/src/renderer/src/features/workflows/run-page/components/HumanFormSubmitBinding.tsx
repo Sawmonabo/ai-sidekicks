@@ -36,7 +36,9 @@
 // inside it — and a supplied body gets the settlement rendered for it without owning a
 // line of it.
 
-import { InlineRefusal, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { WorkflowHumanFormSubmitCall } from "../human-form-submit.js";
 import { useHumanFormSubmit } from "../hooks/useHumanFormSubmit.js";
 import { DefaultHumanFormBody } from "../default-human-form-body.js";

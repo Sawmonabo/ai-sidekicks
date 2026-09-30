@@ -36,7 +36,7 @@
 
 import { POSITION_SIBLING_OBSERVER_CAP } from "../preview-caps.js";
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
-import { observeElementResize } from "@renderer/console/primitives/index.js";
+import { observeElementResize } from "@renderer/lib/element-resize.js";
 
 /** Every ancestor whose relayout can move this element, innermost first. */
 export function readPositionAncestry(element: Element): readonly Element[] {

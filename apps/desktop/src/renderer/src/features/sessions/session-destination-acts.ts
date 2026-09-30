@@ -14,7 +14,7 @@
 // and the notification center offers no dismiss precisely because a client-side one
 // would be a heuristic standing in for it.
 
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
 import { settleSessionStart } from "./start/session-start.js";
 

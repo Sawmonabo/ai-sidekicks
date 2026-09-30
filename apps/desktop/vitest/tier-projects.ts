@@ -30,6 +30,7 @@ import {
   browserModeOptions,
   BROWSER_MODE_DEDUPE,
   BROWSER_MODE_OPTIMIZE_DEPS,
+  BROWSER_MODE_SETUP_FILES,
   WORKSPACE_SOURCE_CONDITIONS,
 } from "./browser-mode.js";
 import {
@@ -94,6 +95,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       name: "browser",
       include: ["tests/browser/**/*.test.{ts,tsx}"],
       globals: true,
+      setupFiles: BROWSER_MODE_SETUP_FILES,
       browser: browserModeOptions(),
     },
   },
@@ -109,6 +111,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       name: "screenshot",
       include: ["tests/screenshot/**/*.test.{ts,tsx}"],
       globals: true,
+      setupFiles: BROWSER_MODE_SETUP_FILES,
       // DERIVED from the wait a capture at the window ceiling is given, never
       // written down — `screenshot-pins.ts` owns the arithmetic and says why the
       // inherited browser-mode default stopped being large enough the moment
@@ -136,6 +139,7 @@ const TIERS: readonly TestProjectInlineConfiguration[] = [
       name: "accessibility",
       include: ["tests/accessibility/**/*.test.{ts,tsx}"],
       globals: true,
+      setupFiles: BROWSER_MODE_SETUP_FILES,
       browser: browserModeOptions(),
     },
   },

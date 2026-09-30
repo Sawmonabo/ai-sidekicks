@@ -7,7 +7,7 @@
 // copy for every window that works.
 //
 // Both cases drive the real `AppProviders`. The one instrument is a spy on the REAL
-// bridge barrel, and it is a spy rather than a replacement: `resolveBridge` answers
+// bridge resolution hook, and it is a spy rather than a replacement: `resolveBridge` answers
 // `unavailable` only when no bridge is supplied AND fixtures are compiled out, and
 // this tier compiles them in — so without it the branch that renders the recovery
 // card is unreachable, which is how it came to be untested.
@@ -46,7 +46,7 @@ describe("AppProviders — every state it can render sits on the Meridian tokens
   });
 
   it("installs the sheet for the missing-preload card, which mounts no frame at all", async () => {
-    // The resolution is spied on the REAL barrel — every other export still calls
+    // The resolution is spied on the REAL module — every other export still calls
     // through — because the fixture build this tier compiles always resolves a
     // bridge, so the one state that skips the frame entirely is unreachable
     // otherwise. It is also the state a person is most likely to be reading when

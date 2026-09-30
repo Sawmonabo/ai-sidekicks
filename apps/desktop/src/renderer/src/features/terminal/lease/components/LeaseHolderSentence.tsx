@@ -12,7 +12,7 @@
 // about who somebody is. Naming an identifier here would be answering a question nobody
 // asked with a value nobody can act on.
 
-import { DerivedFigure } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import type { TerminalLeaseHolder } from "../lease-model.js";
 
 /** The holding the statement words. */

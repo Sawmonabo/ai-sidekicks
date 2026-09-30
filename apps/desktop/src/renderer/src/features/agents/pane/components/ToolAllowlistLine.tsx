@@ -22,7 +22,7 @@
 // states the same position a few pixels below, and one wire state that reads two ways
 // on one card is the defect that module's table exists to close.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
   NAMELESS_TOOL_ALLOWLIST_WORDING,
   namedToolAllowlistSentence,

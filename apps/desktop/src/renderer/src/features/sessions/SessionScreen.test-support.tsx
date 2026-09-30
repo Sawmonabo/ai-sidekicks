@@ -19,11 +19,11 @@ import type { Scenario } from "../../../../../fixtures/scenario.js";
 import type { StoredRecord } from "@renderer/store/persistence/persistence-adapter.js";
 import { DraftStore } from "@renderer/store/draft-store.js";
 import { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { PaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { SessionScreen } from "./SessionScreen.js";
@@ -201,6 +201,7 @@ export function workspaceFor(
           draftStore={new DraftStore({ maximumDraftCount: MAXIMUM_LIVE_DRAFT_COUNT })}
           route={{ kind: "session", sessionId: session.sessionId }}
           paneRegistry={testRegistry()}
+          rereadSession={() => undefined}
         />
       </LiveAnnouncerProvider>
     </FixtureBridgeProvider>

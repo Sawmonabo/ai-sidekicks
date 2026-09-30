@@ -11,12 +11,11 @@
 // Nothing here asks anything. The signal is TOLD what happened, by every daemon
 // subscription this window opens — through `observed-subscription.ts` beside this file,
 // which holds the one rule for what an open proves and is reported into by
-// `services/daemon/daemon-streams.ts`, by `services/daemon/subscribe-daemon-event.ts`, and
-// by the session-event subscriber — and, under the fixture, by the scenario's own scripted
-// outages. There is no timer, no probe, and no retry ladder: a renderer that polled to find out
-// whether the wire was back would be the interval polling the design forbids, and a
-// renderer that inferred it from a call that happened to succeed would be synthesizing a
-// connection state the supervisor owns.
+// `services/daemon/daemon-streams.ts` and by the session-event subscriber — and, under
+// the fixture, by the scenario's own scripted outages. There is no timer, no probe, and no
+// retry ladder: a renderer that polled to find out whether the wire was back would be the
+// interval polling the design forbids, and a renderer that inferred it from a call that
+// happened to succeed would be synthesizing a connection state the supervisor owns.
 //
 // NO OBSERVER IS ALSO THE ONLY CONSUMER, which is a property rather than a coincidence.
 // Were the session-event subscriber the sole live producer AND the sole consumer of the

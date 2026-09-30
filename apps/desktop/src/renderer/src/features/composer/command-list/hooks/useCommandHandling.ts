@@ -3,7 +3,7 @@
 
 import { useCallback, useMemo } from "react";
 
-import { useLatestRef } from "@renderer/console/primitives/index.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import type { AppRoute } from "@renderer/routing/routes.js";
 import type { CommandExecutor } from "../../types.js";
 import type { ComposerTarget } from "../../composer-target.js";

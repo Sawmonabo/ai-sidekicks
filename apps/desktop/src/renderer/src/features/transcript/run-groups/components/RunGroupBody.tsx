@@ -16,7 +16,7 @@ import { useMemo, useState } from "react";
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
   listClippedHeadRowIds,
   resolveRunGroupBodyHeight,

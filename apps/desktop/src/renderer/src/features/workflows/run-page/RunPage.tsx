@@ -23,11 +23,12 @@
 // a route, and a parsed value is data rather than a proof. The builder pane holds the same
 // guard, and both refuse through `workflows/pane/pane-addressing.ts`.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { ChatStartMountPoint } from "./components/ChatStartMountPoint.js";
 import { WorkflowStateStrip } from "../components/WorkflowStateStrip.js";
 import { refusedWorkflowStrip } from "../strip-state.js";
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { WORKFLOW_RUN_PANE_SUBJECT_KIND, misaddressedRunPane } from "./run-addressing.js";
 
@@ -41,7 +42,7 @@ export interface RunPageProps {
 
 /** The body of a run pane, drawn inside the pane chrome's frame. */
 export function RunPage(props: RunPageProps): React.JSX.Element {
-  const { sessionStore, focusHue } = props.context;
+  const { sessionStore } = props.context;
   // Widened on purpose: this arm's `entity` is declared as a required run reference, but
   // `paneBodyForKind` narrows a context on its `kind` alone and a pane address is also
   // parsed from a persisted layout and a route. The annotation keeps the compiler from
@@ -85,7 +86,6 @@ export function RunPage(props: RunPageProps): React.JSX.Element {
       runId={addressedRunId}
       // Passed through when absent: an unattributed pane sets no hue and the sheet's
       // neutral fallback applies.
-      focusHue={focusHue}
     >
       {renderBody()}
     </PaneFrame>

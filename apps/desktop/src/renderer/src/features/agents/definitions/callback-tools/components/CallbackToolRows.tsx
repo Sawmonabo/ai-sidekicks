@@ -22,7 +22,8 @@ import { useMemo } from "react";
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
 import { Collapsible } from "@base-ui/react/collapsible";
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { callbackToolArguments, type CallbackToolArgument } from "../callback-tool-arguments.js";
 
 /**
@@ -58,7 +59,7 @@ export function CallbackToolRows(props: {
             <span className="meridian-callback-tools__description">{row.tool.description}</span>
           </div>
           <Collapsible.Root className="meridian-callback-tools__schema">
-            <Collapsible.Trigger className="meridian-callback-tools__schema-trigger">
+            <Collapsible.Trigger className="meridian-disclosure-trigger">
               Input schema
             </Collapsible.Trigger>
             <Collapsible.Panel className="meridian-callback-tools__schema-panel">

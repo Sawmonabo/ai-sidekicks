@@ -8,7 +8,7 @@
 // rather than a chip that silently renders neutral, which is the difference between a
 // vocabulary the page is held to and one it happens to cover today.
 
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import type { McpServerStatus } from "@ai-sidekicks/contracts";
 
 /**

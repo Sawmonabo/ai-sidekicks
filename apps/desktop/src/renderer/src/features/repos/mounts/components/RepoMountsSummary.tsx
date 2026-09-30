@@ -1,4 +1,4 @@
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type RepoMountsReading } from "../repo-mounts-model.js";
 import { REPO_MOUNTS_NOT_READ_TITLE } from "../repo-mounts-copy.js";
 

@@ -30,7 +30,7 @@ import {
   LazyBodyIdleWarm,
   idleWarmScheduler,
   type IdleWarmScheduler,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/components/LazyBody/lazy-body-warm.js";
 import { type SettingsPageRegistry } from "../settings-pages.js";
 
 /**

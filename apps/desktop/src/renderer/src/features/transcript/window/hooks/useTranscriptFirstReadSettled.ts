@@ -2,7 +2,7 @@
 //
 // ONE SUBSCRIPTION, TWO READERS, AND THAT IS WHY IT IS A MODULE. `initialized` is the
 // store's own word for "a read response has established this window's base state", and
-// two views turn on it: the skeleton in `TranscriptReadState.tsx` draws skeleton rows until it
+// two views turn on it: `TranscriptWindowSkeleton.tsx` draws skeleton rows until it
 // is true, and the viewport's empty window must not speak until it is. Written twice,
 // the two would be free to disagree: a skeleton reading the store and an empty window
 // reading only whether it had rows would render "Nothing has happened in this session

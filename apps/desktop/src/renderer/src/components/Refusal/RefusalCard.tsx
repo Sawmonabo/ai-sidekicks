@@ -1,6 +1,6 @@
 // The card shape: in the transcript, because the refusal is now part of what happened.
 //
-// `refusal-contract.ts` states the grammar all three shapes obey and declares the
+// `refusal-props.ts` states the grammar all three shapes obey and declares the
 // props they share; this module decides only what a refusal looks like once it has
 // joined the session's history — a block in the feed rather than a line beside a
 // control, and no live region of its own, because the feed announces its own rows.

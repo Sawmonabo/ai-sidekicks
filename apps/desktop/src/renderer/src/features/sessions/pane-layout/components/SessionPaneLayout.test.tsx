@@ -16,8 +16,9 @@ import {
 } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { FIRST_RUN_SCENARIO } from "../../../../../../../fixtures/scenarios/first-run.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { PaneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { SessionPaneLayout } from "./SessionPaneLayout.js";
 import { PaneLayoutStore } from "../pane-layout-store.js";
 import type { SessionPane } from "../pane-layout.js";

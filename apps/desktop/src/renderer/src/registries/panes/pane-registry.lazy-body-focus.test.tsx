@@ -28,11 +28,10 @@ const CLOSE_CONTROL_LABEL = "Close this pane";
 
 /** A pane body of the shape every feature ships: its own chrome around content. */
 function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
-  return (context: PaneContext): React.ReactNode =>
+  return (): React.ReactNode =>
     createElement(PaneFrame, {
       kind: "diff",
       sessionId: undefined,
-      focusHue: context.focusHue,
       children: createElement("p", null, text),
     });
 }

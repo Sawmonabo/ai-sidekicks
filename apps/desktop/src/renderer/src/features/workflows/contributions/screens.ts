@@ -1,6 +1,9 @@
 // The workflows feature's screen, the rail's workflows destination.
 
-import { type ScreenRegistration, type ScreenRegistry } from "@renderer/console/seats/index.js";
+import {
+  type ScreenRegistration,
+  type ScreenRegistry,
+} from "@renderer/registries/screens/screen-registry.js";
 import { WORKFLOWS_OWNER } from "./panes.js";
 
 /** The screen this feature claims: the rail's workflows destination. */

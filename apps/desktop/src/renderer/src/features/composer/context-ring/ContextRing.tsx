@@ -23,7 +23,7 @@
 // available guess. So the meter draws the same bar and states the grade beside it
 // rather than presenting different kinds of reading as one.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { ContextWindowReading } from "./context-window-reading.js";
 import { ContextRingReading } from "./ContextRingReading.js";
 

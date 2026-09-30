@@ -19,7 +19,7 @@ import "./account-plane-handoff.css";
 import type { ReactNode } from "react";
 
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";

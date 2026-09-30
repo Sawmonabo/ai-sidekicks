@@ -9,8 +9,8 @@ import { render } from "@testing-library/react";
 
 import { advanceScenarioUntil } from "@test/helpers/scenario-manual-clock.js";
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import type { PaneOpener } from "@renderer/console/seats/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import type { PaneOpener } from "@renderer/routing/panes/pane-address.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import type { RepoOperations } from "../repo-operations.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";

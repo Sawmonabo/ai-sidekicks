@@ -27,11 +27,14 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { type AppRoute } from "@renderer/routing/routes.js";
-import { PaneRegistry, type PaneContext, type PaneKind } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { PaneHarnessScreen } from "./PaneHarnessScreen.js";
 import { AppRouter } from "../router.js";
-import { screenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 afterEach(cleanup);
 

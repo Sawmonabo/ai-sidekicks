@@ -50,7 +50,7 @@ describe("ErrorBoundary — a render crash is recorded as a render crash", () =>
   it("counts the failure under the render-failure kind and leaves the apply count alone", () => {
     reportTripwire(
       "apply-chokepoint-bypass",
-      "console/primitives/ErrorBoundary.test.tsx",
+      "components/ErrorBoundary/ErrorBoundary.test.tsx",
       "a genuine store bypass, recorded before the crash",
     );
     const applyBypassBefore = windowTripwires.firingCount("apply-chokepoint-bypass");

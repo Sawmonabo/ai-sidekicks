@@ -12,7 +12,8 @@
 // THE READY COUNT IS STATED WHERE THE ARTIFACTS ARE: how many settled artifacts the
 // strip holds that a message can reference.
 
-import { DerivedFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { stagedAttachmentsFill } from "./attachment-bounds.js";
 import type { StagedAttachmentsBinding } from "./hooks/useStagedAttachments.js";
 import { AttachmentChip } from "./AttachmentChip.js";

@@ -33,8 +33,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import type { McpServerBindingRef } from "@ai-sidekicks/contracts";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing } from "@renderer/console/primitives/index.js";
-import { usePushDrivenRead } from "@renderer/console/seats/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { usePushDrivenRead } from "@renderer/store/reads/hooks/usePushDrivenRead.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import {
   createMcpInventoryRead,
@@ -160,7 +160,7 @@ export function McpFixtureBody(props: {
         action={
           <button
             type="button"
-            className="meridian-settings-page__action"
+            className="meridian-settings-page__action meridian-action-button"
             onClick={() => {
               setOpeningOrdinal((held) => held + 1);
             }}

@@ -16,7 +16,7 @@ import {
   type StoredEntity,
   type ProjectedSessionEvent,
 } from "@renderer/store/session/entities/entities.js";
-import type { PaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { ComposerToolbar } from "./ComposerToolbar.js";
 import { CONTEXT_WINDOW_EVENT_KIND } from "../context-ring/context-window-reading.js";
 

@@ -13,8 +13,10 @@
 // and a harness that imported one directly would measure a component that happens to
 // sit beside the registration.
 
-import type { PaneAddress, PaneContext, PaneDescriptor } from "@renderer/console/seats/index.js";
-import type { ScreenContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
+import type { PaneDescriptor } from "@renderer/registries/panes/pane-registry.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
 /** One mounted pane: its key, the registered body, and what that body is handed. */
 export interface PaneHarnessInstance {
@@ -72,7 +74,6 @@ export function paneContextFor(
     uiStateStore: context.uiStateStore,
     draftStore: context.draftStore,
     linkedSourcePaneId: undefined,
-    focusHue: undefined,
   };
 }
 

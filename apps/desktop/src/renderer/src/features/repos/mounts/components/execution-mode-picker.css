@@ -50,11 +50,6 @@
   color: var(--meridian-text-faint);
 }
 
-.meridian-mode-picker__input:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-mode-picker__label {
   display: flex;
   align-items: baseline;

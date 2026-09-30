@@ -8,7 +8,9 @@ import "./DefinitionListItem.css";
 
 import { memo } from "react";
 
-import { Chip, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import type { OpenDefinition, WorkflowDefinitionRow } from "../definition-rows.js";
 
 interface DefinitionListItemProps {

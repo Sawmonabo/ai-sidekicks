@@ -10,7 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatClockTime, formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatClockTime, formatDateTime } from "@renderer/lib/wire-figures.js";
 import { ParkBadge } from "./ParkBadge.js";
 import {
   parkSchedule,

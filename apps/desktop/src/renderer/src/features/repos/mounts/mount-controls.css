@@ -5,8 +5,8 @@
  * What is here is what NONE of the act sheets owns alone — one rule reaching all four act
  * dialogs at once (`attach/`, `bind/` and `roots/` each have a sheet of their own beside
  * their components). Pushing a copy of it into three sheets would be three chances for
- * one of them to arrive without a focus ring, which is the defect the single rule is
- * written against.
+ * one of them to drift from the others, which is the defect the single rule is written
+ * against.
  *
  * ITS HOME IS THE PARENT DIRECTORY BECAUSE THE PARENT IS WHAT THEY SHARE. A shape
  * spanning three sibling directories cannot live in one of them without making the
@@ -27,8 +27,7 @@
  * One control shape for every button this directory adds, declared once. The attach,
  * re-attach, prepare, and removal dialogs each carry a trigger, a cancel and a confirm,
  * and the open-changes control joins them — so a rule per class would have been a copy of
- * one declaration per selector below, and one chance per copy for it to arrive without a
- * focus ring.
+ * one declaration per selector below, and one chance per copy for it to drift.
  */
 .meridian-repo-attach__trigger,
 .meridian-repo-attach__cancel,
@@ -76,48 +75,9 @@
 }
 
 /*
- * A closed control marked with `aria-disabled` and not `disabled`, so the control
- * keeps its place in the tab order and a reader is taken to it and told why — which
- * means the closed LOOK has to be declared, because the browser paints nothing for the
- * attribute the way it does for the property. The same treatment as the rule above it:
- * one closed state, one appearance, whichever fact closed it.
- */
-.meridian-repo-attach__confirm[aria-disabled="true"],
-.meridian-bind__confirm[aria-disabled="true"],
-.meridian-reattach__trigger[aria-disabled="true"],
-.meridian-root-removal__trigger[aria-disabled="true"] {
-  background: var(--meridian-surface-sunken);
-  color: var(--meridian-text-faint);
-  cursor: not-allowed;
-}
-
-/*
- * Focus is visible on every control these dialogs ship, in one rule rather than one
- * per class, so a control added later cannot arrive without it. The regions whose box
- * is declared elsewhere ring themselves there — `attach/attach.css` for the reattach
- * control and `execution-roots/execution-roots.css` for the two root dialogs — so no
- * class is declared by two sheets and left to load order.
- *
- * The attach trigger is not qualified by a section class, so it rings a trigger drawn
- * outside a repo section too — a keyboard-reachable control with no ring is what the
- * `console-accessibility` tier reads as a WCAG 2.2 SC 2.4.7 failure. The color rule
- * governs the ring's CONTRAST once it exists (≥ 3:1 against adjacent colors) and says
- * nothing about whether one is drawn.
- */
-.meridian-repo-attach__dialog :focus-visible,
-.meridian-bind__dialog :focus-visible,
-.meridian-reattach__dialog :focus-visible,
-.meridian-root-removal__dialog :focus-visible,
-.meridian-repo-attach__trigger:focus-visible,
-.meridian-open-diff:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
-/*
  * The one thing the open-changes control does NOT share with the shape above: it
  * carries a glyph beside its word, so the two need a baseline and a gap. Everything
- * else about it — the border, the ground, the focus ring — comes from the rules above,
+ * else about it — the border and the ground — comes from the rules above,
  * which is why it is in their selector lists rather than restating any of them here.
  */
 .meridian-open-diff {

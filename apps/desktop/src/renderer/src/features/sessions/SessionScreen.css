@@ -8,8 +8,8 @@
 /* --- The session screen's grid ------------------------------------------ */
 
 /*
- * Three rows: the session header, the pane layout, and the composer's region. The pane layout is the
- * only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
+ * Three rows: the head, the pane layout, and the composer's region. The pane layout is
+ * the only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
  * the things that scroll rather than pushing the composer off the bottom.
  */
 .meridian-session-screen {
@@ -23,16 +23,70 @@
 }
 
 /*
- * A banner and the count of the raises it stands for, on one line.
- *
- * The row exists so the count can sit beside the banner without the banner having to
- * carry it: a repeat count is the console's own reading, and the refusal
- * shape's two fields are the daemon's.
+ * Everything above the pane layout, in the order it is written: the session header, the
+ * banners under it, and the catching-up line. One box, so the first row holds however many
+ * are up and none of them pushes the pane layout out of the row that grows. A grid rather
+ * than a block so each keeps the box it had as an item of the screen.
+ */
+.meridian-session-screen__head {
+  display: grid;
+  min-width: 0;
+}
+
+/*
+ * The one line that says the window is catching up, where the header's banners sit. A
+ * plain band rather than a banner's red ground: nothing has been refused, and a failed
+ * read offers the press that reads again.
+ */
+.meridian-session-screen__catch-up {
+  display: flex;
+  gap: var(--meridian-space-2);
+  align-items: center;
+  padding: var(--meridian-space-2) var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-sm);
+}
+
+/*
+ * A banner under the session header: a sunken strip of muted words, the ` · ` between
+ * them in the faint ink, and the × at the right end. Small type and a tight band,
+ * because it reports a condition beside the session rather than a refusal of an act.
  */
 .meridian-session-screen__banner {
   display: flex;
   gap: var(--meridian-space-2);
   align-items: center;
+  padding: var(--meridian-space-1) var(--meridian-space-3) var(--meridian-space-1)
+    var(--meridian-space-4);
+  border-block-end: 1px solid var(--meridian-edge);
+  background: var(--meridian-surface-sunken);
+  color: var(--meridian-text-muted);
+  font-size: var(--meridian-text-xs);
+}
+
+.meridian-session-screen__banner-separator {
+  color: var(--meridian-text-faint);
+}
+
+.meridian-session-screen__banner-dismiss {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  margin-inline-start: auto;
+  padding: var(--meridian-space-1);
+  border: 0;
+  border-radius: var(--meridian-radius-sm);
+  background: transparent;
+  color: var(--meridian-text-faint);
+}
+
+.meridian-session-screen__banner-dismiss:hover,
+.meridian-session-screen__banner-dismiss:focus-visible {
+  background: var(--meridian-surface);
+  color: var(--meridian-text);
 }
 
 .meridian-session-screen__composer {

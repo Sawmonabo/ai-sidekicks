@@ -10,7 +10,7 @@
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 
 describe("the last-checked line", () => {

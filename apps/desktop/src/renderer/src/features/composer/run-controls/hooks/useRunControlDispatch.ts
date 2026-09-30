@@ -57,7 +57,7 @@
 import { useCallback, useMemo, useRef } from "react";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { useGenerationLatch } from "@renderer/hooks/useGenerationLatch.js";
-import { useLatestRef } from "@renderer/console/primitives/index.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { INTERVENTION_OUTCOME_CAP } from "../../run-caps.js";
 import {

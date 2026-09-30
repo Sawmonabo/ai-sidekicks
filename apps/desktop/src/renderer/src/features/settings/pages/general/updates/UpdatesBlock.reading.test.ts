@@ -8,7 +8,7 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { LIVE_ANNOUNCEMENT_HOLD_MS } from "@renderer/components/LiveAnnouncer/live-announcement-caps.js";
-import { formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import {
   renderSettled,
   updaterHoldingItsRead,

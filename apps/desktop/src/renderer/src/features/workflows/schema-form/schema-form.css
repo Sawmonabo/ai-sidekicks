@@ -184,12 +184,6 @@
   border-radius: var(--meridian-radius-sm);
 }
 
-.meridian-schema-activation:focus-visible,
-.meridian-schema-list__action:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* ------------------------------------------------------------- the raw editor */
 
 .meridian-schema-raw {
@@ -287,14 +281,9 @@
 }
 
 .meridian-schema-answer__submit {
-  padding: var(--meridian-space-1) var(--meridian-space-3);
-  font: inherit;
-  font-size: var(--meridian-text-sm);
   color: var(--meridian-text);
   background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
+  border-color: var(--meridian-edge);
 }
 
 /*

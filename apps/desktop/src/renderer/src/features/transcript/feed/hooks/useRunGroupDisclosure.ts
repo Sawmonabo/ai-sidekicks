@@ -1,7 +1,7 @@
 import { useCallback, useMemo } from "react";
 
 import { usePlatformBridge } from "@renderer/services/platform/hooks/usePlatformBridge.js";
-import { useSessionScopedState } from "@renderer/console/seats/index.js";
+import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
 import { RunGroupFoldState } from "../../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../../run-groups/run-groups.js";
 import { type RunGroupDisclosure } from "../run-group-fold.js";

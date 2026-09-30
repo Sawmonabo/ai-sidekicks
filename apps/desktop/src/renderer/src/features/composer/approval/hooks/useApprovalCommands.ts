@@ -7,7 +7,7 @@ import { useMemo } from "react";
 
 import { useRegisterCommands } from "@renderer/registries/commands/hooks/useRegisterCommands.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
-import { useLatestRef } from "@renderer/console/primitives/index.js";
+import { useLatestRef } from "@renderer/hooks/useLatestRef.js";
 import {
   APPROVAL_COMMAND_OWNER,
   approvalCommandRows,

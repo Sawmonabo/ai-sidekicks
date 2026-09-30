@@ -17,7 +17,7 @@
 //     be the memory leak the cap above it exists to prevent.
 
 import { TRANSCRIPT_PARKED_LEASE_CAP } from "../frame/frame-caps.js";
-import { type TranscriptRowDensity } from "@renderer/console/seats/index.js";
+import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
 
 /**
  * Renderer-local state a row body leases from the list.

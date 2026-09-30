@@ -68,8 +68,8 @@
 // THE LIBRARY IS REACHED BY SUBPATH AND NEVER BY ITS ROOT, and that is a bundle fact
 // rather than a style. This module is on the console's initial import graph — the
 // always-on inline diff card renders through it — and the package declares no
-// side-effect-free flag, so a bundler may not drop what its root barrel re-exports.
-// That barrel names every algorithm the package ships, so importing two symbols from it
+// side-effect-free flag, so a bundler may not drop what its root module re-exports.
+// That root names every algorithm the package ships, so importing two symbols from it
 // put the character, line, sentence, css, json and array differs on every launch beside
 // the one word differ that is actually called. The `./lib/*.js` subpaths are the
 // package's own published export map and not a reach into its internals; taking them

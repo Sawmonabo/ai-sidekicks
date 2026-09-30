@@ -121,11 +121,6 @@
   opacity: 0.55;
 }
 
-.meridian-browser-switch:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-browser-switch__thumb {
   display: block;
   inline-size: 1rem;

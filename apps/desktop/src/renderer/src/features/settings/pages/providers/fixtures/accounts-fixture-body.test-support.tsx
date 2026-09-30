@@ -18,7 +18,7 @@ import type {
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { NEVER_SETTLES } from "@test/helpers/abandoned-pass.js";
 import {
   AccountsFixtureBody,

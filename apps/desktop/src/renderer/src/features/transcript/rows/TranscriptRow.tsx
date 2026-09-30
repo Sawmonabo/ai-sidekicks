@@ -30,10 +30,7 @@ import { useCallback, useState } from "react";
 
 import { useRetainedRowState } from "../viewport/hooks/useRetainedRowState.js";
 import { useRowReveal } from "../reveal/hooks/useRowReveal.js";
-import {
-  type TranscriptRowDensity,
-  type TranscriptRowProps,
-} from "@renderer/console/seats/index.js";
+import { type TranscriptRowDensity, type TranscriptRowProps } from "../transcript-row-renderer.js";
 import { findTranscriptRowFooterRenderer } from "../transcript-row-footer-renderer.js";
 import { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 import { MessageRow } from "./MessageRow.js";

@@ -1,4 +1,5 @@
-import { DerivedFigure, formatDateTime } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 
 /**
  * When the last update check finished, or the sentence for a build that never checked.

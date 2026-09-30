@@ -1,10 +1,11 @@
 // A refusal rendered with the operator's next move beside it.
 //
-// `refusal-contract.ts` states the grammar and leaves `action` for the caller to
-// fill; `core/refusal-remedies.ts` is what the console knows to put in it. This
-// component is the join, and it exists so the join happens once: every view that
-// renders a daemon refusal would otherwise look the code up and pick a shape itself,
-// and three views doing that is three chances to answer one code differently.
+// `refusal-props.ts` states the grammar and leaves `action` for the caller to fill;
+// `lib/refusal-remedies.ts` is what the console knows to put in it, and
+// `RefusalRemedyContent` is how a remedy is drawn there. This component is the join,
+// and it exists so the join happens once: every view that renders a daemon refusal
+// would otherwise look the code up and pick a shape itself, and three views doing that
+// is three chances to answer one code differently.
 //
 // IT RENDERS TWO OF THE THREE SHAPES AND NEVER THE THIRD. A banner spans the frame
 // and belongs to the frame's own store, so a pane body drawing one would put a
@@ -23,13 +24,14 @@ import { refusalRemedyFor } from "@renderer/lib/refusal-remedies.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
+import { RefusalRemedyContent } from "@renderer/components/Refusal/RefusalRemedyContent.js";
 
 export interface RefusalWithRemedyProps {
   readonly refusal: Refusal;
   /**
-   * Rendered after the console's own next move, for a caller that can say
-   * something this table cannot — the failed bindings a goal mutation named, the
-   * position a rewind landed at. Absent on most call sites.
+   * Rendered inside the remedy region after the console's own next move, for a caller
+   * that can say something this table cannot — the failed bindings a goal mutation
+   * named, the position a rewind landed at. Absent on most call sites.
    */
   readonly detailAction?: React.ReactNode;
 }
@@ -40,12 +42,7 @@ export function RefusalWithRemedy(props: RefusalWithRemedyProps): React.JSX.Elem
   const remedy = refusalRemedyFor(refusal.code);
   const action =
     remedy === undefined && detailAction === undefined ? undefined : (
-      <>
-        {remedy === undefined ? null : (
-          <span className="meridian-refusal__next-move">{remedy.nextMove}</span>
-        )}
-        {detailAction}
-      </>
+      <RefusalRemedyContent remedy={remedy}>{detailAction}</RefusalRemedyContent>
     );
   if (remedy?.rendering === "card" || remedy?.rendering === "banner") {
     return <RefusalCard code={refusal.code} detail={refusal.detail} action={action} />;

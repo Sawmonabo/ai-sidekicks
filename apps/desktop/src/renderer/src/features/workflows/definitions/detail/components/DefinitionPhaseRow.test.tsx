@@ -16,7 +16,7 @@ import type {
   McpServerBindingRef,
   WorkflowPhaseDefinition,
 } from "@renderer/services/wire-shapes/workflow-definition-body.js";
-import { schemaFormPreviewBody } from "@renderer/console/seats/index.js";
+import { schemaFormPreviewBody } from "../../../schema-form/schema-form-mounts.js";
 import { DefinitionPhaseRow } from "./DefinitionPhaseRow.js";
 
 afterEach(cleanup);

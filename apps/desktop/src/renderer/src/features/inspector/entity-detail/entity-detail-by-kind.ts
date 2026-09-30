@@ -7,7 +7,7 @@
 // imports it. That keeps the shared vocabulary (`entity-facets.ts`) below both,
 // which is why `EntityDetailProps` lives there rather than here.
 
-import type { PaneContextOf } from "@renderer/console/seats/index.js";
+import type { PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { WorkspaceEntityDetail } from "./components/WorkspaceEntityDetail.js";
 import { WorktreeEntityDetail } from "./components/WorktreeEntityDetail.js";
 import type { EntityDetailProps } from "./entity-facets.js";

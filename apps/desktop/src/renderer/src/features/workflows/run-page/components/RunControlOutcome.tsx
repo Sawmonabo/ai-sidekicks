@@ -21,7 +21,9 @@
 // question that was never put — the conflation the five kinds of nothing exist to
 // prevent, with the empty case standing in for "we have not asked".
 
-import { InlineRefusal, Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { WorkflowRunControlOutcome } from "../run-controls.js";
 
 /** Where the last press of one control got to, or nothing while there has been none. */

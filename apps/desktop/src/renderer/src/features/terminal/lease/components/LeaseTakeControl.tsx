@@ -44,7 +44,7 @@ export function LeaseTakeControl(props: LeaseTakeControlProps): React.JSX.Elemen
   return (
     <button
       type="button"
-      className="meridian-lease-line__take"
+      className="meridian-lease-line__take meridian-action-button"
       onClick={takeShell.take}
       disabled={takeShell.isInFlight}
     >

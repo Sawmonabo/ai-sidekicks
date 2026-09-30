@@ -16,6 +16,12 @@ import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-play
  */
 export const WORKSPACE_SOURCE_CONDITIONS: string[] = ["@ai-sidekicks/source", "import", "default"];
 
+/**
+ * The module that loads the renderer's global sheets. A browser-mode tier mounts
+ * components without the renderer entry that imports it, so each tier loads it first.
+ */
+export const BROWSER_MODE_SETUP_FILES: string[] = ["src/renderer/src/styles/global-sheets.ts"];
+
 /** The Base UI package root. Subpath entries are `${BASE_UI_PACKAGE}/<part>`. */
 const BASE_UI_PACKAGE = "@base-ui/react";
 

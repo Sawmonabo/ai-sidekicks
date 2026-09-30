@@ -4,8 +4,9 @@ import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
-import { PaneRegistry, type PaneContext } from "@renderer/console/seats/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { paneContext } from "../pane-context.test-support.js";
 import { registerReposPanes } from "./panes.js";
 

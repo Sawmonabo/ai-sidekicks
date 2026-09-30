@@ -4,7 +4,7 @@ import { callDaemon } from "./daemon-reply.js";
 import { readSessionId } from "./wire-identifiers.js";
 import { type PlatformBridge } from "../platform/platform-bridge.js";
 import { RefusalError, refuse } from "@renderer/lib/refusal.js";
-import { unwrapDaemonReply } from "@renderer/console/seats/index.js";
+import { unwrapDaemonReply } from "./unwrap-daemon-reply.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
 import { type SessionSnapshotReader } from "@renderer/store/session/open-session-entry.js";
 

@@ -5,7 +5,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { TOOL_ALLOWLIST_NAMED_CAP } from "../../agents-caps.js";
-import { formatCount } from "@renderer/console/primitives/index.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { AgentBindingCard } from "./AgentBindingCard.js";
 import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 

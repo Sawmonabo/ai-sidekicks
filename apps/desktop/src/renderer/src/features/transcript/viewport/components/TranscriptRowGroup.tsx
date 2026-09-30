@@ -7,7 +7,8 @@
 // other.
 
 import { refuse, type Refusal } from "@renderer/lib/refusal.js";
-import { RefusalCard, ErrorBoundary } from "@renderer/console/primitives/index.js";
+import { RefusalCard } from "@renderer/components/Refusal/RefusalCard.js";
+import { ErrorBoundary } from "@renderer/components/ErrorBoundary/ErrorBoundary.js";
 
 export interface TranscriptRowGroupProps {
   /** What failed, in the person's words: "a run group", "the streaming message". */

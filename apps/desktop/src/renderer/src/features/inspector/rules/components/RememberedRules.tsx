@@ -37,7 +37,10 @@
 // a reply that was fully readable and carried nothing may say nothing is in force.
 
 import { useState } from "react";
-import { Chip, Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { type RememberedRule } from "@renderer/services/approvals/approval-records.js";
 import { asRememberedScopeKind, describeRuleScope } from "@renderer/lib/approval-vocabulary.js";
 import { RevokeRuleControl } from "./RevokeRuleControl.js";

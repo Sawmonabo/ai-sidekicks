@@ -83,7 +83,7 @@ import {
   PLATFORM_MODIFIER_CHORD_TOKEN,
   PLATFORM_MODIFIER_TOKEN,
   type ChordPlatform,
-} from "@renderer/console/primitives/index.js";
+} from "@renderer/lib/chord-format.js";
 import {
   carriesApplicationModifier,
   projectClaimableChords,

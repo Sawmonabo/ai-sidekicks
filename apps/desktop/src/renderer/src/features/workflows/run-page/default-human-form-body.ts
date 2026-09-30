@@ -19,7 +19,7 @@
 // mounted, so it holds for a supplied body as well as for this one — see the channel's
 // header for why `phaseRunId` and not the phase or the revision.
 
-import { schemaFormAnswerBody } from "@renderer/console/seats/index.js";
+import { schemaFormAnswerBody } from "../schema-form/schema-form-mounts.js";
 import type { HumanFormMount } from "./human-form-mount.js";
 
 /**

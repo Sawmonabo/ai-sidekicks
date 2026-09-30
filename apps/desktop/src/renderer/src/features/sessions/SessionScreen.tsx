@@ -1,4 +1,5 @@
-// The session screen: the session header, the pane layout, and the composer's region.
+// The session screen: the session header with its banners and the catching-up line
+// under it, the pane layout, and the composer's region.
 //
 // This is what a person is looking at when they are looking at a session. It
 // composes three things it does not own — `SessionHeader` (this feature's), the pane layout's
@@ -23,11 +24,12 @@
 //     committed document states one: the session screen shows the transcript alone at full
 //     width, which is a `transcript` pane rather than a special case in the renderer.
 //   • **Refusals are rendered where they happened.** What a restore dropped belongs
-//     to the pane layout and renders inside it; what a save refused changes what the whole
-//     screen can do and takes the session screen banner.
+//     to the pane layout and renders inside it; a save that failed takes one banner under
+//     the session header in plain words, and its code goes to the window's diagnostic
+//     capture.
 //   • **A banner belongs to the session it was raised in.** This screen is NOT
 //     remounted between two open sessions, so a column held for the life of the mount
-//     would go on saying what a save refused in the session somebody left, over the pane layout
+//     would go on saying a save failed in the session somebody left, over the pane layout
 //     of the one they are looking at. The column rides `store/subject-scoped/session-subject.ts` on
 //     `(bridge, session)`, so the render that first sees the arriving session already
 //     reads an empty one, and a bridge replacement — which retires every call the
@@ -37,7 +39,13 @@ import "./SessionScreen.css";
 
 import { useCallback } from "react";
 
+import {
+  diagnosticStampAt,
+  windowDiagnosticCapture,
+} from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
+import { useClock } from "@renderer/services/platform/hooks/useClock.js";
+import { type Clock } from "@renderer/lib/clock.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { routeSessionId } from "@renderer/routing/route-readers.js";
 import { type AppRoute } from "@renderer/routing/routes.js";
@@ -48,6 +56,7 @@ import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js
 
 import { SessionHeader } from "./session-header/components/SessionHeader.js";
 import { SessionBannerRow } from "./components/SessionBannerRow.js";
+import { SessionCatchUpLine } from "./components/SessionCatchUpLine.js";
 import { SessionPaneLayout } from "./pane-layout/components/SessionPaneLayout.js";
 import { PANE_LAYOUT_RESTORED_PANE_CAP } from "./pane-layout/pane-layout-store.js";
 import { usePaneLayoutStore } from "./pane-layout/hooks/usePaneLayoutStore.js";
@@ -55,15 +64,14 @@ import { usePaneLayoutState } from "./pane-layout/hooks/usePaneLayoutState.js";
 import type { SessionPane } from "./pane-layout/pane-layout.js";
 import { usePaneLayoutPersistence } from "./pane-layout/hooks/usePaneLayoutPersistence.js";
 import { useFocusedPaneAddress } from "./hooks/useFocusedPaneAddress.js";
-import {
-  findComposerRenderer,
-  parsePaneAddress,
-  useSessionScopedState,
-  type PaneContext,
-  type PaneRegistry,
-} from "@renderer/console/seats/index.js";
+import { findComposerRenderer } from "@renderer/registries/composer/composer-registry.js";
+import { parsePaneAddress } from "@renderer/routing/panes/parse-pane-address.js";
+import { useSessionScopedState } from "@renderer/store/subject-scoped/useSessionScopedState.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import {
   NO_SESSION_BANNERS,
+  PANE_LAYOUT_NOT_SAVED_BANNER,
   dismissSessionBanner,
   raiseSessionBanner,
   sessionBannerKey,
@@ -86,14 +94,20 @@ export interface SessionScreenProps {
    * caller that forgets it still mounts production's bodies into a composed window.
    */
   readonly paneRegistry: PaneRegistry;
+  /**
+   * Reads one session again, for a person's press. A refusal comes back when that
+   * session is not open, and this screen sends it to the window's diagnostic capture.
+   */
+  readonly rereadSession: (sessionId: string) => Refusal | undefined;
 }
 
-/** The session screen: header, pane layout, composer region, and the banner column. */
+/** The session screen: header, banners, catching-up line, pane layout and composer region. */
 export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const sessionId = routeSessionId(props.route);
   const registry = props.paneRegistry;
   const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   const paneLayoutState = usePaneLayoutState(layout);
+  const clock = useClock();
   // WHAT THIS ROOM CANNOT DO, ADDRESSED BY THE SESSION IT CANNOT DO IT IN. The bridge
   // is the subject and the session the key, which is this console's one session pairing:
   // every refusal that lands here was raised by a call or a write made through that
@@ -104,19 +118,23 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     () => NO_SESSION_BANNERS,
   );
 
-  // CAPTURED WHEN THE REFUSAL LANDS, not when the raiser was handed over, and that is
+  // CAPTURED WHEN THE FAILURE LANDS, not when the handler was handed over, and that is
   // forced rather than chosen: the save writer is held per STORE and built once, so
-  // it closes over the raiser from the render that seeded it. A publisher captured at
-  // that render names the session that was on screen then and would go on refusing
-  // every later session's refusals in silence — `settle` names the visit committed at
+  // it closes over the handler from the render that seeded it. A publisher captured at
+  // that render names the session that was on screen then and would go on dropping
+  // every later session's banner in silence — `settle` names the visit committed at
   // the moment of the call instead, so the column stays writable for the life of the
-  // mount and the refusal lands on the session a person is actually reading.
-  const raise = useCallback(
-    (refusal: Refusal) => {
+  // mount and the banner lands on the session a person is actually reading. The session
+  // the capture names is the one whose arrangement the save carried, for the same reason.
+  const saveRefused = useCallback(
+    (refusal: Refusal, savedSessionId: string) => {
+      recordRefusal(clock, "pane-layout-not-saved", savedSessionId, refusal);
       const publishIntoTheVisitOnScreen = settleBanners();
-      publishIntoTheVisitOnScreen((current) => raiseSessionBanner(current, refusal));
+      publishIntoTheVisitOnScreen((current) =>
+        raiseSessionBanner(current, PANE_LAYOUT_NOT_SAVED_BANNER),
+      );
     },
-    [settleBanners],
+    [clock, settleBanners],
   );
 
   const dismiss = useCallback(
@@ -131,7 +149,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
     layout,
     uiStateStore: props.uiStateStore,
     sessionId,
-    onSaveRefused: raise,
+    onSaveRefused: saveRefused,
   });
 
   const paneContextFor = useCallback(
@@ -155,14 +173,20 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         // The pane this one was opened beside, passed as an identifier and never as a
         // handle, so a linked pane stays independently movable and closable.
         linkedSourcePaneId: pane.sourcePaneId,
-        // Fail-closed, per `PaneContext`'s own rule: the ring takes an actor's hue only
-        // where the pane's entity is a run or an agent, and an unattributed pane takes
-        // the neutral boundary rather than somebody else's color. Resolving that hue
-        // belongs to the lane that renders run and agent panes; nothing here guesses.
-        focusHue: undefined,
       };
     },
     [props.bridge, props.frameStore, props.sessionStore, props.uiStateStore, props.draftStore],
+  );
+
+  const rereadSession = props.rereadSession;
+  const tryAgain = useCallback(
+    (sessionIdToReread: string) => {
+      const refusal = rereadSession(sessionIdToReread);
+      if (refusal !== undefined) {
+        recordRefusal(clock, "session-reread-refused", sessionIdToReread, refusal);
+      }
+    },
+    [rereadSession, clock],
   );
 
   const composer = findComposerRenderer();
@@ -170,14 +194,15 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
 
   return (
     <div className="meridian-session-screen">
-      {banners.map((banner) => (
-        <SessionBannerRow
-          key={sessionBannerKey(banner.refusal)}
-          banner={banner}
-          onDismiss={dismiss}
-        />
-      ))}
-      <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
+      <div className="meridian-session-screen__head">
+        <SessionHeader sessionId={sessionId} sessionStore={props.sessionStore} />
+        {banners.map((banner) => (
+          <SessionBannerRow key={sessionBannerKey(banner)} banner={banner} onDismiss={dismiss} />
+        ))}
+        {props.sessionStore === undefined ? null : (
+          <SessionCatchUpLine sessionStore={props.sessionStore} onTryAgain={tryAgain} />
+        )}
+      </div>
       <SessionPaneLayout
         layout={layout}
         registry={registry}
@@ -198,4 +223,23 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
       )}
     </div>
   );
+}
+
+/**
+ * One warning in the window's diagnostic capture for a refusal this screen does not
+ * draw, naming the session and the refusal's code.
+ */
+function recordRefusal(
+  clock: Clock,
+  kind: string,
+  refusedSessionId: string,
+  refusal: Refusal,
+): void {
+  windowDiagnosticCapture.record({
+    at: diagnosticStampAt(clock),
+    severity: "warning",
+    source: "features/sessions",
+    kind,
+    detail: `session ${refusedSessionId}: ${refusal.code}`,
+  });
 }

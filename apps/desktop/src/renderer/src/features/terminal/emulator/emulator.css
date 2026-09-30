@@ -17,13 +17,25 @@
  * mount point keeps its size and its boundary while the chunk is still in flight.
  */
 
+/* The clip keeps the emulator inside its boundary; the margin lets the browser's focus
+   mark on anything inside paint past that edge without moving the layout. */
 .meridian-terminal-mount-point {
   flex: 1 1 auto;
   min-block-size: 0;
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-sm);
   background: var(--meridian-surface-sunken);
-  overflow: hidden;
+  overflow: clip;
+  overflow-clip-margin: var(--meridian-space-1);
+}
+
+/* Typing focus sits in the emulator's input, which the emulator keeps off-screen, so the
+   browser's own focus mark is drawn on the terminal body that holds it. The style alone
+   would draw that mark in the text color; the browser's focus color keyword makes it the
+   same mark every focused control shows, in both schemes. */
+.meridian-terminal-mount-point:focus-within {
+  outline-style: auto;
+  outline-color: -webkit-focus-ring-color;
 }
 
 /*
@@ -39,9 +51,4 @@
   block-size: 100%;
   inline-size: 100%;
   font-family: var(--meridian-font-mono);
-}
-
-.meridian-terminal-mount-point__mount-element:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }

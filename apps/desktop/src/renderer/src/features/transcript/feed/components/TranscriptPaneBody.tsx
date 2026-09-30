@@ -8,9 +8,9 @@
 // a second box inside the first — and the flex chain the feed's scroll container
 // depends on would run through two elements only one of which is sized.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
-import { type TranscriptRowRenderer } from "@renderer/console/seats/index.js";
+import { type TranscriptRowRenderer } from "../../transcript-row-renderer.js";
 import { TranscriptFeed } from "./TranscriptFeed.js";
 
 /** What the body needs to choose between the feed and its absence. */

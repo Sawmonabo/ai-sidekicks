@@ -38,7 +38,7 @@
 
 import type { WorktreeState, WorktreeStatusReadResponse } from "@ai-sidekicks/contracts";
 
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 
 /** One worktree row of `repo.worktreeStatusRead`. */
 export type WorktreeStatusRecord = WorktreeStatusReadResponse["worktrees"][number];

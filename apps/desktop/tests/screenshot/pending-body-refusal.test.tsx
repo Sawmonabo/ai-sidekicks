@@ -25,10 +25,10 @@ import { describe, expect, it } from "vitest";
 import { renderSettled } from "../helpers/app-harness.js";
 import { captureSettled } from "./settled-capture.js";
 
-import { PaneRegistry } from "@renderer/console/seats/index.js";
-import type { PaneContext } from "@renderer/console/seats/index.js";
-// The module itself: `LazyBodyModule` is the loader's own return type, and no production
-// code imports it through a barrel. The pane registry's `lazy-body` suites reach it the
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import type { PaneContext } from "@renderer/registries/panes/pane-context.js";
+// The module that declares it: `LazyBodyModule` is the loader's own return type, and
+// every reader imports it from there. The pane registry's `lazy-body` suites reach it the
 // same way.
 import type { LazyBodyModule } from "@renderer/components/LazyBody/lazy-body.js";
 
@@ -42,7 +42,7 @@ const PLANTED_OWNER = "pending-body-refusal-control";
  * A pane context carrying only what the reserved region reads.
  *
  * The same shape and the same reasoning as `syntheticPaneContextAt` in
- * `tests/helpers/lazy-body-contexts.ts`: the fallback reads `kind`, `focusHue`,
+ * `tests/helpers/lazy-body-contexts.ts`: the fallback reads `kind`,
  * `sessionStore`, and whether an `entity` is present, and standing up a bridge and three
  * stores to prove a refusal would be a fixture testing the fixture. The cast says so rather than hiding behind a builder.
  */
@@ -50,7 +50,6 @@ function plantedPaneContext(): PaneContext {
   return {
     kind: PLANTED_KIND,
     sessionStore: undefined,
-    focusHue: undefined,
   } as unknown as PaneContext;
 }
 

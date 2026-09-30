@@ -1,12 +1,10 @@
 import type { ReactNode } from "react";
 
-import {
-  Chip,
-  DerivedFigure,
-  Nothing,
-  WireFigure,
-  formatDateTime,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { McpServerBindingRef, McpServerInventoryEntry } from "@ai-sidekicks/contracts";
 import { ConfigReadBack } from "./ConfigReadBack.js";
 import { MutationOutcomeLine } from "./MutationOutcomeLine.js";
@@ -103,7 +101,7 @@ export function ServerRow(props: {
       <div className="meridian-mcp__row-actions">
         <button
           type="button"
-          className="meridian-settings-page__action"
+          className="meridian-settings-page__action meridian-action-button"
           disabled={pending}
           onClick={() => {
             onSetEnabled(binding, entry.enabled !== true);
@@ -119,7 +117,7 @@ export function ServerRow(props: {
         ) : (
           <button
             type="button"
-            className="meridian-settings-page__action"
+            className="meridian-settings-page__action meridian-action-button"
             disabled={pending}
             onClick={() => {
               onSetTrust(binding, !entry.trusted);

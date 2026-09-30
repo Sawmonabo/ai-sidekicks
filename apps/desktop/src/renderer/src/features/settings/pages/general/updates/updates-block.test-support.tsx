@@ -10,7 +10,8 @@ import { act, render } from "@testing-library/react";
 import type { UpdateState, Unsubscribe } from "@shared/preload-api.js";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { LiveAnnouncer, LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { politeText } from "@test/helpers/live-region.js";
 import {
   NOTHING_CHOSEN,

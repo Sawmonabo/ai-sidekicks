@@ -12,7 +12,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { AgentBindingCard } from "./AgentBindingCard.js";
-import { formatDateTime } from "@renderer/console/primitives/index.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 
 const ATTACHED_AT = "2026-03-04T08:15:00.000Z";

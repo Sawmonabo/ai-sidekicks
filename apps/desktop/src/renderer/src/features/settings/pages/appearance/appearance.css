@@ -2,12 +2,12 @@
  *
  * A sibling sheet rather than a block in `settings.css`: the three options are this
  * page's control and nothing else draws them. The control is Base UI's radio, so the
- * ring and the indicator are the console's own rather than the browser's.
+ * indicator is the console's own; focus shows the browser's own mark.
  */
 
 /* --- The color-scheme choice ------------------------------------------- */
-/* Three options, no disclosure. The control is Base UI's radio, so the ring and
-   the dot are ours to draw and the semantics are the hidden input's. */
+/* Three options, no disclosure. The control is Base UI's radio, so the dot is ours to
+   draw and the semantics are the hidden input's. */
 
 .meridian-scheme-choice {
   display: flex;
@@ -40,11 +40,6 @@
 
 .meridian-scheme-choice__control[data-checked] {
   border-color: var(--meridian-accent);
-}
-
-.meridian-scheme-choice__control:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 .meridian-scheme-choice__indicator {

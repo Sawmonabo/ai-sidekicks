@@ -27,17 +27,14 @@
 
 import "./EntityRecord.css";
 
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  Nothing,
-  WireFigure,
-} from "@renderer/console/primitives/index.js";
-import type { GlyphName } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 // The record's kind glyph is drawn at the pane header's scale, and takes it from the
 // one home that publishes that scale rather than restating the number.
-import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
+import { GLYPH_SIZE_CHROME, type GlyphName } from "@renderer/styles/glyphs.js";
 import { EntityFacetValueView } from "./EntityFacetValueView.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { EntityFacet } from "../entity-facets.js";

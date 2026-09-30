@@ -1,6 +1,6 @@
 // The transcript's row renderer, registered in the transcript row registry.
 
-import { registerTranscriptRowRenderer } from "@renderer/console/seats/index.js";
+import { registerTranscriptRowRenderer } from "../transcript-row-renderer.js";
 import { TranscriptRow } from "../rows/TranscriptRow.js";
 
 /** The owner the transcript's row renderer registers under. */

@@ -1,6 +1,6 @@
 import "./mounts.css";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { MountCard } from "./MountCard.js";
 import { type OpenDiffSubject } from "./OpenDiffControl.js";
 import { type RepoMountsReading } from "../repo-mounts-model.js";

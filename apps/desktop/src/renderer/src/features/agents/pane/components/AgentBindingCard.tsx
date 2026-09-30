@@ -31,7 +31,8 @@
 // members are all provider axes: an instant sitting among them would read as one more
 // axis of the binding.
 
-import { WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { type AgentListEntry } from "@renderer/services/wire-shapes/agents.js";
 import { ResolvedConfiguration } from "./ResolvedConfiguration.js";
 import { BindingAxis } from "./BindingAxis.js";

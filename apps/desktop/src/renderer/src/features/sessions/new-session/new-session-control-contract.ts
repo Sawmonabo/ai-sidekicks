@@ -2,7 +2,7 @@
 //
 // The control composes a draft, holds it on the bridge it would send through, and issues
 // the calls a first send coalesces. The sessions destination that mounts it hands it these
-// props, and `console/seats/index.ts` re-exports them.
+// props.
 //
 // THE CALLBACK CARRIES A SESSION ID AND NOTHING ELSE, and that is the seam's whole
 // shape. What the console DOES with a session it just started — open its store, stamp

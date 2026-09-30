@@ -32,6 +32,7 @@
 // flushes, never on a timer: a capture that woke an idle process to check whether it
 // had anything to say would be spending the budget it exists to report on.
 
+import type { Clock } from "../clock.js";
 import { DIAGNOSTIC_CAPTURE_BOUNDS } from "./diagnostic-capture-bounds.js";
 
 /** How bad one record is. Closed — the tuple is the declaration. */
@@ -301,6 +302,15 @@ export function toJsonLine(record: DiagnosticRecord): string {
   });
 }
 
+/**
+ * A record's `at`, read off the clock the console runs on rather than off `Date`, so a
+ * window driven by a frozen clock stamps its records at the instant the rest of the
+ * window agrees it is.
+ */
+export function diagnosticStampAt(clock: Clock): string {
+  return new Date(clock.now()).toISOString();
+}
+
 /** A batch as JSONL: one record per line, newline-separated, no trailing newline. */
 export function toJsonLines(records: readonly DiagnosticRecord[]): string {
   return records.map(toJsonLine).join("\n");
@@ -320,9 +330,11 @@ function boundedDetail(detail: string): string {
  * The console's capture. One per renderer process, on `windowTripwires`' reasoning:
  * an auxiliary window is its own renderer process and therefore its own capture.
  *
- * It has one producer and no forwarder. `tripwire-diagnostic-route.ts` routes this
- * process's tripwire registry into it and the composition site arms that route, so
- * every invariant breach a window detects is captured; the forwarder that would carry
+ * Its producers are the tripwire route and the window's own warnings that a person has
+ * nothing to do about on screen: a session's degraded cause and transcript rows that share
+ * an identifier. `tripwire-diagnostic-route.ts` routes this process's tripwire registry
+ * into it and the composition site arms that route, so every invariant breach a window
+ * detects is captured. It has no forwarder: the forwarder that would carry
  * a batch to the daemon's band is the window composition's, and the view that READS it
  * is a diagnostics page neither of them has built yet. Until one of those installs a
  * forwarder the capture marks its own forward seam blind and holds what it has under

@@ -39,7 +39,7 @@
 import type { IDisposable, Terminal } from "@xterm/xterm";
 
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
-import { observeElementResize } from "@renderer/console/primitives/index.js";
+import { observeElementResize } from "@renderer/lib/element-resize.js";
 
 export interface XtermMountBindingOptions {
   /** Whether the lease already says this user may type. Absent is watch mode. */

@@ -125,14 +125,6 @@ export interface TranscriptWindowModel {
   readonly handoffEntryByRowId: ReadonlyMap<string, HandoffEntry>;
   /** The rows in log order, for find and the run group fold. */
   readonly rows: readonly TimelineRow[];
-  /**
-   * Whether the store recorded sequences it never received.
-   *
-   * A hole in what arrived, not "rows exist before this window's head": the console
-   * holds one live subscription and no range read, so the head of the window is the head
-   * of everything it can reach. The feed names the hole in words.
-   */
-  readonly hasUnreceivedEntries: boolean;
   /** A run is mid-flight, so the viewport defers pruning rather than moving rows. */
   readonly hasActiveTurn: boolean;
 }
@@ -156,7 +148,6 @@ export function readRunGroupKey(row: TimelineRow): string | undefined {
  */
 export function deriveTranscriptWindow(
   timeline: readonly ProjectedSessionEvent[],
-  hasUnreceivedEntries: boolean,
   retention: TranscriptRowRetention = new TranscriptRowRetention(),
 ): TranscriptWindowModel {
   const projection = projectTranscriptRows(timeline);
@@ -199,7 +190,6 @@ export function deriveTranscriptWindow(
     childRunEntryByRowId: childRunIndex.childRunEntryByRowId(),
     handoffEntryByRowId: childRunIndex.handoffEntryByRowId(),
     rows,
-    hasUnreceivedEntries,
     // A run group with no terminal is a run the log has not seen end. That is the
     // same question the viewport asks before it prunes, and it is answered from the
     // fold that already exists rather than from a second read of the run partition.

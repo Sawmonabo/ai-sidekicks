@@ -19,7 +19,8 @@ import "./WorkflowsScreen.css";
 
 import { useCallback } from "react";
 
-import type { PaneAddress, ScreenContext } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
+import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { OpenPaneBody } from "./components/OpenPaneBody.js";
 import type { WorkflowRunDirectoryState } from "./runs/hooks/useWorkflowRunDirectory.js";

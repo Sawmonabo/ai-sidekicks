@@ -41,7 +41,7 @@
 
 import { useId, useRef } from "react";
 
-import { type ComposerProps } from "@renderer/console/seats/index.js";
+import { type ComposerProps } from "@renderer/registries/composer/composer-registry.js";
 import { useSubjectScopedResource } from "@renderer/hooks/subject-scoped/useSubjectScopedResource.js";
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 import { ComposerToolbar } from "./components/ComposerToolbar.js";

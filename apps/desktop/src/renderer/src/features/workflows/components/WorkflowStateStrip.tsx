@@ -28,7 +28,8 @@
 // room can do with that run. The inline shape belongs on a control that was pressed
 // and stays; when the workflows views grow those controls, they render their own.
 
-import { Nothing, RefusalBanner } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { RefusalBanner } from "@renderer/components/Refusal/RefusalBanner.js";
 import { type WorkflowStripState } from "../strip-state.js";
 
 export interface WorkflowStateStripProps {

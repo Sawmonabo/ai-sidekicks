@@ -24,7 +24,8 @@
 // element, so what the wait costs the layout is nothing and the screenshot tier refuses
 // to photograph a tree still carrying one.
 
-import { LoaderBackedBody, reservedBodyRegion } from "@renderer/console/seats/index.js";
+import { LoaderBackedBody } from "@renderer/components/LazyBody/lazy-body.js";
+import { reservedBodyRegion } from "@renderer/components/LazyBody/pending-body-marker.js";
 import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 
 /**

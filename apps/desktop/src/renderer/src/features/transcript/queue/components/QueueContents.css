@@ -1,5 +1,6 @@
-/* The waiting queue's rows. The cancel button's shared treatment is the global action
-   button sheet's; this sheet adds only the pending state the queue alone has.
+/* The waiting queue's rows. The cancel button wears the shared action button at its
+   small size in the raised face, from `styles/action-buttons.css`; this sheet adds
+   only the pending state the queue alone has.
 
    Every value here is a Meridian token: the palette lives in one place, and a sheet that
    hard-coded one would be a second palette nobody could re-theme. */

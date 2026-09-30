@@ -1,5 +1,7 @@
 import type { AttentionItem, AttentionTrigger } from "@ai-sidekicks/contracts";
-import { Chip, WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 
 /**
  * One item.

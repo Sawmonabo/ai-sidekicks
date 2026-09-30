@@ -15,7 +15,8 @@
 // key sequence the cursor walks across both halves.
 
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
-import { InlineRefusal, Nothing } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { CommandOutcome } from "../../types.js";
 import { CommandListGroup, type CommandListGroupRow } from "./CommandListGroup.js";
 import { createClientCommandExecutor } from "../client-command-executor.js";

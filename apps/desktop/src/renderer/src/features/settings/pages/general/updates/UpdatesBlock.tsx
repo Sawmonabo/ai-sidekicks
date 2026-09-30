@@ -19,7 +19,7 @@
 import type { UpdateState } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
 
-import { useSettlementAnnouncement } from "@renderer/console/primitives/index.js";
+import { useSettlementAnnouncement } from "@renderer/hooks/useSettlementAnnouncement.js";
 import { PreferenceToggleRow } from "../../../components/PreferenceToggleRow.js";
 import type { MachineSettingsBinding } from "../../../machine-settings/hooks/useMachineSettings.js";
 import type { UpdaterCalls, UpdateReading } from "./updater-reading.js";
@@ -73,7 +73,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
       <div className="meridian-settings-page__actions">
         <button
           type="button"
-          className="meridian-settings-page__action"
+          className="meridian-settings-page__action meridian-action-button"
           onClick={() => {
             void updater.requestCheck();
           }}
@@ -83,7 +83,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
         {isReady ? (
           <button
             type="button"
-            className="meridian-settings-page__action"
+            className="meridian-settings-page__action meridian-action-button"
             aria-label="Restart to apply the downloaded update"
             onClick={() => {
               void updater.requestRestart();

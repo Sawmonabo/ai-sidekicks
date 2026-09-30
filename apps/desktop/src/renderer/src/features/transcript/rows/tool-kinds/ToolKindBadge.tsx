@@ -13,7 +13,8 @@
 // The unrecognized arm prints what was sent, so a seventh tool kind shipped by a newer
 // daemon reads as a value this build does not know rather than as no tool kind at all.
 
-import { Chip, WireFigure } from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { type ToolKindReading, type ToolKindRenderer } from "./tool-kinds.js";
 
 import "./tool-kinds.css";

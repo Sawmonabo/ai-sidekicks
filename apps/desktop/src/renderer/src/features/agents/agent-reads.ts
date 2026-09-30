@@ -34,7 +34,8 @@ import {
 } from "@renderer/services/wire-shapes/agents.js";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type AgentDefinition } from "@renderer/services/wire-shapes/agent-definition.js";
-import { PushDrivenRead, unwrapDaemonReply } from "@renderer/console/seats/index.js";
+import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
+import { unwrapDaemonReply } from "@renderer/services/daemon/unwrap-daemon-reply.js";
 import { subscribeToSessionEventKinds } from "@renderer/store/session/session-event-signal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import {

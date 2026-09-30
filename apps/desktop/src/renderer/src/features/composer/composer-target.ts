@@ -13,7 +13,7 @@
 import { readWireNumber, readWireString } from "@renderer/lib/wire-strings.js";
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
-import type { PaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { resolveAddressedRun } from "./addressed-run.js";
 
 /**

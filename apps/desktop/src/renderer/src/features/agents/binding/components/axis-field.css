@@ -4,8 +4,7 @@
  * axes and `AccountAxisField.tsx` for the account, whose own selectors (`__option-label`,
  * `__advisories`, `__clear`) join it. Every selector is `.meridian-axis-field*`, so the
  * rules are this control's alone and not the pane's; the pane's chunk root imports the
- * sheet. The clear control carries its own `:focus-visible` because it is a bare text
- * button and wears none of the card's control shape.
+ * sheet.
  *
  * Meridian tokens throughout. No literal color and no literal length. */
 
@@ -87,11 +86,6 @@
   text-align: start;
 }
 
-.meridian-axis-field__clear:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-axis-field__option[data-highlighted] {
   background: var(--meridian-surface-sunken);
 }
@@ -100,9 +94,4 @@
 .meridian-axis-field__advisory {
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-.meridian-axis-field__trigger:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }

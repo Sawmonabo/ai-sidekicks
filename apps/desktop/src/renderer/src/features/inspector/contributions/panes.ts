@@ -11,7 +11,7 @@
 // THE SHEET IS NOT IMPORTED HERE. The pane is loader-backed, so the body module is the
 // root of the chunk and therefore the sheet's owner.
 
-import { type PaneRegistry } from "@renderer/console/seats/index.js";
+import { type PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
 /**
  * Claim the `inspector` kind.

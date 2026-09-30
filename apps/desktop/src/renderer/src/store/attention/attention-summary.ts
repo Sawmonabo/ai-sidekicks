@@ -10,10 +10,7 @@
 
 import { compareInstants, parseInstant } from "@renderer/lib/instant.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import {
-  unreadableDeliveryReading,
-  type ReadingState,
-} from "@renderer/console/primitives/index.js";
+import { unreadableDeliveryReading, type ReadingState } from "@renderer/lib/partial-read.js";
 import type { AttentionItem, AttentionSeverity } from "@ai-sidekicks/contracts";
 
 /** One session the projection read could not cover, with the refusal it answered with. */

@@ -60,13 +60,16 @@ export interface CoalescingLayoutWriterOptions<TRecord extends PersistedLayoutRe
    * is the caller's to render.
    */
   readonly write: (partition: string, snapshot: TRecord) => Promise<void>;
-  /** A write that rejected outright, as opposed to one the store refused. */
-  readonly onFailed: (error: unknown) => void;
+  /**
+   * A write that rejected outright, as opposed to one the store refused, with the
+   * partition it was written under.
+   */
+  readonly onFailed: (error: unknown, partition: string) => void;
 }
 
 export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   readonly #write: (partition: string, snapshot: TRecord) => Promise<void>;
-  readonly #onFailed: (error: unknown) => void;
+  readonly #onFailed: (error: unknown, partition: string) => void;
   #pending: PendingLayoutWrite<TRecord> | undefined;
   #inFlight = false;
   #writeCount = 0;
@@ -144,7 +147,7 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
     this.#writeCount += 1;
     void this.#write(partition, snapshot)
       .catch((error: unknown) => {
-        this.#onFailed(error);
+        this.#onFailed(error, partition);
       })
       .finally(() => {
         this.#inFlight = false;

@@ -1,4 +1,4 @@
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type SettingsPageMatch } from "../settings-pages.js";
 import { type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";

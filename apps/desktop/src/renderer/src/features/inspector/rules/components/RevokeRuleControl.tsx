@@ -8,7 +8,7 @@
 // that reaches the wire, and a control that is already revoking says so rather than
 // offering a second press that would.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 /**
  * Idle, confirming, pending — three states on one control.
@@ -29,7 +29,11 @@ export function RevokeRuleControl(props: {
   }
   if (!props.isConfirming) {
     return (
-      <button className="meridian-remembered-rules__revoke" type="button" onClick={props.onAsk}>
+      <button
+        className="meridian-remembered-rules__revoke meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        type="button"
+        onClick={props.onAsk}
+      >
         Revoke
       </button>
     );
@@ -43,10 +47,18 @@ export function RevokeRuleControl(props: {
       <span className="meridian-remembered-rules__confirm-copy">
         Revoke this permission? The next matching request will be asked again.
       </span>
-      <button className="meridian-remembered-rules__revoke" type="button" onClick={props.onConfirm}>
+      <button
+        className="meridian-remembered-rules__revoke meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        type="button"
+        onClick={props.onConfirm}
+      >
         Revoke it
       </button>
-      <button className="meridian-remembered-rules__cancel" type="button" onClick={props.onCancel}>
+      <button
+        className="meridian-remembered-rules__cancel meridian-action-button meridian-action-button--regular meridian-action-button--outline"
+        type="button"
+        onClick={props.onCancel}
+      >
         Keep it
       </button>
     </div>

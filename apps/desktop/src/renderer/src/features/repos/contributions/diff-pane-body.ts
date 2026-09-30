@@ -18,7 +18,8 @@
 import { createElement } from "react";
 
 import { DiffPane } from "../diff/components/DiffPane.js";
-import { paneBodyForKind, type PaneContext } from "@renderer/console/seats/index.js";
+import { paneBodyForKind } from "@renderer/registries/panes/pane-body-for-kind.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 
 /**
  * The diff pane, at an address the pane layout resolved to this kind.

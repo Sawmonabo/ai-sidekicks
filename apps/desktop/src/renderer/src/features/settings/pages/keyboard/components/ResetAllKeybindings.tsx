@@ -18,7 +18,10 @@
 
 import type { ReactNode } from "react";
 
-import { ChordHint, Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { ChordHint } from "@renderer/components/ChordHint/ChordHint.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 
@@ -62,7 +65,7 @@ export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode 
       </ul>
       <button
         type="button"
-        className="meridian-keymap__reset-all"
+        className="meridian-keymap__reset-all meridian-action-button"
         aria-label={`Reset ${formatCount(props.changedRows.length)} changed chords to the ones the console ships: ${props.changedRows
           .map((row) => `${row.title} to ${describeShippedChord(row.shippedChord)}`)
           .join("; ")}`}

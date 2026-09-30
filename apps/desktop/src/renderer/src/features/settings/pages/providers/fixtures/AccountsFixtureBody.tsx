@@ -14,7 +14,7 @@ import type { ProviderAccount } from "@ai-sidekicks/contracts";
 import { useEffect, useMemo, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { type ProviderAccountReadout } from "../provider-account-readout.js";
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { AccountDetail } from "./components/AccountDetail.js";
 import { AccountRow } from "./components/AccountRow.js";
 import { accountQuotaRowsFrom, readinessForProvider } from "./quota-rows.js";

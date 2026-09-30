@@ -13,7 +13,8 @@
 // What IS reachable is a descriptor carrying no members at all, and that is said in
 // as many words rather than rendered as a blank panel.
 
-import { WireFigure, formatWireDescriptor } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatWireDescriptor } from "@renderer/lib/wire-figures.js";
 
 export interface ApprovalResourceProps {
   readonly descriptor: Readonly<Record<string, unknown>>;

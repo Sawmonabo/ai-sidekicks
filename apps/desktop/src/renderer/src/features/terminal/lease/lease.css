@@ -47,20 +47,17 @@
 
 /* The one interactive thing on the lease line, so the one place cyan is spent — and it
    is spent on the control's BOUNDARY rather than behind its label.
-   `--meridian-accent` is a NON-TEXT token: `tokens/tokens.ts` holds it to the 3:1
+   `--meridian-accent` is a NON-TEXT token: `styles/tokens.ts` holds it to the 3:1
    control-boundary floor and to nothing more, so a label sitting on it was a text
    pair no floor in the palette covers, and the accessibility tier measured it as a
    serious contrast failure in the light scheme. `--meridian-accent-text` is the
    accent's text-floor sibling, cleared at 4.5:1 against every ground. The control
    still reads as the primary one — it is the only accent-bordered thing on the line. */
 .meridian-lease-line__take {
-  font: inherit;
   padding: var(--meridian-space-1) var(--meridian-space-3);
   color: var(--meridian-accent-text);
   background: var(--meridian-surface);
-  border: 1px solid var(--meridian-accent);
-  border-radius: var(--meridian-radius-sm);
-  cursor: pointer;
+  border-color: var(--meridian-accent);
   transition:
     background var(--meridian-motion-quick) var(--meridian-ease-settle),
     opacity var(--meridian-motion-quick) var(--meridian-ease-settle);
@@ -73,11 +70,6 @@
 .meridian-lease-line__take:disabled {
   cursor: progress;
   opacity: 0.6;
-}
-
-.meridian-lease-line__take:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 .meridian-lease-line__unread {

@@ -4,7 +4,7 @@ import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import type { WorkflowRunListEntry } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import {
   PROBE_RUNS,
   VERSION_INCIDENT_TRIAGE_LATEST,

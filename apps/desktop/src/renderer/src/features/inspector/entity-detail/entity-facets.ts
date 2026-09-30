@@ -27,11 +27,7 @@
 import type { StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 import type { SessionStore } from "@renderer/store/session/session-store.js";
-import {
-  formatByteQuantity,
-  formatClockTime,
-  formatCount,
-} from "@renderer/console/primitives/index.js";
+import { formatByteQuantity, formatClockTime, formatCount } from "@renderer/lib/wire-figures.js";
 import { parseInstant } from "@renderer/lib/instant.js";
 import { readWireString } from "@renderer/lib/wire-strings.js";
 

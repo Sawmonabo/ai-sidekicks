@@ -5,7 +5,7 @@
 // and this one may not, because both arms below render before any section
 // is resolved and a hook run for them would be reaching for a heading that is not on
 // screen.
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { SettingsPageContent } from "./SettingsPageContent.js";
 import type { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";

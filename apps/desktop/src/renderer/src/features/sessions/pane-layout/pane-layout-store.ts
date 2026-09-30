@@ -24,7 +24,7 @@
 // the mutable pane layout a session's panes live in.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
-import { isEphemeralPaneKind } from "@renderer/console/seats/index.js";
+import { isEphemeralPaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneAddress, PaneLink } from "@renderer/routing/panes/pane-address.js";
 import { DEFAULT_PANE_LAYOUT_DENSITY, type PaneLayoutDensity } from "./pane-layout-measures.js";
 import {

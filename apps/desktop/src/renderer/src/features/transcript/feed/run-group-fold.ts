@@ -17,7 +17,7 @@
 //   • Which run groups a person has opened, which is this mount's and not the log's.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
-import { type TranscriptRowDensity } from "@renderer/console/seats/index.js";
+import { type TranscriptRowDensity } from "../transcript-row-renderer.js";
 import { type RunGroup } from "../run-groups/run-groups.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import { type ViewportRow } from "../viewport/viewport-snapshot.js";

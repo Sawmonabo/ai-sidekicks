@@ -1,17 +1,17 @@
-// The banners the session screen raises, when the same thing goes wrong twice.
+// The banner the session screen raises when a save of the pane layout fails.
 //
-// Every case drives the real screen rather than the fold: what a person sees is a
-// column of banners, and the defects this file exists for are things that column did —
-// it grew a duplicate row for every repeat of one refusal, dismissing one row
-// renumbered the keys of every row below it so React remounted banners nobody had
-// touched, and a refusal raised in one session went on standing over the next.
+// Every case drives the real screen rather than the fold: what a person sees is one
+// banner under the session header in plain words, however many saves fail and however
+// they fail, while each failure's code goes to the window's diagnostic capture; and a
+// banner raised in one session does not go on standing over the next.
 //
-// A banner is raised by a refused save, so each case commits an arrangement — cycling
+// A banner is raised by a failed save, so each case commits an arrangement — cycling
 // pane layout focus commits one without opening or closing a pane — against a store whose
 // writes have been made to fail.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
+import { windowDiagnosticCapture } from "@renderer/lib/diagnostic-capture/diagnostic-capture.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { PersistenceAdapterError } from "@renderer/store/persistence/persistence-adapter.js";
@@ -32,9 +32,9 @@ import {
 /**
  * How the store answers a write.
  *
- * `reject` is a write that fails outright, which the session screen words itself; `refuse`
- * is one the store turns into its own refusal, whose words are the store's. Two modes
- * because a column of two different banners needs two different sentences.
+ * `reject` is a write that fails outright; `refuse` is one the store turns into its own
+ * refusal. Two modes because both are a save that failed, and both say so in the same
+ * words.
  */
 type WriteMode = "accept" | "reject" | "refuse";
 
@@ -107,90 +107,72 @@ function renderRoutableSession(store: UiStateStore): {
   };
 }
 
+const BANNER_TEXT = "Pane layout not saved·it will save again on your next change";
+
+let detachForwarder: (() => void) | undefined;
+
+afterEach(() => {
+  detachForwarder?.();
+  detachForwarder = undefined;
+});
+
+/** The details of the capture's records about pane layout saves, from here on. */
+function captureSaveFailures(): () => readonly string[] {
+  windowDiagnosticCapture.flush();
+  const batches: string[] = [];
+  detachForwarder = windowDiagnosticCapture.installForwarder((jsonLines) => {
+    batches.push(jsonLines);
+  });
+  batches.length = 0;
+  return () => {
+    windowDiagnosticCapture.flush();
+    return batches
+      .flatMap((batch) => batch.split("\n"))
+      .map((line) => JSON.parse(line) as { kind: string; detail: string })
+      .filter((record) => record.kind === "pane-layout-not-saved")
+      .map((record) => record.detail);
+  };
+}
+
 function bannerRows(container: HTMLElement): readonly HTMLElement[] {
   return [...container.querySelectorAll<HTMLElement>(".meridian-session-screen__banner")];
 }
 
-function rowCarrying(container: HTMLElement, text: string): HTMLElement {
-  const row = bannerRows(container).find((candidate) => candidate.textContent?.includes(text));
-  if (row === undefined) {
-    throw new Error(`no banner carrying ${text}`);
-  }
-  return row;
-}
-
-async function dismiss(row: HTMLElement): Promise<void> {
-  const control = row.querySelector<HTMLButtonElement>('[aria-label="Dismiss this notice"]');
-  expect(control).not.toBeNull();
-  control?.click();
-  await crossMacrotaskBoundary();
-}
-
-describe("SessionScreen — the banner column", () => {
-  it("counts a refusal raised three times rather than stacking three of it", async () => {
-    // Every commit refuses with the same three fields, so three rows would say one
-    // thing three times — three chances to dismiss the wrong one and no more
-    // information than the first.
+describe("SessionScreen — the pane layout's save failure", () => {
+  it("draws one plain banner under the header and sends each failure's code to the capture", async () => {
     const { store, adapter } = await storeWithSavedLayouts();
     const { container } = render(
       workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
     );
     await awaitRestoredPaneLayout(container);
+    const readSaveFailures = captureSaveFailures();
+
     adapter.mode = "reject";
-
     await commitArrangement(container);
-    await commitArrangement(container);
-    await commitArrangement(container);
-
-    expect(bannerRows(container)).toHaveLength(1);
-    expect(rowCarrying(container, "layout-save-failed").textContent).toContain("×3");
-  });
-
-  it("negative control: one raise carries no count at all", async () => {
-    // Without this, the case above would pass over a row that rendered a count on
-    // every banner, and "×1" would be noise on the common case.
-    const { store, adapter } = await storeWithSavedLayouts();
-    const { container } = render(
-      workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
-    );
-    await awaitRestoredPaneLayout(container);
-    adapter.mode = "reject";
-
-    await commitArrangement(container);
-
-    expect(bannerRows(container)).toHaveLength(1);
-    expect(rowCarrying(container, "layout-save-failed").textContent).not.toContain("×");
-  });
-
-  it("keeps a surviving banner's own node when another is dismissed", async () => {
-    // Keyed by array position, dismissing the first banner renumbered the rest: React
-    // unmounted and remounted rows nobody had touched, which loses focus from the
-    // dismiss control a person is tabbing through and re-announces the row.
-    const { store, adapter } = await storeWithSavedLayouts();
-    const { container } = render(
-      workspaceFor({ sessionId: SESSION_ID, store: sessionStore() }, store, false),
-    );
-    await awaitRestoredPaneLayout(container);
-    adapter.mode = "reject";
     await commitArrangement(container);
     adapter.mode = "refuse";
     await commitArrangement(container);
-    expect(bannerRows(container)).toHaveLength(2);
 
-    const survivor = rowCarrying(container, "adapter-unavailable");
-    await dismiss(rowCarrying(container, "layout-save-failed"));
+    const rows = bannerRows(container);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.textContent).toBe(BANNER_TEXT);
+    expect(rows[0]?.previousElementSibling?.className).toContain("meridian-session-header");
+    expect(readSaveFailures()).toStrictEqual([
+      `session ${SESSION_ID}: layout-save-failed`,
+      `session ${SESSION_ID}: layout-save-failed`,
+      `session ${SESSION_ID}: adapter-unavailable`,
+    ]);
 
-    expect(bannerRows(container)).toHaveLength(1);
-    // The same element, not one carrying the same words: a remount is what the old
-    // position key caused, and it is invisible in the markup.
-    expect(rowCarrying(container, "adapter-unavailable")).toBe(survivor);
+    rows[0]?.querySelector<HTMLButtonElement>('[aria-label="Dismiss this notice"]')?.click();
+    await crossMacrotaskBoundary();
+    expect(bannerRows(container)).toHaveLength(0);
   });
 });
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {
   it("stops showing one session's banners once the session screen routes to another", async () => {
     // The defect: a mount-lifetime list. The session screen is not remounted between two
-    // open sessions, so a refusal raised while the first was on screen went on standing
+    // open sessions, so a banner raised while the first was on screen went on standing
     // over the second's pane layout — a sentence about an act nobody performed in the session
     // they are looking at, with nothing on screen tying it to the one they left.
     const { store, adapter } = await storeWithSavedLayouts();
@@ -205,11 +187,9 @@ describe("SessionScreen — the banner column belongs to the session that raised
     expect(bannerRows(container)).toHaveLength(0);
   });
 
-  it("negative control: the session arrived at raises banners of its own", async () => {
-    // Two ways the case above could pass over a broken column, and this closes both: a
-    // column that had stopped raising banners at all, and one that folded the arriving
-    // session's refusal into the row the previous session left standing — which is the
-    // same triple, so the coalescing rule would count it rather than draw it.
+  it("negative control: the session arrived at raises a banner of its own", async () => {
+    // Without this, the case above would pass over a column that had stopped raising
+    // banners at all.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);
@@ -221,6 +201,5 @@ describe("SessionScreen — the banner column belongs to the session that raised
     await commitArrangement(container);
 
     expect(bannerRows(container)).toHaveLength(1);
-    expect(rowCarrying(container, "layout-save-failed").textContent).not.toContain("×");
   });
 });

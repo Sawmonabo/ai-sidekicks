@@ -1,11 +1,9 @@
 import { useCallback, useEffect, useId, useMemo, useRef } from "react";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
-import {
-  Glyph,
-  WindowedListRow,
-  useWindowedRovingIndex,
-} from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { WindowedListRow } from "@renderer/components/WindowedListRow/WindowedListRow.js";
+import { useWindowedRovingIndex } from "@renderer/hooks/useWindowedRovingIndex.js";
 import { DIFF_FILE_ROW_HEIGHT_PX } from "../diff-measures.js";
 import { DIFF_FILE_LIST_SCROLL_THRESHOLD } from "../../diff-caps.js";
 import {

@@ -65,7 +65,7 @@ describe("SessionStore.prependEarlierEvents — growing the log at its head", ()
     // A backward page is history, not progress: it says nothing about what the
     // subscription has reached and repairs nothing the reconciler recorded.
     const store = openStore();
-    store.markDegraded("read-failed");
+    store.markReadFailed();
     store.prependEarlierEvents(eventsAt([17]));
     const state = store.snapshot();
 

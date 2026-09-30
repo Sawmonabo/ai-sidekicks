@@ -11,9 +11,9 @@ import { describe, expect, it } from "vitest";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { createFixture } from "@test/helpers/fixture-bridge.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
-import { PaneRegistry } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 // The declaring module rather than the public entry: the predicate is read only from suites.
-import { type PaneContextOf } from "@renderer/console/seats/index.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { paneContext } from "@renderer/registries/panes/pane-context.test-support.js";
 import { registerInspectorPane } from "./contributions/panes.js";
 import { InspectorPane } from "./InspectorPane.js";

@@ -89,11 +89,6 @@
   padding-block-start: var(--meridian-space-2);
 }
 
-.meridian-root-card :focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* The pair is a grid subgrid row: label in the first column, value in the second. */
 .meridian-root-card__pair {
   display: grid;

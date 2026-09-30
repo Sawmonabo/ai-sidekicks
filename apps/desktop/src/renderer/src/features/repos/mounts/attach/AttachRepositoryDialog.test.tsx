@@ -7,7 +7,7 @@
 import { act, fireEvent, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { bridgeOnClock } from "@test/helpers/fixture-bridge.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { SESSION_ID } from "../repo-mounts.test-support.js";

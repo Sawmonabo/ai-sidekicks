@@ -16,7 +16,8 @@ import "./execution-roots.css";
 
 import { AlertDialog } from "@base-ui/react/alert-dialog";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing, OverlayAlertDialogPopup } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { OverlayAlertDialogPopup } from "@renderer/components/OverlayPopups/OverlayAlertDialogPopup.js";
 import { useConfirmationLifecycle } from "../hooks/useConfirmationLifecycle.js";
 import { type RootRemovalOperations, type RootRemovalReading } from "./root-removal-controller.js";
 import { useRootRemoval } from "./hooks/useRootRemoval.js";

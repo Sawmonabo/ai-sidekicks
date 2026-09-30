@@ -19,7 +19,7 @@ import { useState } from "react";
 
 import type { PreviewPage } from "@ai-sidekicks/contracts";
 
-import { Glyph } from "@renderer/console/primitives/index.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { activePageOf, pagesOf, type PageListReading } from "../page-list-reading.js";
 import {
   isTabDrag,

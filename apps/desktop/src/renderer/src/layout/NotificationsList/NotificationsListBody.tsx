@@ -1,5 +1,5 @@
 import type { AttentionItem } from "@ai-sidekicks/contracts";
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type AttentionReading } from "@renderer/store/attention/attention-summary.js";
 import { uncheckedSessionsSentence } from "./attention-sentences.js";
 import { ReadCompleteness } from "./ReadCompleteness.js";

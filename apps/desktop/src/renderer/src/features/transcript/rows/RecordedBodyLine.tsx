@@ -5,7 +5,7 @@
 // metered, because a card that summed or restated a cost would be the second source of
 // truth that chokepoint exists to prevent.
 
-import { formatByteQuantity } from "@renderer/console/primitives/index.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 
 export interface RecordedBodyLineProps {
   readonly contentType: string | undefined;

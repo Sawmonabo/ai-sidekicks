@@ -13,7 +13,7 @@ import { createElement } from "react";
 
 import { KeyedRegistry } from "@renderer/lib/keyed-registry.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/console/seats/index.js";
+import { LoaderBackedBody, type LazyBodyLoader } from "@renderer/components/LazyBody/lazy-body.js";
 import { PendingSettingsPage } from "./components/PendingSettingsPage.js";
 import { AppearancePage } from "./pages/appearance/AppearancePage.js";
 import { GeneralPage } from "./pages/general/GeneralPage.js";

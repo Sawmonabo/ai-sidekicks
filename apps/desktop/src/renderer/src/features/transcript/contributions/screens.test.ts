@@ -7,7 +7,9 @@
 import { isValidElement, type ReactNode } from "react";
 import { describe, expect, it } from "vitest";
 
-import { PaneRegistry, ScreenRegistry, type ScreenContext } from "@renderer/console/seats/index.js";
+import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
+import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import { SessionScreenContainer } from "../SessionScreenContainer.js";
 import { registerTranscriptScreens } from "./screens.js";
 

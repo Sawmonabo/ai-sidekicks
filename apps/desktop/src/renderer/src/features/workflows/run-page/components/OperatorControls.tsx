@@ -79,13 +79,11 @@ import "./OperatorControls.css";
 
 import { useId, useMemo, useRef } from "react";
 
-import {
-  DerivedFigure,
-  Glyph,
-  InlineRefusal,
-  WireFigure,
-  formatByteQuantity,
-} from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity } from "@renderer/lib/wire-figures.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 import { RunControlOutcome } from "./RunControlOutcome.js";

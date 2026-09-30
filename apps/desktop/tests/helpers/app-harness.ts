@@ -32,7 +32,8 @@ import type { ReactElement } from "react";
 
 import { crossMacrotaskBoundary } from "./macrotask-boundary.js";
 import { UI_STATE_DATABASE_NAME } from "@renderer/store/persistence/indexeddb-persistence-adapter.js";
-import { paneRegistry, screenRegistry } from "@renderer/console/seats/index.js";
+import { paneRegistry } from "@renderer/registries/panes/pane-registry.js";
+import { screenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { type ColorScheme } from "@renderer/styles/tokens.js";
 
 /**

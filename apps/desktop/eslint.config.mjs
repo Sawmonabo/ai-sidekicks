@@ -454,15 +454,6 @@ function withoutSelectors(bans, ...liftedBans) {
 /** The files that may import a sheet from another folder: a lazily-loaded chunk root, and the renderer entry for the global sheets. */
 const STYLESHEET_OWNER_FILES = ["**/*-body.{ts,tsx}"];
 
-/**
- * Held open while the restructure places them, and removed one by one as each is placed:
- * the barrels that still import sheets from other folders. The list only shrinks.
- */
-const STYLESHEET_HELD_FILES = [
-  "src/renderer/src/console/primitives/index.ts",
-  "src/renderer/src/console/seats/index.ts",
-];
-
 /** Suites and their scaffolding, which are not shipped and hold no shared runtime state. */
 const RENDERER_TEST_FILES = ["**/*.test.{ts,tsx}", "**/*.test-support.{ts,tsx}"];
 
@@ -629,8 +620,7 @@ export default [
   // a subscription payload, and the wire-truth scenarios assert against the wire's
   // own shapes — three modules in one layer, all of them below every surface. The
   // layer is the honest unit: a file-scoped exemption would have to grow a line
-  // per module and would say nothing about which layer may hold a validator. The
-  // bridge files still under `console/bridge/` until they move share the exemption.
+  // per module and would say nothing about which layer may hold a validator.
   //
   // WHY IT RESTATES THE RENDERER BAN. Flat config replaces a rule's options at the
   // last matching object, so this block must carry every entry that block carries
@@ -638,7 +628,7 @@ export default [
   // hoisted arrays rather than copying them, so the two cannot drift.
   {
     files: ["src/renderer/src/**/*.{ts,tsx}"],
-    ignores: ["src/renderer/src/services/**", "src/renderer/src/console/bridge/**"],
+    ignores: ["src/renderer/src/services/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -653,7 +643,7 @@ export default [
   // it still takes no `zod` of its own.
   {
     files: rendererFiles("**", RENDERER_TEST_FILES),
-    ignores: ["src/renderer/src/services/**", "src/renderer/src/console/bridge/**"],
+    ignores: ["src/renderer/src/services/**"],
     rules: {
       "no-restricted-imports": [
         "error",
@@ -724,11 +714,7 @@ export default [
   {
     // A chunk root imports the feature-wide sheets its body needs, and `main.tsx` the
     // global ones in `styles/`.
-    files: [
-      ...rendererFiles("**", STYLESHEET_OWNER_FILES),
-      "src/renderer/src/main.tsx",
-      ...STYLESHEET_HELD_FILES,
-    ],
+    files: [...rendererFiles("**", STYLESHEET_OWNER_FILES), "src/renderer/src/main.tsx"],
     rules: {
       "no-restricted-syntax": [
         "error",

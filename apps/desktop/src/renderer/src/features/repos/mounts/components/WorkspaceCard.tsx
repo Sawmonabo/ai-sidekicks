@@ -30,13 +30,10 @@ import type {
 } from "@ai-sidekicks/contracts";
 import { GLYPH_SIZE_ROW } from "@renderer/styles/glyphs.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import {
-  Chip,
-  Glyph,
-  Nothing,
-  WireFigure,
-  type ChipTone,
-} from "@renderer/console/primitives/index.js";
+import { Chip, type ChipTone } from "@renderer/components/Chip/Chip.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { ExecutionModePicker } from "./ExecutionModePicker.js";
 import { readWorkspaceControlAvailability, type BindControlAvailability } from "../mount-health.js";
 import { PrepareExecutionRoot } from "../execution-roots/PrepareExecutionRoot.js";

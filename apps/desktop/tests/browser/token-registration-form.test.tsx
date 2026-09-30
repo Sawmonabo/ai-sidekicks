@@ -16,7 +16,7 @@ import { crossMacrotaskBoundary } from "../helpers/macrotask-boundary.js";
 
 import type { ProviderAccountId, ProviderAccountRegisterResponse } from "@ai-sidekicks/contracts";
 
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { TokenRegistrationForm } from "@renderer/features/settings/pages/providers/fixtures/components/TokenRegistrationForm.js";
 
 /** A secret no fixture, scenario, or component copy could produce by accident. */

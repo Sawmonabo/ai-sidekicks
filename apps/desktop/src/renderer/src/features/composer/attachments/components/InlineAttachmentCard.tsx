@@ -11,8 +11,8 @@
 // and nothing else, and no bridge, so this body makes no read. It draws the card when
 // its caller supplies a reading, and the reference it was given when not.
 
-import { WireFigure } from "@renderer/console/primitives/index.js";
-import type { AttachmentInlineCardProps } from "@renderer/console/seats/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import type { AttachmentInlineCardProps } from "@renderer/registries/inline-cards/inline-card-registry.js";
 import type { AttachmentReading } from "../attachment-shapes.js";
 import { AttachmentCard } from "./AttachmentCard.js";
 

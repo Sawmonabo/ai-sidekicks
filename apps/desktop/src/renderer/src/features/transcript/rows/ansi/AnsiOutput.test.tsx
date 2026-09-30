@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { ANSI_SPAN_RENDER_CAP } from "../../cards/card-caps.js";
-import { formatCount } from "@renderer/console/primitives/index.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { AnsiOutput } from "./AnsiOutput.js";
 
 const ESCAPE = String.fromCodePoint(0x1b);

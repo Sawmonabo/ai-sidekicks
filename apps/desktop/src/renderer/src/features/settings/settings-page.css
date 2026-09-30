@@ -127,15 +127,14 @@
   gap: var(--meridian-space-2);
 }
 
+/* A page action wears the shared action button class from `styles/action-buttons.css`;
+   these rules add its size, face and hover. */
 .meridian-settings-page__action {
   padding: var(--meridian-space-2) var(--meridian-space-4);
-  border: 1px solid var(--meridian-edge);
-  border-radius: var(--meridian-radius-sm);
+  border-color: var(--meridian-edge);
   background: transparent;
   color: var(--meridian-text);
-  font: inherit;
   font-size: var(--meridian-text-sm);
-  cursor: pointer;
   transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
@@ -143,23 +142,9 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-settings-page__action:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
-}
-
 .meridian-settings-page__action--primary {
   border-color: var(--meridian-accent);
   color: var(--meridian-accent);
-}
-
-/* An act whose consequence is not undone by pressing it again — an abandoned run, a
-   restart mid-turn. Toned rather than shaped: it is the same button as its neighbors
-   because it sits in the same row, and what marks it is the color the palette
-   reserves for a loss. */
-.meridian-settings-page__action--destructive {
-  border-color: var(--meridian-red-mark);
-  color: var(--meridian-red-text);
 }
 
 .meridian-settings-page__progress-label {

@@ -6,7 +6,7 @@
 // summary is the whole of what a `TimelineRow` carries. This renders what exists and
 // never captions the summary as if it were the message.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import type { HydratedRowProps } from "../hydrated-row-props.js";
 import { StreamingMarkdown } from "./StreamingMarkdown.js";
 

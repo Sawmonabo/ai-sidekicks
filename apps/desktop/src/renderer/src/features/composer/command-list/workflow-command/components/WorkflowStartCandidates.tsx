@@ -16,7 +16,8 @@
 // argument of a command the runtime itself intercepts.
 
 import type { WorkflowDefinitionSummary } from "@renderer/services/wire-shapes/workflow-projection.js";
-import { Nothing, PartialRead } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { PartialRead } from "@renderer/components/PartialRead/PartialRead.js";
 import { workflowDefinitionCandidates } from "../definition-match.js";
 import "./WorkflowStartCandidates.css";
 

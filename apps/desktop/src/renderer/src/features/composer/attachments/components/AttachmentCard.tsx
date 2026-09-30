@@ -33,15 +33,12 @@
 
 import { Fragment } from "react";
 
-import {
-  Chip,
-  DerivedFigure,
-  Glyph,
-  InlineRefusal,
-  WireFigure,
-  formatByteQuantity,
-  formatDuration,
-} from "@renderer/console/primitives/index.js";
+import { Chip } from "@renderer/components/Chip/Chip.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { Glyph } from "@renderer/components/Glyph/Glyph.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatByteQuantity, formatDuration } from "@renderer/lib/wire-figures.js";
 import {
   ATTACHMENT_DECLARED_MEDIA_TYPE_LABEL,
   attachmentMediaTypeReadings,

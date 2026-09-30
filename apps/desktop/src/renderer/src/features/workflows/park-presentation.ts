@@ -14,7 +14,7 @@
 // here is only the last step — the mapping from "a person is needed" onto amber, the
 // one tone reserved for it.
 
-import type { ChipTone } from "@renderer/console/primitives/index.js";
+import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import type { WorkflowParkReason } from "./runs/run-list-rows.js";
 
 /**

@@ -39,11 +39,9 @@ import { Dialog } from "@base-ui/react/dialog";
 
 import "./command-palette.css";
 
-import {
-  InlineRefusal,
-  formatChordForPlatform,
-  OverlayDialogPopup,
-} from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
+import { formatChordForPlatform } from "@renderer/lib/chord-format.js";
+import { OverlayDialogPopup } from "@renderer/components/OverlayPopups/OverlayDialogPopup.js";
 import { PaletteEmptyState } from "./PaletteEmptyState.js";
 import { PaletteResultList } from "./PaletteResultList.js";
 import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandPalette.js";
@@ -118,7 +116,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
 
           <Combobox.Input
             ref={inputRef}
-            className="command-palette__input"
+            className="command-palette__input meridian-focus-inset"
             placeholder="Search commands"
             aria-label="Search commands"
           />

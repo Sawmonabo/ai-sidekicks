@@ -34,7 +34,7 @@ import {
 } from "@renderer/registries/commands/command-types.js";
 import { type KeybindingOverrideMap } from "@renderer/registries/keybindings/keybinding-overrides.js";
 import { scoreSubsequence } from "@ai-sidekicks/search-ranking";
-import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/console/primitives/index.js";
+import { HOST_CHORD_PLATFORM, type ChordPlatform } from "@renderer/lib/chord-format.js";
 
 /** One row of the keyboard map. */
 export interface KeybindingRow {

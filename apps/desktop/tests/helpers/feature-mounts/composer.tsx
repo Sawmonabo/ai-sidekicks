@@ -51,7 +51,7 @@ import { WindowStore } from "@renderer/store/window/window-store.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import { MessageComposer } from "@renderer/features/composer/Composer.js";
-import type { PaneAddress } from "@renderer/console/seats/index.js";
+import type { PaneAddress } from "@renderer/routing/panes/pane-address.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 import { type MountedView } from "./mount-queries.js";
 

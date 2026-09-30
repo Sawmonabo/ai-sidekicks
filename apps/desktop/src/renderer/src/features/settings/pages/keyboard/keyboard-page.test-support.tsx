@@ -3,7 +3,9 @@
 // The page reads the window's real command registry and the frame's real override
 // seam: what it prints is what the frame installs, and what it records reaches that
 // seam rather than a table of its own. Both halves — what it reads, and what it
-// changes — need that same wiring, so it is built once here.
+// changes — need that same wiring, so it is built once here. Each suite contributes the
+// rail's shipped chords itself, because the rail is the layout's and this module may
+// not import it.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, cleanup, fireEvent, render } from "@testing-library/react";
@@ -12,9 +14,7 @@ import { afterEach, beforeEach } from "vitest";
 
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
 import { keybindingOverrides } from "@renderer/registries/keybindings/keybinding-override-store.js";
-import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
-import { registerNavigationKeybindings } from "@renderer/layout/NavigationRail/navigation-commands.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { KeyboardPage } from "./KeyboardPage.js";
 
 /**
@@ -79,10 +79,6 @@ export async function recordChordOnto(
     await crossMacrotaskBoundary();
   });
 }
-
-// The rail's shipped chords, contributed the way the window's composition contributes them,
-// so the page reads the same shipped table a window has.
-registerNavigationKeybindings(commandContributionRegistry);
 
 beforeEach(() => {
   commandRegistry.registerAll([

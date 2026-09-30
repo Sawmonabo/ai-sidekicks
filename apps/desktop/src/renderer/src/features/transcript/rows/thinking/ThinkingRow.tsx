@@ -29,8 +29,8 @@
 // action exists and is not currently permitted, which is a different sentence from
 // "this row is not addressable by that read at all" — and the second is the true one.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
-import { WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { ReasoningEntry, ReasoningSurfaceReadResponse, RunId } from "@ai-sidekicks/contracts";
 import {
   REASONING_AVAILABILITY_COPY,

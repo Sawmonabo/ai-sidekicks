@@ -1,4 +1,4 @@
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { type AgentLibrarySnapshot, type AgentLibraryView } from "../library-view.js";
 import { NO_SAVED_DEFINITIONS } from "../definition-rows.js";
 import { SavedDefinitionRow } from "./SavedDefinitionRow.js";

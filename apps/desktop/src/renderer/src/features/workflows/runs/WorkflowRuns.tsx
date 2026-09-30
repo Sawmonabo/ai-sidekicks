@@ -16,7 +16,7 @@
 
 import { useId, useMemo } from "react";
 
-import { useReadSettlementAnnouncement } from "@renderer/console/primitives/index.js";
+import { useReadSettlementAnnouncement } from "@renderer/hooks/useReadSettlementAnnouncement.js";
 import { RunListProjection, type WorkflowRunListRow } from "./run-list-projection.js";
 import type { WorkflowRunDirectoryState } from "./hooks/useWorkflowRunDirectory.js";
 import { WorkflowRunsReadState } from "./components/WorkflowRunsReadState.js";

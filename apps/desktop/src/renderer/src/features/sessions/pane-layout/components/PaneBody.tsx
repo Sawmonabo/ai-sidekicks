@@ -5,9 +5,10 @@
 // rather than a condition inside `SessionPaneSlot`'s ternary chain, which already has three
 // arms of its own.
 
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { type PaneContext, type PaneDescriptor } from "@renderer/console/seats/index.js";
+import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
+import { type PaneDescriptor } from "@renderer/registries/panes/pane-registry.js";
 
 /** The registered body, or the refusal that says why this pane has no address. */
 export function PaneBody(props: {

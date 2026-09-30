@@ -44,7 +44,8 @@ import { useCallback } from "react";
 
 import type { ExecutionMode } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
-import { Nothing, WireFigure } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { useSubjectScopedState } from "@renderer/hooks/subject-scoped/useSubjectScopedState.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { controlHoldSentence, type WorkspaceControlAvailability } from "../mount-health.js";

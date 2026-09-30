@@ -16,7 +16,7 @@ import {
   InlineCardRegistry,
   inlineCardRegistry,
   type AttachmentInlineCardProps,
-} from "@renderer/console/seats/index.js";
+} from "@renderer/registries/inline-cards/inline-card-registry.js";
 import { registerComposerInlineCards } from "../../contributions/inline-cards.js";
 import { InlineAttachmentCard } from "./InlineAttachmentCard.js";
 

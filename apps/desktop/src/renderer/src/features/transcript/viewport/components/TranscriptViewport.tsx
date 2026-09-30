@@ -38,7 +38,6 @@
 // catch-up rate is marked with a class the
 // stylesheet answers in luminance; nothing here animates, and nothing pulses.
 
-import { WindowNotices } from "@renderer/console/primitives/index.js";
 import { EmptyTranscript } from "./EmptyTranscript.js";
 import { type TranscriptErrorEntry } from "../transcript-errors.js";
 import { TranscriptErrors } from "./TranscriptErrors.js";
@@ -103,7 +102,7 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
        */}
       {props.earlierHistoryControl}
       <div
-        className="meridian-transcript-viewport__scroll-container"
+        className="meridian-transcript-viewport__scroll-container meridian-focus-inset"
         ref={binding.attachScrollContainer}
         // The feed role is claimed only while there is something to be a feed OF,
         // and the articles it owns are `VirtualRow`'s half of the same claim.
@@ -152,14 +151,6 @@ export function TranscriptViewport(props: TranscriptViewportProps): React.JSX.El
          * the viewport talking over its own loading state.
          */}
         {snapshot.rows.length === 0 && props.firstReadSettled ? <EmptyTranscript /> : null}
-        {/*
-         * Rows that share an identifier are a fact about what this viewport can draw
-         * apart, so the notice sits here rather than with the window's own notices.
-         */}
-        <WindowNotices
-          absences={[{ kind: "duplicate-key", count: snapshot.keyProjection.duplicateKeyCount }]}
-          subject="entries"
-        />
       </div>
       <JumpToLatest snapshot={snapshot} onJumpToTail={binding.jumpToTail} />
     </div>

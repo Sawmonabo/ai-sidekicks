@@ -19,7 +19,8 @@
 
 import { Combobox } from "@base-ui/react/combobox";
 
-import { OverlayComboboxPopup, WireFigure } from "@renderer/console/primitives/index.js";
+import { OverlayComboboxPopup } from "../../components/OverlayComboboxPopup/OverlayComboboxPopup.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { AccountAxisReading } from "../account-axis.js";
 
 export interface AccountChoiceListProps {

@@ -59,16 +59,6 @@
   min-width: 0;
   min-height: 0;
   position: relative;
-  border-inline-start: 1px solid transparent;
-}
-
-/*
- * The focused pane is marked on its own edge rather than by dimming its
- * neighbors: a pane layout where the unfocused panes fade reads as a pane layout where they
- * have stopped working.
- */
-.meridian-pane-layout__pane--focused {
-  border-inline-start-color: var(--meridian-accent);
 }
 
 /*
@@ -114,19 +104,13 @@
   cursor: col-resize;
 }
 
-.meridian-pane-layout__separator:hover,
-.meridian-pane-layout__separator:focus-visible {
+.meridian-pane-layout__separator:hover {
   background: linear-gradient(
     to right,
     transparent 30%,
     var(--meridian-accent) 30% 70%,
     transparent 70%
   );
-}
-
-.meridian-pane-layout__separator:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
 }
 
 /* --- Density presets ---------------------------------------------------- */

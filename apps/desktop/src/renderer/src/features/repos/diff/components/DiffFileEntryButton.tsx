@@ -1,4 +1,5 @@
-import { DerivedFigure, type WindowedRowTargetProps } from "@renderer/console/primitives/index.js";
+import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
+import { type WindowedRowTargetProps } from "@renderer/components/WindowedListRow/WindowedListRow.js";
 import { type DiffFileListEntry } from "../diff-file-entries.js";
 
 /** One row's control, and the row's own statement that this element holds its stop. */
@@ -30,7 +31,7 @@ export function DiffFileEntryButton({
   return (
     <button
       type="button"
-      className="meridian-diff-files__entry"
+      className="meridian-diff-files__entry meridian-focus-inset"
       aria-current={isSelected}
       {...targetProps}
       onClick={() => {

@@ -12,8 +12,9 @@
 
 import "./diff.css";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 import { DiffChangeSet } from "./DiffChangeSet.js";
 import { type DiffModel } from "../diff-model.js";
 
@@ -82,7 +83,6 @@ export function DiffPane(props: DiffPaneProps): React.JSX.Element {
       // it is never shortened, because two workspaces whose ids differ in their tail
       // read identically once a renderer abbreviates them.
       entity={context.entity}
-      focusHue={context.focusHue}
     >
       {diff !== undefined ? (
         <DiffChangeSet diff={diff} />

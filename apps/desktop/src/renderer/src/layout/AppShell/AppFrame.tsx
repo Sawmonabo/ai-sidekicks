@@ -26,7 +26,7 @@
 // context is read by tree position — and a component cannot consume a provider it
 // renders itself.
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
-import { LiveAnnouncerProvider } from "@renderer/console/primitives/index.js";
+import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
 import { FrameChrome, type FrameChromeProps } from "./FrameChrome.js";
 
 import "./app-frame.css";

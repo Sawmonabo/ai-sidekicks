@@ -33,11 +33,6 @@
   font-size: var(--meridian-text-sm);
 }
 
-.meridian-keymap__filter-input:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 .meridian-keymap__filter-input::placeholder {
   color: var(--meridian-text-faint);
 }
@@ -120,14 +115,11 @@
 .meridian-keymap__record,
 .meridian-keymap__reset,
 .meridian-keymap__reset-all {
-  font: inherit;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text);
   background: var(--meridian-surface-raised);
-  border: 1px solid var(--meridian-edge-strong);
-  border-radius: var(--meridian-radius-sm);
+  border-color: var(--meridian-edge-strong);
   padding: var(--meridian-space-1) var(--meridian-space-3);
-  cursor: pointer;
   transition: background var(--meridian-motion-quick) var(--meridian-ease-settle);
 }
 
@@ -135,13 +127,6 @@
 .meridian-keymap__reset:hover,
 .meridian-keymap__reset-all:hover {
   background: var(--meridian-surface);
-}
-
-.meridian-keymap__record:focus-visible,
-.meridian-keymap__reset:focus-visible,
-.meridian-keymap__reset-all:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
 }
 
 /* Armed. The border carries the state as well as the pressed attribute does for a

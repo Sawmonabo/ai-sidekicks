@@ -22,7 +22,7 @@
 // Every class in this feature's three sheets carries the `meridian-preview-` prefix, and
 // no other feature's sheet declares one of them.
 
-import type { PaneRegistry } from "@renderer/console/seats/index.js";
+import type { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 
 export {
   /** @consumedBy the preview pane's handback, which tells the host the chords the page claims */

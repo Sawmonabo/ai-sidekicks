@@ -18,16 +18,17 @@
 // `lease-model.ts`. The output stream is not built, so the emulator mounts with nothing
 // to show.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { SessionTerminalPane } from "./SessionTerminalPane.js";
-import { PaneFrame, type PaneContextOf } from "@renderer/console/seats/index.js";
+import { PaneFrame } from "@renderer/components/PaneFrame/PaneFrame.js";
+import { type PaneContextOf } from "@renderer/registries/panes/pane-body-for-kind.js";
 
 /** The registered terminal body: the bound pane, or a sentence that no session was addressed. */
 export function TerminalPane(context: PaneContextOf<"terminal">): React.JSX.Element {
   // The shell this pane shows is keyed by the SESSION, so the pane's own id is not read.
-  const { sessionStore, focusHue } = context;
+  const { sessionStore } = context;
   return (
-    <PaneFrame kind="terminal" sessionId={sessionStore?.sessionId} focusHue={focusHue}>
+    <PaneFrame kind="terminal" sessionId={sessionStore?.sessionId}>
       <div className="meridian-terminal-pane">
         {sessionStore === undefined ? (
           <Nothing

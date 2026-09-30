@@ -17,7 +17,8 @@
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
-import { clippingAncestorsOf, observeElementResize } from "@renderer/console/primitives/index.js";
+import { clippingAncestorsOf } from "@renderer/lib/clipping-ancestors.js";
+import { observeElementResize } from "@renderer/lib/element-resize.js";
 import { SCHEME_ATTRIBUTE } from "@renderer/styles/generate-css.js";
 import { observeElementPosition } from "./element-motion.js";
 import { overlayMotionObserver } from "./overlay-observation.js";

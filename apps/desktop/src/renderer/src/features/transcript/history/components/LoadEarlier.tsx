@@ -22,7 +22,7 @@
 // they have — and a fetch fired by arriving there would grow the log under somebody
 // who was only passing through, on a walk with no end while the log has one.
 
-import { InlineRefusal } from "@renderer/console/primitives/index.js";
+import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { type EarlierPageRead } from "../earlier-history-reader.js";
 import { useEarlierHistory } from "../hooks/useEarlierHistory.js";

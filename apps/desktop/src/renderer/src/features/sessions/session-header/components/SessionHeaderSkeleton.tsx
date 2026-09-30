@@ -10,7 +10,7 @@
 // and not an answer, so a screen reader is told the header is loading once, in words, by
 // the absence beside it.
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
 /** The header's opening state: a placeholder that holds its height, and the words for it. */
 export function SessionHeaderSkeleton(): React.JSX.Element {

@@ -1,10 +1,5 @@
 /* The pane frame. One sheet for every pane kind, imported by `PaneFrame.tsx`, the single
-   edge into it.
-
-   `--meridian-pane-hue` is set per pane by the chrome, from the actor the pane's entity
-   is attributed to, and is absent where there is no actor. It is read only by the two
-   focus rules below, each with its own neutral fallback: the hue answers "who", and a
-   pane that is not about anybody answers nothing rather than borrowing a color. */
+   edge into it. */
 
 /* `flex: 1 1 auto` because a pane is a flex CHILD as often as it is a grid one, and the
    initial `0 1 auto` is only harmless under the grid. The pane layout is a column flex chain
@@ -25,32 +20,6 @@
   background: var(--meridian-surface);
   border: 1px solid var(--meridian-edge);
   border-radius: var(--meridian-radius-lg);
-}
-
-/*
- * TWO FOCUS TREATMENTS, AND THEY ANSWER DIFFERENT QUESTIONS.
- *
- * `:focus-visible` fires when the SECTION itself holds focus, which happens when the
- * pane layout routes focus to a pane — the `tabIndex={-1}` reach — and stops the moment focus
- * moves into a control inside it. That is the ring: a landing mark.
- *
- * `:focus-within` fires while the keyboard is anywhere inside, which is the state a
- * person acts on: "the pane I am typing in". Without it a pane is marked for one
- * keystroke and then reads as unfocused for the whole time it is being used. It is
- * drawn as a border and an inset shadow rather than an outline, because an outline on a
- * rounded container paints outside the radius and clips against the neighbor's edge.
- *
- * Their fallbacks differ for the same reason their treatments do: a ring falls back to
- * the ring token, a boundary to the neutral control boundary.
- */
-.meridian-pane:focus-visible {
-  outline: 2px solid var(--meridian-pane-hue, var(--meridian-focus-ring));
-  outline-offset: -2px;
-}
-
-.meridian-pane:focus-within {
-  border-color: var(--meridian-pane-hue, var(--meridian-edge-strong));
-  box-shadow: inset 0 0 0 1px var(--meridian-pane-hue, var(--meridian-edge-strong));
 }
 
 /* Quiet chrome: the head is a boundary, not a title bar. It reads at the small size
@@ -165,11 +134,6 @@
 .meridian-pane__control:hover {
   background: var(--meridian-surface-raised);
   color: var(--meridian-text);
-}
-
-.meridian-pane__control:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: -2px;
 }
 
 /*

@@ -42,11 +42,6 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-accounts__row:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 2px;
-}
-
 /* The selected row is marked by its edge and never by color alone: the detail
    section below it names the same account in its heading, so the pairing is
    legible without relying on a hue anyone might not distinguish. */
@@ -165,12 +160,6 @@
   background: var(--meridian-surface-sunken);
   color: var(--meridian-text);
   font: inherit;
-}
-
-.meridian-accounts__register input:focus-visible,
-.meridian-accounts__register select:focus-visible {
-  outline: 2px solid var(--meridian-focus-ring);
-  outline-offset: 1px;
 }
 
 /* The prose and the button each span both columns: neither is a field, and a control

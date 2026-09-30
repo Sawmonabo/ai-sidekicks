@@ -43,7 +43,6 @@ export function paneContext(
     frameStore: new WindowStore({
       initialRoute: sessionId === null ? { kind: "sessions" } : { kind: "session", sessionId },
     }),
-    focusHue: undefined,
     ...overrides,
   } as unknown as TranscriptPaneContext;
 }

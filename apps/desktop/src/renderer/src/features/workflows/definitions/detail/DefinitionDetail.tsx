@@ -13,7 +13,9 @@
 // builder pane's own typed mount points; this is the read the canvas will be drawn from and
 // the acts that carry a definition somewhere else.
 
-import { Nothing, WireFigure, formatCount } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatCount } from "@renderer/lib/wire-figures.js";
 import { DefinitionAuthoringActs } from "./components/DefinitionAuthoringActs.js";
 import { DefinitionVersions } from "./components/DefinitionVersions.js";
 import { DefinitionVersionBody } from "./components/DefinitionVersionBody.js";

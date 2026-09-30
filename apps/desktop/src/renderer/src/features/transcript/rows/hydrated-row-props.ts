@@ -11,7 +11,7 @@
 
 import type { HydratedSessionEventContent } from "@ai-sidekicks/contracts";
 
-import type { TranscriptRowProps } from "@renderer/console/seats/index.js";
+import type { TranscriptRowProps } from "../transcript-row-renderer.js";
 import type { FootnoteRegistry } from "./markdown/footnotes/footnote-registry.js";
 
 export interface HydratedRowProps extends TranscriptRowProps {

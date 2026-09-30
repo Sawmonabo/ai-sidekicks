@@ -55,7 +55,7 @@
 
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { Nothing } from "@renderer/console/primitives/index.js";
+import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { terminalEmulatorLoader, type TerminalEmulatorModule } from "../emulator-loader.js";
 import { useTerminalEmulator, type TerminalEmulatorState } from "../hooks/useTerminalEmulator.js";
 import type { TerminalRendererMode } from "../xterm-adapter.js";

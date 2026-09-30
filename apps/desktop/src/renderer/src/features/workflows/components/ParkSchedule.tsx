@@ -10,7 +10,8 @@
 // the component below; a remedy sentence in one module and the only line that renders
 // it in another is a closed set split across two files.
 
-import { WireFigure, formatDateTime } from "@renderer/console/primitives/index.js";
+import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
+import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { WorkflowParkReason, WorkflowParkSchedule } from "../runs/run-list-rows.js";
 
 /**
