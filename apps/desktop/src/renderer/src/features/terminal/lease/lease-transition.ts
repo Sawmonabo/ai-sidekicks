@@ -19,7 +19,12 @@
 // contract's refinement, so a payload that contradicts its own reason is refused
 // here without this module restating the rule.
 
-import type { PtyControlChangedReason, RunId, TerminalId } from "@ai-sidekicks/contracts";
+import type {
+  CommandId,
+  PtyControlChangedReason,
+  RunId,
+  TerminalId,
+} from "@ai-sidekicks/contracts";
 
 import { readWireString } from "@renderer/lib/wire-strings.js";
 import { readPtyControlChangedPayload } from "@renderer/services/daemon/pty-control-changed-payload.js";
@@ -34,6 +39,8 @@ export interface TerminalLeaseTransition {
   readonly holderDeviceId: string | null;
   /** The run holding the shell after this transition, while an agent's run holds it. */
   readonly holderRunId: RunId | undefined;
+  /** The run's command holding the shell, named whenever the run is. */
+  readonly holderCommandId: CommandId | undefined;
 }
 
 /**
@@ -71,6 +78,7 @@ export function readTerminalLeaseTransition(
     reason: payload.reason,
     holderDeviceId: payload.holderDeviceId,
     holderRunId: payload.holderRunId,
+    holderCommandId: payload.holderCommandId,
   };
 }
 

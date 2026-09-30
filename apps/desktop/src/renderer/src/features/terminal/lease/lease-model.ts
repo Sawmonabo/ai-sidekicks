@@ -30,7 +30,12 @@
 // state. A class holding the fold's result beside the store would be a second
 // source of truth for a fact the log already orders.
 
-import { PTY_CONTROL_CHANGED_EVENT, type RunId, type TerminalId } from "@ai-sidekicks/contracts";
+import {
+  PTY_CONTROL_CHANGED_EVENT,
+  type CommandId,
+  type RunId,
+  type TerminalId,
+} from "@ai-sidekicks/contracts";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
@@ -72,6 +77,8 @@ export interface TerminalLeaseState {
   readonly holderDeviceId: string | null;
   /** The run the wire named as the holder, while an agent's run holds the shell. */
   readonly holderRunId: RunId | undefined;
+  /** The run's command the wire named as the holder; stopping it ends the run's hold. */
+  readonly holderCommandId: CommandId | undefined;
   /**
    * The newest transition the fold could not read, when one arrived after every
    * transition it could. Present means the lease state is unknown rather than
@@ -94,6 +101,7 @@ export const UNREAD_TERMINAL_LEASE: TerminalLeaseState = {
   holding: "not-checked",
   holderDeviceId: null,
   holderRunId: undefined,
+  holderCommandId: undefined,
   unreadTransition: undefined,
 };
 
@@ -148,6 +156,7 @@ export function projectTerminalLease(
   const readable = unreadTransition === undefined ? newest : undefined;
   const holderDeviceId = readable?.holderDeviceId ?? null;
   const holderRunId = readable?.holderRunId;
+  const holderCommandId = readable?.holderCommandId;
 
   return {
     holding: readHolding({
@@ -159,6 +168,7 @@ export function projectTerminalLease(
     }),
     holderDeviceId,
     holderRunId,
+    holderCommandId,
     unreadTransition,
   };
 }

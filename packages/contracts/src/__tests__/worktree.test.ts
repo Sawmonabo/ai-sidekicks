@@ -680,7 +680,7 @@ const buildWorktreeStatusReadResponse = () => ({
   newWorktree: {
     fixedPart: "sidekicks/1a2b3c4d/",
     suggestedTail: "fix-login-bug",
-    pathHint: "~/.ai-sidekicks/worktrees/beacon/1a2b3c4d-fix-login-bug",
+    folderBefore: "~/.ai-sidekicks/worktrees/beacon/1a2b3c4d-",
   },
 });
 

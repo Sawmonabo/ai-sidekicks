@@ -78,7 +78,7 @@ export interface WorktreeStatusReading {
   readonly newWorktree: {
     readonly fixedPart: string;
     readonly suggestedTail: string;
-    readonly pathHint: string;
+    readonly folderBefore: string;
   } | null;
 }
 
@@ -117,7 +117,7 @@ interface WorktreeStatusReadResponseDraft {
   readonly newWorktree?: {
     readonly fixedPart: string;
     readonly suggestedTail: string;
-    readonly pathHint: string;
+    readonly folderBefore: string;
   };
 }
 

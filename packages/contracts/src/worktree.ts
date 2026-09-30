@@ -801,12 +801,14 @@ export const WorktreeStatusReadRequestSchema: z.ZodType<
  * What the new-worktree form opens with, from the same daemon function that
  * creates the tree and names its folder: the fixed leading part of the name (the
  * project's branch pattern filled in up to `{title}`), the suggested tail derived
- * from the session's title, and the path hint for the folder that name makes.
+ * from the session's title, and the folder the tree will get up to that tail.
+ * The form shows the folder as `folderBefore` followed by whatever tail is typed,
+ * so it copies none of the daemon's naming.
  */
 export interface NewWorktreeSuggestion {
   fixedPart: string;
   suggestedTail: string;
-  pathHint: string;
+  folderBefore: string;
 }
 
 /**
@@ -845,9 +847,9 @@ export const WorktreeStatusReadResponseSchema: z.ZodType<WorktreeStatusReadRespo
           WORKTREE_GIT_REF_MAX_LEN,
           "WorktreeStatusReadResponse.newWorktree.suggestedTail",
         ),
-        pathHint: wireFreeFormString(
+        folderBefore: wireFreeFormString(
           FILE_PATH_MAX_LEN,
-          "WorktreeStatusReadResponse.newWorktree.pathHint",
+          "WorktreeStatusReadResponse.newWorktree.folderBefore",
         ),
       })
       .strict()

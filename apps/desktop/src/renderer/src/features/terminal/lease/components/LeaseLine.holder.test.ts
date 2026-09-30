@@ -13,7 +13,12 @@ import { describe, expect, it } from "vitest";
 
 import { TERMINAL_LEASE_HOLDERS, UNREAD_TERMINAL_LEASE } from "../lease-model.js";
 import { leaseState, renderLease } from "./LeaseLine.test-support.js";
-import { OTHER_DEVICE_ID, RUN_ID, THIS_DEVICE_ID } from "../lease-model.test-support.js";
+import {
+  COMMAND_ID,
+  OTHER_DEVICE_ID,
+  RUN_ID,
+  THIS_DEVICE_ID,
+} from "../lease-model.test-support.js";
 
 describe("the holding line — every state the fold settles into", () => {
   it("says the lease has not been read, which is not the lease being free", () => {
@@ -66,6 +71,7 @@ describe("the holding line — every state the fold settles into", () => {
         holding: "held-by-run",
         holderDeviceId: THIS_DEVICE_ID,
         holderRunId: RUN_ID,
+        holderCommandId: COMMAND_ID,
       }),
     );
     // The design's sentence alone, with no chip beside it.
@@ -131,6 +137,7 @@ describe("the holding line — every state the fold settles into", () => {
             holding: "held-by-run",
             holderDeviceId: THIS_DEVICE_ID,
             holderRunId: RUN_ID,
+            holderCommandId: COMMAND_ID,
           }),
           leaseState({
             holding: "unrecognized-transition",

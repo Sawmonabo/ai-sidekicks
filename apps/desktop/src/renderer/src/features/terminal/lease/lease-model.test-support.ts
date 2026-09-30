@@ -1,4 +1,4 @@
-// The two devices, the shell, the run and the two event builders every lease suite
+// The two devices, the shell, the run and its command, and the two event builders every lease suite
 // shares.
 //
 // The directory's one home for them, and it has to be one: the reader, the fold, the
@@ -16,7 +16,12 @@
 // raw one rather than beside it, and there is a single answer to what an event's id,
 // session, and instant look like.
 
-import { PTY_CONTROL_CHANGED_EVENT, type RunId, type TerminalId } from "@ai-sidekicks/contracts";
+import {
+  PTY_CONTROL_CHANGED_EVENT,
+  type CommandId,
+  type RunId,
+  type TerminalId,
+} from "@ai-sidekicks/contracts";
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 import {
@@ -42,6 +47,8 @@ export const SHELL_ID = "shell-1" as TerminalId;
 export const OTHER_SHELL_ID = "shell-2" as TerminalId;
 /** An agent's run, for the cases where a run holds the shell. */
 export const RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0199" as RunId;
+/** The run's command that holds the shell; a run's hold names both. */
+export const COMMAND_ID = "command-1" as CommandId;
 
 /**
  * A `pty.control_changed` carrying exactly the payload a case hands it.
@@ -83,6 +90,9 @@ export function transitionEvent(
       terminalId: options.terminalId ?? SHELL_ID,
       holderDeviceId,
       ...(options.holderRunId === undefined ? {} : { holderRunId: options.holderRunId }),
+      ...(options.holderCommandId === undefined
+        ? {}
+        : { holderCommandId: options.holderCommandId }),
       previousHolderDeviceId,
       reason,
     },
@@ -94,4 +104,5 @@ export function transitionEvent(
 interface TransitionEventOptions {
   readonly terminalId?: TerminalId;
   readonly holderRunId?: RunId;
+  readonly holderCommandId?: CommandId;
 }

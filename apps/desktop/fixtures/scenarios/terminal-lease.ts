@@ -63,6 +63,9 @@ const TERMINAL_SCENARIO_SHELL_ID = TERMINAL_SCENARIO_SESSION_ID;
  */
 const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
+/** The run's command that holds the shell; a run's hold names it beside the run. */
+const TERMINAL_AGENT_COMMAND_ID = "command-pnpm-test";
+
 /**
  * The scenario's cast, by role, for the views that render one of them.
  *
@@ -157,6 +160,8 @@ interface TerminalLeaseTransitionBeatInput {
   readonly holderDeviceId: string | null;
   /** The run holding the shell after this transition, on a run's take only. */
   readonly holderRunId?: string;
+  /** The run's command holding the shell, named whenever the run is. */
+  readonly holderCommandId?: string;
   readonly previousHolderDeviceId: string | null;
   /** One of the reasons the wire closes the set at. */
   readonly reason: string;
@@ -224,6 +229,9 @@ function terminalLeaseTransitionBeat(transition: TerminalLeaseTransitionBeatInpu
       terminalId: TERMINAL_SCENARIO_SHELL_ID,
       holderDeviceId: transition.holderDeviceId,
       ...(transition.holderRunId === undefined ? {} : { holderRunId: transition.holderRunId }),
+      ...(transition.holderCommandId === undefined
+        ? {}
+        : { holderCommandId: transition.holderCommandId }),
       previousHolderDeviceId: transition.previousHolderDeviceId,
       reason: transition.reason,
     },
@@ -356,12 +364,14 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     // THE RUN'S TAKE, with no actor on purpose: the agent's run takes through the
     // daemon's own lease authority, so nobody pressed a control and the transcript's
     // actor column reads "The daemon". The holder is the machine's own device, with
-    // the run named beside it, so every device reads the shell as the run's.
+    // the run and its running command named beside it, so every device reads the
+    // shell as the run's.
     terminalLeaseTransitionBeat({
       atMs: 3300,
       sequence: 9,
       holderDeviceId: OWNER,
       holderRunId: TERMINAL_AGENT_RUN_ID,
+      holderCommandId: TERMINAL_AGENT_COMMAND_ID,
       previousHolderDeviceId: null,
       reason: "taken",
     }),

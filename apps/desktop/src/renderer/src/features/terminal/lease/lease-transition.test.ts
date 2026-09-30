@@ -15,6 +15,7 @@ import {
   readTerminalLeaseUnreadTransition,
 } from "./lease-transition.js";
 import {
+  COMMAND_ID,
   OTHER_DEVICE_ID,
   RUN_ID,
   SHELL_ID,
@@ -36,16 +37,19 @@ describe("reading one transition — the holder is the wire's", () => {
       reason: "taken",
       holderDeviceId: OTHER_DEVICE_ID,
       holderRunId: undefined,
+      holderCommandId: undefined,
     });
   });
 
-  it("reads a run's take, carrying the run beside the machine's own device", () => {
+  it("reads a run's take, carrying the run and its command beside the machine's own device", () => {
     const transition = readTerminalLeaseTransition(
       transitionEvent(READER_EVENT_SEQUENCE, "taken", THIS_DEVICE_ID, null, {
         holderRunId: RUN_ID,
+        holderCommandId: COMMAND_ID,
       }),
     );
     expect(transition?.holderRunId).toBe(RUN_ID);
+    expect(transition?.holderCommandId).toBe(COMMAND_ID);
   });
 
   it("refuses a `taken` that names nobody, rather than reading it as the free lease", () => {

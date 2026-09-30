@@ -13,6 +13,7 @@ import { describe, expect, it } from "vitest";
 import { TERMINAL_LEASE_SCENARIO } from "../../../../../../fixtures/scenarios/terminal-lease.js";
 import { UNREAD_TERMINAL_LEASE, projectTerminalLease } from "./lease-model.js";
 import {
+  COMMAND_ID,
   OTHER_DEVICE_ID,
   OTHER_SHELL_ID,
   RUN_ID,
@@ -75,11 +76,17 @@ describe("the lease fold — what the wire said, and only that", () => {
     // The run's machine is the holding device; a device comparison alone would read
     // this as `held-by-this-device` and open stdin to a person while the run writes.
     const state = projectTerminalLease(
-      [transitionEvent(1, "taken", THIS_DEVICE_ID, null, { holderRunId: RUN_ID })],
+      [
+        transitionEvent(1, "taken", THIS_DEVICE_ID, null, {
+          holderRunId: RUN_ID,
+          holderCommandId: COMMAND_ID,
+        }),
+      ],
       { terminalId: SHELL_ID, thisDeviceId: THIS_DEVICE_ID },
     );
     expect(state.holding).toBe("held-by-run");
     expect(state.holderRunId).toBe(RUN_ID);
+    expect(state.holderCommandId).toBe(COMMAND_ID);
   });
 
   it("folds each shell apart: a move on another shell leaves this one where it was", () => {

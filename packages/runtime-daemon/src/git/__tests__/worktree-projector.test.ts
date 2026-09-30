@@ -44,7 +44,7 @@ const REPO_ROOT = { path: "/Users/dev/code/beacon", branchName: "main" };
 const NEW_WORKTREE = {
   fixedPart: "sidekicks/1a2b3c4d/",
   suggestedTail: "add-status-view",
-  pathHint: "~/.ai-sidekicks/worktrees/beacon/1a2b3c4d-add-status-view",
+  folderBefore: "~/.ai-sidekicks/worktrees/beacon/1a2b3c4d-",
 };
 
 const BASE_WORKTREE_ROW: WorktreeStatusRow = {

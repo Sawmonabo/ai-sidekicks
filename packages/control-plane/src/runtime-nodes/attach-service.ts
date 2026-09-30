@@ -1,7 +1,10 @@
 // Who holds each of a session's shells, as the session roster reads it.
 import type { TerminalControlHolder, TerminalId } from "@ai-sidekicks/contracts";
 
-/** One held shell: the shell, and the device (and, while a run holds it, the run) holding it. */
+/**
+ * One held shell: the shell, and the device holding it, with the run and its command
+ * while an agent's running command holds it.
+ */
 export interface SessionTerminalControlEntry extends TerminalControlHolder {
   terminalId: TerminalId;
 }
