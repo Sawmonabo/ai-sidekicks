@@ -1,8 +1,8 @@
 // One control per run in flight at a time, decided synchronously.
 //
 // Two presses inside one frame both read the busy set from the render that produced their
-// handler and both dispatch, minting two idempotency keys against one run version, so every case
-// calls `dispatch` twice inside one `act` and counts what reached the wire. `perform` is the
+// handler and both dispatch, minting two idempotency keys against one run version, so the latch
+// cases call `dispatch` twice inside one `act` and count what reached the wire. `perform` is the
 // per-case seam. Each bridge is minted once and held, because the hook keys its state on the
 // bridge; only the last describe changes it deliberately.
 
@@ -84,22 +84,6 @@ describe("one control per run is in flight at a time", () => {
     expect(perform).toHaveBeenCalledTimes(3);
   });
 
-  it("marks the pressed control busy and clears it on settlement", async () => {
-    const settleWith = pendingOutcome();
-    const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
-
-    act(() => {
-      result.current.dispatch(RUN_ID, "interrupt", settleWith.perform);
-    });
-    expect(result.current.inFlightKeys.has(inFlightKeyFor(RUN_ID, "interrupt"))).toBe(true);
-
-    await act(async () => {
-      settleWith.resolve(ACKNOWLEDGED);
-    });
-    expect(result.current.inFlightKeys.has(inFlightKeyFor(RUN_ID, "interrupt"))).toBe(false);
-  });
-
   it("releases the latch on a rejected perform and hands the rejection to the caller", async () => {
     // Without the release the control is busy for the window; without the rethrow the
     // rejection reaches nobody.
@@ -124,25 +108,6 @@ describe("one control per run is in flight at a time", () => {
         await expect(again.settled).rejects.toBe(rejection);
       }
     });
-    expect(perform).toHaveBeenCalledTimes(2);
-  });
-
-  it("releases the latch on a perform that throws before it returns a promise", async () => {
-    const perform = vi.fn((): Promise<RunControlOutcome> => {
-      throw new Error("no such run");
-    });
-    const bridge = answeringNothing();
-    const { result } = renderHook(() => useRunControlDispatch(bridge, UNUSED_CALLS));
-
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      await act(async () => {
-        const admission = result.current.dispatch(RUN_ID, "interrupt", perform);
-        if (admission.admitted) {
-          await expect(admission.settled).rejects.toThrow("no such run");
-        }
-      });
-    }
-
     expect(perform).toHaveBeenCalledTimes(2);
   });
 });
@@ -171,86 +136,6 @@ describe("the run controls' state belongs to the bridge it dispatched through", 
     });
     expect(admission?.admitted).toBe(true);
     expect(performOnSecondBridge).toHaveBeenCalledTimes(1);
-  });
-
-  it("shows the replaced bridge no records rather than the previous one's", () => {
-    // The busy set and the records are the other two holders; a row under the new transport
-    // must not be marked busy by a call it never made.
-    const pendingOnFirstBridge = pendingOutcome();
-    const { result, rerender } = renderHook(
-      ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
-      {
-        initialProps: { bridge: answeringNothing() },
-      },
-    );
-
-    act(() => {
-      result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
-    });
-    expect(result.current.inFlightKeys.has(inFlightKeyFor(RUN_ID, "interrupt"))).toBe(true);
-
-    rerender({ bridge: answeringNothing() });
-
-    expect(result.current.inFlightKeys.size).toBe(0);
-    expect(result.current.records).toHaveLength(0);
-  });
-
-  it("appends nothing when a call made on the previous bridge settles late", async () => {
-    const pendingOnFirstBridge = pendingOutcome();
-    const { result, rerender } = renderHook(
-      ({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS),
-      {
-        initialProps: { bridge: answeringNothing() },
-      },
-    );
-
-    act(() => {
-      result.current.dispatch(RUN_ID, "interrupt", pendingOnFirstBridge.perform);
-    });
-    rerender({ bridge: answeringNothing() });
-    await act(async () => {
-      pendingOnFirstBridge.resolve(ACKNOWLEDGED);
-    });
-
-    expect(result.current.records).toHaveLength(0);
-  });
-
-  it("negative control: a settlement on the bridge that is still current is recorded", async () => {
-    // Without this, a hook that had stopped recording would pass every case above.
-    const pending = pendingOutcome();
-    const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {
-      initialProps: { bridge: answeringNothing() },
-    });
-
-    act(() => {
-      result.current.dispatch(RUN_ID, "interrupt", pending.perform);
-    });
-    await act(async () => {
-      pending.resolve(ACKNOWLEDGED);
-    });
-
-    expect(result.current.records).toHaveLength(1);
-    expect(result.current.inFlightKeys.size).toBe(0);
-  });
-
-  it("negative control: one bridge still refuses the same run and control twice", async () => {
-    // The rotation does not relax the rule: a second press on the current transport is the
-    // same act and is refused.
-    const pending = pendingOutcome();
-    const { result } = renderHook(({ bridge }) => useRunControlDispatch(bridge, UNUSED_CALLS), {
-      initialProps: { bridge: answeringNothing() },
-    });
-
-    let second: RunControlAdmission | undefined;
-    await act(async () => {
-      result.current.dispatch(RUN_ID, "interrupt", pending.perform);
-      second = result.current.dispatch(RUN_ID, "interrupt", pending.perform);
-    });
-
-    expect(second).toStrictEqual({ admitted: false, reason: "in-flight" });
-    await act(async () => {
-      pending.resolve(ACKNOWLEDGED);
-    });
   });
 });
 

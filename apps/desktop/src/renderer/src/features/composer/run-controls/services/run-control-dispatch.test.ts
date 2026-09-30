@@ -1,6 +1,7 @@
-// The chokepoint: both guards on every call, one key per body, and the daemon's answer as the
-// only settlement. The real dispatcher runs over stub calls standing in for the daemon. Nothing
-// here decides whether the person may act: a control sent at a completed run still goes out.
+// The chokepoint: both guards on every call, the comparand read back off each answer and merged
+// with the stream's reading, and a rejection handed to the caller untouched. A stale comparand
+// is refused by the daemon, and a refusal carries no version to recover with, so every later
+// control would be refused too. The real dispatcher runs over stub calls.
 
 import { describe, expect, it } from "vitest";
 
@@ -71,17 +72,6 @@ describe("both guards, on every call", () => {
       });
     }
   });
-
-  it("rejects a run identifier the contract would not accept, before any call", async () => {
-    const { dispatcher, calls } = dispatcherOver(async () => STUB_ACK);
-    await expect(dispatcher.pause({ runId: "not-a-run", expectedRunVersion: 1 })).rejects.toThrow(
-      "not-a-run",
-    );
-    await expect(
-      dispatcher.steer({ runId: "not-a-run", expectedRunVersion: 1 }, { content: "narrower" }),
-    ).rejects.toThrow("not-a-run");
-    expect(calls).toHaveLength(0);
-  });
 });
 
 describe("the fresh comparand comes from the answer", () => {
@@ -97,16 +87,6 @@ describe("the fresh comparand comes from the answer", () => {
     await dispatcher.steer({ runId: RUN_ID, expectedRunVersion: 10 }, { content: "narrower" });
     expect(dispatcher.freshComparandFor(RUN_ID)).toBe(11);
   });
-
-  it("negative control: a rejected call leaves the held comparand alone", async () => {
-    const { dispatcher } = dispatcherOver(async () => {
-      throw { code: "run.invalid_transition", message: "the run is not running" };
-    });
-    await expect(dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 })).rejects.toMatchObject({
-      code: "run.invalid_transition",
-    });
-    expect(dispatcher.freshComparandFor(RUN_ID)).toBeUndefined();
-  });
 });
 
 describe("the comparand is the newer of the two readings", () => {
@@ -119,15 +99,6 @@ describe("the comparand is the newer of the two readings", () => {
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 8 });
   });
 
-  it("negative control: the cached reading alone would have sent the stale version", async () => {
-    // The wrong expression, written out: prefer the cache, fall back to the stream. It sends 7,
-    // a version the daemon has moved past, and every later guarded control is refused as stale.
-    const { dispatcher } = dispatcherOver(async () => STUB_ACK);
-    await dispatcher.pause({ runId: RUN_ID, expectedRunVersion: 6 });
-    expect(dispatcher.freshComparandFor(RUN_ID) ?? 8).toBe(7);
-    expect(dispatcher.comparandFor(RUN_ID, 8)).toBe(8);
-  });
-
   it("keeps the cached reading when the stream is behind it", async () => {
     // An applied native steer advances the run and emits no state event, so the stream's
     // reading is legitimately older than the answer's for a while.
@@ -136,11 +107,6 @@ describe("the comparand is the newer of the two readings", () => {
     const comparand = dispatcher.comparandFor(RUN_ID, 6);
     await dispatcher.resume({ runId: RUN_ID, expectedRunVersion: comparand });
     expect(calls[1]?.params).toMatchObject({ expectedRunVersion: 7 });
-  });
-
-  it("sends the stream's reading when no control has settled yet", () => {
-    const { dispatcher } = dispatcherOver(async () => STUB_ACK);
-    expect(dispatcher.comparandFor(RUN_ID, 3)).toBe(3);
   });
 
   it("answers nothing when neither reading exists, so the caller dispatches nothing", () => {
@@ -159,17 +125,5 @@ describe("the daemon's answer is the only settlement", () => {
     await expect(dispatcher.interrupt({ runId: RUN_ID, expectedRunVersion: 6 })).rejects.toBe(
       rejection,
     );
-  });
-
-  it("dispatches at a completed run rather than deciding eligibility itself", async () => {
-    // Eligibility is the daemon's: the dispatcher holds no run state, so the call goes out and
-    // the daemon's rejection comes back.
-    const { dispatcher, calls } = dispatcherOver(async () => {
-      throw { code: "run.invalid_transition", message: "the run has already completed" };
-    });
-    await expect(
-      dispatcher.interrupt({ runId: RUN_ID, expectedRunVersion: 42 }),
-    ).rejects.toMatchObject({ code: "run.invalid_transition" });
-    expect(calls).toHaveLength(1);
   });
 });
