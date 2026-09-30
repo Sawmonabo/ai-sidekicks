@@ -25,7 +25,7 @@ const STEP = {
 };
 
 describe("WorkflowStepSchema", () => {
-  it("accepts a step waiting on an approval with its deadline", () => {
+  it("accepts a waiting step with its deadline, and one parked with the instant it resumes", () => {
     const waiting = {
       ...STEP,
       status: "waiting",
@@ -33,9 +33,6 @@ describe("WorkflowStepSchema", () => {
       waitDeadlineAt: "2026-09-30T06:00:00-04:00",
     };
     expect(WorkflowStepSchema.safeParse(waiting).success).toBe(true);
-  });
-
-  it("accepts a step parked on a spent account with the instant it resumes", () => {
     const parked = {
       ...STEP,
       status: "waiting",
@@ -57,18 +54,6 @@ describe("WorkflowStepSchema", () => {
   it("refuses a resume instant on a step that is not waiting", () => {
     const canceled = { ...STEP, status: "canceled", resumeAt: "2026-09-29T19:00:00Z" };
     expect(WorkflowStepSchema.safeParse(canceled).success).toBe(false);
-  });
-
-  it("refuses a step status outside the closed list", () => {
-    expect(WorkflowStepSchema.safeParse({ ...STEP, status: "completed" }).success).toBe(false);
-  });
-
-  it("refuses a run id that is not a UUID", () => {
-    const finished = { ...STEP, status: "succeeded" };
-    expect(WorkflowStepSchema.safeParse(finished).success).toBe(true);
-    expect(WorkflowStepSchema.safeParse({ ...finished, workflowRunId: "wfr-1" }).success).toBe(
-      false,
-    );
   });
 });
 

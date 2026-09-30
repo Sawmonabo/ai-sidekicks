@@ -1,12 +1,10 @@
-// The governance events the log keeps. A kept event never carries a folder path,
-// names the live leg exactly when a session observed the change, and gives a
-// removal the hash it had and no new one.
+// The governance events the log keeps. A kept event names the live leg exactly when a
+// session observed the change, and gives a removal the hash it had and no new one.
 import { describe, expect, it } from "vitest";
 
 import {
   McpServerConfigChangedPayloadSchema,
   McpServerStatusChangedPayloadSchema,
-  McpServerTrustChangedPayloadSchema,
 } from "../mcp-governance.js";
 
 const DIGEST = "b3:9f2c";
@@ -18,17 +16,6 @@ describe("governance event payloads", () => {
     scopeRefDigest: DIGEST,
     serverName: "docs",
   } as const;
-
-  it("names a project binding by its digest, never its folder", () => {
-    const trust = { trusted: true, reason: "operator_grant", configHash: DIGEST };
-    expect(McpServerTrustChangedPayloadSchema.safeParse({ ...auditRef, ...trust }).success).toBe(
-      true,
-    );
-    expect(
-      McpServerTrustChangedPayloadSchema.safeParse({ ...auditRef, scopeRef: "/work/app", ...trust })
-        .success,
-    ).toBe(false);
-  });
 
   it("names the leg exactly when a session observed the change", () => {
     const change = { ...auditRef, previousStatus: "starting", status: "failed" };

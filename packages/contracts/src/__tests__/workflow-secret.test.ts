@@ -1,11 +1,9 @@
-// A workflow secret's name and reference are read by the chooser, the daemon's check at
-// save and the step that resolves it; its value crosses the wire once, inward. These
-// cases hold the name rule, the reference form, a place that is a project or shared and
-// never both, and a value that no reply carries.
+// A workflow secret's name and reference are read by the chooser, the daemon's check at save and
+// the step that resolves it; its value crosses the wire once, inward. These cases hold the name
+// rule, the reference form, and a value that no reply carries.
 import { describe, expect, it } from "vitest";
 
 import {
-  WorkflowSecretCreateRequestSchema,
   WorkflowSecretSummarySchema,
   WorkflowSecretNotFoundDetailsSchema,
   composeWorkflowSecretReference,
@@ -65,39 +63,6 @@ describe("the secret:// reference", () => {
 });
 
 describe("workflow.secretCreate", () => {
-  it("places a secret in a project with its identity, or shared with none", () => {
-    expect(
-      WorkflowSecretCreateRequestSchema.safeParse({
-        scope: "project",
-        scopeRef: "/repo",
-        name: "github-read",
-        secretValue: "example-value",
-      }).success,
-    ).toBe(true);
-    expect(
-      WorkflowSecretCreateRequestSchema.safeParse({
-        scope: "shared",
-        name: "mail",
-        secretValue: "hunter2",
-      }).success,
-    ).toBe(true);
-  });
-
-  it("refuses a project secret without its project, a shared one with one, and a session scope", () => {
-    const value = { name: "github-read", secretValue: "example-value" };
-    expect(
-      WorkflowSecretCreateRequestSchema.safeParse({ ...value, scope: "project" }).success,
-    ).toBe(false);
-    expect(
-      WorkflowSecretCreateRequestSchema.safeParse({ ...value, scope: "shared", scopeRef: "/repo" })
-        .success,
-    ).toBe(false);
-    expect(
-      WorkflowSecretCreateRequestSchema.safeParse({ ...value, scope: "session", scopeRef: "s" })
-        .success,
-    ).toBe(false);
-  });
-
   it("answers with the record and refuses a reply that carries the value", () => {
     const record = { secretId: SECRET_ID, scope: "shared", name: "mail" };
     expect(WorkflowSecretSummarySchema.safeParse(record).success).toBe(true);

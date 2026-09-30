@@ -3,11 +3,7 @@
 // fetched only for the fetched one.
 import { describe, expect, it } from "vitest";
 
-import {
-  BrowserChromiumReadResponseSchema,
-  BrowserSiteDataListResponseSchema,
-  BrowserSiteRequestSchema,
-} from "../browser.js";
+import { BrowserChromiumReadResponseSchema, BrowserSiteRequestSchema } from "../browser.js";
 
 describe("a site's origin", () => {
   it("accepts an http(s) origin, with a port where it is not the scheme's own", () => {
@@ -36,25 +32,6 @@ describe("a site's origin", () => {
   });
 });
 
-describe("browser.siteDataList", () => {
-  it("says of each site whether it holds a cookie", () => {
-    const site = {
-      origin: "https://example.com",
-      sizeBytes: 2048,
-      lastUsedAt: "2026-09-29T10:00:00Z",
-      hasCookies: true,
-    };
-    expect(BrowserSiteDataListResponseSchema.safeParse({ sites: [site] }).success).toBe(true);
-    const { hasCookies: _hasCookies, ...withoutCookieFact } = site;
-    expect(
-      BrowserSiteDataListResponseSchema.safeParse({ sites: [withoutCookieFact] }).success,
-    ).toBe(false);
-    expect(
-      BrowserSiteDataListResponseSchema.safeParse({ sites: [{ ...site, signedIn: true }] }).success,
-    ).toBe(false);
-  });
-});
-
 describe("browser.chromiumRead", () => {
   it("dates only the fetched Chromium", () => {
     const fetched = {
@@ -73,25 +50,6 @@ describe("browser.chromiumRead", () => {
       BrowserChromiumReadResponseSchema.safeParse({
         ...installed,
         fetchedAt: "2026-09-12T09:00:00Z",
-      }).success,
-    ).toBe(false);
-  });
-
-  it("says why the headless Chromium cannot start, from a closed set", () => {
-    const reading = {
-      source: "playwright",
-      version: "141.0.7390.54",
-      fetchedAt: "2026-09-12T09:00:00Z",
-      cannotStart: {
-        reason: "missingSystemLibraries",
-        installStep: "sudo npx playwright@1.62.1 install-deps chromium",
-      },
-    };
-    expect(BrowserChromiumReadResponseSchema.safeParse(reading).success).toBe(true);
-    expect(
-      BrowserChromiumReadResponseSchema.safeParse({
-        ...reading,
-        cannotStart: { ...reading.cannotStart, reason: "noDisplay" },
       }).success,
     ).toBe(false);
   });

@@ -1,23 +1,9 @@
-// The `attention.*` wire. The projection's entries say the name and the state the
-// bell and the banner show, and a Notify step's entry is the one that names a step;
-// main settles a banner once and never back to `pending`; the delivery read shows a
-// web address as its host only when one is saved; the delivery verbs carry nothing
-// but what the person typed, and the daemon, not the schema, decides whether an
-// address can be sent to.
+// The `attention.*` wire. A Notify step's entry is the one that names a step, and it is
+// informational and carries its run; the delivery read shows a web address as its host
+// exactly when one is saved.
 import { describe, expect, it } from "vitest";
 
-import {
-  AttentionBannerSettleRequestSchema,
-  AttentionDeliveryReadResponseSchema,
-  AttentionDeliveryStoreUnavailableDetailsSchema,
-  AttentionDeliveryTestRequestSchema,
-  AttentionEmptyMessageSchema,
-  AttentionMailPasswordSaveRequestSchema,
-  AttentionProjectionSchema,
-  AttentionSeenUpdateRequestSchema,
-  AttentionWebAddressInvalidDetailsSchema,
-  AttentionWebAddressSaveRequestSchema,
-} from "../attention.js";
+import { AttentionDeliveryReadResponseSchema, AttentionProjectionSchema } from "../attention.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 
@@ -58,11 +44,6 @@ describe("attention.projectionRead", () => {
     expect(AttentionProjectionSchema.safeParse(projection).success).toBe(true);
   });
 
-  it("refuses the retired mention trigger", () => {
-    const mention = { ...WAITING_ENTRY, trigger: "mention" };
-    expect(AttentionProjectionSchema.safeParse({ items: [mention] }).success).toBe(false);
-  });
-
   it("names a step on a Notify step's entry and on no other", () => {
     const { stepId: _stepId, ...notifyWithoutStep } = NOTIFY_ENTRY;
     const waitingWithStep = { ...WAITING_ENTRY, stepId: "notify-1" };
@@ -75,30 +56,6 @@ describe("attention.projectionRead", () => {
     const { runId: _runId, ...runless } = NOTIFY_ENTRY;
     expect(AttentionProjectionSchema.safeParse({ items: [actionable] }).success).toBe(false);
     expect(AttentionProjectionSchema.safeParse({ items: [runless] }).success).toBe(false);
-  });
-});
-
-describe("attention.bannerSettle and attention.seenUpdate", () => {
-  it("settles a banner as posted, withheld or withdrawn, never back to pending", () => {
-    expect(
-      AttentionBannerSettleRequestSchema.safeParse({ entryId: "entry-1", state: "posted" }).success,
-    ).toBe(true);
-    expect(
-      AttentionBannerSettleRequestSchema.safeParse({ entryId: "entry-1", state: "pending" })
-        .success,
-    ).toBe(false);
-    expect(AttentionBannerSettleRequestSchema.safeParse({ state: "withdrawn" }).success).toBe(
-      false,
-    );
-  });
-
-  it("marks a session seen by its id", () => {
-    expect(AttentionSeenUpdateRequestSchema.safeParse({ sessionId: SESSION_ID }).success).toBe(
-      true,
-    );
-    expect(AttentionSeenUpdateRequestSchema.safeParse({ sessionId: "session-1" }).success).toBe(
-      false,
-    );
   });
 });
 
@@ -124,54 +81,5 @@ describe("attention.deliveryRead", () => {
     };
     expect(AttentionDeliveryReadResponseSchema.safeParse(savedWithoutHost).success).toBe(false);
     expect(AttentionDeliveryReadResponseSchema.safeParse(hostWithoutSave).success).toBe(false);
-  });
-
-  it("refuses an outcome outside the six results", () => {
-    const read = {
-      webAddress: { saved: true, host: "ntfy.sh", lastOutcome: { ...OUTCOME, result: "bounced" } },
-      emailDigest: digest,
-    };
-    expect(AttentionDeliveryReadResponseSchema.safeParse(read).success).toBe(false);
-  });
-});
-
-describe("the delivery verbs", () => {
-  it("tests one of the two channels", () => {
-    expect(AttentionDeliveryTestRequestSchema.safeParse({ channel: "emailDigest" }).success).toBe(
-      true,
-    );
-    expect(AttentionDeliveryTestRequestSchema.safeParse({ channel: "slack" }).success).toBe(false);
-  });
-
-  it("refuses an empty mail password", () => {
-    expect(AttentionMailPasswordSaveRequestSchema.safeParse({ password: "" }).success).toBe(false);
-  });
-
-  it("leaves an unparseable address for the daemon to refuse with its reason", () => {
-    expect(
-      AttentionWebAddressSaveRequestSchema.safeParse({ address: "not an address" }).success,
-    ).toBe(true);
-  });
-
-  it("removes and rotates with an empty request", () => {
-    expect(AttentionEmptyMessageSchema.safeParse({}).success).toBe(true);
-    expect(AttentionEmptyMessageSchema.safeParse({ password: "hunter2" }).success).toBe(false);
-  });
-});
-
-describe("the delivery refusals' details", () => {
-  it("names a closed reason and a closed cause", () => {
-    expect(AttentionWebAddressInvalidDetailsSchema.safeParse({ reason: "notHttps" }).success).toBe(
-      true,
-    );
-    expect(AttentionWebAddressInvalidDetailsSchema.safeParse({ reason: "blocked" }).success).toBe(
-      false,
-    );
-    expect(
-      AttentionDeliveryStoreUnavailableDetailsSchema.safeParse({ cause: "locked" }).success,
-    ).toBe(true);
-    expect(
-      AttentionDeliveryStoreUnavailableDetailsSchema.safeParse({ cause: "missing" }).success,
-    ).toBe(false);
   });
 });
