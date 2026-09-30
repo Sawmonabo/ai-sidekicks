@@ -16,7 +16,8 @@ import {
   type AgentProviderBinding,
   type AgentResolvedConfiguration,
 } from "./agent-definition.js";
-import { SessionEventSchema, type SessionEvent } from "./event.js";
+import { SessionEventSchema } from "./event.js";
+import type { SessionEvent } from "./event-variant-types.js";
 import { SubscriptionIdSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import {
   defineMethodDescriptors,

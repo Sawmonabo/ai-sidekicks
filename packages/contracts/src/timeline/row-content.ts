@@ -6,12 +6,12 @@
 // reason either read gives.
 import { z } from "zod";
 
+import { CONTENT_PAYLOAD_PLAINTEXT_MAX } from "../event-declared-variants.js";
 import {
-  CONTENT_PAYLOAD_PLAINTEXT_MAX,
   EVENT_FIELD_MAX_LEN,
   type HydratedContentUnavailableReason,
   type HydratedSessionEventContent,
-} from "../event.js";
+} from "../event-envelope.js";
 import { jsonUtf8ByteLength } from "../jsonrpc.js";
 import {
   SessionIdSchema,

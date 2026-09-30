@@ -30,17 +30,16 @@ import { z } from "zod";
 
 import {
   EventEnvelopeSchema,
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  SESSION_EVENT_TYPES,
-  SessionEventSchema,
   SOURCE_EPOCH_PAYLOAD_KEY,
-  SourceEpochSchema,
   SOURCE_POSITION_PAYLOAD_KEY,
+  SourceEpochSchema,
   SourcePositionSchema,
   withEpochStamp,
   type EventCategory,
-  type SessionEventType,
-} from "../event.js";
+} from "../event-envelope.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "../event.js";
+import { SESSION_EVENT_TYPES, type SessionEventType } from "../event-registry.js";
+import { SessionEventSchema } from "../event.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const RUN_ID = "990e8400-e29b-41d4-a716-446655440004";

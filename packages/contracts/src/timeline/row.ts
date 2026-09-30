@@ -6,16 +6,18 @@ import { z } from "zod";
 
 import {
   ASSISTANT_OUTPUT_EVENT_TYPES,
+  INTERACTIVE_REQUEST_EVENT_TYPES,
+  RUN_LIFECYCLE_EVENT_TYPES,
+  TOOL_ACTIVITY_EVENT_TYPES,
+} from "../event-registry.js";
+import {
   EVENT_ENVELOPE_SEQUENCE_MAX,
   EVENT_FIELD_MAX_LEN,
   EventCategorySchema,
-  INTERACTIVE_REQUEST_EVENT_TYPES,
-  RUN_LIFECYCLE_EVENT_TYPES,
   SOURCE_EPOCH_PAYLOAD_KEY,
   SOURCE_POSITION_PAYLOAD_KEY,
-  TOOL_ACTIVITY_EVENT_TYPES,
-} from "../event.js";
-import type { EventCategory } from "../event.js";
+} from "../event-envelope.js";
+import type { EventCategory } from "../event-envelope.js";
 import { RunIdSchema, type RunId } from "../provider-driver.js";
 import { RunRolledBackEventSchema, type RunRolledBackEvent } from "../run-control.js";
 import {

@@ -3,7 +3,7 @@
 // history loads that history then. The count and each hit's position come from the daemon.
 import { z } from "zod";
 
-import { EVENT_FIELD_MAX_LEN } from "../event.js";
+import { EVENT_FIELD_MAX_LEN } from "../event-envelope.js";
 import {
   EventCursorSchema,
   SessionIdSchema,

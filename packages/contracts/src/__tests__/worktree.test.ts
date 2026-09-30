@@ -3,17 +3,17 @@
 // `worktree.failed` is rejected by the union and absent from the event roster and census.
 import { describe, expect, it } from "vitest";
 
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "../event.js";
+import { SESSION_EVENT_TYPES } from "../event-registry.js";
+import { SessionEventSchema } from "../event.js";
 import {
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  SESSION_EVENT_TYPES,
-  SessionEventSchema,
   WorktreeCreatedEventSchema,
   WorktreeDirtyEventSchema,
   WorktreeMergedEventSchema,
   WorktreeReadyEventSchema,
   WorktreeRetiredEventSchema,
-  type SessionEvent,
-} from "../event.js";
+} from "../event-declared-variants.js";
+import type { SessionEvent } from "../event-variant-types.js";
 import * as contracts from "../index.js";
 // The aliased import below is worktree.ts's re-export, under a distinct name so the identity
 // check compares two surfaces rather than one to itself.

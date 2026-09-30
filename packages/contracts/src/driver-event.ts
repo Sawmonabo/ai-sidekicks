@@ -21,12 +21,12 @@ import {
   INTERACTIVE_REQUEST_EVENT_TYPES,
   RUNTIME_NODE_LIFECYCLE_EVENT_TYPES,
   RUN_LIFECYCLE_EVENT_TYPES,
-  SessionEventSchema,
   TOOL_ACTIVITY_EVENT_TYPES,
   USAGE_TELEMETRY_EVENT_TYPES,
-  type SessionEvent,
   type SessionEventType,
-} from "./event.js";
+} from "./event-registry.js";
+import { SessionEventSchema } from "./event.js";
+import type { SessionEvent } from "./event-variant-types.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import { defineMethodDescriptors, type SubscriptionMethodDescriptor } from "./method-descriptor.js";
 import {

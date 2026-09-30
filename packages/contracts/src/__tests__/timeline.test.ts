@@ -8,7 +8,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { EVENT_FIELD_MAX_LEN } from "../event.js";
+import { EVENT_FIELD_MAX_LEN } from "../event-envelope.js";
 import { EVENT_CURSOR_MAX_LEN } from "../session.js";
 import { MAX_MESSAGE_BYTES, jsonUtf8ByteLength } from "../jsonrpc.js";
 import type { RunRolledBackEvent } from "../run-control.js";

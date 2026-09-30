@@ -11,12 +11,10 @@
 import { describe, expect, it } from "vitest";
 
 import { DRIVER_EVENT_TYPES, DriverEventSchema, type DriverEventType } from "../driver-event.js";
-import {
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  SESSION_EVENT_TYPES,
-  SessionEventSchema,
-  type EventCategory,
-} from "../event.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "../event.js";
+import { SESSION_EVENT_TYPES } from "../event-registry.js";
+import { SessionEventSchema } from "../event.js";
+import type { EventCategory } from "../event-envelope.js";
 
 const SESSION_ID = "550e8400-e29b-41d4-a716-446655440000";
 const USER_ID = "660e8400-e29b-41d4-a716-446655440001";

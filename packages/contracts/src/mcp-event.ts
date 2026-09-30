@@ -4,7 +4,9 @@
 // cannot import it back.
 import { z } from "zod";
 
-import { MCP_GOVERNANCE_EVENT_TYPES, SessionEventSchema, type SessionEvent } from "./event.js";
+import { MCP_GOVERNANCE_EVENT_TYPES } from "./event-registry.js";
+import { SessionEventSchema } from "./event.js";
+import type { SessionEvent } from "./event-variant-types.js";
 import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
 import { McpSubscribeRequestSchema, type McpSubscribeRequest } from "./mcp.js";
 import { defineMethodDescriptors, type SubscriptionMethodDescriptor } from "./method-descriptor.js";

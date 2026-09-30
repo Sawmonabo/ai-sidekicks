@@ -5,18 +5,18 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import { EVENT_FIELD_MAX_LEN } from "../event-envelope.js";
 import {
-  EVENT_FIELD_MAX_LEN,
   RepoAttachedEventSchema,
   RepoDetachedEventSchema,
-  SESSION_EVENT_CATEGORY_BY_TYPE,
-  SessionEventSchema,
   WorkspaceArchivedEventSchema,
   WorkspacePreparingEventSchema,
   WorkspaceReadyEventSchema,
   WorkspaceStaleEventSchema,
-  type SessionEvent,
-} from "../event.js";
+} from "../event-declared-variants.js";
+import { SESSION_EVENT_CATEGORY_BY_TYPE } from "../event.js";
+import { SessionEventSchema } from "../event.js";
+import type { SessionEvent } from "../event-variant-types.js";
 import * as contracts from "../index.js";
 import { NODE_ID_MAX_LEN, NodeIdSchema } from "../node-id.js";
 import {
