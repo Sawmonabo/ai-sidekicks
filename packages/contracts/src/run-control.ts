@@ -1,6 +1,7 @@
 // Run-control contracts: interventions on a running run, pause and resume, the recovery question
 // after a restart, the run state stream, the run read, and the `run.*` method table, which also
-// serves the queue (`run-queue.ts`) and a child's own controls (`run-children.ts`).
+// serves the queue (`run-queue.ts`), a child's own controls (`run-children.ts`) and the provider's
+// choices a run waits on (`run-provider-choice.ts`).
 //
 // Imports go downward only. The modules imported here build their Zod schemas at module scope, so
 // a back-import would throw `ReferenceError` at import time instead of failing to compile. That
@@ -80,6 +81,12 @@ import {
   type QueueReorderRequest,
   type RunQueueSubscribeRequest,
 } from "./run-queue.js";
+import {
+  RunRefusalChoiceResolveRequestSchema,
+  RunUsageCreditsChoiceResolveRequestSchema,
+  type RunRefusalChoiceResolveRequest,
+  type RunUsageCreditsChoiceResolveRequest,
+} from "./run-provider-choice.js";
 import { RunStateSchema, type RunState } from "./run-state.js";
 import {
   RunSafetyBufferingUpdatedPayloadSchema,
@@ -687,6 +694,16 @@ export interface RunControlMethodDescriptors {
     RunRecoveryResolveRequest,
     RunControlAck
   >;
+  readonly "run.refusalChoiceResolve": MethodDescriptor<
+    "run.refusalChoiceResolve",
+    RunRefusalChoiceResolveRequest,
+    RunControlAck
+  >;
+  readonly "run.usageCreditsChoiceResolve": MethodDescriptor<
+    "run.usageCreditsChoiceResolve",
+    RunUsageCreditsChoiceResolveRequest,
+    RunControlAck
+  >;
 }
 
 /** The run-control methods, each with its schemas. */
@@ -789,6 +806,20 @@ export const RUN_CONTROL_METHOD_DESCRIPTORS: RunControlMethodDescriptors = defin
     procedureType: "mutation",
     mutating: true,
     requestSchema: RunRecoveryResolveRequestSchema,
+    responseSchema: RunControlAckSchema,
+  },
+  "run.refusalChoiceResolve": {
+    method: "run.refusalChoiceResolve",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RunRefusalChoiceResolveRequestSchema,
+    responseSchema: RunControlAckSchema,
+  },
+  "run.usageCreditsChoiceResolve": {
+    method: "run.usageCreditsChoiceResolve",
+    procedureType: "mutation",
+    mutating: true,
+    requestSchema: RunUsageCreditsChoiceResolveRequestSchema,
     responseSchema: RunControlAckSchema,
   },
 });

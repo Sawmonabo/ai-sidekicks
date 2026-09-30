@@ -63,6 +63,12 @@ import type { PtyControlChangedPayload } from "./pty.js";
 import type { QuestionAskedPayload } from "./question.js";
 import type { RelayPinRefusedPayload } from "./relay.js";
 import type { RunRecoveryResolvedPayload } from "./run-control.js";
+import type {
+  RunRefusalChoiceRequestedPayload,
+  RunRefusalChoiceResolvedPayload,
+  RunUsageCreditsChoiceRequestedPayload,
+  RunUsageCreditsChoiceResolvedPayload,
+} from "./run-provider-choice.js";
 import type { RunQueuedPayload } from "./run-queued.js";
 import type {
   ModerationReviewFlaggedPayload,
@@ -402,6 +408,30 @@ export type RunRecoveryResolvedEvent = SessionEventVariant<
   "run_lifecycle",
   RunRecoveryResolvedPayload
 >;
+/** Emitted when Claude Code refuses a turn, names a fallback model and asks to retry or edit. */
+export type RunRefusalChoiceRequestedEvent = SessionEventVariant<
+  "run.refusal_choice_requested",
+  "run_lifecycle",
+  RunRefusalChoiceRequestedPayload
+>;
+/** Emitted when the first answer settles a refused turn's retry-or-edit choice. */
+export type RunRefusalChoiceResolvedEvent = SessionEventVariant<
+  "run.refusal_choice_resolved",
+  "run_lifecycle",
+  RunRefusalChoiceResolvedPayload
+>;
+/** Emitted when a Fable turn needs usage credits and Claude Code asks to switch or go on. */
+export type RunUsageCreditsChoiceRequestedEvent = SessionEventVariant<
+  "run.usage_credits_choice_requested",
+  "run_lifecycle",
+  RunUsageCreditsChoiceRequestedPayload
+>;
+/** Emitted when a Fable turn's switch-or-credits choice settles. */
+export type RunUsageCreditsChoiceResolvedEvent = SessionEventVariant<
+  "run.usage_credits_choice_resolved",
+  "run_lifecycle",
+  RunUsageCreditsChoiceResolvedPayload
+>;
 /** Emitted when a session's goal is set or changes status. */
 export type SessionGoalUpdatedEvent = SessionEventVariant<
   "session.goal_updated",
@@ -561,6 +591,10 @@ export type SessionEvent =
   | RunQueuedEvent
   | RunStepLimitReachedEvent
   | RunRecoveryResolvedEvent
+  | RunRefusalChoiceRequestedEvent
+  | RunRefusalChoiceResolvedEvent
+  | RunUsageCreditsChoiceRequestedEvent
+  | RunUsageCreditsChoiceResolvedEvent
   | SessionGoalUpdatedEvent
   | SessionRenamedEvent
   | PtyControlChangedEvent

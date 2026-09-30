@@ -34,6 +34,8 @@ export type NormalizedEventKind =
   | "approval_resolved"
   | "user_input_request"
   | "user_input_resolved"
+  | "refusal_choice_request"
+  | "usage_credits_choice_request"
   | "session_status"
   | "token_usage"
   | "error"
@@ -79,6 +81,8 @@ export const NORMALIZED_EVENT_KINDS: readonly NormalizedEventKind[] = [
   "approval_resolved",
   "user_input_request",
   "user_input_resolved",
+  "refusal_choice_request",
+  "usage_credits_choice_request",
   "session_status",
   "token_usage",
   "error",
@@ -190,6 +194,20 @@ const EVENT_DISPOSITION_RECORD = {
     disposition: "discard",
     reason:
       "the answer is recorded as the person's own user.message turn by the call that answered the question; its delivery to the provider is kept in the daemon's log only",
+  },
+  // Claude Code's retry-or-edit choice on a refused turn that names a fallback model. Its answer,
+  // `run.refusal_choice_resolved`, is appended by the daemon when it answers and is no kind.
+  refusal_choice_request: {
+    disposition: "adopt",
+    category: "run_lifecycle",
+    eventType: "run.refusal_choice_requested",
+  },
+  // Claude Code's switch-or-credits choice when a Fable turn needs usage credits. How it settles,
+  // `run.usage_credits_choice_resolved`, is appended by the daemon and is no kind.
+  usage_credits_choice_request: {
+    disposition: "adopt",
+    category: "run_lifecycle",
+    eventType: "run.usage_credits_choice_requested",
   },
   // Coarse provider status; it never drives a `session.*` state transition, so none is fabricated.
   session_status: {

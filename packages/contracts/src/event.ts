@@ -64,6 +64,12 @@ import { QuestionAskedPayloadSchema } from "./question.js";
 import { RelayPinRefusedPayloadSchema } from "./relay.js";
 import { RepoWorkspaceLifecyclePayloadSchema } from "./repo.js";
 import { RunRecoveryResolvedPayloadSchema } from "./run-control.js";
+import {
+  RunRefusalChoiceRequestedPayloadSchema,
+  RunRefusalChoiceResolvedPayloadSchema,
+  RunUsageCreditsChoiceRequestedPayloadSchema,
+  RunUsageCreditsChoiceResolvedPayloadSchema,
+} from "./run-provider-choice.js";
 import { RunQueuedPayloadSchema } from "./run-queued.js";
 import {
   ModerationReviewFlaggedPayloadSchema,
@@ -128,6 +134,10 @@ const SESSION_EVENT_CATEGORY_RECORD = {
   "run.worker_shutdown": "run_lifecycle",
   "run.step_limit_reached": "run_lifecycle",
   "run.recovery_resolved": "run_lifecycle",
+  "run.refusal_choice_requested": "run_lifecycle",
+  "run.refusal_choice_resolved": "run_lifecycle",
+  "run.usage_credits_choice_requested": "run_lifecycle",
+  "run.usage_credits_choice_resolved": "run_lifecycle",
   // assistant_output
   "assistant.message": "assistant_output",
   "assistant.thinking_update": "assistant_output",
@@ -575,6 +585,26 @@ const runRecoveryResolvedVariantSchema = buildSessionEventVariantSchema(
   "run_lifecycle",
   RunRecoveryResolvedPayloadSchema,
 );
+const runRefusalChoiceRequestedVariantSchema = buildSessionEventVariantSchema(
+  "run.refusal_choice_requested",
+  "run_lifecycle",
+  RunRefusalChoiceRequestedPayloadSchema,
+);
+const runRefusalChoiceResolvedVariantSchema = buildSessionEventVariantSchema(
+  "run.refusal_choice_resolved",
+  "run_lifecycle",
+  RunRefusalChoiceResolvedPayloadSchema,
+);
+const runUsageCreditsChoiceRequestedVariantSchema = buildSessionEventVariantSchema(
+  "run.usage_credits_choice_requested",
+  "run_lifecycle",
+  RunUsageCreditsChoiceRequestedPayloadSchema,
+);
+const runUsageCreditsChoiceResolvedVariantSchema = buildSessionEventVariantSchema(
+  "run.usage_credits_choice_resolved",
+  "run_lifecycle",
+  RunUsageCreditsChoiceResolvedPayloadSchema,
+);
 const sessionGoalUpdatedVariantSchema = buildSessionEventVariantSchema(
   "session.goal_updated",
   "session_lifecycle",
@@ -859,6 +889,10 @@ export const SessionEventSchema: z.ZodType<SessionEvent> = z.discriminatedUnion(
   runQueuedVariantSchema,
   runStepLimitReachedVariantSchema,
   runRecoveryResolvedVariantSchema,
+  runRefusalChoiceRequestedVariantSchema,
+  runRefusalChoiceResolvedVariantSchema,
+  runUsageCreditsChoiceRequestedVariantSchema,
+  runUsageCreditsChoiceResolvedVariantSchema,
   sessionGoalUpdatedVariantSchema,
   sessionRenamedVariantSchema,
   ptyControlChangedVariantSchema,

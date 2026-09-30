@@ -33,7 +33,11 @@ import {
   RunIdSchema,
   RunQueuedPayloadSchema,
   RunRecoveryResolvedPayloadSchema,
+  RunRefusalChoiceRequestedPayloadSchema,
+  RunRefusalChoiceResolvedPayloadSchema,
   RunStepLimitReachedPayloadSchema,
+  RunUsageCreditsChoiceRequestedPayloadSchema,
+  RunUsageCreditsChoiceResolvedPayloadSchema,
   SessionIdSchema,
 } from "@ai-sidekicks/contracts";
 import type { SessionEventType } from "@ai-sidekicks/contracts";
@@ -124,6 +128,10 @@ const REGISTERED_UNPROJECTED_RUN_PAYLOADS: Readonly<Record<UnprojectedRunLifecyc
     "run.worker_shutdown": z.object({ ...runIdentityShape, reason: z.string().optional() }),
     "run.step_limit_reached": RunStepLimitReachedPayloadSchema,
     "run.recovery_resolved": RunRecoveryResolvedPayloadSchema,
+    "run.refusal_choice_requested": RunRefusalChoiceRequestedPayloadSchema,
+    "run.refusal_choice_resolved": RunRefusalChoiceResolvedPayloadSchema,
+    "run.usage_credits_choice_requested": RunUsageCreditsChoiceRequestedPayloadSchema,
+    "run.usage_credits_choice_resolved": RunUsageCreditsChoiceResolvedPayloadSchema,
   } satisfies Record<UnprojectedRunLifecycleKind, ZodType>);
 
 /**

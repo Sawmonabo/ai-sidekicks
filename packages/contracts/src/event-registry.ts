@@ -37,6 +37,10 @@ export type SessionEventType =
   | "run.worker_shutdown"
   | "run.step_limit_reached"
   | "run.recovery_resolved"
+  | "run.refusal_choice_requested"
+  | "run.refusal_choice_resolved"
+  | "run.usage_credits_choice_requested"
+  | "run.usage_credits_choice_resolved"
   // assistant_output
   | "assistant.message"
   | "assistant.thinking_update"
@@ -261,6 +265,10 @@ export const SESSION_EVENT_TYPES: readonly SessionEvent["type"][] = [
   "run.queued",
   "run.step_limit_reached",
   "run.recovery_resolved",
+  "run.refusal_choice_requested",
+  "run.refusal_choice_resolved",
+  "run.usage_credits_choice_requested",
+  "run.usage_credits_choice_resolved",
   "session.goal_updated",
   "session.renamed",
   "pty.control_changed",
@@ -303,6 +311,10 @@ export const RUN_LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "run.worker_shutdown",
   "run.step_limit_reached",
   "run.recovery_resolved",
+  "run.refusal_choice_requested",
+  "run.refusal_choice_resolved",
+  "run.usage_credits_choice_requested",
+  "run.usage_credits_choice_resolved",
 ] as const;
 
 /** The event types of the `assistant_output` category. */

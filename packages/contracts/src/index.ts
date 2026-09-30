@@ -71,6 +71,7 @@ export * from "./repo.js";
 export * from "./review-note.js";
 export * from "./run-children.js";
 export * from "./run-control.js";
+export * from "./run-provider-choice.js";
 export * from "./run-queue.js";
 export * from "./run-queued.js";
 export * from "./run-state.js";
