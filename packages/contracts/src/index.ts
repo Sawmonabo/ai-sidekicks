@@ -42,6 +42,7 @@ export * from "./jsonrpc-registry.js";
 export * from "./jsonrpc-streaming.js";
 export * from "./jsonrpc.js";
 export * from "./machine-settings.js";
+export * from "./mcp-event.js";
 export * from "./mcp-governance.js";
 export * from "./mcp.js";
 export * from "./method-descriptor.js";

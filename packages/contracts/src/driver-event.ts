@@ -80,6 +80,12 @@ import {
   type SessionEvent,
   type SessionEventType,
 } from "./event.js";
+import { SubscribeAckResponseSchema, type SubscribeAckResponse } from "./jsonrpc-streaming.js";
+import { defineMethodDescriptors, type SubscriptionMethodDescriptor } from "./method-descriptor.js";
+import {
+  DriverSubscribeEventsParamsSchema,
+  type DriverSubscribeEventsParams,
+} from "./provider-driver.js";
 
 // The seven `EventCategory` values a driver event may carry. Hand-written
 // because the list is a DESIGN choice over the 16-category census that nothing
@@ -166,3 +172,30 @@ export const DriverEventSchema: z.ZodType<DriverEvent> = SessionEventSchema.supe
     });
   },
 ) as z.ZodType<DriverEvent>;
+
+/** `driver.subscribeEvents`: one run's driver activity, as a stream of driver events. */
+export interface DriverEventMethodDescriptors {
+  readonly "driver.subscribeEvents": SubscriptionMethodDescriptor<
+    "driver.subscribeEvents",
+    DriverSubscribeEventsParams,
+    SubscribeAckResponse,
+    DriverEvent
+  >;
+}
+
+/**
+ * The driver event stream's method. It sits here rather than in the driver
+ * method table because its emission is the session event, which the driver
+ * contract cannot import.
+ */
+export const DRIVER_EVENT_METHOD_DESCRIPTORS: DriverEventMethodDescriptors =
+  defineMethodDescriptors({
+    "driver.subscribeEvents": {
+      method: "driver.subscribeEvents",
+      procedureType: "subscription",
+      mutating: false,
+      requestSchema: DriverSubscribeEventsParamsSchema,
+      responseSchema: SubscribeAckResponseSchema,
+      emissionSchema: DriverEventSchema,
+    },
+  });

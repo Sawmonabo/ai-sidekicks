@@ -2879,9 +2879,9 @@ export const ProviderCommandListResultSchema: z.ZodType<
 // The method table
 // --------------------------------------------------------------------------
 //
-// `driver.subscribeEvents` is not in this table: its emission is the session
-// event, and naming that schema here would import the event module, which
-// itself imports this file.
+// `driver.subscribeEvents` is in `driver-event.ts`'s table: its emission is the
+// session event, and naming that schema here would import the event module,
+// which itself imports this file.
 
 /** The driver methods a client calls, each a query or a mutation. */
 export interface DriverMethodDescriptors {
