@@ -13,7 +13,7 @@ import {
 } from "./TranscriptPane.js";
 
 /** The session id the pane suite's route and store share. */
-export const TRANSCRIPT_PANE_SESSION_ID = "session-transcript";
+const TRANSCRIPT_PANE_SESSION_ID = "session-transcript";
 
 /**
  * The pane context with the window store real and the other members cast. The pane
