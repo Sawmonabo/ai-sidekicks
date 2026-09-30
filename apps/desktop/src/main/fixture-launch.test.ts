@@ -46,10 +46,10 @@ describe("checkFixtureLaunchAgainstCatalog", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("refuses a scenario the catalog does not hold, naming the ones it does", async () => {
-    await expect(
-      checkFixtureLaunchAgainstCatalog({ scenarioId: "no-such-scenario" }),
-    ).rejects.toThrow(FIRST_RUN_SCENARIO.id);
+  it("refuses a scenario the catalog does not hold, naming it and the ones it does", async () => {
+    const refusal = checkFixtureLaunchAgainstCatalog({ scenarioId: "no-such-scenario" });
+    await expect(refusal).rejects.toThrow('"no-such-scenario"');
+    await expect(refusal).rejects.toThrow(FIRST_RUN_SCENARIO.id);
   });
 
   it("refuses a session the scenario does not hold", async () => {
