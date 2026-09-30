@@ -1,5 +1,6 @@
-// The documented line `/workflow start <name>` parses to the whole name, and reaches a start end
-// to end through the real recognizer, router, executor and registry.
+// The documented line `/workflow start <name>` parses to the whole name, an unrecognized verb is
+// named rather than read as a definition, and the documented line reaches a start end to end
+// through the real recognizer, router, executor and registry.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -59,6 +60,13 @@ describe("the `/workflow` line", () => {
     expect(readWorkflowCommandLine(text)).toStrictEqual({
       status: "start",
       definitionName: expected,
+    });
+  });
+
+  it("names an unrecognized verb rather than reading it as a definition", () => {
+    expect(readWorkflowCommandLine("/workflow stop nightly")).toStrictEqual({
+      status: "verb-unknown",
+      verb: "stop",
     });
   });
 });

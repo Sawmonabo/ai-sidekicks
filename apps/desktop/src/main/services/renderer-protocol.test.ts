@@ -1,4 +1,4 @@
-// The response policy: statuses, empty refusal bodies, and the locked
+// Scheme registration and the response policy: statuses, empty refusal bodies, and the locked
 // headers on every response, refusals included. Verdicts are tested in
 // `./renderer-assets.test.ts`. `electron` is mocked because its real entry point exports a
 // binary-path string outside an Electron process.
@@ -27,8 +27,8 @@ vi.mock("electron", () => ({
 }));
 
 import { buildLoadFailureUrl, LOAD_FAILURE_PATH } from "../windows/load-failure-document.js";
-import { handleRendererRequest } from "./renderer-protocol.js";
-import { RENDERER_CONTENT_SECURITY_POLICY } from "./renderer-scheme.js";
+import { handleRendererRequest, registerRendererScheme } from "./renderer-protocol.js";
+import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_SCHEME } from "./renderer-scheme.js";
 
 let sandboxRoot = "";
 let rendererRoot = "";
@@ -108,6 +108,16 @@ describe("the load-failure document over the handler", () => {
     expect(await response.text()).toContain("ERR_FILE_NOT_FOUND (-6)");
   });
 
+  it("falls through to the resolver for a path that merely starts with it", async () => {
+    const response = await handleRendererRequest(
+      rendererRoot,
+      `sidekicks-renderer://app${LOAD_FAILURE_PATH}/../index.html`,
+    );
+
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe("");
+  });
+
   it("is not served on another host", async () => {
     const response = await handleRendererRequest(
       rendererRoot,
@@ -115,5 +125,28 @@ describe("the load-failure document over the handler", () => {
     );
 
     expect(response.status).toBe(403);
+  });
+});
+
+// Registration is process-global state, so this block runs last and owns both calls.
+describe("registerRendererScheme", () => {
+  it("registers the scheme as standard and secure, then refuses a second call", () => {
+    registerRendererScheme();
+
+    expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
+    expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledWith([
+      {
+        scheme: RENDERER_SCHEME,
+        // `standard` gives the origin IndexedDB and `localStorage`; `secure` keeps the document
+        // out of Chromium's mixed-content and insecure-origin restrictions.
+        privileges: { standard: true, secure: true, supportFetchAPI: true },
+      },
+    ]);
+
+    expect(() => {
+      registerRendererScheme();
+    }).toThrow(/called twice/i);
+    // The refused second call must not reach Electron.
+    expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledTimes(1);
   });
 });

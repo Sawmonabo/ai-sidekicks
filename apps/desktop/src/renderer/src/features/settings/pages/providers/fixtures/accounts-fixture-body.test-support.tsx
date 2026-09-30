@@ -20,6 +20,9 @@ import {
   type AccountOperations,
 } from "./AccountsFixtureBody.js";
 
+/** Provider-published limit identifiers, which the page must never draw. */
+export const WIRE_LIMIT_IDS = ["weekly_all", "weekly_opus", "weekly_code"] as const;
+
 const WORK_ACCOUNT_ID = "pa-0001" as ProviderAccountId;
 const PERSONAL_ACCOUNT_ID = "pa-0002" as ProviderAccountId;
 const BATCH_ACCOUNT_ID = "pa-0003" as ProviderAccountId;

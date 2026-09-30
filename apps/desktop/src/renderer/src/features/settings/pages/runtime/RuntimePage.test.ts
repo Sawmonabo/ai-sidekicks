@@ -86,6 +86,15 @@ describe("DaemonPage — the two controls", () => {
     );
   });
 
+  it("asks before restarting, naming what stops, and calls nothing yet", () => {
+    const { container, ledger } = renderRuntimePage({});
+    fireEvent.click(getButton(container, "Restart"));
+    expect(ledger.calls).toStrictEqual([]);
+    expect(container.textContent).toContain(
+      "Restart the background service? Work in flight stops.",
+    );
+  });
+
   it("releases the dispatch once a call settles, so the same control works again", async () => {
     // The single-flight latch must clear when the call ends, or the controls stay dead.
     const { container, ledger } = renderRuntimePage({});

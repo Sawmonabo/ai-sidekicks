@@ -1,11 +1,15 @@
-// The `mcp.*` wire the settings page and the daemon share. A project binding travels with the
-// repository, so it never carries a secret value; a server address carries no credentials; a tool
-// override sets something; and a read-back never invents trust facts the store did not answer.
+// The `mcp.*` wire the settings page and the daemon share. A binding names a folder exactly at
+// the scopes that have one, on both providers; a project binding travels with the repository, so
+// it never carries a secret value, while a user binding may; a server address carries no
+// credentials; a tool override sets something; and a read-back never invents trust facts the
+// store did not answer.
 import { describe, expect, it } from "vitest";
 
 import {
   McpGetResponseSchema,
+  McpSetEnabledRequestSchema,
   McpSetToolOverrideRequestSchema,
+  McpSetTrustRequestSchema,
   McpUpsertServerRequestSchema,
 } from "../mcp.js";
 
@@ -18,8 +22,41 @@ const PROJECT_BINDING = {
 const PRESS_ID = "11111111-1111-4111-8111-111111111111";
 const DIGEST = "b3:9f2c";
 
+describe("the binding a mutation names", () => {
+  it("accepts a local binding on Codex, whose local scope the daemon emulates", () => {
+    const request = {
+      ...PROJECT_BINDING,
+      scope: "local",
+      clientIdempotencyKey: PRESS_ID,
+      trusted: true,
+    };
+    expect(McpSetTrustRequestSchema.safeParse(request).success).toBe(true);
+  });
+
+  it("refuses a user binding that names a folder", () => {
+    const request = {
+      ...PROJECT_BINDING,
+      scope: "user",
+      clientIdempotencyKey: PRESS_ID,
+      enabled: true,
+    };
+    expect(McpSetEnabledRequestSchema.safeParse(request).success).toBe(false);
+  });
+});
+
 describe("mcp.upsertServer", () => {
   const stdio = { transport: "stdio", command: "npx", args: ["-y", "docs-server"] } as const;
+
+  it("accepts a user binding carrying environment values", () => {
+    const request = {
+      provider: "claude",
+      scope: "user",
+      serverName: "docs",
+      clientIdempotencyKey: PRESS_ID,
+      config: { ...stdio, env: { DOCS_TOKEN: "secret" } },
+    };
+    expect(McpUpsertServerRequestSchema.safeParse(request).success).toBe(true);
+  });
 
   it("refuses an environment or header value on a project binding", () => {
     const withEnv = {

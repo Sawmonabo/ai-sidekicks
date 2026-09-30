@@ -1,7 +1,8 @@
-// What an answer sends: an answer the contract accepts, a remember opt-in that sends nothing
-// until engaged and only on approve, and the requested resource shown in full before the person
-// answers. The card and the palette rows withdraw together on a settled refusal. Payload
-// assertions drive the real `onResolve`, so they check the wire request.
+// What an answer sends: an answer the contract accepts, no second press while one is in flight, a
+// remember opt-in that sends nothing until engaged, only on approve, and is absent where no
+// standing allow is offered, a keyboard-walkable action row, and the requested resource shown in
+// full before the person answers. The card and the palette rows withdraw together on a settled
+// refusal. Payload assertions drive the real `onResolve`, so they check the wire request.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -45,6 +46,16 @@ describe("what an answer sends", () => {
   });
 });
 
+describe("a press while the answer is in flight", () => {
+  it("disables both actions while this record's call is in flight", () => {
+    renderCard(pendingRecord(), true);
+    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
+    for (const button of actions.querySelectorAll("button")) {
+      expect(button.disabled).toBe(true);
+    }
+  });
+});
+
 describe("the remembered-rule opt-in", () => {
   it("omits `rememberedScope` entirely when the control was never engaged", () => {
     const requests = renderCard(pendingRecord());
@@ -71,6 +82,38 @@ describe("the remembered-rule opt-in", () => {
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
     expect(requests[0]?.decision).toBe("rejected");
     expect(requests[0]?.rememberedScope).toBeUndefined();
+  });
+
+  it("is absent where the ask may not carry a standing allow", () => {
+    renderCard(pendingRecord({ standingAllowOffered: false }));
+    expect(screen.queryByRole("button", { name: "Remember this answer" })).toBeNull();
+    // Negative control: the answers themselves stay.
+    expect(screen.getByRole("button", { name: "Approve" })).not.toBeNull();
+  });
+});
+
+describe("the action row is keyboard-walkable", () => {
+  it("moves focus with an arrow and with a vim key, and suppresses the page scroll", () => {
+    renderCard(pendingRecord());
+    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
+    const approve = screen.getByRole("button", { name: "Approve" });
+    const reject = screen.getByRole("button", { name: "Reject" });
+    approve.focus();
+    const arrowHandled = fireEvent.keyDown(actions, { key: "ArrowRight" });
+    expect(document.activeElement).toBe(reject);
+    // `fireEvent` answers false when a handler called `preventDefault`.
+    expect(arrowHandled).toBe(false);
+    fireEvent.keyDown(actions, { key: "h" });
+    expect(document.activeElement).toBe(approve);
+  });
+
+  it("negative control: a key the row does not own moves nothing and is not suppressed", () => {
+    renderCard(pendingRecord());
+    const actions = screen.getByRole("toolbar", { name: "Answer this request" });
+    const approve = screen.getByRole("button", { name: "Approve" });
+    approve.focus();
+    expect(fireEvent.keyDown(actions, { key: "ArrowDown" })).toBe(true);
+    expect(document.activeElement).toBe(approve);
   });
 });
 

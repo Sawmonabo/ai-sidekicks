@@ -38,4 +38,12 @@ describe("renderLoadFailureDocument", () => {
     expect(document).not.toContain("<script>");
     expect(document).toContain("&lt;script&gt;");
   });
+
+  // Bounded because an error message is unbounded and a longer document would cost memory.
+  it("bounds a very long reason", () => {
+    const document = renderLoadFailureDocument("x".repeat(5000));
+
+    expect(document).not.toContain("x".repeat(400));
+    expect(document).toContain("x".repeat(300));
+  });
 });

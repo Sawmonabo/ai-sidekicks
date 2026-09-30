@@ -1,7 +1,9 @@
 // Routes as values: parsed and rendered back. `parseRoute` and `formatRoute` are two hand-written
 // grammars over one shape, so the round trip is the case that catches a route that reopens
-// somewhere else after a reload. A hash from an older build must land somewhere legible: the
-// empty hash is not an error, and a malformed escape must not throw.
+// somewhere else after a reload. A hash the console did not write (a user, a stale bookmark, an
+// older build) must land somewhere legible: the empty hash is not an error, every shape the
+// grammar does not have resolves to not-found, a malformed escape must not throw, and an empty
+// segment must not be dropped, or `#/session//foo` would open session `foo`.
 
 import { describe, expect, it } from "vitest";
 
@@ -35,6 +37,47 @@ describe("routes — every main-window route renders to a hash that parses back 
   }
 });
 
+describe("routes — malformed main-window hashes resolve to not-found", () => {
+  it("refuses trailing segments the grammar does not have", () => {
+    expect(parseRoute("#/sessions/extra")).toStrictEqual({
+      kind: "not-found",
+      attempted: "#/sessions/extra",
+    });
+    expect(parseRoute("#/session/one/two").kind).toBe("not-found");
+    expect(parseRoute("#/workflows/extra").kind).toBe("not-found");
+    // `#/settings/<page>/<selection>` is grammar, so the overrun is a third segment.
+    expect(parseRoute("#/settings/one/two/three").kind).toBe("not-found");
+  });
+
+  it("decodes an escaped settings selection and renders it back escaped", () => {
+    // The selection is a wire value, so it escapes like every other segment.
+    const escaped = "#/settings/providers/one%2Ftwo";
+    expect(parseRoute(escaped)).toStrictEqual({
+      kind: "settings",
+      page: "providers",
+      selection: "one/two",
+    });
+    expect(formatRoute(parseRoute(escaped))).toBe(escaped);
+  });
+
+  it("refuses a settings selection whose escapes are malformed", () => {
+    expect(parseRoute("#/settings/providers/%zz").kind).toBe("not-found");
+  });
+
+  it("refuses a session route with no session id", () => {
+    expect(parseRoute("#/session").kind).toBe("not-found");
+  });
+
+  it("refuses a pane-harness address missing either of its two required segments", () => {
+    // The pane bodies the harness mounts are session-scoped, so a kind without a session
+    // could only render the pane's own not-bound state.
+    expect(parseRoute("#/pane-harness").kind).toBe("not-found");
+    expect(parseRoute("#/pane-harness/terminal").kind).toBe("not-found");
+    expect(parseRoute("#/pane-harness/terminal/session-1/extra").kind).toBe("not-found");
+    expect(parseRoute("#/pane-harness/terminal/%zz").kind).toBe("not-found");
+  });
+});
+
 describe("failure matrix — the router is handed an empty hash", () => {
   it("lands an empty hash on the default route", () => {
     expect(parseRoute("")).toStrictEqual({ kind: "sessions" });
@@ -52,5 +95,42 @@ describe("failure matrix — the router is handed a malformed percent-escape", (
       kind: "not-found",
       attempted: "#/session/%zz",
     });
+  });
+
+  it("resolves a malformed settings page to not-found rather than throwing", () => {
+    // A second decode site, which is why the guard is one shared helper.
+    expect(() => parseRoute("#/settings/%zz")).not.toThrow();
+    expect(parseRoute("#/settings/%zz")).toStrictEqual({
+      kind: "not-found",
+      attempted: "#/settings/%zz",
+    });
+  });
+
+  it("negative control: a well-formed escape on each arm still decodes", () => {
+    // A parser that refused every escaped segment would otherwise satisfy the two refusals.
+    expect(parseRoute("#/session/session%2Fone")).toStrictEqual({
+      kind: "session",
+      sessionId: "session/one",
+    });
+    expect(parseRoute("#/settings/provider%20accounts")).toStrictEqual({
+      kind: "settings",
+      page: "provider accounts",
+    });
+  });
+});
+
+describe("failure matrix — the router is handed an empty path segment", () => {
+  it("refuses a doubled slash rather than selecting a different session", () => {
+    // Dropping the empty segment would resolve this hash to session `foo`.
+    expect(parseRoute("#/session//foo")).toStrictEqual({
+      kind: "not-found",
+      attempted: "#/session//foo",
+    });
+  });
+
+  it("refuses a trailing slash on every main-window arm", () => {
+    expect(parseRoute("#/sessions/").kind).toBe("not-found");
+    expect(parseRoute("#/session/").kind).toBe("not-found");
+    expect(parseRoute("#/settings/").kind).toBe("not-found");
   });
 });

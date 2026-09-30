@@ -1,5 +1,6 @@
 // `providerAccount.*`: the observation boundary's auth-mode normalizer, the account record's
-// health pair, readiness and its remedy binding, and the usage-window notification's routing key.
+// health pair and its refusal of a credential-home path, readiness and its remedy binding, and the
+// usage-window notification's routing key.
 import { describe, expect, it } from "vitest";
 
 import {
@@ -116,6 +117,16 @@ describe("ProviderAccount record", () => {
         ).success,
       ).toBe(true);
     }
+  });
+
+  it("carries no credential-home path", () => {
+    // The record rides the account-bearing replies and the account-changed notification; the only
+    // wire member that carries a credential home is the readiness remedy's sign-in arm.
+    expect(
+      ProviderAccountSchema.safeParse(
+        validAccount({ credentialHomePath: "/var/lib/sidekicks/homes/acct" }),
+      ).success,
+    ).toBe(false);
   });
 });
 

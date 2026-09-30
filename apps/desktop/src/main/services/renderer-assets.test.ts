@@ -9,7 +9,21 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { resolveRendererAsset } from "./renderer-assets.js";
+import { FALLBACK_CONTENT_TYPE, resolveRendererAsset } from "./renderer-assets.js";
+
+// Extensions the closed content-type map covers, paired with the exact type served.
+const MAPPED_CONTENT_TYPES: ReadonlyArray<readonly [string, string]> = [
+  ["index.html", "text/html; charset=utf-8"],
+  ["bundle.js", "text/javascript; charset=utf-8"],
+  ["module.mjs", "text/javascript; charset=utf-8"],
+  ["sheet.css", "text/css; charset=utf-8"],
+  ["manifest.json", "application/json; charset=utf-8"],
+  ["glyph.svg", "image/svg+xml"],
+  ["shot.png", "image/png"],
+  ["shot.webp", "image/webp"],
+  ["plex.woff2", "font/woff2"],
+  ["parser.wasm", "application/wasm"],
+];
 
 // Planted beside the bundle as a dev tree has them: present on disk and still refused, so a
 // pass is the guard working and not a missing file.
@@ -33,9 +47,14 @@ beforeAll(async () => {
   await mkdir(outsideRoot, { recursive: true });
 
   await writeFile(path.join(outsideRoot, "secret.txt"), "not yours", "utf8");
+  for (const [fileName] of MAPPED_CONTENT_TYPES) {
+    await writeFile(path.join(rendererRoot, fileName), "x", "utf8");
+  }
   for (const fileName of SOURCE_MAP_FIXTURES) {
     await writeFile(path.join(rendererRoot, fileName), '{"sources":["secret.ts"]}', "utf8");
   }
+  await writeFile(path.join(rendererRoot, "LICENSE"), "x", "utf8");
+  await writeFile(path.join(rendererRoot, "notes.txt"), "x", "utf8");
   await writeFile(path.join(rendererRoot, "assets", "app.js"), "x", "utf8");
 
   // Escape symlink: inside the root, pointing outside it.
@@ -117,4 +136,31 @@ describe("source maps", () => {
     );
     expect(JSON.stringify(resolution)).toBe('{"outcome":"not-found"}');
   });
+});
+describe("resolveRendererAsset content types", () => {
+  it.each(MAPPED_CONTENT_TYPES)("serves %s as %s", async (fileName, expectedContentType) => {
+    const resolution = await resolveRendererAsset(
+      rendererRoot,
+      `sidekicks-renderer://app/${fileName}`,
+    );
+    expect(resolution).toStrictEqual({
+      outcome: "resolved",
+      absolutePath: expect.stringContaining(fileName) as unknown as string,
+      contentType: expectedContentType,
+    });
+  });
+
+  it.each([["LICENSE"], ["notes.txt"]])(
+    "serves the unmapped %s as application/octet-stream",
+    async (fileName) => {
+      const resolution = await resolveRendererAsset(
+        rendererRoot,
+        `sidekicks-renderer://app/${fileName}`,
+      );
+      expect(resolution.outcome).toBe("resolved");
+      expect(resolution.outcome === "resolved" && resolution.contentType).toBe(
+        FALLBACK_CONTENT_TYPE,
+      );
+    },
+  );
 });

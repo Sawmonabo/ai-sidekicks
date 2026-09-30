@@ -41,6 +41,24 @@ describe("the main window factory", () => {
   });
 
   describe("the document URL", () => {
+    it("loads the bundle over the renderer scheme in a packaged build", async () => {
+      const { createMainWindow } = await loadWindowModule();
+
+      const browserWindow = createMainWindow();
+
+      expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
+    });
+
+    it("loads the dev-server URL only when unpackaged AND the variable is set", async () => {
+      electronMock.setPackaged(false);
+      process.env["ELECTRON_RENDERER_URL"] = DEV_SERVER_URL;
+      const { createMainWindow } = await loadWindowModule();
+
+      const browserWindow = createMainWindow();
+
+      expect(asMockWindow(browserWindow).loadedUrls).toEqual([DEV_SERVER_URL]);
+    });
+
     // The load-bearing half: a packaged binary that inherited the variable must refuse it.
     it("refuses the dev-server URL when packaged even though the variable is set", async () => {
       electronMock.setPackaged(true);
@@ -50,6 +68,15 @@ describe("the main window factory", () => {
       const browserWindow = createMainWindow();
 
       expect(asMockWindow(browserWindow)).toBeDefined();
+      expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
+    });
+
+    it("refuses the dev-server URL when unpackaged and the variable is unset", async () => {
+      electronMock.setPackaged(false);
+      const { createMainWindow } = await loadWindowModule();
+
+      const browserWindow = createMainWindow();
+
       expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
     });
   });

@@ -1,4 +1,4 @@
-//! Tests for the Content-Length framing layer: the 8 MiB cap on both sides, the header refusals,
+//! Tests for the Content-Length framing layer: the 8 MiB cap on both sides, malformed headers,
 //! byte-identical write/read, and a clean close told apart from a truncated frame.
 
 use std::io::ErrorKind;
@@ -96,6 +96,37 @@ async fn read_rejects_missing_content_length_header() {
         msg.contains("Content-Length"),
         "error message should mention the missing header, got: {msg}"
     );
+}
+
+#[tokio::test]
+async fn read_rejects_non_numeric_content_length() {
+    let bytes = b"Content-Length: not-a-number\r\n\r\n".to_vec();
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("read_frame should reject non-numeric Content-Length");
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+}
+
+#[tokio::test]
+async fn read_rejects_header_without_colon() {
+    let bytes = b"Content-Length 5\r\n\r\nhello".to_vec();
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("read_frame should reject header missing ':'");
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
+}
+
+#[tokio::test]
+async fn read_rejects_lf_only_header_terminator() {
+    // A bare LF must be rejected, or non-conformant peers would be accepted silently.
+    let bytes = b"Content-Length: 5\n\nhello".to_vec();
+    let mut reader = BufReader::new(&bytes[..]);
+    let err = read_frame(&mut reader)
+        .await
+        .expect_err("read_frame should reject LF-only line terminators");
+    assert_eq!(err.kind(), ErrorKind::InvalidData);
 }
 
 #[tokio::test]

@@ -1,5 +1,6 @@
-// The catalog reading the dependent-axis chain is driven against. Its drivers overlap on
-// purpose; the flag record is derived from the contract's closed list.
+// The catalog readings the binding suites drive against. The first has one model with an
+// effort vocabulary and one without; the second's drivers overlap on purpose, for the
+// dependent-axis chain. The flag record is derived from the contract's closed list.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
@@ -15,6 +16,39 @@ function driverCapabilityFlags(
   }
   return flags;
 }
+
+/** One driver whose first model publishes an effort vocabulary and whose second publishes none. */
+export const DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
+  models: {
+    drivers: [
+      {
+        driverName: "claude",
+        models: [
+          {
+            id: "claude-sonnet",
+            name: "Sonnet",
+            capabilities: [],
+            effortLevels: ["low", "high"],
+            fast: false,
+          },
+          { id: "claude-haiku", name: "Haiku", capabilities: [], fast: false },
+        ],
+      },
+    ],
+  },
+  capabilities: {
+    drivers: [
+      {
+        driverName: "claude",
+        capabilities: {
+          flags: driverCapabilityFlags({ model_mutation: true }),
+          contractVersion: "1.0.0",
+        },
+        builtInTools: [],
+      },
+    ],
+  },
+};
 
 /**
  * Two drivers that overlap on one model id and disagree about its effort levels, so a level

@@ -1,4 +1,5 @@
-// The shared read discipline on a frozen clock: a failed read renders the daemon's refusal rather
+// The shared read discipline on a frozen clock: the subscription is open before the first read, so
+// nothing that changes between the two is lost; a failed read renders the daemon's refusal rather
 // than an empty answer, a subscribe that throws settles `failed` instead of taking the view down,
 // and a refused open is not terminal. The stub preload refuses every open because it implements
 // each daemon method by throwing, so "started" is the subscription handle, set only after the
@@ -64,6 +65,24 @@ function buildRefusingRead(
     },
   };
 }
+
+describe("push-driven read — subscribe before read", () => {
+  it("has an open subscription before the first read is performed", async () => {
+    const clock = new ManualClock();
+    let subscribedWhenReadRan: boolean | undefined;
+    const harness = buildRead({
+      clock,
+      read: async () => {
+        subscribedWhenReadRan = harness.model.isSubscribed;
+        return "value";
+      },
+    });
+    harness.model.start();
+    clock.advance(200);
+    await settle();
+    expect(subscribedWhenReadRan).toBe(true);
+  });
+});
 
 describe("push-driven read — no swallowed failure", () => {
   it("renders the daemon's own refusal rather than an empty result", async () => {

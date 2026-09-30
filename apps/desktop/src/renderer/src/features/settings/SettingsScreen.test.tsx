@@ -1,6 +1,6 @@
-// What the settings screen enforces: the open section lives in the route, and the pane is
-// handed the retained session, subscribed, and never the route's projection (which is
-// `undefined` on every settings address).
+// What the settings screen enforces: the rail always lists every section, the open section lives
+// in the route, and the pane is handed the retained session, subscribed, and never the route's
+// projection (which is `undefined` on every settings address).
 
 import { act } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -46,6 +46,15 @@ function echoedSession(container: HTMLElement): string | undefined {
 }
 
 describe("settings rail", () => {
+  it("renders one entry per declared section", async () => {
+    // Driven from the declared set: a rail built from the registry would shrink to whatever
+    // is built.
+    const { container } = await renderSettingsScreen(windowAt(undefined).context);
+    expect(container.querySelectorAll(".meridian-settings__section")).toHaveLength(
+      SETTINGS_PAGE_IDS.length,
+    );
+  });
+
   it("navigates rather than holding the selection in a local", async () => {
     // A local would make a rail click and a deep link different acts and break back.
     const settingsWindow = windowAt(undefined);
