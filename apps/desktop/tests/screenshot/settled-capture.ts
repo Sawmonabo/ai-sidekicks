@@ -11,7 +11,7 @@
 // The window is the second half: an element taller than the tester window was photographed to
 // the window's edge and then page background, since a Playwright clip paints nothing beyond an
 // iframe. `capture-viewport.ts` states the mechanism; this file opens the window, re-runs the
-// refusal on the resized tree and puts the window back (`tall-capture.test.ts` drives it).
+// refusal on the resized tree and puts the window back.
 
 import { expect } from "vitest";
 import { page } from "vitest/browser";

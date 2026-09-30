@@ -231,8 +231,7 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
  * are spent by the time it raises, so the failure means an Electron nothing could kill is still
  * running and holding its profile for every later launch.
  *
- * Takes the close alone so the refusal is reachable without an Electron;
- * `settle-time-close.test.ts` drives it.
+ * Takes the close alone so the refusal is reachable without an Electron.
  */
 export async function registerSettleTimeClose(
   application: Pick<ClosableApplication, "close">,

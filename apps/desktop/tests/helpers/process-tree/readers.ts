@@ -58,7 +58,6 @@ export type ProcessStartStampReader = (
  * field both readers treat as "this host would not answer". PowerShell's cold start on a loaded
  * Windows runner takes seconds, so a bound near a second would abandon readable hosts; and a
  * single query must not spend the whole `CLEANUP_BUDGET_MS`, so this is at most half of it.
- * `process-tree-readers.test.ts` holds that relation.
  */
 export const HOST_QUERY_TIMEOUT_MS = 5_000;
 

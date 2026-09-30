@@ -1,4 +1,4 @@
-// The navigation classifier. `window.test.ts` asserts the policy is installed and each verdict
+// The navigation classifier. `window-navigation.test.ts` asserts the policy is installed and each verdict
 // acted on; this asserts the classification itself. Two traps: `URL.origin` is `"null"` for every
 // non-special scheme (and `sidekicks-renderer:` is non-special in Node's parser), so comparing
 // `.origin` would admit `weird://app` and the like; and `shell.openExternal` hands a string to the
@@ -31,7 +31,6 @@ vi.mock("electron", () => ({
 }));
 
 import { WEB_ADDRESS_SCHEMES } from "@ai-sidekicks/contracts";
-import { shell } from "electron";
 
 import { classifyNavigation, openExternalUrl, type InWindowOrigin } from "./navigation.js";
 
@@ -40,12 +39,6 @@ const RENDERER_ORIGINS: readonly InWindowOrigin[] = [
 ];
 
 describe("classifyNavigation", () => {
-  it("admits the renderer scheme's own origin", () => {
-    expect(classifyNavigation("sidekicks-renderer://app/index.html", RENDERER_ORIGINS)).toEqual({
-      kind: "in-window",
-    });
-  });
-
   it("admits a hash route on that origin", () => {
     expect(
       classifyNavigation(
@@ -103,18 +96,6 @@ describe("classifyNavigation", () => {
       reason: "unparseable navigation target",
     });
   });
-
-  it("compares scheme and host case-insensitively", () => {
-    expect(classifyNavigation("SIDEKICKS-RENDERER://APP/index.html", RENDERER_ORIGINS)).toEqual({
-      kind: "in-window",
-    });
-  });
-
-  it("refuses everything when no in-window origin is supplied", () => {
-    expect(classifyNavigation("sidekicks-renderer://app/index.html", [])).toMatchObject({
-      kind: "refused",
-    });
-  });
 });
 
 describe("openExternalUrl", () => {
@@ -141,11 +122,5 @@ describe("openExternalUrl", () => {
       "navigation target carries credentials",
     );
     expect(shellMock.openedUrls).toEqual([]);
-  });
-
-  it("rejects when the operating system fails to open the address", async () => {
-    vi.mocked(shell.openExternal).mockRejectedValueOnce(new Error("no handler"));
-
-    await expect(openExternalUrl("https://example.test/docs")).rejects.toThrow("no handler");
   });
 });

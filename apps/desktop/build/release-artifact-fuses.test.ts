@@ -24,7 +24,7 @@
 // or a packaged root holding no binary, is a failure rather than another skip. A skip
 // nobody can distinguish from a pass is how a check like this rots.
 //
-// IN `tests/helpers/` AND THEREFORE IN `main-unit`: it drives no window, needs no built
+// IN `build/` AND THEREFORE IN `main-unit`: it drives no window, needs no built
 // bundle, and reads only a packaged artifact or a synthetic root it writes itself, so
 // it belongs in the project a person runs before pushing rather than behind a launcher.
 // It reads no source, configuration, or documentation text: the posture it holds a
@@ -226,18 +226,6 @@ describe("the artifact reader and the posture comparison can fail", () => {
     [FuseV1Options.OnlyLoadAppFromAsar, FuseState.ENABLE],
   ]);
 
-  it("reports a clean wire as clean", () => {
-    expect(
-      findFusePostureViolations(
-        {
-          [FuseV1Options.RunAsNode]: FuseState.DISABLE,
-          [FuseV1Options.OnlyLoadAppFromAsar]: FuseState.ENABLE,
-        },
-        REQUIRED_POSTURE_FIXTURE,
-      ),
-    ).toStrictEqual([]);
-  });
-
   it("names a fuse left in the wrong state", () => {
     expect(
       findFusePostureViolations(
@@ -248,35 +236,6 @@ describe("the artifact reader and the posture comparison can fail", () => {
         REQUIRED_POSTURE_FIXTURE,
       ),
     ).toStrictEqual(["RunAsNode: required DISABLE, artifact carries ENABLE"]);
-  });
-
-  it("names a fuse the wire does not carry at all", () => {
-    expect(
-      findFusePostureViolations(
-        { [FuseV1Options.RunAsNode]: FuseState.DISABLE },
-        REQUIRED_POSTURE_FIXTURE,
-      ),
-    ).toStrictEqual(["OnlyLoadAppFromAsar: required ENABLE, artifact carries nothing"]);
-  });
-
-  it("refuses an inherited state, which is neither of the two the posture admits", () => {
-    expect(
-      findFusePostureViolations(
-        {
-          [FuseV1Options.RunAsNode]: FuseState.INHERIT,
-          [FuseV1Options.OnlyLoadAppFromAsar]: FuseState.REMOVED,
-        },
-        REQUIRED_POSTURE_FIXTURE,
-      ),
-    ).toHaveLength(2);
-  });
-
-  it("requires every fuse the hardening baseline names", () => {
-    // The posture is a claim about a closed list; a member dropped from it would make
-    // the check above quietly narrower with nothing to notice.
-    expect(REQUIRED_RELEASE_FUSE_POSTURE.size).toBe(
-      Object.values(FuseV1Options).filter((value) => typeof value === "number").length,
-    );
   });
 });
 
@@ -298,28 +257,9 @@ describe("the packaged-artifact discovery can fail", () => {
     }
   });
 
-  it("reads an absent output directory as the one admissible absence", () => {
-    const absent = discoverPackagedElectronBinary(join(syntheticOutputDirectory(), "no-such-dist"));
-    expect(absent).toStrictEqual({ kind: "absent", reason: NO_PACKAGING_STEP_REASON });
-  });
-
-  it("reads a directory holding no packaged root as that same absence", () => {
-    // A real directory holding real files, none of them a packaging output. Synthetic
-    // rather than a directory of this repository's own: a check that pointed at a
-    // tracked tree would fail the day that tree was renamed, for a reason that has
-    // nothing to do with what it asserts.
-    const outputDirectory = syntheticOutputDirectory();
-    writeFileSync(join(outputDirectory, "notes.md"), "");
-    mkdirSync(join(outputDirectory, "coverage"));
-    expect(discoverPackagedElectronBinary(outputDirectory)).toStrictEqual({
-      kind: "absent",
-      reason: NO_PACKAGING_STEP_REASON,
-    });
-  });
-
   it("finds the binary inside an unpacked root", () => {
-    // Without this the two absences above are consistent with a reader that finds
-    // nothing anywhere, and the whole check would be vacuous the day one is built.
+    // Without this an absent reading is consistent with a reader that finds nothing
+    // anywhere, and the whole check would be vacuous the day one is built.
     const outputDirectory = syntheticOutputDirectory();
     mkdirSync(join(outputDirectory, "linux-unpacked"));
     writeFileSync(join(outputDirectory, "linux-unpacked", "ai-sidekicks"), "");

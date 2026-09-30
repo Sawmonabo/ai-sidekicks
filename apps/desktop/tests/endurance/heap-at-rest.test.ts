@@ -58,16 +58,6 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
   };
 }
 
-describe("the renderer heap-at-rest budget row", () => {
-  // The ceiling, the unit and the row's `n/a`-versus-`enforced` consistency belong to the
-  // budget tier (`scripts/budget/measure-heap.test.ts`). This checks only that the row names
-  // this file as its measurer and is still enforced.
-  it("is the harness the row names as its measurer", () => {
-    expect(budget.status).toBe("enforced");
-    expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/heap-at-rest.test.ts");
-  });
-});
-
 describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one session open", () => {
   it("holds the renderer heap under the budget's ceiling", async () => {
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {

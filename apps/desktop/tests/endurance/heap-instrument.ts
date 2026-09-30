@@ -55,11 +55,10 @@ const PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES = 65_536;
  *
  * Symmetric because the quantity is a difference of two readings, which falls under the payload
  * when a collection nets bytes out (one uncollected window read 3,993,316 B). The default
- * instrument read 0 B in twelve windows with the flag dropped (macOS, Electron 44), so the floor
- * of 3,934,464 B rejects it; `heap-instrument.test.ts` asserts the refusal. The ceiling turns
- * "the reading moved" into "the reading measured this". It does not rule out a quantized
- * instrument stepping inside the band on a large heap; the cache serving one value to both reads
- * is what fails the coarse launch.
+ * instrument read 0 B in twelve windows with the flag dropped (macOS, Electron 44), so the floor of
+ * 3,934,464 B rejects it. The ceiling turns "the reading moved" into "the reading measured this".
+ * It does not rule out a quantized instrument stepping inside the band on a large heap; the cache
+ * serving one value to both reads is what fails the coarse launch.
  */
 const PRECISION_PROBE_MIN_OBSERVED_BYTES =
   PRECISION_PROBE_NOMINAL_BYTES - PRECISION_PROBE_OVERHEAD_ALLOWANCE_BYTES;
@@ -97,9 +96,7 @@ export function medianOfHeapReadings(readings: readonly number[]): number {
  * Returns the sentence to raise when the probe windows are not a measurement of the probe's own
  * allocation, or `null` when they are.
  *
- * Separate from the launch so `heap-instrument.test.ts` can drive the band and the median over
- * readings a live launch cannot be made to produce. A string rather than a boolean, so a caller
- * that asserts on it prints the refusal itself.
+ * A string rather than a boolean, so a caller that asserts on it prints the refusal itself.
  */
 export function precisionProbeRefusalFor(observedBytesPerWindow: readonly number[]): string | null {
   const observedBytes = medianOfHeapReadings(observedBytesPerWindow);

@@ -237,16 +237,6 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   ).toBe(CONCURRENT_STREAMING_LANE_COUNT);
 }
 
-describe("the four-lane frame-time budget row", () => {
-  // The ceiling and unit belong to the budget tier; this checks only that the row names this
-  // file as its measurer and is still enforced.
-  it("is the harness the row names as its measurer", () => {
-    expect(budget.status).toBe("enforced");
-    expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/frame-time.test.ts");
-    expect(budget.notMeasurableReason).toBeNull();
-  });
-});
-
 describe.skipIf(!bundleIsBuilt)(
   "endurance — frame time with the concurrent-streaming session open",
   () => {

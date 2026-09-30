@@ -14,8 +14,7 @@
 // stamp at the spawn, the owner's descendant capture, and the intersection the root's `exit`
 // runs. Each is a `spawnSync` that blocks the thread vitest's timeout runs on, so an enclosing
 // budget that does not reserve them lets the generic timeout win before the harness can report.
-// Spawners derive their enclosure from `SPAWNED_TREE_HOST_QUERY_CEILING_MS`, and
-// `probe-budget-derivation.test.ts` holds that containment.
+// Spawners derive their enclosure from `SPAWNED_TREE_HOST_QUERY_CEILING_MS`.
 //
 // The reservation depends on the platform: only the Windows arm consumes a captured descendant
 // set, so on POSIX those two readings are never taken and reserving for them would only inflate

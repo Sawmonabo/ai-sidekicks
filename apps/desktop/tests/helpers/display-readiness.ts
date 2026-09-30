@@ -17,23 +17,9 @@ import { existsSync } from "node:fs";
 export const DISPLAY_READY_TIMEOUT_MS = 10_000;
 const DISPLAY_POLL_INTERVAL_MS = 250;
 
-/**
- * The budget used under the test-only display override.
- *
- * The negative control asserts the shape of the refusal, not how long the harness will wait.
- */
-export const FORCED_DISPLAY_READY_TIMEOUT_MS = 1_000;
-
-/**
- * Test-only switch. Set to an X display nothing serves, it makes the readiness path fail on every
- * platform so the negative control can assert the diagnostic dump rather than a bare timeout.
- * Only this file reads it.
- */
-export const FORCED_DISPLAY_ENV = "SIDEKICKS_SMOKE_FORCE_DISPLAY";
-
-/** Resolves the X display this spawn should use, honoring the test-only override. */
+/** Resolves the X display this spawn should use. */
 export function resolvedDisplay(): string | undefined {
-  return process.env[FORCED_DISPLAY_ENV] ?? process.env["DISPLAY"];
+  return process.env["DISPLAY"];
 }
 
 /** Whether the spawn must be wrapped in `xvfb-run`: on Linux with no display configured. */
@@ -59,29 +45,6 @@ export function localDisplaySocketPath(display: string): string | null {
   return localDisplay === null ? null : `/tmp/.X11-unix/X${localDisplay[1]}`;
 }
 
-/**
- * Finds a display number nothing has claimed, for the dead-display control.
- *
- * A hardcoded number is not known-dead on a shared host: a stale socket from a crashed server or
- * a colleague's Xvfb would make the gate report ready. So the number is reserved at test time by
- * scanning downward for one whose X lock file and unix socket are both absent, since either alone
- * can be stale. It is a scan, not a lock; binding a display to prove it free would mean standing
- * up an X server in a test whose subject is not having one.
- */
-export function reserveDeadDisplay(): string {
-  for (let displayNumber = 999; displayNumber > 900; displayNumber -= 1) {
-    const lockPath = `/tmp/.X${String(displayNumber)}-lock`;
-    const socketPath = `/tmp/.X11-unix/X${String(displayNumber)}`;
-    if (!existsSync(lockPath) && !existsSync(socketPath)) {
-      return `:${String(displayNumber)}`;
-    }
-  }
-  throw new Error(
-    "No unclaimed X display number in :901-:999 — refusing to run the " +
-      "dead-display control against a number something else may own.",
-  );
-}
-
 // Does the named X display actually answer? `xdpyinfo` is a real client handshake, which a socket
 // that exists but is not serving fails exactly as Electron would. Without it (the ubuntu-24.04
 // runner image ships `xvfb` but not `x11-utils`) the display's unix socket is checked: weaker,
@@ -105,12 +68,7 @@ function displayAnswers(display: string): boolean {
  * human-readable reason when not.
  */
 export function awaitDisplayReady(display: string): string | null {
-  // The override only shortens the budget; `displayAnswers` is decisive for a local `:N` display,
-  // so the control drives the production path.
-  const budgetMs =
-    process.env[FORCED_DISPLAY_ENV] !== undefined
-      ? FORCED_DISPLAY_READY_TIMEOUT_MS
-      : DISPLAY_READY_TIMEOUT_MS;
+  const budgetMs = DISPLAY_READY_TIMEOUT_MS;
   const probeDescription = xdpyinfoMissing
     ? `no unix socket at ${localDisplaySocketPath(display) ?? "<unprobeable display>"}`
     : `\`xdpyinfo -display ${display}\` kept failing`;

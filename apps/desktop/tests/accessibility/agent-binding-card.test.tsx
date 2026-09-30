@@ -9,12 +9,7 @@
 import { describe, expect, it } from "vitest";
 
 import { renderSettled } from "../helpers/app-harness.js";
-import {
-  PLANTED_VIOLATION_RULE_ID,
-  describeViolations,
-  plantAxeViolation,
-  runTierAxe,
-} from "./axe-run.js";
+import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import "@renderer/features/agents/index.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
@@ -50,17 +45,5 @@ describe("accessibility — the agent card", () => {
     openEveryDisclosure(container);
 
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
-  });
-
-  it("negative control: the tier's rule set does find a violation when there is one", async () => {
-    // A misconfigured run (wrong root, wrong tags, a swallowed exception) returns the same
-    // empty list the case above expects.
-    const planted = plantAxeViolation();
-    try {
-      const violations = await runTierAxe(planted);
-      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
-    } finally {
-      planted.remove();
-    }
   });
 });

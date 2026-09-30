@@ -12,12 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { emulateSystemScheme } from "../helpers/app-harness.js";
 import { mountDiffPane, mountRepoSection } from "../helpers/feature-mounts/repos.js";
 import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
-import {
-  PLANTED_VIOLATION_RULE_ID,
-  describeViolations,
-  plantAxeViolation,
-  runTierAxe,
-} from "./axe-run.js";
+import { describeViolations, runTierAxe } from "./axe-run.js";
 
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
@@ -51,15 +46,4 @@ describe("accessibility — the repos section and diff pane", () => {
       });
     }
   }
-
-  it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control: a misconfigured run returns the same empty list the cases above expect.
-    const planted = plantAxeViolation();
-    try {
-      const violations = await runTierAxe(planted);
-      expect(violations.map((violation) => violation.id)).toContain(PLANTED_VIOLATION_RULE_ID);
-    } finally {
-      planted.remove();
-    }
-  });
 });

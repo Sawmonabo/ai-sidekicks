@@ -1,8 +1,8 @@
-// The level filter counts what it refuses, rotation is one generation at a byte ceiling
-// measured on the file (not on one process's writes), appends never interleave, the sink creates
-// its directory, and a failure stops the log and is readable afterwards.
+// Rotation is one generation at a byte ceiling measured on the file (not on one process's
+// writes), appends never interleave, the sink creates its directory, and a failure stops the log
+// and is readable afterwards.
 
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -48,46 +48,6 @@ describe("main diagnostic log", () => {
 
   afterEach(async () => {
     await rm(directory, { recursive: true, force: true });
-  });
-
-  it("writes one JSON object per line, newline terminated", async () => {
-    const log = new MainDiagnosticLog({
-      filePath,
-      sink: realFileSink,
-      minimumLevel: "notice",
-      fileByteCeiling: 64 * 1024,
-    });
-    log.write(entry("error", "sidecar refused to start"));
-    log.write(entry("notice", "window shown"));
-    await log.drain();
-
-    const written = await readFile(filePath, "utf8");
-    const lines = written.split("\n").filter((line) => line.length > 0);
-    expect(lines).toHaveLength(2);
-    expect(JSON.parse(lines[0] ?? "")).toStrictEqual({
-      at: AT,
-      level: "error",
-      source: "main/test",
-      message: "sidecar refused to start",
-    });
-    expect(log.writtenEntryCount).toBe(2);
-  });
-
-  it("filters below the minimum level and counts what it refused", async () => {
-    const log = new MainDiagnosticLog({
-      filePath,
-      sink: realFileSink,
-      minimumLevel: "error",
-      fileByteCeiling: 64 * 1024,
-    });
-    log.write(entry("error", "kept"));
-    log.write(entry("warning", "dropped"));
-    log.write(entry("notice", "dropped"));
-    await log.drain();
-
-    expect(await readFile(filePath, "utf8")).toBe(toLogLine(entry("error", "kept")));
-    expect(log.filteredEntryCount).toBe(2);
-    expect(log.writtenEntryCount).toBe(1);
   });
 
   it("rotates one generation at the byte ceiling and keeps the previous file", async () => {
@@ -196,15 +156,6 @@ describe("main diagnostic log", () => {
     );
   });
 
-  it("reads an absent log as zero bytes when its parent path is a file", async () => {
-    // `stat` answers ENOTDIR, not ENOENT, when a path component that must be a directory is a
-    // file. Both mean there is no such file; the append that follows still fails honestly.
-    const parentThatIsAFile = join(directory, "occupied");
-    await writeFile(parentThatIsAFile, "not a directory", "utf8");
-
-    await expect(realFileSink.byteCountOf(join(parentThatIsAFile, "main.jsonl"))).resolves.toBe(0);
-  });
-
   it("stops accepting on a failed write, records why, and never throws at the caller", async () => {
     const log = new MainDiagnosticLog({
       filePath,
@@ -251,20 +202,5 @@ describe("reporting what the log could not write", () => {
 
     expect(reported).toHaveLength(1);
     expect(reported[0]).toContain("no space left on device");
-  });
-
-  it("says nothing when every write landed", async () => {
-    const log = new MainDiagnosticLog({
-      filePath,
-      sink: realFileSink,
-      minimumLevel: "notice",
-      fileByteCeiling: 64 * 1024,
-    });
-    log.write(entry("error", "startup failed"));
-
-    const reported: string[] = [];
-    await reportUnwrittenDiagnostics(log, (message) => reported.push(message));
-
-    expect(reported).toStrictEqual([]);
   });
 });

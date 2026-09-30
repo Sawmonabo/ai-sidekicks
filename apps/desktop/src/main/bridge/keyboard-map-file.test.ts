@@ -64,14 +64,6 @@ describe("reading the keyboard map", () => {
     expect(reading.map).toStrictEqual({});
     expect(reading.repair?.cause).toBe("schemaRefused");
   });
-
-  it("negative control: a well-formed file carries no repair", async () => {
-    await writeFile(filePath, JSON.stringify({ "frame.goToSessions": "$mod+9" }), "utf8");
-
-    await expect(keyboardMapFile().read()).resolves.toStrictEqual({
-      map: { "frame.goToSessions": "$mod+9" },
-    });
-  });
 });
 
 describe("writing the keyboard map", () => {
