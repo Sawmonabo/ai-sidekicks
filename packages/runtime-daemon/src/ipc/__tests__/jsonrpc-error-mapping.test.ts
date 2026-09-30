@@ -70,6 +70,32 @@ describe("sanitizeFields — JSON-unsafe value normalization (DoS prevention)", 
     expect(() => JSON.stringify(out)).not.toThrow();
   });
 
+  it("substitutes <symbol> for symbol values", () => {
+    const out = sanitizeFields({ tag: Symbol("private-tag") });
+    expect(out).toEqual({ tag: "<symbol>" });
+    expect(() => JSON.stringify(out)).not.toThrow();
+  });
+
+  it("substitutes <function> for function values", () => {
+    const out = sanitizeFields({ handler: () => 42 });
+    expect(out).toEqual({ handler: "<function>" });
+    expect(() => JSON.stringify(out)).not.toThrow();
+  });
+
+  it("substitutes sentinels for non-finite numbers", () => {
+    const out = sanitizeFields({
+      nan: Number.NaN,
+      pos: Number.POSITIVE_INFINITY,
+      neg: Number.NEGATIVE_INFINITY,
+    });
+    expect(out).toEqual({
+      nan: "<non-finite:NaN>",
+      pos: "<non-finite:Infinity>",
+      neg: "<non-finite:-Infinity>",
+    });
+    expect(() => JSON.stringify(out)).not.toThrow();
+  });
+
   it("substitutes <truncated:circular> for self-referencing and mutually referencing objects", () => {
     type Node = { name: string; self?: Node };
     const node: Node = { name: "root" };

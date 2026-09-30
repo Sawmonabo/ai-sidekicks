@@ -1,6 +1,6 @@
 // MethodRegistryImpl: params are validated before the handler runs, a bad result or an unknown
-// method is refused, each refusal maps to its JSON-RPC code, and a duplicate method is rejected at
-// register time.
+// method is refused, each refusal maps to its JSON-RPC code, and a duplicate or malformed method
+// name is rejected at register time.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ import { JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../jsonrpc-error-mapping.js";
 import {
+  isCanonicalMethodName,
   MethodRegistryImpl,
   RegistryDispatchError,
   RegistryRegistrationError,
@@ -130,6 +131,63 @@ describe("duplicate method registration rejected at register-time", () => {
     expect(caught).toBeInstanceOf(RegistryRegistrationError);
     if (caught instanceof RegistryRegistrationError) {
       expect(caught.registryCode).toBe("duplicate_method");
+    }
+  });
+});
+
+describe("method-name format validation", () => {
+  const ACCEPTED = [
+    "session.create",
+    "session.read",
+    "session.subscribe",
+    "presence.subscribe",
+    "run.stream.notify",
+    "settings.effectiveRead",
+    "driver.listCapabilities",
+    // A camelCase root is allowed; `providerAccount.*` is the only such namespace.
+    "providerAccount.list",
+    "$/subscription/notify",
+    "$/subscription/cancel",
+    "$/cancelRequest",
+    "daemon.hello",
+  ];
+  it.each(ACCEPTED)("accepts canonical name `%s`", (name) => {
+    expect(isCanonicalMethodName(name)).toBe(true);
+  });
+
+  const REJECTED = [
+    // A segment may contain an uppercase letter (root included) but never start with one.
+    "Session.create", // uppercase-starting root
+    "ProviderAccount.list", // uppercase-starting root of the widened namespace
+    "sessionCreate", // no dot
+    "session/create", // slash separator (non-LSP)
+    "session.", // trailing dot
+    ".create", // leading dot
+    "$cancel", // no slash
+    "/subscribe", // no dollar
+    "$//notify", // empty segment
+    "$/Subscription/notify", // uppercase head after $/
+  ];
+  it.each(REJECTED)("rejects malformed name `%s`", (name) => {
+    expect(isCanonicalMethodName(name)).toBe(false);
+  });
+
+  it("registering a malformed method-name throws `RegistryRegistrationError(`invalid_method_name`)`", () => {
+    const registry = new MethodRegistryImpl();
+    let caught: unknown = null;
+    try {
+      registry.register(
+        "Session.create", // uppercase head — rejected
+        passthroughSchema<unknown>(),
+        passthroughSchema<unknown>(),
+        async () => undefined,
+      );
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RegistryRegistrationError);
+    if (caught instanceof RegistryRegistrationError) {
+      expect(caught.registryCode).toBe("invalid_method_name");
     }
   });
 });

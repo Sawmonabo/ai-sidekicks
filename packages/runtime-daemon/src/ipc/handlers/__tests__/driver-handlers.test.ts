@@ -1,6 +1,8 @@
-// The `driver.*` handlers through the real method registry and streaming primitive. Refusals are
-// read through `mapJsonRpcError`, because the client sees the wire envelope: an untranslated
-// provider error would be a bare `-32603` that looks like a daemon crash.
+// The `driver.*` handlers through the real method registry and streaming primitive. The four
+// lifecycle and four daemon-internal operations are registered nowhere, and a second binding of
+// either provider-command verb is refused. Refusals are read through `mapJsonRpcError`, because the client
+// sees the wire envelope: an untranslated provider error would be a bare `-32603` that looks like
+// a daemon crash.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -22,7 +24,11 @@ import type {
 import { DRIVER_CAPABILITY_FLAGS, JsonRpcErrorCode } from "@ai-sidekicks/contracts";
 
 import { mapJsonRpcError } from "../../jsonrpc-error-mapping.js";
-import { MethodRegistryImpl } from "../../registry.js";
+import {
+  MethodRegistryImpl,
+  RegistryDispatchError,
+  RegistryRegistrationError,
+} from "../../registry.js";
 import { StreamingPrimitive } from "../../streaming-primitive.js";
 import {
   DriverCapabilityUnsupportedError,
@@ -282,6 +288,72 @@ function commandGroup(driverName: string, complete = true): ProviderCommandBindi
     complete,
   };
 }
+
+describe("driver.* registration surface", () => {
+  function bindAll(registry: MethodRegistryImpl): void {
+    const drivers = { claude: driverDouble({}) };
+    registerDriverListCapabilities(registry, {
+      providerRegistry: { listAvailable: () => [] },
+      capabilityCache: { read: capabilityReport },
+    });
+    registerDriverListModels(registry, catalogDeps(drivers));
+    registerDriverListModes(registry, catalogDeps(drivers));
+    registerDriverInterruptRun(
+      registry,
+      dispatchDeps(drivers, () => "claude"),
+    );
+    registerDriverApplyIntervention(
+      registry,
+      dispatchDeps(drivers, () => "claude"),
+    );
+    registerDriverCompactContext(registry, compactContextDeps(drivers));
+    registerDriverListProviderCommands(registry, listProviderCommandsDeps(drivers));
+    registerDriverSubscribeEvents(registry, {
+      streamingPrimitive: new StreamingPrimitive({ send: () => undefined, registry }),
+      subscribeToDriverEvents: () => () => undefined,
+    });
+  }
+
+  it("registers NONE of the four lifecycle operations NOR the four daemon-internal operations", async () => {
+    // The lifecycle four create, restore, start or end runtime state, so a client reaching them
+    // would bypass the orchestrator. The other four stay daemon-internal: the daemon forks the
+    // conversation on a resend, and goals and auth probes have their own routes.
+    const registry = new MethodRegistryImpl();
+    bindAll(registry);
+
+    for (const method of [
+      "driver.createSession",
+      "driver.resumeSession",
+      "driver.startRun",
+      "driver.closeSession",
+      "driver.forkConversation",
+      "driver.setSessionGoal",
+      "driver.clearSessionGoal",
+      "driver.probeAuth",
+    ]) {
+      expect(registry.has(method)).toBe(false);
+      await expect(registry.dispatch(method, {}, NO_TRANSPORT)).rejects.toBeInstanceOf(
+        RegistryDispatchError,
+      );
+    }
+  });
+
+  it("REFUSES a duplicate binding of driver.compactContext or driver.listProviderCommands", () => {
+    const registry = new MethodRegistryImpl();
+    const drivers = { claude: driverDouble({}) };
+    const compactDeps = compactContextDeps(drivers);
+    registerDriverCompactContext(registry, compactDeps);
+    expect(() => {
+      registerDriverCompactContext(registry, compactDeps);
+    }).toThrowError(RegistryRegistrationError);
+
+    const listDeps = listProviderCommandsDeps(drivers);
+    registerDriverListProviderCommands(registry, listDeps);
+    expect(() => {
+      registerDriverListProviderCommands(registry, listDeps);
+    }).toThrowError(RegistryRegistrationError);
+  });
+});
 
 describe("driver.listCapabilities", () => {
   it("serves the whole roster from the cache, sorted, with no driver round-trip", async () => {

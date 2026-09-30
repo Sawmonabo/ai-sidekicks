@@ -1,5 +1,6 @@
 // `ProtocolNegotiator`: the `daemon.hello` handshake picks a protocol version, and the gated
-// registry refuses mutating methods on a connection until that handshake has succeeded.
+// registry refuses mutating methods on a connection until that handshake has succeeded, while an
+// unregistered method still answers method_not_found.
 
 import { describe, expect, it } from "vitest";
 
@@ -11,7 +12,7 @@ import {
   NEGOTIATION_REASON_HANDSHAKE_ALREADY_COMPLETED,
 } from "@ai-sidekicks/contracts";
 
-import { MethodRegistryImpl } from "../registry.js";
+import { MethodRegistryImpl, RegistryDispatchError } from "../registry.js";
 import {
   DAEMON_SUPPORTED_PROTOCOL_VERSIONS,
   NegotiationError,
@@ -142,6 +143,23 @@ describe("the mutating-method gate", () => {
     expect(caught).toBeInstanceOf(NegotiationError);
     if (caught instanceof NegotiationError) {
       expect(caught.negotiationCode).toBe("protocol.handshake_required");
+    }
+  });
+
+  it("unregistered methods bypass the gate predicate and surface `method_not_found` from the inner registry", async () => {
+    const { gated } = makeFixture();
+    const ctx: HandlerContext = { transportId: 204 };
+    // With no handshake, the gate must still let an unregistered method reach the inner
+    // registry; refusing it would hide the not-found error behind a handshake error.
+    let caught: unknown = null;
+    try {
+      await gated.dispatch("not.registered", {}, ctx);
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(RegistryDispatchError);
+    if (caught instanceof RegistryDispatchError) {
+      expect(caught.registryCode).toBe("method_not_found");
     }
   });
 
