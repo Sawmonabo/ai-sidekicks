@@ -99,7 +99,7 @@ export interface DeviceEntry {
   linkedBy: TrustSigner;
   /** When it was revoked; `null` while it is trusted. A revoked card sits in `Revoked`. */
   revokedAt: string | null;
-  /** The machines that have not yet fetched its revoke, each of which drops it when it next connects. */
+  /** The machines that have not yet fetched its revoke; each drops it when it next connects. */
   revokePendingOnNodeIds: NodeId[];
   /** Its key kept displacing its own connection, so it is in two places at once. */
   seenInTwoPlaces: boolean;

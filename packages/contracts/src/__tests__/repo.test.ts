@@ -665,7 +665,7 @@ describe("index.ts re-exports contract core", () => {
 
   it("resolves the NodeId symbols through the barrel to node-id.ts's instances", () => {
     // The barrel must resolve to the same instances as the dependency-free leaf node-id.ts
-    // that repo.ts and event.ts import.
+    // that repo-folders.ts and event-declared-variants.ts import.
     expect(contracts.NodeIdSchema).toBe(NodeIdSchema);
     expect(contracts.NODE_ID_MAX_LEN).toBe(NODE_ID_MAX_LEN);
     expect(contracts.NodeIdSchema.safeParse(NODE_ID).success).toBe(true);

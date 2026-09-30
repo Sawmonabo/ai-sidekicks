@@ -5,6 +5,8 @@
 // variant later is additive.
 
 import { z } from "zod";
+// None of the payload files imported below imports this file, directly or through another module:
+// such a cycle would leave their eagerly built Zod schemas undefined at import.
 import {
   AgentProviderBindingChangeFailedPayloadSchema,
   AgentProviderBindingChangedPayloadSchema,

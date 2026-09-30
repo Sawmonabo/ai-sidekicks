@@ -427,9 +427,7 @@ function carriesSecretValues(config: McpServerConfigInput): boolean {
   return values !== undefined && Object.keys(values).length > 0;
 }
 
-// ---------------------------------------------------------------------------
-// Requests
-// ---------------------------------------------------------------------------
+// ---- Requests ----
 
 /** Reads the whole inventory; `refresh` asks the daemon to probe before answering. */
 export interface McpListRequest {
@@ -577,9 +575,7 @@ export const McpRegistrySearchRequestSchema: z.ZodType<
   })
   .strict();
 
-// ---------------------------------------------------------------------------
-// Replies
-// ---------------------------------------------------------------------------
+// ---- Replies ----
 
 /** Parses one of the five server statuses. */
 export const McpServerStatusSchema: z.ZodType<McpServerStatus> = z.enum([
@@ -665,7 +661,7 @@ const inventoryEntryArms = <Binding extends z.ZodRawShape>(binding: Binding) =>
     z.object({ ...binding, ...inventoryFactsShape, ...trustUnavailableEntryShape }).strict(),
   ] as const;
 
-/** Parses an {@link McpServerInventoryEntry}; a failure reason on a server not `failed` is refused. */
+/** Parses an {@link McpServerInventoryEntry}; a failure reason on a non-`failed` server is refused. */
 const McpServerInventoryEntrySchema: z.ZodType<McpServerInventoryEntry> = z
   .union([
     ...inventoryEntryArms(userBindingShape),
