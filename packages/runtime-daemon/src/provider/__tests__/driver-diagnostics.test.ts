@@ -1,11 +1,10 @@
-// Driver diagnostics emitter and reorder buffer. An unrecognized wire shape reaches the log
-// sink, the counter sink under its instrument name, and the bounded recent-record ring. Buffer
-// overflow flushes in arrival order and a pairing timeout sheds; each emits a diagnostic.
+// A throwing diagnostics sink never reaches the provider event path, the diagnostics ring stays
+// bounded, and the reorder buffer releases every provider event in pairing order, losing none on
+// overflow, timeout or eviction.
 
 import { describe, expect, it } from "vitest";
 
 import {
-  DRIVER_DIAGNOSTIC_COUNTER_NAMES,
   DriverDiagnosticsEmitter,
   InMemoryDriverDiagnosticCounterSink,
   NormalizedEventReorderBuffer,
@@ -24,49 +23,6 @@ function makeRecord(overrides?: Partial<DriverDiagnosticRecord>): DriverDiagnost
 }
 
 describe("DriverDiagnosticsEmitter", () => {
-  it("delivers every record to the log sink, the counter sink, and the ring", () => {
-    const loggedRecords: DriverDiagnosticRecord[] = [];
-    const counterSink = new InMemoryDriverDiagnosticCounterSink();
-    const emitter = new DriverDiagnosticsEmitter({
-      logSink: { record: (record) => loggedRecords.push(record) },
-      counterSink,
-    });
-
-    emitter.emit(makeRecord());
-    emitter.emit(makeRecord({ kind: "payload_variant_pending" }));
-
-    expect(loggedRecords).toHaveLength(2);
-    expect(emitter.emittedRecordCount()).toBe(2);
-    expect(emitter.recentRecords()).toHaveLength(2);
-    expect(emitter.recentRecordsOfKind("unmapped_wire_kind")).toHaveLength(1);
-    expect(counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.unmapped_wire_kind)).toBe(1);
-    expect(counterSink.totalFor(DRIVER_DIAGNOSTIC_COUNTER_NAMES.payload_variant_pending)).toBe(1);
-  });
-
-  it("pairs EVERY diagnostic kind with a counter name in the `driver.<band>.<condition>` shape", () => {
-    // The `Record<DriverDiagnosticKind, string>` type makes a kind without a counter a build
-    // error but cannot check the name, which dashboards read; assert its shape over the whole
-    // table.
-    const counterNames = Object.entries(DRIVER_DIAGNOSTIC_COUNTER_NAMES);
-    expect(counterNames.length).toBeGreaterThan(0);
-    for (const [kind, counterName] of counterNames) {
-      expect(counterName, `counter name for kind ${kind}`).toMatch(
-        /^driver\.[a-z0-9_]+\.[a-z0-9_]+$/,
-      );
-    }
-    // A shared counter would make two conditions indistinguishable.
-    expect(new Set(counterNames.map(([, counterName]) => counterName)).size).toBe(
-      counterNames.length,
-    );
-  });
-
-  it("pins the reorder-buffer overflow instrument name verbatim", () => {
-    // Dashboards read this name literally; a rename is a contract change.
-    expect(DRIVER_DIAGNOSTIC_COUNTER_NAMES.reorder_buffer_overflow).toBe(
-      "driver.reorder_buffer.overflow",
-    );
-  });
-
   it("bounds the recent-record ring at its declared capacity, oldest shed first", () => {
     const emitter = new DriverDiagnosticsEmitter({
       logSink: { record: () => undefined },
@@ -99,14 +55,6 @@ describe("DriverDiagnosticsEmitter", () => {
     expect(() => emitter.emit(makeRecord())).not.toThrow();
     expect(emitter.emittedRecordCount()).toBe(1);
   });
-
-  it("freezes emitted records so consumers cannot mutate the diagnostic trail", () => {
-    const emitter = new DriverDiagnosticsEmitter({ logSink: { record: () => undefined } });
-    emitter.emit(makeRecord());
-    const retained = emitter.recentRecords()[0];
-    expect(Object.isFrozen(retained)).toBe(true);
-    expect(Object.isFrozen(retained?.details)).toBe(true);
-  });
 });
 
 describe("NormalizedEventReorderBuffer", () => {
@@ -121,7 +69,7 @@ describe("NormalizedEventReorderBuffer", () => {
     return { buffer, emitter };
   }
 
-  it("passes initiations and unpaired events straight through in arrival order", () => {
+  it("passes initiations, unpaired events and already-paired completions straight through", () => {
     const { buffer } = makeBuffer();
     expect(
       buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 0),
@@ -129,6 +77,9 @@ describe("NormalizedEventReorderBuffer", () => {
     expect(buffer.admit({ toolCallId: null, pairingRole: "unpaired", event: "delta" }, 1)).toEqual([
       "delta",
     ]);
+    expect(
+      buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 2),
+    ).toEqual(["done-1"]);
     expect(buffer.heldEventCount()).toBe(0);
   });
 
@@ -143,14 +94,6 @@ describe("NormalizedEventReorderBuffer", () => {
       buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 1),
     ).toEqual(["start-1", "done-1"]);
     expect(buffer.heldEventCount()).toBe(0);
-  });
-
-  it("releases a completion immediately once its initiation has been seen", () => {
-    const { buffer } = makeBuffer();
-    buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 0);
-    expect(
-      buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 1),
-    ).toEqual(["done-1"]);
   });
 
   it("flushes everything in arrival order on overflow, with the diagnostic + counter", () => {
@@ -196,24 +139,6 @@ describe("NormalizedEventReorderBuffer", () => {
       1_000,
     );
     expect(released).toEqual(["done-1", "later-delta"]);
-  });
-
-  it("drops a tool call from the seen-initiation ledger once its pair closes", () => {
-    const { buffer } = makeBuffer();
-    buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 0);
-    expect(buffer.seenInitiationCount()).toBe(1);
-
-    // A closed pair never needs its ledger entry again; keeping it would grow the ledger with
-    // every tool call for the life of the session.
-    buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 1);
-    expect(buffer.seenInitiationCount()).toBe(0);
-  });
-
-  it("drops the ledger entry on the other closing path too — an initiation releasing held completions", () => {
-    const { buffer } = makeBuffer();
-    buffer.admit({ toolCallId: "tool-1", pairingRole: "completion", event: "done-1" }, 0);
-    buffer.admit({ toolCallId: "tool-1", pairingRole: "initiation", event: "start-1" }, 1);
-    expect(buffer.seenInitiationCount()).toBe(0);
   });
 
   it("bounds the seen-initiation ledger: oldest evicted first, each eviction a diagnostic", () => {

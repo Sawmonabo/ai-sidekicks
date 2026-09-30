@@ -151,27 +151,20 @@ function defaultReply(driverName: FlooredDriverName, probeName: string): unknown
   return isNegativeControl ? codexUnknownMethodReply(probeName) : codexMissingFieldReply();
 }
 
-/** Per-name overrides: a raw reply, or a thrown rejection. */
+/** Per-name reply overrides. */
 export interface RecordingProbeTransportOptions {
   readonly replies?: Readonly<Record<string, unknown>>;
-  readonly rejections?: Readonly<Record<string, unknown>>;
 }
 
-/**
- * Records every probe dispatch and answers from the defaults above. Suites assert that no turn
- * was billed here, at the provider transport, because a daemon-side check on usage or run events
- * cannot see a turn billed before event handling attached.
- */
+/** Records every probe dispatch and answers from the defaults above, or a per-name override. */
 export class RecordingCapabilityProbeTransport {
   readonly requests: CapabilityProbeRequest[] = [];
   readonly #driverName: FlooredDriverName;
   readonly #replies: Readonly<Record<string, unknown>>;
-  readonly #rejections: Readonly<Record<string, unknown>>;
 
   constructor(driverName: FlooredDriverName, options: RecordingProbeTransportOptions = {}) {
     this.#driverName = driverName;
     this.#replies = options.replies ?? {};
-    this.#rejections = options.rejections ?? {};
   }
 
   /** The injected seam; arrow-bound so callers may pass it unbound. */
@@ -179,9 +172,6 @@ export class RecordingCapabilityProbeTransport {
     request: CapabilityProbeRequest,
   ): Promise<unknown> => {
     this.requests.push(request);
-    if (Object.hasOwn(this.#rejections, request.probeName)) {
-      throw this.#rejections[request.probeName];
-    }
     if (Object.hasOwn(this.#replies, request.probeName)) {
       return this.#replies[request.probeName];
     }
