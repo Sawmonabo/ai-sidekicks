@@ -18,7 +18,7 @@ import {
   type SpawnEnvPair,
 } from "../../spawn-env.js";
 import { type ProviderRequestFailureObservation } from "../../transcript/failure-mapping.js";
-import { type CallerDeclaredFrameOrigin, type OutboundTextFrame } from "../outbound-frame.js";
+import { type CallerDeclaredFrameOrigin, type OutboundTextFrame } from "../../outbound-frame.js";
 import { CLAUDE_DRIVER_NAME } from "./capabilities.js";
 import { type ClaudeSubagentLifecycleSignal } from "./event-normalizer.js";
 import type {

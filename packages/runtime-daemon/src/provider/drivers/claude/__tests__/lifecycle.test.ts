@@ -11,7 +11,7 @@ import {
 import { describe, expect, it, vi } from "vitest";
 
 import type { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
-import { TextNeutralizationRefusedError } from "../../outbound-frame.js";
+import { TextNeutralizationRefusedError } from "../../../outbound-frame.js";
 import type { RunId, SessionId } from "@ai-sidekicks/contracts";
 
 import type { SubagentLifecycleEmission, ThreadFrameRoute } from "../../../thread-frame-router.js";

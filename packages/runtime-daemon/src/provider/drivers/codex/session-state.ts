@@ -33,7 +33,7 @@ import {
   type TextNeutralizationRunFailure,
   type TurnEvidenceClass,
   type TurnEvidenceClassification,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import type { CodexAppServerConnection, CodexConnectionOptions } from "./app-server-connection.js";
 import type { CodexSessionConfig } from "./session-config.js";
 import { CodexProviderRequestError, type CodexSessionSlotState } from "./session-errors.js";

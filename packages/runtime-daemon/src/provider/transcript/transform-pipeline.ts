@@ -16,7 +16,7 @@ import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
 
-import type { OutboundFrameOrigin } from "../drivers/outbound-frame.js";
+import type { OutboundFrameOrigin } from "../outbound-frame.js";
 
 import { boundProjectionToPosition, type TranscriptExportBound } from "./canonical-transcript.js";
 import type {

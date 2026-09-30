@@ -13,7 +13,7 @@ import {
   composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
   type TextNeutralizationRunFailure,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import { classifyClaudeTurnEvidence } from "./turn-evidence.js";
 import {
   type ClaudeRunDispatch,

@@ -5,8 +5,8 @@
 
 import type { DeclaredLossKind } from "@ai-sidekicks/contracts";
 import { DECLARED_LOSS_KINDS } from "@ai-sidekicks/contracts";
-import type { OutboundTextFrame } from "../drivers/outbound-frame.js";
-import { OutboundTextFrameWriter } from "../drivers/outbound-frame.js";
+import type { OutboundTextFrame } from "../outbound-frame.js";
+import { OutboundTextFrameWriter } from "../outbound-frame.js";
 import {
   EstablishedMemoTarget,
   type MemoBudgetPolicy,

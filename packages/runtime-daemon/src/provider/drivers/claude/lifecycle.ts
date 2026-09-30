@@ -32,7 +32,7 @@ import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,
   RuntimeBindingQuarantine,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import type {
   ClaudeTranscriptReplayReading,
   ClaudeTranscriptReplaySurfaceReader,

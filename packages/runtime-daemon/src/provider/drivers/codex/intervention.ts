@@ -28,7 +28,7 @@ import {
 import {
   TEXT_NEUTRALIZATION_REFUSAL_CODE,
   type CallerDeclaredFrameOrigin,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 
 /** The fallback the orchestration layer performs when a native intervention is unavailable. */
 export const CODEX_INTERVENTION_FALLBACK_ACTION: string = "queue_and_interrupt";

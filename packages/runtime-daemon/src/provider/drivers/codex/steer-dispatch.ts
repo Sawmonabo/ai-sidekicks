@@ -5,7 +5,7 @@ import type {
   OutboundFrameTripwire,
   OutboundTextFrame,
   OutboundTextFrameWriter,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import type { CodexSteerAcknowledgement, CodexSteerRunRequest } from "./intervention.js";
 import type { CodexSessionRecord } from "./session-state.js";
 import type { CodexRequestAttempt } from "./app-server-connection.js";

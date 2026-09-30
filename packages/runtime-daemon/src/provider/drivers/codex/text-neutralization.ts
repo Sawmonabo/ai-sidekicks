@@ -15,7 +15,7 @@ import {
   composeSupersededDeliveryRunFailure,
   composeTextNeutralizationRunFailure,
   observedTurnEvidence,
-} from "../outbound-frame.js";
+} from "../../outbound-frame.js";
 import {
   classifyCodexTurnEvidence,
   classifyCodexTurnEvidenceObservation,
