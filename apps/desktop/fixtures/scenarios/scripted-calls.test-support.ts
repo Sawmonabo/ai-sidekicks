@@ -3,10 +3,9 @@
 import type { Scenario } from "../scenario.js";
 
 /**
- * Calls no method registry in the corpus carries, so nothing in the renderer can ever make one.
- *
- * `session.list` reads exactly like a real method, and the daemon registry has
- * `session.read` and no list verb.
+ * Calls a scenario must not script a reply for. `session.list` is a subscription in the
+ * daemon contract, not a request/response call, and nothing in the renderer calls it, so a
+ * reply for it would never be asked.
  */
 const UNREGISTERED_CALLS: readonly string[] = ["session.list"];
 

@@ -1,4 +1,4 @@
-// The empty-session scenario: the one state a script cannot reach.
+// The empty-session scenario plays no beats and scripts a `session.read` reply, not `session.list`.
 
 import { describe, expect, it } from "vitest";
 

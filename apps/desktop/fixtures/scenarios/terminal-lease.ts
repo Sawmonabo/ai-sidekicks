@@ -1,48 +1,27 @@
 // The terminal-lease scenario: one of a session's shells changing hands, and ending held.
 //
-// The script is read in order to be understood: which beat follows which, and why. The
-// cast and the beat envelope sit above it.
+// `pty.control_changed` is a registered event type with a closed reason vocabulary, so the
+// lease transitions are wire-true. Terminal output (bytes, scrollback, resize) has no
+// registered type and is absent rather than invented.
 //
-// WHAT IT CAN SCRIPT. The terminal output has no registered type, but the lease does:
-// `pty.control_changed` is a registered event type with a closed reason vocabulary, and
-// the holder is a field on it. So the transitions this scenario scripts are wire-true,
-// and it is the terminal output — the bytes, the scrollback, the resize — that has no
-// type to carry it and is absent here rather than invented.
+// A hold ends three ways and the script reaches each: another device takes the shell (a shell
+// has no release control), the holder's connection ends, or the holding run leaves `running`.
+// Each is reached as the daemon reaches it, so the run-idle release follows the run's queued,
+// starting and `running` beats, an agent-path take bound to the run, and the run leaving
+// `running`. That release is the holding run's first transition out of `running` and leaves
+// a device's hold alone.
 //
-// A HOLD ENDS THREE WAYS, AND THE SCRIPT REACHES EACH. There is no release control on a
-// shell: a device hands it back only by another device taking it, or by the hold ending
-// on its own. The automatic endings are the holder's connection ending and the
-// holding agent run leaving its running state. All three appear below, in the order
-// a session reaches them.
+// The lease is per shell and the holder is a device: every transition names its shell, and a
+// run's hold names the machine's own device and the run.
 //
-// THE LEASE IS PER SHELL, and the holder is a device. Every transition names the
-// shell it moves; a run's hold names the machine's own device and the run.
-//
-// AND EACH ONE IS REACHED THE WAY THE DAEMON REACHES IT. A reason scripted onto a
-// sequence no daemon produces is a fixture that looks exercised and is not, so the
-// run-idle release below is preceded by the acquisition it releases: the agent's run
-// queued, started, and reached `running`; an AGENT-PATH take bound to that run; the
-// run leaving `running`; and only then `auto_released_run_idle` for that holder.
-// The lease design makes this release the holding run's first lifecycle transition
-// out of `running`, and it leaves a device's hold alone.
-//
-// IT ENDS HELD. `runToCompletion()` is the screenshot tier's entry point, so the last
-// beat is the frame a screenshot pins — and the last beat is the owner taking the
-// shell, which is the frame that carries the most: a named holder and a script behind
-// it that reached every ending. A script that ended on a plain free lease would pin
-// the emptiest frame the terminal pane has.
+// The script ends held, on the owner taking the shell, because `runToCompletion()` plays to
+// the last beat and a named holder is the frame that carries the most.
+
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario, ScenarioBeat } from "../scenario.js";
 
-// Who and what the scenario is about: the session, the people, and the agent's run.
-// Consumers read the owner and the other device off `TERMINAL_SCENARIO_ROLES` rather
-// than indexing the join log.
-//
-// WIRE-DECLARED UUIDs RATHER THAN READABLE PLACEHOLDERS. The contract check presents
-// each beat to the strict contract layer as the whole envelope it claims to be, and
-// an envelope whose session or actor is not the UUID the contract declares is a beat
-// no daemon could emit.
-
+// Who and what the scenario is about: the session, the people and the agent's run. Ids are
+// UUIDs because the contract check presents each beat to the strict layer as a whole envelope.
 const HUMAN_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0130";
 const SECOND_DEVICE_USER_ID = "019b7b30-0280-79a4-8110-cca0117a0132";
 const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
@@ -51,30 +30,20 @@ const AGENT_USER_ID = "019b7b30-0280-7a6e-8100-d1a4c1150034";
 const TERMINAL_SCENARIO_SESSION_ID = "019b7b30-0280-75e5-8510-ada11a5a5555";
 
 /**
- * The shell the lease moves on. The terminal pane names the one shell it shows by its
- * session's id until it reads the session's shell list, so the scenario's shell
- * carries that id for the pane to fold its lease.
+ * The shell the lease moves on. The terminal pane names its shell by the session's id until
+ * it reads the shell list, so the scenario's shell carries that id.
  */
 const TERMINAL_SCENARIO_SHELL_ID = TERMINAL_SCENARIO_SESSION_ID;
 
-/**
- * The agent's run, here rather than implied: `auto_released_run_idle` releases the
- * lease when THE HOLDING RUN leaves its running state, so the reason cannot be
- * scripted without a run to bind it to.
- */
+/** The agent's run; `auto_released_run_idle` needs a holding run to bind to. */
 const TERMINAL_AGENT_RUN_ID = "019b7b30-0280-7bd1-8110-cca0117a0134";
 
-/** The run's command that holds the shell; a run's hold names it beside the run. */
+/** The run's command that holds the shell. */
 const TERMINAL_AGENT_COMMAND_ID = "command-pnpm-test";
 
 /**
- * The scenario's cast, by role, for the views that render one of them.
- *
- * `userIdsInJoinOrder` carries the same three ids, and a caller indexing it
- * gets `string | undefined` — so every consumer would either widen its own types or
- * write a presence check for a fact this module already knows. Naming them here
- * gives the terminal feature's tests the wire-declared id AND the role it plays, which an
- * index does not, and keeps the ids declared exactly once.
+ * The scenario's cast by role, so tests get each id with the role it plays instead of
+ * indexing `userIdsInJoinOrder`, which yields `string | undefined`.
  */
 interface TerminalScenarioRoles {
   /**
@@ -85,54 +54,36 @@ interface TerminalScenarioRoles {
   /** The other device the lease changes hands to. */
   readonly otherDevice: string;
   /**
-   * The session's lead, whose run's idling is one of the ways a hold ends. The
-   * RUN binds to the lease, never this id: a run's take names the machine's own
-   * device, `owner` above, and the run.
+   * The session's lead, whose run's idling is one of the ways a hold ends. The run binds to
+   * the lease, never this id: a run's take names the machine's own device and the run.
    */
   readonly agent: string;
 }
 
+/** The scenario's owner, other device and agent, by role. */
 export const TERMINAL_SCENARIO_ROLES: TerminalScenarioRoles = {
   owner: HUMAN_USER_ID,
   otherDevice: SECOND_DEVICE_USER_ID,
   agent: AGENT_USER_ID,
 };
 
-// The scenario's clock, and the two beat shapes its script writes many of.
+// The scenario's clock and the two beat shapes its script writes many of.
 //
-// THE INSTANT IS DERIVED FROM THE TICK. The fixture's frozen clock advances on `atMs`,
-// so an `occurredAt` spelled by hand beside it could put a timestamp on screen that no
-// tick of this scenario corresponds to; computing one from the other means they cannot
-// disagree. Tick zero is derived the same way.
-//
-// THE ROW ID IS STAMPED HERE TOO, and it is a different kind of claim. `id` is the
-// daemon's own opaque identifier for the event — the member the hydrated-event read
-// is keyed by, and the one canonical member that names THIS event rather than its
-// position — so it is a fact of its own and not a second spelling of the sequence.
-// What the stamp below asserts is only that this script's beats each carry a
-// distinct, stable, UUID-shaped id under the scenario's own prefix. The beats state
-// their `sequence` already, so the tail is read from there rather than written again.
+// `occurredAt` is derived from `atMs`, so no timestamp can disagree with its tick. The row
+// id is the scenario's prefix plus the beat's `sequence`, so each beat carries a distinct,
+// stable, UUID-shaped id.
 
-/**
- * Wall-clock instant the frozen clock reports as "now" at tick zero.
- *
- * `Date.UTC` names the fields rather than parsing a text, so a fixture instant is
- * declared and never interpreted: a stamp read the other way round is read in the
- * HOST's zone the moment its spelling loses its `Z`, which makes this a different
- * scenario on a machine east of London.
- */
+// Wall-clock instant the frozen clock reports as "now" at tick zero. `Date.UTC` names the
+// fields, so the instant never depends on the host's zone the way a zone-less parsed stamp does.
 const TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS: number = Date.UTC(2026, 0, 1, 16, 40, 0, 0);
 
-/**
- * The same instant as the text the wire carries, derived from tick zero through the
- * permitted `new Date(<sum>)` form, so the two spellings cannot disagree.
- */
+// The same instant as the text the wire carries, so the two spellings cannot disagree.
 const TERMINAL_SCENARIO_STARTED_AT_ISO: string = terminalScenarioInstantAt(0);
 
-/** The scenario's own event-id prefix, shared by every beat's opaque row id. */
+// The event-id prefix shared by every beat's opaque row id.
 const TERMINAL_EVENT_ID_PREFIX = "019b7b30-0280-7ea1-8110-e5e0d115";
 
-/** The event kind every lease transition arrives on. A registered wire type. */
+// The registered event kind every lease transition arrives on.
 const LEASE_TRANSITION_KIND = "pty.control_changed";
 
 /** What one beat says beyond the envelope this module stamps. */
@@ -140,7 +91,7 @@ interface TerminalScenarioBeatInput {
   /** The tick this beat is due at, measured from scenario start. */
   readonly atMs: number;
   readonly sequence: number;
-  /** Wire-verbatim event type. Held to the registered taxonomy by the wire-truth checks. */
+  /** Wire-verbatim event type, held to the registered census by the contract check. */
   readonly kind: string;
   /** Who the log attributes the event to. Omitted where the daemon acted alone. */
   readonly actorId?: string;
@@ -151,13 +102,7 @@ interface TerminalScenarioBeatInput {
 interface TerminalLeaseTransitionBeatInput {
   readonly atMs: number;
   readonly sequence: number;
-  /**
-   * The device holding the shell after this transition.
-   *
-   * `null` is the free lease, and it is written as an explicit null rather than an
-   * omitted member because an unheld lease is an explicit state that reads
-   * differently from a suppressed one.
-   */
+  /** The device holding the shell after this transition; an explicit `null` is the free lease. */
   readonly holderDeviceId: string | null;
   /** The run holding the shell after this transition, on a run's take only. */
   readonly holderRunId?: string;
@@ -170,32 +115,18 @@ interface TerminalLeaseTransitionBeatInput {
   readonly actorId?: string;
 }
 
-/**
- * The instant a tick lands on, in the frozen clock's own wall time.
- *
- * A function declaration, so the base instant above may be derived from it at tick
- * zero: hoisting is what lets the one derivation sit beside the number it derives
- * from rather than below the table that reads it.
- */
+// The instant a tick lands on, in the frozen clock's wall time. A function declaration so the
+// tick-zero constant above can call it.
 function terminalScenarioInstantAt(atMs: number): string {
   return new Date(TERMINAL_SCENARIO_STARTED_AT_MILLISECONDS + atMs).toISOString();
 }
 
-/**
- * The opaque row id the daemon would have minted for the beat at this position.
- */
+// The opaque row id for the beat at this position.
 function terminalScenarioEventId(sequence: number): string {
   return `${TERMINAL_EVENT_ID_PREFIX}${String(sequence).padStart(4, "0")}`;
 }
 
-/**
- * One scripted beat of this session, with its id, its session id, and its instant
- * stamped.
- *
- * All three stamped rather than written per beat: the session id is the same string
- * on every beat, the instant is `atMs` in the other spelling, and the row id is
- * the scenario's prefix with this beat's own position on the end.
- */
+// One scripted beat with its id, session id and instant stamped, so none is written per beat.
 function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
   return {
     atMs: beat.atMs,
@@ -211,14 +142,7 @@ function terminalScenarioBeat(beat: TerminalScenarioBeatInput): ScenarioBeat {
   };
 }
 
-/**
- * One `pty.control_changed` beat.
- *
- * Its own builder rather than a `terminalScenarioBeat` call with a payload literal,
- * because many of this script's beats are this shape and the transitions are
- * what a reader comes to the script for. Written as a table, the hand-off sequence
- * reads off the page; written as payload literals, it did not.
- */
+// One `pty.control_changed` beat, so the hand-off sequence reads as a table.
 function terminalLeaseTransitionBeat(transition: TerminalLeaseTransitionBeatInput): ScenarioBeat {
   return terminalScenarioBeat({
     atMs: transition.atMs,
@@ -239,12 +163,14 @@ function terminalLeaseTransitionBeat(transition: TerminalLeaseTransitionBeatInpu
   });
 }
 
+/** The id of the terminal-lease scenario. */
 export const TERMINAL_LEASE_SCENARIO_ID = "terminal-lease";
 
 const OWNER = TERMINAL_SCENARIO_ROLES.owner;
 const OTHER_DEVICE = TERMINAL_SCENARIO_ROLES.otherDevice;
 const AGENT = TERMINAL_SCENARIO_ROLES.agent;
 
+/** A shell changing hands between two devices and an agent run, ending held by the owner. */
 export const TERMINAL_LEASE_SCENARIO: Scenario = {
   id: TERMINAL_LEASE_SCENARIO_ID,
   label: "Lease changing hands",
@@ -256,11 +182,8 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
     "renderer is registered.",
   sessionId: TERMINAL_SCENARIO_SESSION_ID,
   userIdsInJoinOrder: [OWNER, OTHER_DEVICE, AGENT],
-  // The owner is the device at this window. The lease line's `held-by-me` arm is
-  // reachable only when the caller read names the holder, and this scenario ends
-  // with the owner holding the lease; without a caller the pane can only show that
-  // the identity is being read, which is a true state of the console and not the
-  // state this scenario exists to show.
+  // The owner is the device at this window. The lease line's `held-by-me` arm needs a caller
+  // that names the holder, and this scenario ends with the owner holding the lease.
   callerUserId: OWNER,
   startedAtIso: TERMINAL_SCENARIO_STARTED_AT_ISO,
   beats: [
@@ -269,10 +192,8 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       sequence: 1,
       kind: "session.created",
       actorId: OWNER,
-      // The registered shape: the session's shape and the lead born with it, the
-      // agent that later takes the shell. A session's name is read off `session.list`,
-      // and the lifecycle payload carries no state transition — `session.activated`
-      // below is the separate registered event that reaches `active`.
+      // The lead born with the session is the agent that later takes the shell. The payload
+      // carries no state transition; `session.activated` below reaches `active`.
       payload: composeSessionCreatedPayload({
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
         shape: "project",
@@ -318,9 +239,8 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       atMs: 3000,
       sequence: 5,
       kind: "run.queued",
-      // The person who started the run, not the agent. `previousState` is absent
-      // here and only here: a queued run is being born, and no document names the
-      // state it came from.
+      // The person who started the run, not the agent. `previousState` is absent because a
+      // queued run is being born.
       actorId: OWNER,
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
@@ -334,8 +254,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       atMs: 3100,
       sequence: 6,
       kind: "run.starting",
-      // No actor: the daemon moves a run through its own states, and a user
-      // id here would attribute a system transition to a person.
+      // No actor: the daemon moves a run through its own states.
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
         runId: TERMINAL_AGENT_RUN_ID,
@@ -356,11 +275,8 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
         newState: "running",
       },
     }),
-    // THE RUN'S TAKE, with no actor on purpose: the agent's run takes through the
-    // daemon's own lease authority, so nobody pressed a control and the transcript's
-    // actor column reads "The daemon". The holder is the machine's own device, with
-    // the run and its running command named beside it, so every device reads the
-    // shell as the run's.
+    // The run's take has no actor on purpose: it goes through the daemon's own lease authority.
+    // The holder is the machine's own device, with the run and its command named beside it.
     terminalLeaseTransitionBeat({
       atMs: 3300,
       sequence: 8,
@@ -374,8 +290,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       atMs: 3600,
       sequence: 9,
       kind: "run.completed",
-      // The holding run's first lifecycle transition out of `running` — what the
-      // auto-release below is a consequence of, rather than an asserted state.
+      // The holding run's first transition out of `running`, which the release below follows.
       payload: {
         sessionId: TERMINAL_SCENARIO_SESSION_ID,
         runId: TERMINAL_AGENT_RUN_ID,
@@ -391,7 +306,7 @@ export const TERMINAL_LEASE_SCENARIO: Scenario = {
       previousHolderDeviceId: OWNER,
       reason: "auto_released_run_idle",
     }),
-    // The held-lease steady state: the holder the pane's header names.
+    // The held steady state: the holder the pane's header names.
     terminalLeaseTransitionBeat({
       atMs: 4100,
       sequence: 11,

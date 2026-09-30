@@ -1,8 +1,5 @@
-// The approval-request scenario, held to the properties a scenario file can silently lose.
-//
-// A scripted reply names a call something can actually make, and the scenario states
-// which user this window is, from inside its own roster. The check's negative control is
-// in `waiting-for-input.test.ts`.
+// The approval-request scenario keeps its replies to callable methods and its caller inside
+// its roster. The negative control for the reply check is in `waiting-for-input.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

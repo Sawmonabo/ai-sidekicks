@@ -1,17 +1,9 @@
 // The composition the screenshot tier pins, asserted element by element.
 //
-// The screenshot tier captures the concurrent-streaming frame at its frozen tick, and a
-// reference image cannot say WHY it is the right frame: a capture of a
-// session missing half its story is a perfectly stable image that compares green
-// forever. So the elements are named here, in the file that owns the script, and the
-// image pins how they look rather than whether they are there.
-//
-// EVERY CASE READS THE SCRIPT AND NOT A CONSTANT. The scenario is data, and a test
-// that restated the beats it expects would pass over a script that had lost them.
-//
-// The wire-truth predicate is asserted elsewhere and is not repeated here: whether a
-// beat is a shape a daemon can emit is the contract-check tests' question, and whether
-// the session tells the whole story is this one's.
+// A reference image cannot say why it is the right frame: a capture of a session missing half
+// its story compares green forever. So the elements are named here and the image pins how
+// they look. Every case reads the script, not a restated constant. Whether a beat is a shape a
+// daemon can emit is the contract-check tests' question.
 
 import { describe, expect, it } from "vitest";
 import { CONCURRENT_STREAMING_SCENARIO } from "./concurrent-streaming.js";
@@ -30,19 +22,15 @@ function payloadsOfKind(kind: string): readonly Readonly<Record<string, unknown>
 
 describe("the concurrent-streaming frame — the approval it asks and grants", () => {
   it("carries the approval pair and the run pair, both", () => {
-    // Four beats about one moment, and neither pair is derivable from the other: a
-    // run can block on an ask nobody answers, and the card renders from the approval
-    // rows alone. A session with only the run pair leaves the approvals view with
-    // nothing to draw, which is what this scenario used to ship.
+    // Neither pair is derivable from the other: a run can block on an ask nobody answers,
+    // and the card renders from the approval rows alone.
     expect(SCRIPTED_KINDS).toContain("approval.requested");
     expect(SCRIPTED_KINDS).toContain("approval.approved");
     expect(SCRIPTED_KINDS).toContain("run.waiting_for_approval");
   });
 
   it("asks and grants the SAME request, and says who did each", () => {
-    // Two ids would be two approvals — one never answered, one answered without
-    // having been asked — and the card would render a request that stays pending
-    // forever beside a grant for nothing.
+    // Two ids would be two approvals: a request pending forever beside a grant for nothing.
     const [requested] = payloadsOfKind("approval.requested");
     const [approved] = payloadsOfKind("approval.approved");
 
@@ -62,10 +50,8 @@ describe("the concurrent-streaming frame — the approval it asks and grants", (
 
 describe("the concurrent-streaming frame — the park, counting down", () => {
   it("parks a lane on a quota reading that names when it resets", () => {
-    // The countdown a person reads is `resetsAt`, and it is the only member on either
-    // beat that names a future instant — the run row carries no park members at all,
-    // so a script that suspended a run without the reading would park a lane with
-    // nothing to count down to.
+    // The countdown comes from `resetsAt`, and the run row carries no park members, so a pause
+    // without the reading would park a lane with nothing to count down to.
     const [reading] = payloadsOfKind("usage.rate_limit_update");
 
     expect(reading?.["resetsAt"]).toBeDefined();
@@ -74,9 +60,7 @@ describe("the concurrent-streaming frame — the park, counting down", () => {
   });
 
   it("keeps the quota reading on the account plane, with no run on it", () => {
-    // The registered payload carries no `runId` — quota is account-scoped and has no
-    // run to join through — so a scenario that put one there would teach a meter to
-    // read a shape no daemon sends.
+    // Quota is account-scoped, so the registered payload carries no `runId`.
     const [reading] = payloadsOfKind("usage.rate_limit_update");
 
     expect(reading?.["runId"]).toBeUndefined();
@@ -84,8 +68,7 @@ describe("the concurrent-streaming frame — the park, counting down", () => {
   });
 
   it("negative control: the park does not stop the session", () => {
-    // One lane of four. A park that ended the session would be a different frame —
-    // and a still one, which is the opposite of what this composition is for.
+    // One lane of four parks; a park that ended the session would be a still frame.
     const parkPosition = SCRIPTED_KINDS.indexOf("run.paused");
 
     expect(SCRIPTED_KINDS.slice(parkPosition + 1).length).toBeGreaterThan(0);

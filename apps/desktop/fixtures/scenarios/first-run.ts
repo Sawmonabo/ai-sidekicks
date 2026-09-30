@@ -1,27 +1,19 @@
 // The first-run scenario: a console with nothing in it yet.
 //
-// This is the scenario the screenshot baseline pins, because the emptiest state is
-// the one most likely to look unfinished and the product bar is that it does not.
-// The five kinds of nothing are the whole design problem here: a fresh install has
-// no sessions, and "no sessions yet" is
-// the EMPTY kind — a stated fact with a next action — not the "not loaded" kind and
-// not an error.
+// A fresh install has no sessions, and "no sessions yet" is the empty kind of nothing: a
+// stated fact with a next action, not "not loaded" and not an error.
 //
-// It scripts exactly one beat, the session the user is about to create not
-// existing yet, and the reply the frame's opening read needs. Everything else the
-// first-run frame shows comes from an unanswered call being refused, which is the
-// honest rendering of a console whose onboarding wire is not registered.
+// It scripts one beat and the reply the frame's opening read needs; every other call is
+// refused by name and the frame renders the refusal.
 //
-// Its beat and its replies are held to the shipped wire contract by
-// `tests/helpers/scenario-contract-check/contract-check.ts`, exactly as every other
-// scenario's are; that file's header
-// carries the reasoning, and the two consequences visible here are the same two:
-// the identifiers are the UUIDs the branded id types declare, and `session.created`
-// carries the registered payload — the session's shape and the lead born with it —
-// rather than a title, which its `.strict()` schema rejects.
+// `tests/helpers/scenario-contract-check/contract-check.ts` holds the beat and replies to the
+// wire contract: ids are UUIDs, and `session.created` carries the session's shape and its
+// lead, not a title, which its `.strict()` schema rejects.
+
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario } from "../scenario.js";
 
+/** The id of the first-run scenario. */
 export const FIRST_RUN_SCENARIO_ID = "first-run";
 
 const SESSION_ID = "019b78c9-0a80-75e5-8510-ada11a5a22a5";
@@ -29,6 +21,7 @@ const USER_YOU = "019b78c9-0a80-79a4-8110-cca0117a0220";
 const AGENT_LEAD = "019b78c9-0a80-7a6e-8110-d1a4c1150201";
 const STARTED_AT_ISO = "2026-01-01T09:00:00.000Z";
 
+/** A freshly installed console: one user, one session being provisioned, no history. */
 export const FIRST_RUN_SCENARIO: Scenario = {
   id: FIRST_RUN_SCENARIO_ID,
   label: "First run",
@@ -36,19 +29,14 @@ export const FIRST_RUN_SCENARIO: Scenario = {
     "A freshly installed console with no sessions, no agents, and no history — the state the empty-state design and the screenshot baseline are pinned against.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU],
-  // The one user, and this window is them. A fresh install has exactly one
-  // user, so the identity is not in doubt — which is why it is stated: a
-  // first-run view that could not resolve its own user would render every act it
-  // owns as unavailable on the one screen whose whole job is to offer them.
+  // A fresh install has exactly one user, and this window is them.
   callerUserId: USER_YOU,
   startedAtIso: STARTED_AT_ISO,
   beats: [
     {
       atMs: 0,
       event: {
-        // The daemon's own opaque row id for this event. Spelled as a UUID v7
-        // like every other identifier in this file, so a rendered id has the
-        // width a real one does.
+        // The daemon's opaque row id, a UUID v7 like every other id here.
         id: "019b78c9-0a80-7ea1-8110-e5e0d1150001",
         sessionId: SESSION_ID,
         sequence: 1,
@@ -72,9 +60,7 @@ export const FIRST_RUN_SCENARIO: Scenario = {
   ],
   replies: [
     {
-      // A session read that answers `provisioning`, which is what a session being
-      // created reads as before it is admitted — the honest first-run answer, and
-      // a state the console has to render as well as `active`.
+      // `provisioning` is what a session being created reads as before it is admitted.
       call: "session.read",
       result: {
         session: {

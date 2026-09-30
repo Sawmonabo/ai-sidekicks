@@ -1,31 +1,20 @@
 // The two unified patches kept as test data for the diff read.
 //
-// A MODULE OF THEIR OWN, because patch TEXT is bulk and any logic beside it is rules;
-// holding both together would make a short decision table read as a footnote to two
-// hundred lines of literal text.
+// They are real `git diff` output, `diff --git` lines included: `patch-parse.ts` refuses a
+// patch whose `@@` header count disagrees with its hunk count and reads the extended headers
+// above the hunks. Between them they cover a textual change, a rename, a mode change and a
+// binary file.
 //
-// THEY ARE REAL PATCHES AND NOT SKETCHES. `repos/diff-pane/patch-parse.ts` refuses a
-// patch whose `@@` header count disagrees with the hunk count it parses, and it reads
-// the extended headers a git patch states above its hunks — so a fixture writing
-// approximate text would either be refused outright or would draw a file the parser
-// could say nothing about. Each one below is the shape `git diff` emits, `diff --git`
-// line included, and between them they cover the four extended-header facts the model
-// carries: an ordinary textual change, a rename, a mode change, and a binary file.
-//
-// AND THEY SAY SOMETHING TRUE ABOUT THE SESSION. The run-attributed patch is the work
-// the implementer's run did on the branch the worktree row names; the
-// workspace-fallback patch is a change sitting in the git workspace's own checkout,
-// ahead of the shared branch, with no run to attribute it to — which is the condition
-// that makes the fallback attribution mean: precise run attribution is unavailable, so
-// the artifact is workspace-level and labeled as such.
+// The run-attributed patch is the implementer run's work on the worktree's branch. The
+// workspace-fallback patch sits in the workspace's own checkout with no run to attribute it
+// to, so its attribution is workspace-level.
 
 /**
  * The change set the implementer's run produced, as the unified patch text a
  * `gitflow.diffRead` file carries.
  *
- * Two files and three hunks, one of them a rename with no textual change at all — the
- * case a renderer deriving its file notes from `hunks.length` reports as nothing
- * having happened.
+ * Two files and two hunks; the second file is a rename with no textual change, which a
+ * renderer deriving its notes from `hunks.length` would report as nothing having happened.
  *
  * @consumedBy the diff pane's scripted diff replies
  */
@@ -66,13 +55,11 @@ rename to packages/runtime-daemon/src/rate-limit/lease-timing.ts
 `;
 
 /**
- * The change sitting in the git workspace's own checkout ahead of the shared branch,
- * as the same unified patch text.
+ * The change sitting in the git workspace's own checkout ahead of the shared branch, as
+ * unified patch text.
  *
- * Three files: a textual change, a mode change with no hunks, and a binary file the
- * patch declares and carries no text for. The last two are the reason `DiffFile` has
- * extended-header members at all — a file with no hunks is a file something happened
- * to, and both of these say what.
+ * Three files: a textual change, a mode change with no hunks, and a binary file that
+ * carries no text.
  *
  * @consumedBy the diff pane's scripted diff replies
  */
