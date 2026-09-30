@@ -1,37 +1,19 @@
-// The subsequence scorer — the product's one fuzzy matcher: the desktop's label searches
-// and the daemon's `session.fileSearch` rank with it.
+// The product's one fuzzy matcher, shared by the desktop's command palette, settings search and
+// keybinding map. It is own-built rather than fuse.js, fzf or minisearch: one pure function over
+// two strings with no index, tokenizer or options, and it returns `matchedIndices`, which the
+// renderer needs to emphasize the typed characters and a library would not expose.
 //
-// WHY THIS IS OWN-BUILT. The library policy OWN-BUILDs the subsequence scorer
-// shared by the palette, settings search, sidebar filter and file search, and AVOIDs
-// fuse.js, fzf and minisearch. That is a verdict, not a preference, and the
-// reason is visible in what this file is: one pure function over two strings, no
-// index to build, no tokenizer, no options object, no per-keystroke allocation
-// beyond four small typed arrays. A matching library buys none of that back and
-// costs bytes on a measured budget. It also cannot give us the one output the
-// palette actually needs — `matchedIndices`, so the renderer can emphasize the
-// characters the person typed — without reaching into its internals.
+// A candidate matches when the query is a case-insensitive subsequence of it. The score is the best
+// embedding, found by dynamic programming: a greedy left-to-right walk gets "cs" -> "Copy SHA"
+// wrong, committing to the 'c' of "Copy" and leaving the 's' of "SHA" reachable only mid-word.
 //
-// WHAT IT SCORES. A candidate matches when the query is a case-insensitive
-// SUBSEQUENCE of it: every query character appears, in order, not necessarily
-// adjacent. Among the many ways one query can be embedded in one candidate the
-// score is the best one, chosen by dynamic programming rather than by a greedy
-// left-to-right walk. Greedy gets "cs" → "Copy SHA" wrong: it commits to the 'c'
-// of "Copy", and the 's' of "SHA" is then reachable only as a mid-word hit.
+// Time and memory are O(candidate x query), behind an O(candidate) greedy bail. The gap penalty is
+// linear on purpose: that admits the running-maximum recurrence in the inner loop, where a capped
+// penalty would need an inner scan and make the whole O(candidate^2 x query).
 //
-// COMPLEXITY. O(candidate × query) time and memory, behind an O(candidate)
-// greedy bail, so a candidate that cannot match at all costs one linear scan.
-// The gap penalty is deliberately LINEAR — not capped, not quadratic — because a
-// linear penalty admits the running-maximum recurrence in the inner loop below.
-// Capping it would force an inner scan over every earlier match position and
-// make the whole thing O(candidate² × query).
-//
-// NO REGEX. Nothing here constructs a `RegExp`. Word boundaries are decided by
-// character comparison against a flag table computed once per call.
-//
-// DETERMINISM. Ties are broken by the EARLIEST end position, so two embeddings of
-// equal score always resolve the same way and the palette's row order never
-// flickers between keystrokes. The caller breaks SCORE ties with its own stable
-// secondary key.
+// No regular expressions: word boundaries come from a flag table computed once per call. Score
+// ties resolve to the earliest end position, so row order does not flicker between keystrokes; the
+// caller breaks equal scores with its own stable key.
 
 /** A scored embedding of a query inside a candidate. */
 export interface SubsequenceMatch {
@@ -41,70 +23,50 @@ export interface SubsequenceMatch {
   readonly matchedIndices: readonly number[];
 }
 
-// The bonus and penalty table. Every value is a decision, so each carries the
-// reason it exists; changing one changes result order everywhere the console
-// searches, which is why they live together rather than inline at their use.
+// Bonuses and penalties live together because changing one changes result order everywhere.
 
 /**
- * Paid for every matched character. A floor rather than a discriminator — the
- * query length is constant across candidates within one search, so this term is
- * identical for every result and exists only to keep a good match positive after
- * the penalties below have been subtracted.
+ * Paid for every matched character. Query length is constant within one search, so this is the
+ * same for every result and only keeps a good match positive after the penalties.
  */
 const SUBSEQUENCE_BASE_CHARACTER_SCORE = 16;
 
-/**
- * Paid when the typed character matches the candidate's case exactly. A person
- * who typed a capital meant it; a person who typed lower case pays nothing,
- * because lower case is what people type when they do not care.
- */
+/** Paid when the typed character matches the candidate's case exactly: a typed capital is meant. */
 const SUBSEQUENCE_EXACT_CASE_BONUS = 8;
 
 /**
- * Paid at the start of a word — index 0, after a separator, or on a camelCase
- * hump. This is the bonus that makes initialisms work: "cs" reaches "Copy SHA"
- * over "class" because both of its characters are boundary hits.
+ * Paid at the start of a word: index 0, after a separator, or on a camelCase hump. It makes
+ * initialisms work: "cs" reaches "Copy SHA" over "class" because both characters are boundary hits.
  */
 const SUBSEQUENCE_WORD_BOUNDARY_BONUS = 24;
 
 /**
- * Paid when a match is adjacent to the previous one. A run is stronger evidence
- * of intent than the same characters scattered, so "rest" prefers "Restart run"
- * to "Reveal in the session tree".
+ * Paid when a match is adjacent to the previous one, so "rest" prefers "Restart run" to
+ * "Reveal in the session tree".
  */
 const SUBSEQUENCE_CONSECUTIVE_BONUS = 20;
 
 /**
- * Paid once, when the first character matches at index 0. The strongest single
- * signal there is: a person typing "op" almost always means a title that starts
- * with it.
+ * Paid once, when the first character matches at index 0. The strongest single signal: "op"
+ * usually means a title that starts with it.
  */
 const SUBSEQUENCE_PREFIX_BONUS = 32;
 
-/**
- * Charged per character skipped BETWEEN two matches. Linear by construction —
- * see the complexity note in the file header.
- */
+/** Charged per character skipped between two matches. Linear; see the file header. */
 const SUBSEQUENCE_GAP_PENALTY_PER_CHARACTER = 3;
 
 /**
- * Charged per character skipped BEFORE the first match. Lighter than an interior
- * gap: starting late is weaker evidence of a bad match than fragmenting is, and
- * the preference for an early start is already carried by the prefix bonus.
+ * Charged per character skipped before the first match. Lighter than an interior gap: the prefix
+ * bonus already carries the preference for an early start.
  */
 const SUBSEQUENCE_LEADING_GAP_PENALTY_PER_CHARACTER = 1;
 
-/**
- * Charged per character left over AFTER the last match. Lighter still. Its only
- * job is to break the tie between two titles that match identically, in favor
- * of the shorter one, because the shorter one is the more exact answer.
- */
+/** Charged per character left after the last match; it breaks ties toward the shorter title. */
 const SUBSEQUENCE_TRAILING_PENALTY_PER_CHARACTER = 0.5;
 
 /**
- * Characters that open a word when they PRECEDE a matched character. Path and
- * identifier separators are included because command titles, settings paths, and
- * repo paths all flow through this one matcher.
+ * Characters that open a word when they precede a matched character. Path and identifier
+ * separators are included because titles, settings paths and repo paths all use this matcher.
  */
 const WORD_SEPARATOR_CHARACTERS = " \t-_./\\:,()[]{}@#";
 
@@ -112,13 +74,9 @@ const WORD_SEPARATOR_CHARACTERS = " \t-_./\\:,()[]{}@#";
 const NO_PATH = Number.NEGATIVE_INFINITY;
 
 /**
- * Score one candidate against one query.
- *
- * Returns `undefined` when the query is not a subsequence of the candidate, and
- * ALSO when the query is empty — an empty query is not a match of everything, it
- * is a different state, and conflating the two is exactly the mistake rule 8
- * forbids. The palette's empty-query arm is recents, not "every result at score
- * zero".
+ * Scores one candidate against one query. Returns `undefined` when the query is not a subsequence
+ * of the candidate, and also when it is empty: an empty query is a different state, not a match of
+ * everything, and the palette shows recents for it rather than every result at score zero.
  */
 export function scoreSubsequence(candidate: string, query: string): SubsequenceMatch | undefined {
   const candidateLength = candidate.length;
@@ -135,10 +93,9 @@ export function scoreSubsequence(candidate: string, query: string): SubsequenceM
 
   const wordBoundaryFlags = computeWordBoundaryFlags(candidate);
 
-  // `previousRow[k]` / `currentRow[k]`: the best score of an embedding of the
-  // query prefix that ENDS with candidate character k. `parents` remembers which
-  // earlier candidate index each of those came from, so the winning embedding can
-  // be walked back out for `matchedIndices`.
+  // `previousRow[k]` / `currentRow[k]` hold the best score of an embedding of the query prefix
+  // that ends with candidate character k. `parents` records the earlier candidate index each came
+  // from, so the winning embedding can be walked back out for `matchedIndices`.
   let previousRow = new Float64Array(candidateLength).fill(NO_PATH);
   let currentRow = new Float64Array(candidateLength).fill(NO_PATH);
   const parents = new Int32Array(queryLength * candidateLength).fill(-1);
@@ -157,12 +114,10 @@ export function scoreSubsequence(candidate: string, query: string): SubsequenceM
     previousRow = currentRow;
     currentRow = recycledRow.fill(NO_PATH);
 
-    // The running maximum that keeps this loop linear in `candidateLength`.
-    // Entering iteration k, `bestGapReachableScore` holds
-    //   max over j <= k-2 of ( previousRow[j] - GAP * (k - 2 - j) ),
-    // so the best gap-crossing transition into k is that value minus one more
-    // GAP. Because the gap penalty is linear the maximum advances by a single
-    // comparison per step — no inner scan over earlier match positions.
+    // The running maximum that keeps this loop linear in `candidateLength`. Entering iteration k,
+    // `bestGapReachableScore` holds max over j <= k-2 of (previousRow[j] - GAP * (k - 2 - j)), so
+    // the best gap-crossing transition into k is that minus one more GAP. The linear penalty lets
+    // it advance with one comparison per step.
     let bestGapReachableScore = NO_PATH;
     let bestGapReachableIndex = -1;
 
@@ -222,8 +177,7 @@ export function scoreSubsequence(candidate: string, query: string): SubsequenceM
     const totalScore =
       endScore -
       SUBSEQUENCE_TRAILING_PENALTY_PER_CHARACTER * (candidateLength - 1 - candidateIndex);
-    // Strictly greater, so the EARLIEST end position wins a tie. That is the
-    // stable secondary key: same inputs, same embedding, every keystroke.
+    // Strictly greater, so the earliest end position wins a tie and the result is stable.
     if (totalScore > bestTotalScore) {
       bestTotalScore = totalScore;
       bestEndIndex = candidateIndex;
@@ -267,14 +221,9 @@ function isUppercaseLetter(character: string): boolean {
 }
 
 /**
- * Fold one character to lower case WITHOUT changing the string's length.
- *
- * `String.prototype.toLowerCase` is not length-preserving for every code point
- * (the Turkish dotted capital I folds to two code units), and a single such
- * character in a repo path would desynchronize `matchedIndices` from the original
- * string — the renderer would then embolden the wrong characters. So the fold is
- * per character and declines to apply itself when it would change the length,
- * which costs nothing and keeps every index honest.
+ * Folds one character to lower case without changing the string's length. `toLowerCase` can turn
+ * one code unit into two (the Turkish dotted capital I), which would shift `matchedIndices` away
+ * from the original string, so a fold that changes the length is skipped.
  */
 function foldedCharacterCode(source: string, index: number): number {
   const character = source.charAt(index);
@@ -291,12 +240,9 @@ function foldToCodes(source: string): Int32Array {
 }
 
 /**
- * Word-boundary flags for every position of the candidate, computed once.
- *
- * A boundary is index 0, any position whose predecessor is a separator, or a
- * camelCase hump — an upper-case letter following a lower-case letter or a digit.
- * `parseJSONPayload` therefore has boundaries at `p`, `J`, and `P`, which is what
- * a person means when they type "pjp".
+ * Word-boundary flags for every position of the candidate. A boundary is index 0, a position after
+ * a separator, or a camelCase hump (an upper-case letter after a lower-case letter or a digit), so
+ * `parseJSONPayload` has boundaries at `p`, `J` and `P`.
  */
 function computeWordBoundaryFlags(candidate: string): Uint8Array {
   const flags = new Uint8Array(candidate.length);
@@ -320,10 +266,8 @@ function computeWordBoundaryFlags(candidate: string): Uint8Array {
 }
 
 /**
- * Score the candidate character at `candidateIndex` against the query character
- * at `queryIndex`, ignoring how it was reached. The transition bonuses
- * (consecutive, gap) are added by the caller, which is the only place that knows
- * where the previous match landed.
+ * Scores the candidate character at `candidateIndex` against the query character at `queryIndex`,
+ * ignoring how it was reached; the caller adds the consecutive and gap terms.
  */
 function characterScore(
   candidate: string,
@@ -346,12 +290,8 @@ function characterScore(
 }
 
 /**
- * Is the query a case-insensitive subsequence of the candidate at all?
- *
- * One greedy left-to-right pass. Greedy is exact for the EXISTENCE question even
- * though it is wrong for the QUALITY question, so this is a sound early bail:
- * everything it rejects has no embedding at all, and the O(candidate × query) DP
- * below never runs for it.
+ * Whether the query is a case-insensitive subsequence of the candidate at all. One greedy pass is
+ * exact for existence, though not for quality, so it is a sound early bail before the DP.
  */
 function isSubsequence(candidateCodes: Int32Array, queryCodes: Int32Array): boolean {
   let queryCursor = 0;
