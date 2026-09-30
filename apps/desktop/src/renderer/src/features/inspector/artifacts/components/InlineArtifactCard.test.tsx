@@ -3,6 +3,7 @@
 // The registration is checked here rather than in the registry's own suite, which says
 // nothing about which feature registers which card.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
@@ -21,7 +22,7 @@ const CARD: ArtifactInlineCardProps = {
 };
 
 const MANIFEST: ArtifactManifestRow = {
-  id: "artifact-9",
+  id: "artifact-9" as ArtifactId,
   sessionId: "session-1",
   artifactType: "summary",
   digest: "sha256:abc",

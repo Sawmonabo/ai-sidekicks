@@ -22,7 +22,7 @@
 // `.test-support.ts` suffix is what keeps that unreachable rather than a header asking
 // a reader not to.
 
-import type { SessionId } from "@ai-sidekicks/contracts";
+import type { ArtifactId, SessionId } from "@ai-sidekicks/contracts";
 
 import { manualGate } from "./held-calls.js";
 import type { ChunkAcknowledgement } from "@renderer/features/composer/attachments/services/attachment-ingest-acknowledgement.js";
@@ -127,10 +127,10 @@ export class ScriptedIngestPort {
         );
       },
       complete: async () => ({
-        artifactId: "artifact-9",
-        normalizedName: "notes-1.md",
-        derivedMediaType: "text/markdown",
-        derivedSizeBytes: 300,
+        artifactId: "artifact-9" as ArtifactId,
+        fileName: "notes-1.md",
+        mimeType: "text/markdown",
+        sizeBytes: 300,
       }),
       abort: async (request: { readonly ingestId: string }) => {
         this.abortedIngestIds.push(request.ingestId);

@@ -55,7 +55,7 @@ export function attachmentMediaTypeReadings(
   entry: AttachmentIngestEntry,
 ): readonly AttachmentMediaTypeReading[] {
   const declared = entry.declared.declaredMediaType;
-  const derived = entry.derived?.derivedMediaType;
+  const derived = entry.derived?.mimeType;
   if (derived === undefined) {
     return declared === undefined ? [] : [{ mediaType: declared, provenance: "declared" }];
   }
@@ -84,7 +84,7 @@ export interface AttachmentNameReading {
  * THE DERIVED NAME REPLACES THE DECLARATION OUTRIGHT, which is where this axis differs
  * from the media type beside it. Ingest validation keeps every caller-supplied string
  * out of every path component and lets the original
- * survive as manifest metadata only, so once `normalizedName` exists it is the name —
+ * survive as manifest metadata only, so once `fileName` exists it is the name —
  * there is nothing to show the declaration beside, and showing both would suggest the
  * caller's string is still in use somewhere.
  *
@@ -96,7 +96,7 @@ export interface AttachmentNameReading {
  * normalization changed something.
  */
 export function attachmentNameReading(entry: AttachmentIngestEntry): AttachmentNameReading {
-  const derived = entry.derived?.normalizedName;
+  const derived = entry.derived?.fileName;
   return derived === undefined
     ? { name: entry.declared.declaredName, provenance: "declared" }
     : { name: derived, provenance: "derived" };

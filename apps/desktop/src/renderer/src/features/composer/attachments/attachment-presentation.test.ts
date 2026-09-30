@@ -6,10 +6,10 @@
 // function that produces it — the running total is the daemon's, so its cases live in
 // `attachment-ingest-acknowledgement.test.ts`.
 
+import { SESSION_ATTACHMENT_UNRESOLVED_CAUSES } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { INGEST_STREAM_LIFETIME_CEILING_MS } from "./attachment-caps.js";
-import { UNRESOLVED_ATTACHMENT_CAUSES } from "./attachment-policy.js";
 import {
   UNRESOLVED_ATTACHMENT_PRESENTATION,
   ingestCeilingRemainingMs,
@@ -69,7 +69,7 @@ function settledEntry(state: SettledAttachmentIngestState): AttachmentIngestEntr
 
 describe("unresolved attachment presentation — totality, and the one cause with no way back", () => {
   it("gives every unresolved cause its own sentence", () => {
-    for (const cause of UNRESOLVED_ATTACHMENT_CAUSES) {
+    for (const cause of SESSION_ATTACHMENT_UNRESOLVED_CAUSES) {
       expect(UNRESOLVED_ATTACHMENT_PRESENTATION[cause].meaning.length).toBeGreaterThan(0);
     }
   });
@@ -78,7 +78,7 @@ describe("unresolved attachment presentation — totality, and the one cause wit
     // The design's own asymmetry: five causes lift and one does not, and blanking the
     // difference would imply a way back that is not there.
     expect(UNRESOLVED_ATTACHMENT_PRESENTATION.deleted.remedy).toBeUndefined();
-    const withRemedy = UNRESOLVED_ATTACHMENT_CAUSES.filter(
+    const withRemedy = SESSION_ATTACHMENT_UNRESOLVED_CAUSES.filter(
       (cause) => UNRESOLVED_ATTACHMENT_PRESENTATION[cause].remedy !== undefined,
     );
     expect(withRemedy).toStrictEqual([

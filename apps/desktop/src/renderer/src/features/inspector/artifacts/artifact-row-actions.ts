@@ -10,6 +10,8 @@
 // reading names the rows whose re-reads are outstanding, which is what holds each row's
 // control.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
+
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
 import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
@@ -48,7 +50,7 @@ export class ArtifactRowActions {
   }
 
   /** Fetch one artifact's bytes. The rule is `artifact-payload-fetch.ts`'s. */
-  public async fetchPayload(artifactId: string): Promise<ArtifactPayloadOutcome> {
+  public async fetchPayload(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     return this.#payloadFetches.fetch(artifactId);
   }
 
@@ -63,7 +65,7 @@ export class ArtifactRowActions {
    * only by a caller that offers the act without holding its control. A rejected call
    * propagates.
    */
-  public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
+  public async readManifest(artifactId: ArtifactId): Promise<ArtifactRowActOutcome> {
     const manifestRound = this.#manifestReads.claim(this, artifactId);
     if (manifestRound === undefined) {
       throw new Error(`The manifest of ${artifactId} is already being read.`);

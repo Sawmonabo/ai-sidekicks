@@ -14,6 +14,8 @@
 // names. The methods stay on this class because the reader is the one object the section
 // holds.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
+
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Clock } from "@renderer/lib/clock.js";
 import { ArtifactRowActions } from "./artifact-row-actions.js";
@@ -78,12 +80,12 @@ export class ArtifactListReader extends ArtifactReadSchedule {
   }
 
   /** Re-read one artifact's manifest, and put what came back on its row. */
-  public async readManifest(artifactId: string): Promise<ArtifactRowActOutcome> {
+  public async readManifest(artifactId: ArtifactId): Promise<ArtifactRowActOutcome> {
     return this.#actions.readManifest(artifactId);
   }
 
   /** Ask for one artifact's bytes. One fetch at a time across the section. */
-  public async fetchPayload(artifactId: string): Promise<ArtifactPayloadOutcome> {
+  public async fetchPayload(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     return this.#actions.fetchPayload(artifactId);
   }
 

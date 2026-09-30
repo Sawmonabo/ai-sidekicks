@@ -5,6 +5,7 @@
 // across a seam. The stamp cases are the mechanism the ingest client's abandonment
 // guard rests on, stated once here at the seam that owns it.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import { AttachmentIngestEntries } from "./attachment-ingest-entries.js";
@@ -62,10 +63,10 @@ describe("ingest ledger — declared order is the record", () => {
         ...second,
         state: "complete",
         derived: {
-          artifactId: "artifact-9",
-          normalizedName: "second.md",
-          derivedMediaType: "text/markdown",
-          derivedSizeBytes: 0,
+          artifactId: "artifact-9" as ArtifactId,
+          fileName: "second.md",
+          mimeType: "text/markdown",
+          sizeBytes: 0,
         },
       });
     }

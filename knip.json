@@ -141,9 +141,6 @@
         "src/renderer/src/features/agents/library/agent-library-body.ts",
         // An approval card takes focus when it arrives (session design S-727; build unit B7).
         "src/renderer/src/features/composer/approval/hooks/useApprovalArrivalAnnouncement.ts",
-        // The artifact refusal codes, which move to the contracts package (registers CMP-2 and
-        // ART-2); the entry leaves with the move.
-        "src/renderer/src/features/composer/attachments/artifact-refusal-copy.ts",
         // An agent's question card and the settlement it reads (session design D-66; build
         // unit B8).
         "src/renderer/src/features/composer/question-card/BoundQuestionCard.tsx",

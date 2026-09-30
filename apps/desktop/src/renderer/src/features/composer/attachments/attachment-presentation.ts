@@ -21,22 +21,21 @@
 //     reading node's own manifest row and mapped to copy here, never to a fresher
 //     answer.
 
+import type { SessionAttachmentUnresolvedCause } from "@ai-sidekicks/contracts";
+
 import {
   INGEST_STALL_DISCLOSURE_MS,
   INGEST_STREAM_LIFETIME_CEILING_MS,
 } from "./attachment-caps.js";
-import type { UnresolvedAttachmentCause } from "./attachment-policy.js";
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 // --- Where the bounds live -----------------------------------------------
 //
-// NOT HERE. The attachment byte cap, the per-message cap, the stream lifetime and the
-// stall disclosure are behavioral limits several modules spend, and most of them
-// mirror a normative default the wire registers. A presentation module holding them
-// would make this file a configuration authority its neighbors had to import to learn
-// a number the daemon owns, so they sit in `attachment-caps.ts` with their rationales
-// and their wire sources, and the two this file's own arithmetic spends are imported
-// above like any other consumer's.
+// NOT HERE. The byte and count limits are the contract's, and the stream lifetime and
+// the stall disclosure sit in `attachment-caps.ts` with their rationales. A presentation
+// module holding them would make this file a configuration authority its neighbors had
+// to import to learn a number the daemon owns, so the two this file's own arithmetic
+// spends are imported above like any other consumer's.
 
 /** What a cause means, and what a user can do about it. */
 export interface UnresolvedAttachmentPresentation {
@@ -46,14 +45,14 @@ export interface UnresolvedAttachmentPresentation {
 }
 
 /**
- * The six causes, total over `UnresolvedAttachmentCause`.
+ * The six causes, total over `SessionAttachmentUnresolvedCause`.
  *
  * Each carries its OWN remedy, because they are six different situations and a shared
  * "try again later" would be wrong for five of them. `deleted` carries none, and the
  * absence is the honest answer rather than a softer sentence that implies a way back.
  */
 export const UNRESOLVED_ATTACHMENT_PRESENTATION: Readonly<
-  Record<UnresolvedAttachmentCause, UnresolvedAttachmentPresentation>
+  Record<SessionAttachmentUnresolvedCause, UnresolvedAttachmentPresentation>
 > = {
   deleted: {
     meaning: "The manifest is gone.",

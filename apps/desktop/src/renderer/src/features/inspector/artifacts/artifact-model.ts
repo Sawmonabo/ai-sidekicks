@@ -13,6 +13,7 @@
 // are explicit-fetch downloads, and nothing in the product executes one.
 
 import type {
+  ArtifactId,
   ArtifactManifest,
   ArtifactState as ManifestState,
   ArtifactType as ManifestType,
@@ -39,7 +40,7 @@ export type ArtifactType = ManifestType;
  * "unknown".
  */
 export interface ArtifactManifestRow {
-  readonly id: string;
+  readonly id: ArtifactId;
   readonly sessionId: string;
   /** The run that produced it, when a run did. */
   readonly runId?: string | undefined;

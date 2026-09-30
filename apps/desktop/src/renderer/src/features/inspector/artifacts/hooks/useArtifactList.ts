@@ -10,6 +10,7 @@
 // the single-flight fetch are both about one artifact), so a component reused for another
 // artifact must not keep the first artifact's bytes or its held control.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { useCallback, useEffect, useMemo, useSyncExternalStore } from "react";
 
 import { CONTROLLER_DISPOSAL } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
@@ -26,8 +27,8 @@ import { ArtifactListReader } from "../artifact-list-reader.js";
 export interface ArtifactListBinding {
   readonly reading: ArtifactListReading;
   readonly refresh: () => void;
-  readonly readManifest: (artifactId: string) => Promise<ArtifactRowActOutcome>;
-  readonly fetchPayload: (artifactId: string) => Promise<ArtifactPayloadOutcome>;
+  readonly readManifest: (artifactId: ArtifactId) => Promise<ArtifactRowActOutcome>;
+  readonly fetchPayload: (artifactId: ArtifactId) => Promise<ArtifactPayloadOutcome>;
 }
 
 /**
@@ -85,11 +86,11 @@ export function useArtifactList(
     reader.refresh();
   }, [reader]);
   const readManifest = useCallback(
-    (artifactId: string) => reader.readManifest(artifactId),
+    (artifactId: ArtifactId) => reader.readManifest(artifactId),
     [reader],
   );
   const fetchPayload = useCallback(
-    (artifactId: string) => reader.fetchPayload(artifactId),
+    (artifactId: ArtifactId) => reader.fetchPayload(artifactId),
     [reader],
   );
   return { reading, refresh, readManifest, fetchPayload };

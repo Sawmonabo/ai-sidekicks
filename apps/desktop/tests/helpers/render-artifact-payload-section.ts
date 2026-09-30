@@ -10,6 +10,7 @@
 // module imports: a second id or a second manifest here would put the mounted cases and
 // the reader cases on two different fixtures.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
 import { StrictMode, createElement, type ReactElement } from "react";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -23,9 +24,9 @@ import { useArtifactList } from "@renderer/features/inspector/artifacts/hooks/us
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 
 /** The artifact the bound section opens on. */
-export const OPENED_ARTIFACT_ID = "artifact-diff-01";
+export const OPENED_ARTIFACT_ID = "artifact-diff-01" as ArtifactId;
 /** A second artifact the bound section can be pointed at. */
-export const OTHER_ARTIFACT_ID = "artifact-attachment-02";
+export const OTHER_ARTIFACT_ID = "artifact-attachment-02" as ArtifactId;
 
 /**
  * What the bound section is mounted over: the bridge, the session store, the calls, and
@@ -63,7 +64,7 @@ export function artifactPayloadSubject(
  */
 export function artifactPayloadTree(
   subject: ArtifactPayloadSubject,
-  artifactId: string = OPENED_ARTIFACT_ID,
+  artifactId: ArtifactId = OPENED_ARTIFACT_ID,
 ): ReactElement {
   return createElement(PlatformBridgeProvider, {
     bridge: subject.bridge,
@@ -75,7 +76,7 @@ export function artifactPayloadTree(
 /** Mount the bound section. */
 export function renderArtifactPayloadSection(
   subject: ArtifactPayloadSubject,
-  artifactId: string = OPENED_ARTIFACT_ID,
+  artifactId: ArtifactId = OPENED_ARTIFACT_ID,
 ): ReturnType<typeof render> {
   return render(artifactPayloadTree(subject, artifactId));
 }
@@ -90,14 +91,14 @@ export function renderArtifactPayloadSection(
  */
 export function renderArtifactPayloadSectionStrictly(
   subject: ArtifactPayloadSubject,
-  artifactId: string = OPENED_ARTIFACT_ID,
+  artifactId: ArtifactId = OPENED_ARTIFACT_ID,
 ): ReturnType<typeof render> {
   return render(createElement(StrictMode, null, artifactPayloadTree(subject, artifactId)));
 }
 
 interface BoundArtifactPayloadSectionProps {
   readonly subject: ArtifactPayloadSubject;
-  readonly artifactId: string;
+  readonly artifactId: ArtifactId;
 }
 
 /** Binds the reading for one artifact and draws the rows, the fetch control and the payload. */

@@ -15,6 +15,8 @@
 // keeping a serial of its own. The fetch does not read the scheduled read's stamp: a list
 // read carries the payload arm forward untouched and answers nothing about anyone's bytes.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
+
 import { GenerationLatch, type GenerationClaim } from "@renderer/lib/reads/generation-latch.js";
 import { artifactManifestRowFrom } from "./artifact-model.js";
 import type { ArtifactListReadingPublisher } from "./artifact-list-reading-publisher.js";
@@ -63,7 +65,7 @@ export class ArtifactPayloadFetches {
    * without holding its control. A rejected call propagates, and the reading returns to
    * no payload so the control is not held for a fetch that ended.
    */
-  public async fetch(artifactId: string): Promise<ArtifactPayloadOutcome> {
+  public async fetch(artifactId: ArtifactId): Promise<ArtifactPayloadOutcome> {
     const round = this.#fetches.claim(this, PAYLOAD_FETCH_KEY);
     if (round === undefined) {
       throw new Error(`A payload fetch is already in flight; ${artifactId} was not asked for.`);
@@ -85,7 +87,10 @@ export class ArtifactPayloadFetches {
   }
 
   /** The call, and what its answer writes if this round still holds the key. */
-  async #awaitAnswer(artifactId: string, round: GenerationClaim): Promise<ArtifactPayloadOutcome> {
+  async #awaitAnswer(
+    artifactId: ArtifactId,
+    round: GenerationClaim,
+  ): Promise<ArtifactPayloadOutcome> {
     const answer = await this.#readArtifact({ artifactId, includePayload: true });
     if (!round.isCurrent) {
       return { status: "superseded" };

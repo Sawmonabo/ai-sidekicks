@@ -3,6 +3,7 @@
 // Each case is about a claim the section would otherwise make falsely: that a read answered
 // for a row it did not name, or that a row the list never carried belongs to the session.
 
+import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
 import type { ArtifactManifestRow, ArtifactsSectionState } from "./artifact-model.js";
@@ -10,7 +11,7 @@ import { withReplacedRow } from "./artifact-list-reading.js";
 
 function row(id: string, state: ArtifactManifestRow["state"]): ArtifactManifestRow {
   return {
-    id,
+    id: id as ArtifactId,
     sessionId: "session-1",
     artifactType: "diff",
     digest: "sha256:2b4c",

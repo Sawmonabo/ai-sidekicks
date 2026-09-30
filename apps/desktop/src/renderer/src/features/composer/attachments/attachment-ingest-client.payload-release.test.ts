@@ -12,7 +12,7 @@
 // as wrong: a refused upload is retried in place, and it can only replay bytes it still
 // has.
 
-import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES } from "@ai-sidekicks/contracts";
+import { ATTACHMENT_INGEST_CHUNK_MAX_BYTES, type ArtifactId } from "@ai-sidekicks/contracts";
 
 import { describe, expect, it } from "vitest";
 
@@ -63,7 +63,7 @@ describe("attachment payload release — a finished upload lets the bytes go", (
     expect(entry?.declared.declaredName).toBe("notes.md");
     expect(entry?.declared.byteLength).toBe(300);
     expect(entry?.derived?.artifactId).toBe("artifact-9");
-    expect(entry?.derived?.normalizedName).toBe("notes-1.md");
+    expect(entry?.derived?.fileName).toBe("notes-1.md");
   });
 
   it("releases the payload when a user stops sending", async () => {
@@ -157,10 +157,10 @@ describe("attachment payload release — a finished upload lets the bytes go", (
       receivedBytes: 300,
       ingestId: "ingest-1",
       derived: {
-        artifactId: "artifact-1",
-        normalizedName: "notes.md",
-        derivedMediaType: "text/markdown",
-        derivedSizeBytes: 300,
+        artifactId: "artifact-1" as ArtifactId,
+        fileName: "notes.md",
+        mimeType: "text/markdown",
+        sizeBytes: 300,
       },
       refusal: undefined,
       disposition: undefined,

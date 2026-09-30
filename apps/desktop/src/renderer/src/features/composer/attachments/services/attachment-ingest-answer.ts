@@ -15,19 +15,13 @@ import type {
   AttachmentIngestChunkRequest,
   AttachmentIngestCompleteRequest,
   AttachmentIngestInitRequest,
+  SessionAttachmentSummary,
 } from "@ai-sidekicks/contracts";
-
-/** What the daemon derived from a completed upload; the client reads these four. */
-export interface AttachmentIngestCompletion {
-  readonly artifactId: string;
-  readonly normalizedName: string;
-  readonly derivedMediaType: string;
-  readonly derivedSizeBytes: number;
-}
 
 /**
  * The four calls of one upload. The three the daemon registers take its own request
- * shapes; `mediaType` is absent, not empty, when none was declared.
+ * shapes; `mediaType` is absent, not empty, when none was declared. `complete` answers
+ * what the daemon derived from the bytes it spooled.
  */
 export interface AttachmentIngestPort {
   readonly begin: (request: AttachmentIngestInitRequest) => Promise<{ readonly ingestId: string }>;
@@ -36,6 +30,6 @@ export interface AttachmentIngestPort {
   ) => Promise<{ readonly ingestId: string; readonly receivedBytes: number }>;
   readonly complete: (
     request: AttachmentIngestCompleteRequest,
-  ) => Promise<AttachmentIngestCompletion>;
+  ) => Promise<SessionAttachmentSummary>;
   readonly abort: (request: { readonly ingestId: string }) => Promise<void>;
 }

@@ -11,6 +11,8 @@
 // staged list can never publish. The split is taken STRUCTURALLY off the union rather than
 // by naming the states again, so a state that changes arms changes these with it.
 
+import type { ArtifactId, SessionAttachmentSummary } from "@ai-sidekicks/contracts";
+
 import type { AttachmentIngestEntry } from "./attachment-shapes.js";
 
 /** What a case varies. Everything omitted takes the quiet default below. */
@@ -45,13 +47,15 @@ export function settledEntry(
 
 /** A settled artifact, as the daemon reported it at completion. */
 export function derivedTruth(
-  overrides: Partial<NonNullable<AttachmentIngestEntry["derived"]>> = {},
-): NonNullable<AttachmentIngestEntry["derived"]> {
+  overrides: Partial<Omit<SessionAttachmentSummary, "artifactId">> & {
+    readonly artifactId?: string;
+  } = {},
+): SessionAttachmentSummary {
   return {
-    artifactId: overrides.artifactId ?? "artifact-1",
-    normalizedName: overrides.normalizedName ?? "notes.md",
-    derivedMediaType: overrides.derivedMediaType ?? "text/markdown",
-    derivedSizeBytes: overrides.derivedSizeBytes ?? 1024,
+    artifactId: (overrides.artifactId ?? "artifact-1") as ArtifactId,
+    fileName: overrides.fileName ?? "notes.md",
+    mimeType: overrides.mimeType ?? "text/markdown",
+    sizeBytes: overrides.sizeBytes ?? 1024,
   };
 }
 
