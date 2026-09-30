@@ -107,7 +107,6 @@ import {
   ProviderModeSchema,
   RecoveryConditionSchema,
   RecoverySpanClassificationSchema,
-  RespondToRequestParamsSchema,
   RunIdSchema,
   DriverAuthProbeResultSchema,
   DriverInterventionResultSchema,
@@ -3439,40 +3438,6 @@ describe("ApplyInterventionParamsSchema — three arms, and the fourth is a pars
         type: "steer",
         payload: { content: "ok", priority: "high" },
       }).success,
-    ).toBe(false);
-  });
-});
-
-describe("RespondToRequestParamsSchema — a missing answer is not an answer", () => {
-  const base = { runId: A_RUN_ID, requestId: "req-42" };
-
-  it("accepts every legitimate JSON answer, `null` and `false` included", () => {
-    for (const response of [null, false, 0, "", { choice: "b" }, []]) {
-      expect(RespondToRequestParamsSchema.safeParse({ ...base, response }).success).toBe(true);
-    }
-  });
-
-  it("REFUSES a request that omits the response key", () => {
-    // `z.unknown()` would accept this: `unknown` admits `undefined`, so an
-    // omitted key parses clean and the daemon forwards "no answer" to a provider
-    // that is blocked waiting for one. The explicit presence predicate is what
-    // makes the omission a refusal without narrowing the answer's shape.
-    expect(RespondToRequestParamsSchema.safeParse(base).success).toBe(false);
-    expect(RespondToRequestParamsSchema.safeParse({ ...base, response: undefined }).success).toBe(
-      false,
-    );
-  });
-
-  it("bounds the provider-minted request handle", () => {
-    expect(
-      RespondToRequestParamsSchema.safeParse({
-        ...base,
-        requestId: "r".repeat(DRIVER_WIRE_HANDLE_MAX_LEN + 1),
-        response: null,
-      }).success,
-    ).toBe(false);
-    expect(
-      RespondToRequestParamsSchema.safeParse({ ...base, requestId: "", response: null }).success,
     ).toBe(false);
   });
 });

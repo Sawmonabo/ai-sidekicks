@@ -76,7 +76,6 @@ import {
   registerDriverListModels,
   registerDriverListModes,
   registerDriverListProviderCommands,
-  registerDriverRespondToRequest,
   type DriverCatalogDeps,
   type DriverCompactContextDeps,
   type DriverDispatchDeps,
@@ -374,10 +373,6 @@ describe("driver.* registration surface", () => {
       registry,
       dispatchDeps(drivers, () => "claude"),
     );
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps(drivers, () => "claude"),
-    );
     registerDriverCompactContext(registry, compactContextDeps(drivers));
     registerDriverListProviderCommands(registry, listProviderCommandsDeps(drivers));
     registerDriverSubscribeEvents(registry, {
@@ -386,12 +381,12 @@ describe("driver.* registration surface", () => {
     });
   }
 
-  it("binds exactly the nine client-facing names, with the ratified mutating flags", () => {
+  it("binds exactly the eight client-facing names, with the ratified mutating flags", () => {
     const registry = new MethodRegistryImpl();
     bindAll(registry);
 
     // `false` on the reads and on subscribe so a version-mismatched connection
-    // keeps read-only access; `true` on the four that drive a live run.
+    // keeps read-only access; `true` on the three that drive a live run.
     expect(registry.isMutating("driver.listCapabilities")).toBe(false);
     expect(registry.isMutating("driver.listModels")).toBe(false);
     expect(registry.isMutating("driver.listModes")).toBe(false);
@@ -399,7 +394,6 @@ describe("driver.* registration surface", () => {
     expect(registry.isMutating("driver.subscribeEvents")).toBe(false);
     expect(registry.isMutating("driver.interruptRun")).toBe(true);
     expect(registry.isMutating("driver.applyIntervention")).toBe(true);
-    expect(registry.isMutating("driver.respondToRequest")).toBe(true);
     expect(registry.isMutating("driver.compactContext")).toBe(true);
   });
 
@@ -900,70 +894,6 @@ describe("driver.applyIntervention", () => {
       registry.dispatch("driver.applyIntervention", steer, NO_TRANSPORT),
     ).resolves.toStrictEqual({ status: "applied" });
     expect(steerRun).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("driver.respondToRequest", () => {
-  it("forwards the answer and returns the empty ack", async () => {
-    const registry = new MethodRegistryImpl();
-    const respondToRequest = vi.fn(async () => undefined);
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps({ claude: driverDouble({ respondToRequest }) }, () => "claude"),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.respondToRequest",
-        { runId: TEST_RUN_ID, requestId: "req-42", response: { choice: "b" } },
-        NO_TRANSPORT,
-      ),
-    ).resolves.toStrictEqual({});
-    expect(respondToRequest).toHaveBeenCalledWith({
-      runId: TEST_RUN_ID,
-      requestId: "req-42",
-      response: { choice: "b" },
-    });
-  });
-
-  it("REFUSES a request that omits the answer, before the driver is consulted", async () => {
-    // A provider blocked on a structured question must not be handed "no
-    // answer" as though it were one.
-    const registry = new MethodRegistryImpl();
-    const respondToRequest = vi.fn(async () => undefined);
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps({ claude: driverDouble({ respondToRequest }) }, () => "claude"),
-    );
-
-    await expect(
-      registry.dispatch(
-        "driver.respondToRequest",
-        { runId: TEST_RUN_ID, requestId: "req-42" },
-        NO_TRANSPORT,
-      ),
-    ).rejects.toBeInstanceOf(RegistryDispatchError);
-    expect(respondToRequest).not.toHaveBeenCalled();
-  });
-
-  it("REFUSES the operation on a driver that does not implement it", async () => {
-    // Also not hypothetical — neither shipped driver implements this one either.
-    const registry = new MethodRegistryImpl();
-    registerDriverRespondToRequest(
-      registry,
-      dispatchDeps({ claude: driverDouble({}) }, () => "claude"),
-    );
-
-    const thrown = await registry
-      .dispatch(
-        "driver.respondToRequest",
-        { runId: TEST_RUN_ID, requestId: "req-42", response: null },
-        NO_TRANSPORT,
-      )
-      .then(() => undefined)
-      .catch((error: unknown) => error);
-
-    expect(wireErrorData(thrown).type).toBe("driver.capability_unsupported");
   });
 });
 

@@ -457,7 +457,7 @@ describe("DriverClient — the ratified client-facing surface", () => {
     ]);
   });
 
-  it("exposes exactly the nine ratified methods and none of the four lifecycle operations", () => {
+  it("exposes exactly the eight ratified methods and none of the four lifecycle operations", () => {
     const { client } = buildDriverClient({});
 
     // The four lifecycle operations establish, restore, start, or tear down a
@@ -487,7 +487,6 @@ describe("DriverClient — the ratified client-facing surface", () => {
       "listModels",
       "listModes",
       "listProviderCommands",
-      "respondToRequest",
       "subscribeEvents",
     ]);
   });

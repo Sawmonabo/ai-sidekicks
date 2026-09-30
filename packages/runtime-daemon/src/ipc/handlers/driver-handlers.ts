@@ -1,8 +1,8 @@
 // The `driver.*` JSON-RPC handlers
 //
-// The EIGHT request/response verbs of the client-facing set, bound onto the
+// The SEVEN request/response verbs of the client-facing set, bound onto the
 // `MethodRegistry` and dispatched into the IN-DAEMON `ProviderRegistry`. The
-// ninth, `driver.subscribeEvents`, is registered by the sibling
+// eighth, `driver.subscribeEvents`, is registered by the sibling
 // `driver-subscribe.ts` — moved that leg out of this module rather than leaving a
 // second copy behind, so this file no longer binds it and no longer derives the
 // driver event set. That dispatch target is the point rather than an
@@ -12,19 +12,20 @@
 // "execute via the control plane", which is how the invariant survives contact
 // with a wire surface.
 //
-// WHY THE CLIENT-FACING SET IS NINE AND NOT THIRTEEN. `ProviderDriver` carries eighteen operations.
+// WHY THE CLIENT-FACING SET IS EIGHT AND NOT TWELVE. `ProviderDriver` carries eighteen operations.
 // Four of them — `createSession`, `resumeSession`, `startRun`, `closeSession` — are daemon-internal
 // restore, start, or tear down a session-or-run domain object, which is orchestration's job, and a
 // client reaching them directly would let a caller mint runtime state behind the orchestrator's
 // back. Their absence from this file is the enforcement — there is no schema for them at the SDK
 // seam and no `register` call here, so a client that guessed the method name gets
-// `method_not_found` from the registry substrate. the two console-parity verbs
-// (`driver.compactContext`, `driver.listProviderCommands`) extend THIS module (never a second one),
-// taking the set bound here from six to eight: both are request/response dispatches, which is the
-// concern this file owns. `driver-subscribe.ts` is not a counterexample to that rule but an
-// application of it — a subscription allocates per-connection state and owns an ordering obligation
-// none of these verbs carry, which is the seam draws and the same one `session-subscribe.ts`
-// already sits on.
+// `method_not_found` from the registry substrate. `respondToRequest` has no verb either: a
+// person answers a provider's ask through `approval.resolve` or `question.resolve`. The two
+// console-parity verbs (`driver.compactContext`, `driver.listProviderCommands`) extend THIS module
+// (never a second one), taking the set bound here from five to seven: both are request/response
+// dispatches, which is the concern this file owns. `driver-subscribe.ts` is not a counterexample to
+// that rule but an application of it — a subscription allocates per-connection state and owns an
+// ordering obligation none of these verbs carry, which is the seam draws and the same one
+// `session-subscribe.ts` already sits on.
 //
 // THE TWO CONSOLE-PARITY VERBS ARE SESSION-ADDRESSED, AND AUTHORIZATION RUNS
 // FIRST. Unlike the run-addressed verbs — whose run id is globally unique — a
@@ -49,7 +50,7 @@
 // The rosters are sorted by driver name so the reply is stable across daemon
 // restarts, which a renderer that keys list items on position depends on.
 //
-// THE THREE RUN VERBS ARE RUN-ADDRESSED, AND RESOLUTION IS INJECTED. A run id is
+// THE TWO RUN VERBS ARE RUN-ADDRESSED, AND RESOLUTION IS INJECTED. A run id is
 // globally unique, so the wire shapes carry no session selector — a second
 // addressing key would have no honest answer when the two disagreed. Turning a
 // run id into a driver is a LIVENESS judgment (`runtime_bindings` is 1:many per
@@ -95,15 +96,15 @@
 //   * The registry `safeParse`s the request SDK-seam schema before a handler
 //     body runs, and `safeParse`s the result before it reaches the wire.
 //   * Sanitized error mapping; see the translation note above.
-//   * Dotted-camelCase method names; all eight match the canonical regex.
+//   * Dotted-camelCase method names; all seven match the canonical regex.
 // It moved to `driver-subscribe.ts` with the handler that owes it.
 //
 // Mutating flags, stated in the contract's method table: `false` on the three roster reads and on
 // `listProviderCommands`, which reads live enumeration state and changes
-// nothing; `true` on `interruptRun`, `applyIntervention`, `respondToRequest`,
-// and `compactContext`, each of which drives a live run. The flag gates the
+// nothing; `true` on `interruptRun`, `applyIntervention`, and `compactContext`,
+// each of which drives a live run. The flag gates the
 // pre-handshake path, so a version-mismatched connection keeps read-only access
-// and loses exactly the four verbs that change something.
+// and loses exactly the three verbs that change something.
 // `driver.subscribeEvents` is `false` for the same reason the reads are, and
 // carries that flag in its own module.
 //
@@ -129,7 +130,6 @@ import type {
   ProviderCommandBindingGroup,
   ProviderCommandListResult,
   ProviderDriver,
-  RespondToRequestParams,
   RunId,
   SessionId,
 } from "@ai-sidekicks/contracts";
@@ -177,7 +177,7 @@ export interface DriverCatalogDeps {
 }
 
 /**
- * Dependencies for the three run-addressed verbs.
+ * Dependencies for the two run-addressed verbs.
  *
  * `resolveDriverForRun` is the liveness seam. It answers "which driver is
  * currently bound to this run", returning `undefined` when the run is unknown or
@@ -467,9 +467,8 @@ function refuseNoLiveBinding(): never {
  * Assert a resolved driver actually implements the operation about to be called.
  *
  * NOT defensive programming. Both drivers this repo ships are deliberately
- * narrowed (`Pick`-typed) to the operations their phase has built, and two of
- * the nine client-facing verbs — `listModes` and `respondToRequest` — are
- * implemented by NEITHER at the time this handler set lands. `lookup()` returns
+ * narrowed (`Pick`-typed) to the operations their phase has built, and one of
+ * the eight client-facing verbs, `listModes`, is implemented by NEITHER. `lookup()` returns
  * the full `ProviderDriver` type, so the call typechecks and then throws
  * `TypeError: driver.listModes is not a function` at runtime, which
  * `mapJsonRpcError` collapses to a bare `-32603` — a client told the daemon
@@ -482,7 +481,7 @@ function refuseNoLiveBinding(): never {
  * retry", which is true where a 503 would invite a retry loop against a driver
  * that will never grow the method. It differs from `ProviderRegistry`'s gate in
  * carrying an OPERATION name rather than a `DriverCapabilityFlag`, because no
- * flag governs these two operations — the flag set gates capabilities, not the
+ * flag governs this operation — the flag set gates capabilities, not the
  * contract's own method surface.
  */
 function requireDriverOperation(
@@ -706,23 +705,6 @@ export function registerDriverApplyIntervention(
   };
 
   registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], handler);
-}
-
-/** Bind `driver.respondToRequest`. Answers `{}` for the same reason as `interruptRun`. */
-export function registerDriverRespondToRequest(
-  registry: MethodRegistry,
-  deps: DriverDispatchDeps,
-): void {
-  const handler: Handler<RespondToRequestParams, DriverAckResult> = async (params) => {
-    return withDriverErrorTranslation(async () => {
-      const { driverName, driver } = resolveDriverForRunOrThrow(deps, params.runId);
-      requireDriverOperation(driver, driverName, "respondToRequest");
-      await driver.respondToRequest(params);
-      return {};
-    });
-  };
-
-  registerDescribedMethod(registry, DRIVER_METHOD_DESCRIPTORS["driver.respondToRequest"], handler);
 }
 
 /**
