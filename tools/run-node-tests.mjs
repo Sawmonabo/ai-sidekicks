@@ -9,95 +9,33 @@
 // An argument starting with `-` other than `--min-files` is forwarded to node ahead of `--test`.
 // A pattern is a file path, a directory (its `*.test.mjs` files, recursively) or a glob.
 
-import { readdirSync, realpathSync, statSync } from "node:fs";
-import { join, relative, sep } from "node:path";
+import { globSync, realpathSync, statSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
 
-// Not `fs.globSync`, which was experimental on Node 22.12 and warned on every run; a required CI
-// gate should not rest on it. `readdirSync({ recursive: true })` covers the `**` shapes in use.
 const GLOB_METACHARACTERS = /[*?]/;
-
-/** Escapes a literal character for embedding in a RegExp source. */
-function escapeRegExpCharacter(character) {
-  return character.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-/** Translates one glob path segment (no `/`) into RegExp source. */
-function segmentToRegExpSource(segment) {
-  let source = "";
-  for (const character of segment) {
-    if (character === "*") source += "[^/]*";
-    else if (character === "?") source += "[^/]";
-    else source += escapeRegExpCharacter(character);
-  }
-  return source;
-}
-
-/**
- * Compiles the wildcard tail of a glob into an anchored RegExp over paths relative to its static
- * prefix. `**` spans zero or more segments, so `a/**\/b` matches `a/b` and `a/x/y/b`.
- */
-function compileGlobSegments(segments) {
-  let source = "^";
-  segments.forEach((segment, index) => {
-    const isLastSegment = index === segments.length - 1;
-    if (segment === "**") {
-      source += isLastSegment ? "(?:[^/]+(?:/[^/]+)*)?" : "(?:[^/]+/)*";
-      return;
-    }
-    source += segmentToRegExpSource(segment);
-    if (!isLastSegment) source += "/";
-  });
-  return new RegExp(`${source}$`);
-}
-
-/** Lists every file beneath `root` as a `/`-separated path relative to `root`. */
-function listFilesBeneath(root) {
-  let entries;
-  try {
-    entries = readdirSync(root, { withFileTypes: true, recursive: true });
-  } catch {
-    // A missing prefix resolves to zero files; the caller turns zero into the failing exit.
-    return [];
-  }
-  return entries
-    .filter((entry) => entry.isFile())
-    .map((entry) => {
-      // `parentPath` may be absolute or root-relative; `relative` normalizes both.
-      const absolute = join(entry.parentPath ?? entry.path, entry.name);
-      return relative(root, absolute).split(sep).join("/");
-    });
-}
 
 /**
  * Resolves one pattern to files. A literal file is kept whatever its extension, since dropping a
  * named file is the silent failure this tool prevents. A directory means `<dir>/**\/*.test.mjs`;
- * a glob keeps every match under its static prefix.
+ * a glob keeps every file it matches.
  */
 function resolvePattern(pattern) {
-  const segments = pattern.split("/");
-  const firstMagicIndex = segments.findIndex((segment) => GLOB_METACHARACTERS.test(segment));
-
-  if (firstMagicIndex === -1) {
+  let globPattern = pattern;
+  if (!GLOB_METACHARACTERS.test(pattern)) {
     let stats;
     try {
       stats = statSync(pattern);
     } catch {
+      // A missing path resolves to zero files; the caller turns zero into the failing exit.
       return [];
     }
     if (stats.isFile()) return [pattern];
     if (!stats.isDirectory()) return [];
-    return listFilesBeneath(pattern)
-      .filter((relativePath) => relativePath.endsWith(".test.mjs"))
-      .map((relativePath) => join(pattern, relativePath));
+    globPattern = join(pattern, "**", "*.test.mjs");
   }
-
-  const staticPrefix = segments.slice(0, firstMagicIndex).join("/") || ".";
-  const matcher = compileGlobSegments(segments.slice(firstMagicIndex));
-  return listFilesBeneath(staticPrefix)
-    .filter((relativePath) => matcher.test(relativePath))
-    .map((relativePath) => join(staticPrefix, relativePath));
+  return globSync(globPattern).filter((path) => statSync(path).isFile());
 }
 
 /**
