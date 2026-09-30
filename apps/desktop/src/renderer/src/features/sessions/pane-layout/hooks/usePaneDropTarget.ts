@@ -10,12 +10,8 @@ import {
 } from "../pane-drag.js";
 
 /**
- * Make one pane a place a dragged pane can land.
- *
- * The target is the pane's own root element rather than its header, so the whole
- * column is a target: a person dragging over a pane should not have to find a strip
- * to aim at, and the edge is decided by the pointer's position within the pane, not
- * by which part of it the pointer is over.
+ * Make one pane a place a dragged pane can land. The target is the pane's root element, so
+ * the whole column is a target and the edge is decided by the pointer's position within it.
  */
 export function usePaneDropTarget(
   coordinator: PaneLayoutDragCoordinator,

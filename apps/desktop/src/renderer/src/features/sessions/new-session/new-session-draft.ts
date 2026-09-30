@@ -1,67 +1,33 @@
-// The new-session draft — a session that does not exist yet.
+// The new-session draft: a session that does not exist yet. "+ New" creates a placeholder
+// with no daemon row, the first send coalesces `session.create` and `run.queueCreate`, and a
+// draft closed empty leaves no row. This file owns what a person chose and the coalescing
+// that keeps one draft to one session; `new-session-send.ts` owns what the choices become on
+// the wire.
 //
-// THIS CONSOLE'S OWN RULE, because each view's composition is left to the console's
-// own code and fixture scenarios: "+ New" creates a draft session placeholder with no
-// daemon row, and the person picks a repo mount and mode and a posture. The first send
-// coalesces `session.create` and `run.queueCreate`; a draft that is closed empty reverts
-// to nothing and leaves no row.
+// Every selection lives in this object's memory: a draft is user-authored content, which has
+// no durable home in the renderer (`store/persistence/persisted-value-classes.ts`), so this
+// module never reaches the persistence store. A partial send is reported, never rolled back,
+// because a renderer cannot undo a `session.create` the daemon accepted, and the draft stays
+// editable.
 //
-// WHAT IS HERE AND WHAT IS BESIDE IT. This file owns what a person has CHOSEN and the
-// coalescing that keeps one draft to one session. What those choices become on the
-// wire, and what the result of sending them says, is `new-session-send.ts` — it holds
-// no state, so its rules can be checked without constructing a draft.
+// One draft object mints at most one session, and each call at most once. Send stays pressable
+// after a partial send, so without a per-leg memory a double-click would mint two sessions and
+// a retry would queue the words twice. A send while one is in flight yields that send (as
+// `coalescing-layout-writer.ts` does), and a later send resumes at the first call not yet
+// made. Closing the draft drops it, which is what makes the next "+ New" a new session.
 //
-// THREE PROPERTIES, AND EACH IS THE REASON THIS IS A CLASS RATHER THAN A FORM:
+// Every create carries the draft's one idempotency key, minted with the draft, so a create
+// that reached the daemon and is sent again names the session already made.
 //
-//   • **No daemon row until the first send.** Every selection lives in this
-//     object's memory and nowhere else. `discard()` on an empty draft leaves
-//     nothing behind — there is nothing to delete, which is the strongest form of
-//     "leaves no row".
-//   • **Nothing durable.** A draft is user-authored content, and such content
-//     has no durable home in the renderer: a draft lives in its window's in-memory
-//     store for that window's lifetime and is gone when the window closes.
-//     `console/persistence/value-classes.ts` is the enforcement; this module never
-//     reaches the persistence store.
-//   • **A partial send is reported, never rolled back.** The rule above asks for the
-//     calls that succeeded to be named and for the draft to stay editable. A renderer
-//     cannot undo a `session.create` the daemon accepted, and pretending otherwise
-//     would leave a real session the person believes was never made.
+// A create answered with a reply this build cannot read may have made a session and names
+// none, so there is nothing to resume against and a repeat would return the same reply. The
+// draft remembers that and answers every later send from memory with nothing on the wire; the
+// sentence tells the person to look at the sessions list.
 //
-// ONE DRAFT OBJECT, AT MOST ONE SESSION — AND EACH CALL AT MOST ONCE. The three
-// properties above make the draft editable after a send that only partly landed, which
-// is what a person needs, and which means Send stays pressable with the same choices
-// behind it. Without a memory of what a previous press already did, the next press
-// would reach `session.create` again: a double-click would mint two daemon sessions,
-// and a retry after the partial would mint a third, none of them the one the person is
-// looking at. The same argument applies one leg down, which is why the memory is
-// per-leg rather than one flag — a retry that re-queued the turn would send their
-// words twice. So this class coalesces rather than
-// refuses, on the pane layout writer's idiom: a send while one is in flight yields THAT send,
-// and a later send resumes at the first call that has not been made. The invariant is
-// scoped to the object, so closing the draft — which drops it — is what makes the next
-// "+ New" a genuinely new session.
-//
-// EVERY CREATE THIS DRAFT SENDS CARRIES ITS ONE IDEMPOTENCY KEY, minted with the draft.
-// A create that reached the daemon and is sent again, after a failure that hid the
-// answer, names the session already made rather than a second one.
-//
-// AND ONE SETTLEMENT ENDS THE DRAFT RATHER THAN RESUMING IT. A create the daemon
-// answered with a reply this build cannot read may have made a session, and named
-// none — so there is nothing to resume against, and a repeat would come back in the
-// same reply this build cannot read. The draft remembers that reading and answers
-// every later send from memory, putting nothing on the wire; the sentence a person is
-// left with says to go and look at the sessions list rather than to press again.
-//
-// THE FIRST TURN IS THE DRAFT'S, because the draft is what sends it. `run.queueCreate`
-// takes the turn's own body, so a draft holding a mount and a posture and no words could
-// not compose one. It is also the ONLY axis the shipped control offers, so a draft that
-// reaches a send from the screen always has one. A first turn that is still blank is the
-// one refusal here that is a CHOICE rather than a fact about the build: the session
-// exists, and nothing has been said yet.
-//
-// AUTO-PIN IS STILL ABSENT, and now for a reason that can be discharged rather than a
-// wire that cannot: it fires on a first SUCCESSFUL send, whose five conjuncts include
-// facts about how the session was opened that no reply here carries.
+// The first turn is the draft's, because `run.queueCreate` takes the turn's body. A blank
+// first turn is the one refusal that is a choice rather than a fact about the build: the
+// session exists and nothing has been said. Auto-pin is not done here: it fires on a first
+// successful send and needs facts about how the session was opened that no reply carries.
 
 import type { AgentProviderBinding, ExecutionPosture } from "@ai-sidekicks/contracts";
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
@@ -75,13 +41,8 @@ import {
 } from "./new-session-settlement.js";
 
 /**
- * The posture axis a person picks, taken off the wire type rather than restated.
- *
- * `ExecutionPosture` is a structured value with cross-field invariants encoded in
- * its shape; the draft's picker chooses only its `mode`, and the rest is composed
- * where the run is admitted. Deriving the union from the contract means a fourth
- * mode reaches this picker without an edit here — and cannot reach it as a string
- * the wire does not know.
+ * The posture axis a person picks, taken off the wire type. The picker chooses only its
+ * `mode`; the rest of `ExecutionPosture` is composed where the run is admitted.
  */
 export type DraftPostureMode = ExecutionPosture["mode"];
 
@@ -96,6 +57,7 @@ export interface NewSessionDraftState {
   readonly revision: number;
 }
 
+/** A session that does not exist yet: the choices, the coalesced first send and its memory. */
 export class NewSessionDraft {
   readonly #bridge: PlatformBridge;
   readonly #queueFirstTurn: FirstTurnQueueCall;
@@ -104,25 +66,15 @@ export class NewSessionDraft {
   readonly #clientIdempotencyKey: string = crypto.randomUUID();
   readonly #changes = new Emitter<NewSessionDraftState>("new session draft change");
   /**
-   * The send that is running, while one is.
-   *
-   * Held rather than counted, so a concurrent caller receives the SAME promise and
-   * therefore the same result — a double-click yields one create and one settlement
-   * rather than one create and a second caller left waiting on nothing.
-   *
-   * Private, and no reader is offered one: the guard is structural, so a caller
-   * that is not a button — a keyboard path, a test, a later control — is safe
-   * without consulting anything. A control that wants to disable an affordance
-   * meanwhile knows it pressed, which is `NewSessionControl`'s own flag.
+   * The send that is running, while one is. Held rather than counted, so a concurrent caller
+   * receives the same promise and result. Private: the guard is structural, so a keyboard
+   * path or a test is safe without consulting a flag.
    */
   #sendInFlight: Promise<NewSessionSendResult> | undefined;
   /**
-   * What this draft has already landed.
-   *
-   * Deliberately not cleared by {@link discard}: the invariant is one session per
-   * draft OBJECT, and a draft that could be emptied and re-composed into a second
-   * `session.create` would be the same defect reached by a longer route. The control
-   * drops the object on close, which is where a new session comes from.
+   * What this draft has already landed. Not cleared by {@link discard}: the invariant is one
+   * session per draft object, and re-composing an emptied draft into a second create would
+   * be the same defect by a longer route.
    */
   readonly #landed: LandedCalls = {
     hasCreatedSession: false,
@@ -161,54 +113,33 @@ export class NewSessionDraft {
     this.#commit({ repoMount });
   }
 
-  /**
-   * The posture this session works under, once one can be chosen.
-   *
-   * Held but not sent: neither call the send makes carries a member for it, so
-   * `NewSessionControl.tsx` offers no picker for it.
-   */
+  /** The posture this session works under. Held but not sent: neither call has a member for it. */
   public setPosture(posture: DraftPostureMode | undefined): void {
     this.#commit({ posture });
   }
 
   /**
-   * What this session's first message says.
-   *
-   * Kept verbatim: the wire receives the user's own bytes, so pasted code keeps
-   * its indentation and a deliberately separated block keeps its separation. Blankness
-   * is decided by trimming where the send asks the question, which is a test of the
-   * text rather than an edit of it.
+   * What this session's first message says. Kept verbatim so the wire gets the user's own
+   * bytes; blankness is tested by trimming where the send asks, not by editing the text.
    */
   public setFirstTurn(firstTurn: string): void {
     this.#commit({ firstTurn });
   }
 
-  /**
-   * Throw the draft away.
-   *
-   * No wire call, on this module's own terms: a draft has no daemon row, so discarding
-   * one is a local act and issuing a delete would be asking the daemon to forget
-   * something it was never told.
-   */
+  /** Throw the draft away. Local only: a draft has no daemon row, so nothing is deleted. */
   public discard(): void {
     this.#commit({ repoMount: undefined, posture: undefined, firstTurn: "" });
   }
 
   /**
-   * The coalesced first send.
-   *
-   * Coalesced in TWO senses, and both are load-bearing. Across the two calls, it is
-   * ordered rather than parallel: the turn needs the session `session.create` returns,
-   * so issuing them together would mean inventing the id before the daemon minted it.
-   * Across repeated presses, it remembers what landed: a concurrent call joins the
-   * running send, and a later call resumes at the first call that has not been made.
-   * Neither refuses, because a refusal here would put a code in front of a person whose
-   * press did exactly what they meant it to.
+   * The coalesced first send. The two calls are ordered, because the turn needs the id
+   * `session.create` returns. Repeated presses are coalesced: a concurrent call joins the
+   * running send and a later one resumes at the first call not yet made. Neither refuses, as
+   * a refusal would put a code in front of a person whose press did what they meant.
    */
   public send(): Promise<NewSessionSendResult> {
-    // `??=` short-circuits, so the send is started only when none is running, and
-    // the assignment happens before the first `await` inside it — a second
-    // synchronous call therefore always finds the promise rather than a gap.
+    // `??=` starts a send only when none is running, and assigns before the first `await`, so
+    // a second synchronous call finds the promise.
     this.#sendInFlight ??= this.#performSend().finally(() => {
       this.#sendInFlight = undefined;
     });
@@ -217,16 +148,10 @@ export class NewSessionDraft {
 
   async #performSend(): Promise<NewSessionSendResult> {
     if (this.#landed.hasUnreadableCreate) {
-      // THE STRUCTURAL HALF OF THE AMBIGUOUS ARM, and the reason it is here rather
-      // than only on the control. A create this build could not read may have made a
-      // session, and a second dispatch would come back in the same unreadable reply,
-      // naming nothing. The affordance is disabled from the same fact; this is what
-      // makes a press that arrived anyway — a keyboard path, a later caller, a test — put
-      // nothing on the wire. The same settlement is answered again, so the sentence a
-      // person is reading does not change under them.
-      //
-      // Nothing is read out of the draft on this path, so the settlement names no
-      // revision: it acted on a memory rather than on a composition.
+      // The structural half of the ambiguous arm: a create this build could not read may have
+      // made a session, and a second dispatch would return the same unreadable reply. A press
+      // that bypasses the disabled control puts nothing on the wire and gets the same
+      // settlement. It read no composition, so it names no revision.
       return refuseAmbiguousCreate(undefined);
     }
     if (this.#state.isEmpty) {
@@ -234,11 +159,8 @@ export class NewSessionDraft {
         outcome: "refused",
         sessionId: undefined,
         completedCalls: [],
-        // An empty draft reaches no wire, so there is no composition this settlement
-        // carried and none for a caller to measure itself against.
+        // An empty draft reaches no wire, so no composition was carried.
         sentRevision: undefined,
-        // Named for the one control that exists: the shipped control offers the first
-        // message and nothing else.
         refusal: refuseNewSessionDraft("draft-empty", "Type the first message before sending."),
       };
     }
@@ -246,30 +168,22 @@ export class NewSessionDraft {
     const progress = await sendNewSessionDraft({
       bridge: this.#bridge,
       queueFirstTurn: this.#queueFirstTurn,
-      // The session this draft already created is the session this draft sends to, so
-      // the create leg is skipped rather than repeated.
+      // The session this draft already created is the one it sends to; the create is skipped.
       sessionId: this.#landed.hasCreatedSession ? this.#landed.sessionId : undefined,
       firstTurnAlreadyQueued: this.#landed.hasQueuedFirstTurn,
       repoMount: this.#state.repoMount,
       lead: this.#lead,
       clientIdempotencyKey: this.#clientIdempotencyKey,
       firstTurn: this.#state.firstTurn,
-      // CAPTURED IN THE SAME BREATH AS THE WORDS IT DESCRIBES. Every member above is
-      // read out of `#state` in this one expression, so the revision beside them names
-      // exactly the composition this send is about — and a settlement can be measured
-      // against the draft as it stands when the reply arrives instead of being assumed
-      // to describe it. The draft is editable throughout: `send()` returns before the
-      // create does, and nothing here stops a later `setFirstTurn`.
+      // Captured with the words it describes, from the same `#state` read, so a settlement can
+      // be measured against the draft as it stands when the reply arrives. The draft is
+      // editable throughout: `send()` returns before the create does.
       draftRevision: this.#state.revision,
     });
 
-    // Recorded whatever the outcome was: the legs that landed are landed, and a
-    // partial that forgot them would repeat them on the next press.
-    //
-    // The unreadable arm is recorded FIRST and separately, because it is the one
-    // settlement that has to survive as its own fact: `hasCreatedSession` with no
-    // `sessionId` would be indistinguishable from a create that was skipped, and the
-    // resume path reads exactly that pair.
+    // Recorded whatever the outcome: legs that landed are landed. The unreadable arm is
+    // recorded first and separately, since `hasCreatedSession` with no `sessionId` would look
+    // like a skipped create, and the resume path reads exactly that pair.
     this.#landed.hasUnreadableCreate ||= progress.createAnsweredUnreadably;
     if (progress.result.outcome === "sent" || progress.result.outcome === "partial") {
       this.#landed.hasCreatedSession = true;
@@ -296,24 +210,16 @@ export class NewSessionDraft {
 /** What one draft has already put on the wire, so a repeat press resumes rather than repeats. */
 interface LandedCalls {
   /**
-   * The session this draft created, once it has.
-   *
-   * Set only where the reply was READ, so this member and {@link sessionId} move
-   * together and the resume path can address the session it names. The create that
-   * answered unreadably is the other half of the same rule and is recorded beside it
-   * in {@link hasUnreadableCreate}, because it cannot be resumed from at all — there
-   * is no id — and must still stop the next press from minting a second session.
+   * The session this draft created, once it has. Set only where the reply was read, so this
+   * member and `sessionId` move together. An unreadable create is recorded beside it in
+   * {@link hasUnreadableCreate}, since it cannot be resumed from but must stop a second create.
    */
   hasCreatedSession: boolean;
   sessionId: string | undefined;
   /**
-   * Whether the create answered with a reply this build could not read.
-   *
-   * The state {@link hasCreatedSession} anticipates and could not by itself express:
-   * a create the daemon answered unreadably may have made a session, and no id came
-   * back to address it by — so the draft can neither resume against it nor safely
-   * mint another. Recorded so every LATER press answers from memory and puts nothing
-   * on the wire.
+   * Whether the create answered with a reply this build could not read. A session may exist
+   * with no id to address it, so the draft can neither resume nor safely mint another; every
+   * later press answers from memory.
    */
   hasUnreadableCreate: boolean;
   hasQueuedFirstTurn: boolean;

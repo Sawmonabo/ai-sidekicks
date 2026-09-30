@@ -1,8 +1,7 @@
 // Which mounted pane layout a palette act reaches, and the refusal when none is mounted.
 //
-// The refusal arm is the half that fails silently: a row run from a window with no
-// pane layout has nothing to act on, and a command that quietly did nothing would be
-// indistinguishable from one that ran.
+// The refusal arm fails silently otherwise: a command that quietly did nothing would look like
+// one that ran.
 
 import { describe, expect, it } from "vitest";
 
@@ -43,7 +42,7 @@ describe("which pane layout a command acts on", () => {
   });
 
   it("negative control: a registry holding one pane layout performs rather than refusing", () => {
-    // Without this the case above would pass over a registry that refused every press.
+    // The case above would also pass over a registry that refused every press.
     const mountedLayouts = new MountedPaneLayouts();
     mountedLayouts.adopt(createSpyingPaneLayoutActs());
     expect(mountedLayouts.perform("focusNextPane").status).toBe("performed");

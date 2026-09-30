@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { sessionListDegradation } from "./session-list-degradation.js";
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 
-/** Every cause the store can stand in. Transcribed, so a sixth fails a case here. */
+/** Every cause the store can stand in, transcribed so a new one fails a case here. */
 const EVERY_CAUSE: readonly SessionDegradedCause[] = [
   "stream-diverged",
   "sequence-gap",
@@ -26,8 +26,8 @@ describe("the degraded list's sentence", () => {
   });
 
   it("names a different cause per cause rather than one sentence for all five", () => {
-    // Without this the module could satisfy the case above with one constant, and a
-    // person reading "something went wrong" would learn nothing about which thing.
+    // One constant would satisfy the case above while telling the person nothing about which
+    // cause stands.
     const sentences = EVERY_CAUSE.map((cause) => sessionListDegradation(cause).lastReadSentence);
 
     expect(new Set(sentences).size).toBe(EVERY_CAUSE.length);

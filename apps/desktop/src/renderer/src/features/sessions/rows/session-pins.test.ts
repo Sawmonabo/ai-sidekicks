@@ -1,8 +1,6 @@
-// Where a pin lives, and what happens when it cannot be written.
-//
-// Driven against the real `UiStateStore` over the memory adapter rather than a
-// stand-in, because the property under test is that a pin survives the value-class
-// chokepoint — a fake store would prove only that this module can call a method.
+// Where a pin lives, and what happens when it cannot be written. It runs against the real
+// `UiStateStore` over the memory adapter, since a fake would not prove a pin survives the
+// value-class chokepoint.
 
 import { describe, expect, it } from "vitest";
 
@@ -69,9 +67,8 @@ describe("pins in the durable store", () => {
 
 describe("a write the store will not take", () => {
   it("records the refusal rather than reporting a pin that did not land", async () => {
-    // A one-byte ceiling on the ADAPTER, so the refusal is the full-disk arm
-    // (`quota-exceeded`) rather than the caller-fault arm — a pin is a legitimate
-    // value, and the failure being exercised is the store's, not the caller's.
+    // A one-byte adapter ceiling gives the full-disk refusal (`quota-exceeded`), not a caller
+    // fault: a pin is a legitimate value.
     const pins = new SessionPinStore(openStore({ capacityBytes: 1 }));
     await pins.setPinned("session-a", true);
     expect(pins.lastRefusal?.code).toBe("quota-exceeded");
@@ -79,8 +76,7 @@ describe("a write the store will not take", () => {
   });
 
   it("negative control: a write that lands records no refusal", () => {
-    // Without this, the case above would pass over a store that reported a
-    // refusal for every write.
+    // The case above would also pass over a store that refused every write.
     const pins = new SessionPinStore(openStore());
     expect(pins.lastRefusal).toBeUndefined();
   });

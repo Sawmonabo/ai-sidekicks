@@ -1,9 +1,5 @@
-// What a session row says about WHEN it was last touched.
-//
-// The list carries no day divider anywhere. So the touched-at reading is the only
-// thing on the row that can say which day it belongs to, and a clock-only reading
-// made two sessions a week apart at the same minute identical on screen. That is a
-// property no type can state and one this file asserts directly.
+// What a session row says about when it was last touched. The list has no day divider, so
+// the touched-at reading is the only thing that can say which day a row belongs to.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -33,12 +29,8 @@ function renderList(rows: readonly SessionListRow[]): HTMLElement {
 }
 
 /**
- * The touched-at readings, one per row.
- *
- * Selected as DIRECT children of the facts row, which is what separates the instant
- * from the user identifiers rendered beside it in their own wrapper — a
- * looser selector would fold the two together and the assertion would stop being
- * about the instant at all.
+ * The touched-at readings, one per row. Selected as direct children of the facts row, which
+ * separates the instant from the user identifiers rendered beside it.
  */
 function touchedReadings(container: HTMLElement): readonly string[] {
   return [
@@ -59,8 +51,7 @@ describe("the instant a session was last touched", () => {
   });
 
   it("negative control: the clock-only reading of those two instants is one string", () => {
-    // Without this the case above would pass over two instants that were never a
-    // collision, and would prove nothing about which formatter the row reaches for.
+    // Without this the case above could pass over two instants that never collided.
     expect(formatClockTime(TOUCHED_NEXT_DAY)).toBe(formatClockTime(TOUCHED_TODAY));
   });
 
@@ -73,8 +64,7 @@ describe("the instant a session was last touched", () => {
   });
 
   it("renders no instant at all where the wire named none", () => {
-    // `undefined` is a real answer and the row says nothing rather than composing
-    // one — the absence this reading must not fill in.
+    // `undefined` is a real answer; the row says nothing rather than composing an instant.
     const container = renderList([row({ touchedAtIso: undefined })]);
     expect(touchedReadings(container)).toStrictEqual([]);
   });

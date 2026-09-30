@@ -1,4 +1,4 @@
-// The pane layout's durable record: its key, the restore gate, and what a save refuses.
+// The pane layout's saved-record key, its restore gate, and its save refusals.
 
 import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
@@ -6,32 +6,20 @@ import { PANE_LAYOUT_REFUSAL_ORIGIN } from "./pane-layout-snapshot.js";
 /** The durable record the pane layout's arrangement is saved under, per session. */
 export const PANE_LAYOUT_RECORD_KEY = "pane-layout";
 
-/** Why a pane layout save refused. Closed, so a second cause is a decision. */
+/** Why a pane layout save refused. */
 export const PANE_LAYOUT_SAVE_REFUSAL_CODES = ["layout-save-failed"] as const;
 
-/** One pane layout save refusal code. Derived, so the vocabulary is declared once. */
+/** One pane layout save refusal code. */
 export type PaneLayoutSaveRefusalCode = (typeof PANE_LAYOUT_SAVE_REFUSAL_CODES)[number];
 
 /**
- * How far one screen's restore has got, for one arrangement and one session.
+ * How far one screen's restore has got, for one layout and one session.
  *
- * TWO ANSWERS AND NEITHER IS RENDER STATE. "Has this restore been dispatched" gates
- * an effect, and a flag that re-rendered would re-run the very effect it gates;
- * "has it landed" is read from inside the layout subscription, a callback that
- * outlives the render which installed it, and a captured render value there would be
- * whatever was true when the subscription was made. A mutable holder answers both
- * from wherever they are asked.
- *
- * WHAT IT IS ADDRESSED BY IS THE POINT. Held per `(arrangement, session)` through
- * `hooks/subject-scoped/useSubjectScopedState.ts`, so routing to another open session
- * re-arms it and a `UiStateStore` REPLACEMENT — a reconnect re-mints the store and
- * hands it down without remounting anything — does not. A restore that re-ran there
- * would replace a
- * pane layout the person has been arranging for minutes with whatever the record holds,
- * which reads as the window silently undoing their work.
- *
- * It owns nothing, so it is a value and not a resource: there is no disposal, and a
- * holder that dropped it needs to do nothing about the one it dropped.
+ * A mutable holder rather than render state: whether the restore was dispatched gates an
+ * effect that a re-render would re-run, and whether it landed is read from a subscription
+ * callback that outlives the render. It is held per (layout, session), so routing to another
+ * session re-arms it and a `UiStateStore` replacement does not; a second restore would replace
+ * what the person has been arranging. It owns nothing, so it needs no disposal.
  */
 export class RestoreProgress {
   #hasStarted = false;
@@ -42,26 +30,24 @@ export class RestoreProgress {
     return !this.#hasStarted;
   }
 
-  /** True once the record has been adopted — the moment saving may begin. */
+  /** True once the record has been adopted, the moment saving may begin. */
   public get hasSettled(): boolean {
     return this.#hasSettled;
   }
 
+  /** Marks the read dispatched. */
   public start(): void {
     this.#hasStarted = true;
   }
 
+  /** Marks the record adopted. */
   public settle(): void {
     this.#hasSettled = true;
   }
 
   /**
-   * Give the dispatch gate back, where the read never landed.
-   *
-   * A read abandoned before it settled — the effect torn down, the strict-mode
-   * double mount — has adopted nothing, so the next pass must be free to read again.
-   * A settled restore is never re-armed by this: it has already replaced the pane layout,
-   * and reading a second time is what this whole holder exists to prevent.
+   * Gives the dispatch gate back when the read never landed (effect torn down, double mount).
+   * A settled restore is never re-armed.
    */
   public abandon(): void {
     if (!this.#hasSettled) {
@@ -71,11 +57,8 @@ export class RestoreProgress {
 }
 
 /**
- * Raise one, from the closed vocabulary above.
- *
- * `refuse` takes its code as a `string`, so a call site that spelled one wrong
- * would compile and render a code no reader could look up. Everything this screen
- * refuses goes through here instead, where the union is what binds.
+ * Raises a pane layout save refusal. `refuse` takes any string code, so this is where the
+ * code union binds.
  */
 export function refusePaneLayoutSave(
   code: PaneLayoutSaveRefusalCode,
@@ -84,5 +67,5 @@ export function refusePaneLayoutSave(
   return refuse(PANE_LAYOUT_REFUSAL_ORIGIN, code, detail);
 }
 
-/** A typed pane layout save refusal — `core`'s one refusal shape, narrowed on `code`. */
+/** The shared refusal shape, narrowed to this screen's codes. */
 type PaneLayoutSaveRefusal = NarrowedRefusal<PaneLayoutSaveRefusalCode>;

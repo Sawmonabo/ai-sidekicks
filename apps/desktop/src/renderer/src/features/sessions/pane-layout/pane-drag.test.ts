@@ -1,20 +1,9 @@
-// Dragging a pane, and the two ways a drop can be wrong.
+// Dragging a pane. The key cases are drops that must commit nothing: a drag that ended over no
+// pane, and a payload that belongs to somebody else's draggable.
 //
-// The cases that carry weight are the ones where a drop must commit NOTHING: a drag
-// that ended over no pane, and a drag whose payload belongs to somebody else's
-// draggable. Both leave the pane layout exactly as it was, and a coordinator that quietly
-// dropped onto the last pane it saw would look identical until a person did it.
-//
-// The drop position arithmetic is tested against the same function the drop handler
-// calls, never against a copy of it: the off-by-one in "drop after a pane that sits
-// to my right" is the whole of the rule, and a second implementation of it in a test
-// would agree with itself and with nothing else.
-//
-// AND THE SETTLEMENT IS DRIVEN DIRECTLY, through `commitPaneDrop`. The library's
-// gesture cannot be driven in this tier at all — jsdom implements neither
-// `DragEvent` nor `DataTransfer` — so a test that went through the monitor would be
-// testing nothing. What a drop announces is invisible to everyone who can see the
-// pane layout, so it is the half most likely to rot unwatched.
+// Drop arithmetic is tested against the real `dropPosition`, not a copy. The settlement is
+// driven through `commitPaneDrop` because jsdom implements neither `DragEvent` nor
+// `DataTransfer`, so the library's gesture cannot run here.
 
 import { describe, expect, it } from "vitest";
 
@@ -46,8 +35,7 @@ describe("reading a drag payload", () => {
   });
 
   it("negative control: somebody else's draggable is not a pane drag", () => {
-    // Without this the pane layout's monitor would act on every element drag on the page,
-    // including a transcript row somebody made draggable later.
+    // Otherwise the monitor would act on every element drag on the page.
     expect(paneIdFromDragData({ transcriptRowId: "row-9" })).toBeUndefined();
     expect(paneIdFromDragData({ [PANE_LAYOUT_DRAG_KEY]: 7 })).toBeUndefined();
   });
@@ -61,8 +49,7 @@ describe("which edge a pointer is over", () => {
   });
 
   it("negative control: the answer is not the same on both halves", () => {
-    // Without this an edge test that always answered "after" would pass the case
-    // above by half, and every drop would land on one side of its target.
+    // An edge test that always answered "after" would pass the case above by half.
     const pane = elementSpanning(0, 100);
     expect(dropEdgeFor(pane, 10)).not.toBe(dropEdgeFor(pane, 90));
   });
@@ -77,8 +64,7 @@ describe("where a drop lands", () => {
   });
 
   it("shifts left by one for a target that sat to the right of the dragged pane", () => {
-    // "After pane-3" is index 3 in the untouched row and index 2 once pane-1 has
-    // been lifted out of it. Getting this wrong puts the pane one place short.
+    // "After pane-3" is index 3 in the untouched row and 2 once pane-1 is lifted out.
     expect(dropPosition(paneIds, "pane-1", "pane-3", "after")).toBe(2);
     expect(dropPosition(paneIds, "pane-1", "pane-2", "before")).toBe(0);
   });
@@ -104,8 +90,7 @@ describe("the drag coordinator", () => {
   });
 
   it("negative control: clearing an empty indicator publishes nothing", () => {
-    // Without this the coordinator could be publishing on every call, which would
-    // re-render the pane layout for every frame of a drag that crossed no midpoint.
+    // A coordinator publishing on every call would re-render on every frame of a drag.
     const coordinator = new PaneLayoutDragCoordinator();
     const published: (string | undefined)[] = [];
     coordinator.subscribe((indicator) => published.push(indicator?.overPaneId));
@@ -131,14 +116,7 @@ interface RecordedAnnouncement {
   readonly politeness: AnnouncementPoliteness;
 }
 
-/**
- * A sink shaped exactly like the announcer's.
- *
- * The default politeness is repeated here rather than assumed, because the sink has
- * to record what the settlement ASKED FOR: a caller that passed no lane at all and
- * one that passed `polite` are the same to a reader and must not be the same to
- * this test, or the assertive cases would pass over a settlement that never chose.
- */
+/** A sink shaped like the announcer's that records the lane the settlement asked for. */
 function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnouncement[] } {
   const recorded: RecordedAnnouncement[] = [];
   const announce: Announce = (message, politeness = "polite") => {
@@ -147,7 +125,7 @@ function recordingAnnounce(): { announce: Announce; recorded: RecordedAnnounceme
   return { announce, recorded };
 }
 
-/** Three panes in order — `pane-1`, `pane-2`, `pane-3` — so a drop has room to move. */
+/** Three panes in order, `pane-1` to `pane-3`, so a drop has room to move. */
 function threePaneLayout(): PaneLayoutStore {
   const layout = new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   layout.open({ kind: "transcript" });
@@ -174,8 +152,7 @@ describe("what a settled drop says out loud", () => {
   });
 
   it("says a drop released over nothing moved nothing, in the lane that interrupts", () => {
-    // The outcome with no visual trace at all: the pane layout looks exactly as it did, so
-    // silence here is indistinguishable from a move nobody saw.
+    // No visual trace: the layout looks unchanged, so silence would look like an unseen move.
     const layout = threePaneLayout();
     const { announce, recorded } = recordingAnnounce();
 
@@ -192,10 +169,8 @@ describe("what a settled drop says out loud", () => {
   });
 
   it("calls a drop onto the position it already held a non-move, not a move", () => {
-    // "Before the pane on my right" resolves to the index the dragged pane is
-    // already at, so `dropPosition` answers with a number and the reorder no-ops.
-    // A settlement that read the defined position as proof of a move would announce
-    // a rearrangement that never happened.
+    // "Before the pane on my right" is the index the pane already holds, so `dropPosition`
+    // answers and the reorder no-ops; announcing a move here would be false.
     const layout = threePaneLayout();
     const { announce, recorded } = recordingAnnounce();
 
@@ -212,9 +187,8 @@ describe("what a settled drop says out loud", () => {
   });
 
   it("negative control: a drag that is not a pane of this pane layout's says nothing at all", () => {
-    // Without this, the cases above would pass over a settlement that announced on
-    // every drag end on the page — including somebody else's draggable, which it
-    // could not name a pane for, and a pane closed while it was in the air.
+    // The cases above would also pass over a settlement that announced on every drag end,
+    // including somebody else's draggable and a pane closed while in the air.
     const layout = threePaneLayout();
     const { announce, recorded } = recordingAnnounce();
 

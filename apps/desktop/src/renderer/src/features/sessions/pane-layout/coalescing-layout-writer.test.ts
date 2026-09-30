@@ -1,9 +1,6 @@
-// The one claim this writer makes: a drag does not become a write per frame.
-//
-// The coalesce is the whole reason the class exists, so the first case counts
-// writes rather than asserting the last one landed — and its negative control
-// proves the counter can reach three, because a writer that performed exactly one
-// write ever would pass a coalesce assertion for the wrong reason.
+// The one claim this writer makes: a drag does not become a write per frame. The first case
+// counts writes rather than asserting the last landed, and its negative control proves the
+// counter can reach three.
 
 import { describe, expect, it } from "vitest";
 
@@ -69,14 +66,12 @@ describe("CoalescingLayoutWriter — coalescing", () => {
     await Promise.resolve();
 
     expect(writer.writeCount).toBe(2);
-    // The second write carries position 3 and never 2: an arrangement the person
-    // has already moved past must not reach the disk and then be corrected.
+    // Position 3 and never 2: a superseded arrangement must not reach the disk.
     expect(held.seen[1]?.snapshot["pane-1"]?.["position"]).toBe(3);
   });
 
   it("negative control: three requests that each settle are three writes", async () => {
-    // Without this, the case above would pass over a writer that performed one
-    // write and then stopped forever.
+    // Without this, the case above would pass over a writer that stopped after one write.
     const seen: PerformedWrite[] = [];
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: async (partition, snapshot) => {
@@ -140,10 +135,9 @@ describe("CoalescingLayoutWriter — coalescing", () => {
 
 describe("CoalescingLayoutWriter — which session an arrangement is filed under", () => {
   it("writes a queued arrangement under the session that requested it, not the newest one", async () => {
-    // The defect this binding exists for: the writer coalesces, so a request settles
-    // later than the act that made it. A writer that read the caller's current session
-    // at write time filed session A's arrangement under session B's partition the
-    // moment a person navigated between two sessions the window already had open.
+    // The writer coalesces, so a request settles later than the act that made it. Reading the
+    // caller's current session at write time filed session A's arrangement under session B's
+    // partition after a navigation.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
@@ -153,7 +147,7 @@ describe("CoalescingLayoutWriter — which session an arrangement is filed under
     });
 
     writer.request(SESSION_A, snapshotAt(1));
-    // Queued behind the in-flight write, exactly as a drag's later frames are.
+    // Queued behind the in-flight write, as a drag's later frames are.
     writer.request(SESSION_A, snapshotAt(2));
     held.settle();
     await settle();
@@ -162,8 +156,8 @@ describe("CoalescingLayoutWriter — which session an arrangement is filed under
   });
 
   it("negative control: a later request naming another session is written under that one", async () => {
-    // Without this, the case above would pass over a writer that hard-coded the
-    // first partition it ever saw, which files every later session under the first.
+    // Without this, the case above would pass over a writer that hard-coded the first
+    // partition it saw.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
@@ -192,10 +186,8 @@ async function settle(): Promise<void> {
 
 describe("CoalescingLayoutWriter — one writer, two records", () => {
   it("carries a record that is not the pane layout's, under its own key", async () => {
-    // The generalization this class exists for. Without it a second
-    // record would need a second coalescing writer, which is the one thing this module
-    // exists to be — and a second one is how two write paths start disagreeing about
-    // what "the newest arrangement" means.
+    // The generalization the class exists for: a second record must not need a second
+    // coalescing writer.
     const seen: { readonly partition: string; readonly snapshot: SecondRecord }[] = [];
     const writer = new CoalescingLayoutWriter<SecondRecord>({
       write: async (partition, snapshot) => {
@@ -214,9 +206,8 @@ describe("CoalescingLayoutWriter — one writer, two records", () => {
   });
 
   it("negative control: two records in flight coalesce independently of each other", async () => {
-    // Without this the case above would pass over a writer holding one static pending request
-    // for every caller — which would make one record's write drop the pane layout's queued
-    // arrangement, and the pane layout's drop the other's.
+    // Without this, the case above would pass over a writer with one static pending request
+    // for every caller, so each record's write would drop the other's queued arrangement.
     const paneLayoutWrites: PaneLayoutSnapshotRecord[] = [];
     const secondWrites: SecondRecord[] = [];
     const paneLayoutWriter = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
@@ -246,8 +237,7 @@ type SecondRecord = Record<string, Record<string, number | boolean | string>>;
 
 describe("CoalescingLayoutWriter — the terminal a replaced store retires it through", () => {
   it("flushes what was waiting rather than dropping it", async () => {
-    // A retirement that canceled would throw away the newest arrangement — the one
-    // act the person performed last, and the one they expect to find on the way back.
+    // A retirement that canceled would throw away the arrangement the person made last.
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,
@@ -285,8 +275,7 @@ describe("CoalescingLayoutWriter — the terminal a replaced store retires it th
   });
 
   it("negative control: the same request before retirement is written", async () => {
-    // Without this, the case above would pass over a writer that never wrote at all,
-    // and "retired" would be indistinguishable from "broken".
+    // Without this, "retired" would be indistinguishable from "broken".
     const held = heldWrite();
     const writer = new CoalescingLayoutWriter<PaneLayoutSnapshotRecord>({
       write: held.write,

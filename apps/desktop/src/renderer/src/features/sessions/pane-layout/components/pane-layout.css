@@ -1,25 +1,13 @@
-/* The pane layout: the panes, the separators between them, and the density presets.
- *
- * Every color is a Meridian custom property and every space a step on the scale,
- * so the pane layout follows the scheme attribute with no conditional in JSX.
- */
-
-/* --- The pane layout ----------------------------------------------------------- */
+/* The pane layout: the panes, the separators between them, and the density presets. */
 
 /*
- * The pane layout is bounded by the region it sits in, and `max-height` is what says so.
- *
- * `min-height: 0` lets a flex child shrink; it does not stop one from GROWING. With
- * no ceiling the pane layout took the height of whatever its panes wanted, so a pane whose
- * body overflowed pushed the pane layout past the session screen region and the pane's own
- * scroller never engaged — the body below it laid out in full, off the bottom of
- * the window, and every list inside it mounted every row it held.
- * `.meridian-session-screen-container` carries the same ceiling one level up, and its
- * rule states the measurement.
- *
- * A CEILING AND NOT A `height`: the two agree wherever the pane layout overflows and differ
- * where it does not, so this bounds the broken case and moves no layout that already
- * fitted.
+ * The pane layout is bounded by the region it sits in, and `max-height` says so.
+ * `min-height: 0` lets a flex child shrink but not stop growing. With no ceiling a pane
+ * whose body overflowed pushed the pane layout past the session screen region, so the pane's
+ * own scroller never engaged and every list inside it mounted every row.
+ * `.meridian-session-screen-container` (in the transcript's sheet) carries the same ceiling
+ * one level up. A ceiling and not a `height`, so it bounds the broken case and moves no
+ * layout that already fitted.
  */
 .meridian-pane-layout {
   display: flex;
@@ -30,10 +18,9 @@
 }
 
 /*
- * The panel group itself. `react-resizable-panels` fixes `display`,
- * `flex-direction`, `flex-wrap`, and `overflow` on this element and documents that
- * they cannot be overridden, so nothing here tries: the group is the row, and the
- * pane layout's own frame above carries anything that would have fought it.
+ * The panel group itself. `react-resizable-panels` fixes `display`, `flex-direction`,
+ * `flex-wrap` and `overflow` on it and documents that they cannot be overridden, so the
+ * pane layout's frame above carries anything that would have fought them.
  */
 .meridian-pane-layout__group {
   flex: 1 1 auto;
@@ -48,11 +35,7 @@
   padding: var(--meridian-space-2) var(--meridian-space-4);
 }
 
-/*
- * One pane's frame. The panel owns the width — `flex-grow` is the library's, and
- * the density floor rides its `minSize` — so what is left here is the pane's own
- * chrome and the marks a person reads off it.
- */
+/* One pane's frame. The panel owns the width, and the density floor rides its `minSize`. */
 .meridian-pane-layout__pane {
   display: flex;
   flex-direction: column;
@@ -62,11 +45,9 @@
 }
 
 /*
- * The drop indicator: a bar on the edge the pane would land against.
- *
- * Own-built, because the drag library ships no CSS and no indicator by design. Drawn
- * as a pseudo-element so it costs no node and no React render — the class changes,
- * and the class is set only when the target or the edge actually changes.
+ * The drop indicator: a bar on the edge the pane would land against. Own-built because the
+ * drag library ships no indicator, and drawn as a pseudo-element so it costs no node and no
+ * React render.
  */
 .meridian-pane-layout__pane--drop-before::after,
 .meridian-pane-layout__pane--drop-after::after {
@@ -87,10 +68,9 @@
 }
 
 /*
- * The separator is the library's widget wearing our chrome: it arrives focusable,
- * arrow-operable, and carrying the window-splitter ARIA, and every line below is
- * paint. It is drawn as a hairline and hit as a bar — the width is the target and
- * the gradient is the line.
+ * The separator is the library's widget wearing our chrome: focusable, arrow-operable, with
+ * the window-splitter ARIA, so every line below is paint. Drawn as a hairline and hit as a
+ * bar: the width is the target and the gradient is the line.
  */
 .meridian-pane-layout__separator {
   width: var(--meridian-space-2);
@@ -116,18 +96,11 @@
 /* --- Density presets ---------------------------------------------------- */
 
 /*
- * The preset decides a minimum WIDTH, which the pane carries inline because the
- * number comes from `model/density.ts`. What lives here is the rhythm that goes with it:
- * a tighter pane layout sets its chrome tighter, so the extra pane a person bought is
- * spent on content rather than on padding.
- *
- * SET AS CUSTOM PROPERTIES ON THE PANE LAYOUT, AND NEVER AS RULES ON THE PANE'S OWN CLASSES.
- * `meridian-pane__head` is `components/PaneFrame/PaneFrame.css`'s, and a second sheet
- * writing a rule against it makes the head's padding a question the CASCADE answers — whichever of
- * the two sheets the bundler emits last wins, and that order is a property of the
- * import graph rather than of either file. The pane layout states its rhythm as VALUES and
- * `PaneFrame.css` spends them, so one sheet declares the class and one
- * sheet decides the number, with nothing to order.
+ * The preset's minimum width is carried inline by the pane, from `pane-layout-density.ts`.
+ * The rhythm that goes with it is set here as custom properties on the pane layout, never as
+ * rules on the pane's own classes: `meridian-pane__head` is `PaneFrame.css`'s, and a second
+ * sheet writing against it would make the cascade answer by bundler emit order. This sheet
+ * states values and `PaneFrame.css` spends them.
  */
 .meridian-pane-layout[data-density="comfortable"] {
   --meridian-pane-head-padding-block: var(--meridian-space-3);

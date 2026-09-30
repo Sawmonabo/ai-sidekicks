@@ -5,13 +5,8 @@ import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { type SessionListRow } from "../rows/session-rows.js";
 
 /**
- * A row's facts, including the instant it was last touched.
- *
- * THAT INSTANT CARRIES ITS DAY. The list has no day divider, so a clock-only reading
- * made a session touched an hour ago and one touched last week at the same minute the
- * same eight characters, and the sort order was the only thing left saying which was
- * which. `formatDateTime` exists for exactly the view that has no other carrier of
- * the day, and says so in its own words.
+ * A row's facts. The touched-at instant carries its day (`formatDateTime`), because the list
+ * has no day divider and a clock-only reading would look the same across days.
  */
 export function SessionRowFacts(props: { readonly row: SessionListRow }): React.JSX.Element {
   const { row } = props;

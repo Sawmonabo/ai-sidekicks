@@ -1,16 +1,8 @@
-// What the open-session projection promises, driven against the real registry.
-//
-// Two properties, and neither is a type. It must follow EVERY open session — the
-// defect it exists to close is a list built from one store that was never opened —
-// and it must let a closed session go, because a listener left on a store the
-// registry has dropped is a leak that grows with every session a window opens and
-// closes. Each is asserted with the opposite in the same case: "the closed session
-// no longer notifies" is worthless unless the open one still does.
-//
-// The registry and the stores are the shipped ones. A fake registry could not answer
-// the release question at all — releasing is what this module does TO a real
-// subscription — so the only stand-in here is the read, which is the collaborator the
-// session store's own suites stand in for.
+// What the open-session projection promises, driven against the real registry. It follows
+// every open session, and it lets a closed one go, because a listener left on a store the
+// registry dropped leaks with every session a window opens and closes. Each is asserted with
+// its opposite in the same case. Only the read is stood in for: releasing acts on a real
+// subscription.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -60,9 +52,8 @@ describe("OpenSessionRowProjection", () => {
   });
 
   it("answers before anything has subscribed", () => {
-    // React reads a snapshot on the first render, ahead of the effect that
-    // subscribes. A projection that only filled its cache from a notification would
-    // render an empty list on that first pass.
+    // React reads a snapshot before the subscribing effect runs, so a cache filled only by
+    // notifications would render an empty list first.
     const projection = new OpenSessionRowProjection(registryHolding(["session-a"]));
 
     expect(projection.readRows()).toHaveLength(1);
@@ -70,8 +61,7 @@ describe("OpenSessionRowProjection", () => {
   });
 
   it("keeps the same array while nothing changes", () => {
-    // `useSyncExternalStore` compares consecutive reads with `Object.is` and
-    // re-renders while they differ, so a read that rebuilt every call would spin.
+    // `useSyncExternalStore` compares reads with `Object.is`; rebuilding every call would spin.
     const projection = new OpenSessionRowProjection(registryHolding(["session-a"]));
 
     expect(projection.readRows()).toBe(projection.readRows());
@@ -111,14 +101,13 @@ describe("OpenSessionRowProjection", () => {
     registry.close("session-a");
     expect(projection.subscribedSessionIds).toStrictEqual(["session-b"]);
 
-    // The closed session's store is still a live object — closing it disposes its
-    // queue and its scheduler, not its subscribers — so a projection that never
-    // released would still be woken by it.
+    // The closed store is still live (closing disposes its queue and scheduler, not its
+    // subscribers), so a projection that never released would still be woken by it.
     notifications = 0;
     establish(closedStore, { cursor: 1, touchedAtIso: "2026-01-01T12:00:00.000Z" });
     expect(notifications).toBe(0);
 
-    // The negative control: the session that is still open still wakes it.
+    // Negative control: the session still open still wakes it.
     establish(openStore, { cursor: 1, touchedAtIso: "2026-01-01T13:00:00.000Z" });
     expect(notifications).toBe(1);
   });
@@ -134,7 +123,7 @@ describe("OpenSessionRowProjection", () => {
     const release = projection.subscribe(() => {
       notifications += 1;
     });
-    // The negative control, taken first: while it is subscribed, it is woken.
+    // Negative control, taken first: while subscribed, it is woken.
     establish(store, { cursor: 1, touchedAtIso: "2026-01-01T12:00:00.000Z" });
     expect(notifications).toBe(1);
 
@@ -212,9 +201,8 @@ describe("the degradation fold beside the rows", () => {
   });
 
   it("reports the worst cause standing across the open set, not the newest", () => {
-    // Two sessions degrade differently, and the destination has ONE line to say what
-    // the list is. Reporting the last one written would make the sentence depend on
-    // which store happened to fail second.
+    // The destination has one line to say what the list is; the last store written must not
+    // decide it.
     const registry = registryHolding(["session-a", "session-b"]);
     registry.peek("session-a")?.markReadFailed();
     registry.peek("session-b")?.markDegraded("stream-diverged");
@@ -226,8 +214,8 @@ describe("the degradation fold beside the rows", () => {
   });
 
   it("would notice a fold that reported one session's cause as none", () => {
-    // The negative control: one degraded store out of two still degrades the list,
-    // so the reading above is a fold rather than a lookup of the first store.
+    // Negative control: one degraded store of two still degrades the list, so the reading
+    // above is a fold rather than a lookup of the first store.
     const registry = registryHolding(["session-a", "session-b"]);
     registry.peek("session-b")?.markDegraded("subscription-closed");
 

@@ -1,30 +1,13 @@
 // Dragging a pane to a new position, and the indicator that says where it will land.
 //
-// For layout, panes and drag the console adopts `@atlaskit/pragmatic-drag-and-drop`
-// 3.1.0 for the drag itself and own-builds the drop indicators, the keyboard and menu
-// reorder paths, and the live-region strings. So this module is the seam between the
-// two — the library owns the gesture and this file owns where it may land and what
-// the person sees while it is in the air.
+// `@atlaskit/pragmatic-drag-and-drop` owns the gesture (the browser's own HTML5 drag, so no
+// React render per frame); this module owns where a drop may land and what is shown and said.
+// It does not decide the new order: a drop commits through `PaneLayoutStore.reorderPane`. It
+// offers no keyboard drag, which the library does not provide; Alt+Shift+Arrow moves the
+// focused pane instead.
 //
-// THREE THINGS THIS DELIBERATELY DOES NOT DO:
-//
-//   • **It does not decide the new order.** Every drop calls
-//     `PaneLayoutStore.reorderPane`, which is the same method the Alt+Shift chord and
-//     the pane menu already commit through. A drag that computed its own order
-//     would be a second implementation of the pane layout's one reorder rule.
-//   • **It does not render a preview.** The library's drag is the browser's own
-//     HTML5 drag, so the browser draws the dragged element and no React render
-//     happens per frame — which is the reason the row picks this library over the
-//     pointer-event libraries it names under AVOID.
-//   • **It does not offer a keyboard drag.** The library provides none by design
-//     (its accessibility guidance says so in terms), and the pane layout already has the
-//     accessible equivalent: Alt+Shift+Arrow moves the focused pane. The gesture is
-//     an addition to that path, never a replacement for it.
-//
-// STATE LIVES IN A CLASS. The indicator is one value — which pane, which edge —
-// that changes many times during a drag and is read by one component. Held in
-// `useState` inside the pane layout it would be set from a library callback outside
-// React's knowledge, which is exactly the shape `useSyncExternalStore` exists for.
+// The indicator lives in a class, not `useState`, because the library sets it from callbacks
+// outside React, which is what `useSyncExternalStore` is for.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import {
@@ -36,20 +19,15 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 import type { PaneLayoutStore } from "./pane-layout-store.js";
 
 /**
- * The key a pane drag's payload is carried under.
- *
- * Namespaced rather than a bare `paneId`, because the element adapter's monitor
- * sees every element drag on the page: a `paneLayout.paneId` key is what lets the pane layout's
- * monitor tell a pane header from a transcript row somebody else made draggable, and a
- * payload it does not recognize is one it declines to act on rather than one it
- * misreads.
+ * The key a pane drag's payload is carried under. Namespaced because the monitor sees every
+ * element drag on the page, and must decline a payload it does not recognize.
  */
 export const PANE_LAYOUT_DRAG_KEY = "paneLayout.paneId";
 
 /** Which side of a pane a drop would land on. */
 export const PANE_DROP_EDGES = ["before", "after"] as const;
 
-/** One drop edge. Derived from the enumeration, never restated. */
+/** One drop edge. */
 export type PaneDropEdge = (typeof PANE_DROP_EDGES)[number];
 
 /** Where the drop indicator currently sits, or nothing while nothing is in the air. */
@@ -58,7 +36,7 @@ export interface PaneDropIndicator {
   readonly edge: PaneDropEdge;
 }
 
-/** What a settled drop is said out loud as, and in which of the two lanes. */
+/** What a settled drop is announced as, and in which lane. */
 export interface PaneDropAnnouncement {
   readonly message: string;
   readonly politeness: AnnouncementPoliteness;
@@ -67,9 +45,8 @@ export interface PaneDropAnnouncement {
 /**
  * The pane layout's live drag state: what is in the air, and where it would land.
  *
- * One instance per pane layout. Every mutation publishes, and publishes only on a real
- * change, so a pointer crossing a pane without crossing its midpoint costs no
- * render at all — the budget the row's "no per-frame renders" constraint states.
+ * One instance per pane layout. It publishes only on a real change, so a pointer crossing a
+ * pane without crossing its midpoint costs no render.
  */
 export class PaneLayoutDragCoordinator {
   readonly #changes = new Emitter<PaneDropIndicator | undefined>("pane drag change");
@@ -86,15 +63,17 @@ export class PaneLayoutDragCoordinator {
     return this.#draggedPaneId;
   }
 
+  /** Listens for indicator changes; `undefined` means nothing is in the air. */
   public subscribe(listener: (indicator: PaneDropIndicator | undefined) => void): Unsubscribe {
     return this.#changes.subscribe(listener);
   }
 
+  /** Records the pane that has been picked up. */
   public startDrag(paneId: string): void {
     this.#draggedPaneId = paneId;
   }
 
-  /** Move the indicator. A move onto the position it already holds publishes nothing. */
+  /** Moves the indicator. A move onto the position it already holds publishes nothing. */
   public hover(indicator: PaneDropIndicator): void {
     if (
       this.#indicator?.overPaneId === indicator.overPaneId &&
@@ -106,7 +85,7 @@ export class PaneLayoutDragCoordinator {
     this.#changes.emit(this.#indicator);
   }
 
-  /** Clear the indicator — a drag that left every target, or one that ended. */
+  /** Clears the indicator, for a drag that left every target or ended. */
   public clear(): void {
     this.#draggedPaneId = undefined;
     if (this.#indicator === undefined) {
@@ -117,19 +96,15 @@ export class PaneLayoutDragCoordinator {
   }
 }
 
-/** Read a pane id off a drag payload, or `undefined` for a drag that is not ours. */
+/** Reads a pane id off a drag payload, or `undefined` for a drag that is not ours. */
 export function paneIdFromDragData(data: Record<string, unknown>): string | undefined {
   const paneId = data[PANE_LAYOUT_DRAG_KEY];
   return typeof paneId === "string" ? paneId : undefined;
 }
 
 /**
- * Which edge of `element` the pointer at `clientX` is nearer.
- *
- * Own-built rather than the library's hitbox package: the pane layout needs one axis and
- * two outcomes, the arithmetic is one comparison, and the row admits the core
- * package only — a second package for a midpoint test would be a dependency added
- * ahead of a need.
+ * Which edge of `element` the pointer at `clientX` is nearer. One comparison, so the library's
+ * hitbox package is not added for it.
  */
 export function dropEdgeFor(element: Element, clientX: number): PaneDropEdge {
   const rect = element.getBoundingClientRect();
@@ -137,12 +112,11 @@ export function dropEdgeFor(element: Element, clientX: number): PaneDropEdge {
 }
 
 /**
- * Where a pane dragged onto `overPaneId`'s `edge` lands, in the order after removal.
+ * Where a pane dragged onto `overPaneId`'s `edge` lands, in the order after removal, or
+ * `undefined` when either pane is unknown or they are the same.
  *
- * Stated as a function so the two callers that need it — the drop handler and its
- * test — cannot disagree, and so the off-by-one that a "drop after, moving right"
- * always has is written down once. The dragged pane is taken out of the row before
- * it is put back, so a target that sat to its right has already shifted left by one.
+ * The dragged pane is taken out before it is put back, so a target to its right has shifted
+ * left by one.
  */
 export function dropPosition(
   paneIds: readonly string[],
@@ -160,22 +134,10 @@ export function dropPosition(
 }
 
 /**
- * What a settled drop is announced as.
+ * What a settled drop is announced as. The library reports only that a drag ended.
  *
- * The live-region strings for layout, panes and drag are own-built, and this is where
- * they are built. The outcome of a drop is invisible to a person who is not watching
- * the pane layout move, and the LIBRARY says nothing: it reports that a drag ended, not
- * whether the pane layout changed.
- *
- * A move is POLITE and a drop that changed nothing is ASSERTIVE. That looks
- * backwards until the lanes are read as `live-announcer.ts` defines them — the
- * assertive lane is for "the thing you tried did not happen", which is exactly a
- * drop released over empty space or back onto the position it started from. A move
- * that landed is the ordinary outcome and waits its turn.
- *
- * The position is stated one-based and against the pane layout's own count, because
- * "position 2" alone is a number a person has to hold the pane layout's size in their head
- * to use.
+ * A move is polite; a drop that changed nothing is assertive, because that lane is for "the
+ * thing you tried did not happen". The position is one-based and given against the pane count.
  */
 export function paneDropAnnouncement(
   paneKind: PaneKind,
@@ -196,23 +158,11 @@ export function paneDropAnnouncement(
 }
 
 /**
- * Settle one drop: commit the reorder the indicator names, and say what happened.
+ * Settles one drop: commits the reorder the indicator names and announces what happened.
  *
- * A function rather than a body inside the monitor's callback, because this is the
- * only place the outcome exists and the library's callback cannot be driven at all
- * in the `console-unit` tier — jsdom implements neither `DragEvent` nor
- * `DataTransfer`. An announcement no test can reach is an announcement that goes
- * silently stale, which is the same class of defect as not raising one.
- *
- * `announce` is a PARAMETER and not a `useAnnounce()` call here. The hook context is
- * read once, by the pane layout component that mounts this monitor; a second read inside
- * the drag seam would make every host of this module a host of the announcer too.
- *
- * WHETHER THE PANE MOVED IS MEASURED, NOT ASSUMED. `dropPosition` can answer with a
- * position the pane layout is already in — dropping "before the pane on my right" is the
- * position the dragged pane already holds — and `PaneLayoutStore.reorderPane` clamps and
- * then no-ops. So the announcement reads the pane's index before and after rather
- * than trusting that a defined drop position means a changed pane layout.
+ * A function so tests can reach it, since jsdom implements neither `DragEvent` nor
+ * `DataTransfer`. Whether the pane moved is measured from its index before and after:
+ * `dropPosition` can name the position the pane already holds, and `reorderPane` then no-ops.
  */
 export function commitPaneDrop(
   layout: PaneLayoutStore,
@@ -227,9 +177,7 @@ export function commitPaneDrop(
   const fromPosition = before.findIndex((pane) => pane.paneId === draggedPaneId);
   const draggedPane = before[fromPosition];
   if (draggedPane === undefined) {
-    // A drag whose pane left the pane layout while it was in the air. Nothing to move and
-    // nothing to name, so nothing is said — an announcement about a pane that is
-    // gone is worse than silence.
+    // The pane left the layout while in the air: nothing to move or name, so say nothing.
     return;
   }
   if (indicator !== undefined) {

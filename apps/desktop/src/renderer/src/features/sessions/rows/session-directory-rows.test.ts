@@ -1,10 +1,6 @@
-// The merge and the absence, driven directly.
-//
-// Both are pure, and both decide something a component would otherwise decide
-// inside a render where it could only be observed through markup. The absence in
-// particular is the one place this destination can overclaim — reporting "there are
-// none" for a question nobody put — so it is asserted here over every state the
-// read can be in, with the row count deliberately absent from the input.
+// The merge and the absence, driven directly. The absence is where the destination could
+// overclaim "there are none" for a question nobody put, so it is asserted over every read
+// state, with the row count deliberately absent from the input.
 
 import { describe, expect, it } from "vitest";
 
@@ -73,9 +69,7 @@ describe("mergeSessionRows — two sources, neither dropped", () => {
   });
 
   it("keeps the node's lifecycle state where the projection has none", () => {
-    // A store that has seen no session event carries no state, and the node's
-    // answer is a fact this console did establish — dropping it would render a
-    // session whose state the console knew as one whose state it did not.
+    // Dropping the node's answer would render a known state as unknown.
     const rows = mergeSessionRows({
       directory: servedDirectory(["session-a"]),
       windowSessionIds: [],
@@ -104,8 +98,7 @@ describe("withAttentionSeverity — one projection over every row", () => {
     );
 
     expect(stamped[0]?.attentionSeverity).toBe("actionable");
-    // Undefined and not "clear": a row the projection did not mention is a row it
-    // said nothing about, which the ordering rule reads differently.
+    // Undefined, not "clear": the ordering rule reads them differently.
     expect(stamped[1]?.attentionSeverity).toBeUndefined();
   });
 });

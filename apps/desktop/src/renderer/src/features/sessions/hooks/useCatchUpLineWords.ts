@@ -3,9 +3,9 @@ import { useEffect, useRef, useState } from "react";
 import { type Clock } from "@renderer/lib/clock.js";
 
 /**
- * How long the window has to be behind before the catching-up line appears, and how
- * long the line holds the words it shows. One figure for both, so a repair that closes
- * quickly shows nothing and a line that does appear never flickers.
+ * How long the window has to be behind before the catching-up line appears, and how long
+ * the line holds its words. One figure for both, so a quick repair shows nothing and a line
+ * that appears never flickers.
  */
 export const CATCH_UP_LINE_DWELL_MS = 400;
 
@@ -26,8 +26,8 @@ export function useCatchUpLineWords(
   clock: Clock,
 ): CatchUpWords | undefined {
   const [shown, setShown] = useState<ShownWords | undefined>(undefined);
-  // The words standing now, for the timeout that puts the line up: the delay runs from
-  // the moment the window fell behind, so a change of words during it must not re-arm it.
+  // The words standing now, read by the timeout that puts the line up: the delay runs from
+  // when the window fell behind, so a change of words during it must not re-arm it.
   const standingWords = useRef(words);
   useEffect(() => {
     standingWords.current = words;

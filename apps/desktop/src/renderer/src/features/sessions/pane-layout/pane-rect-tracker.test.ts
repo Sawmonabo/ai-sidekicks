@@ -1,10 +1,7 @@
-// Rect discipline: reads in the callback, writes on the next frame.
+// Rect tracking: reads in the callback, writes on the next frame.
 //
-// The first case is the one that matters and it is written as a NEGATIVE CONTROL
-// in the strict sense: it drives the real tracker on a frozen clock and asserts
-// that nothing was written at the moment the observer fired. A tracker that wrote
-// synchronously would satisfy every other assertion in this file and would still
-// be the `ResizeObserver` loop `rect-discipline.ts`'s first rule forbids.
+// The first case is a negative control: on a frozen clock nothing may be written when the
+// observer fires. A tracker that wrote synchronously would pass every other case here.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -34,7 +31,7 @@ function elementMeasuring(box: { width: number; height: number; x?: number; y?: 
   } as unknown as Element;
 }
 
-/** Give a REAL element a box, which jsdom otherwise reports as all zeroes. */
+/** Gives a real element a box, which jsdom otherwise reports as all zeroes. */
 function measuring(element: HTMLElement, box: ViewportBox): void {
   element.getBoundingClientRect = () => ({ ...box, top: box.y, left: box.x }) as DOMRect;
 }
@@ -45,13 +42,7 @@ interface TrackerHarness {
   readonly writes: TrackedRect[][];
 }
 
-/**
- * One tracker over one airspace, which is what the window hands it in production.
- *
- * A registry per harness and not the window's, so a case reads the overlays IT put up
- * — the same per-document isolation `core/airspace-registries.ts` gives two windows,
- * reached here by constructing rather than by resolving a shared document.
- */
+/** One tracker over its own airspace registry, so a case sees only the overlays it put up. */
 function harness(airspace: AirspaceRegistry = new AirspaceRegistry()): TrackerHarness {
   const clock = new ManualClock();
   const writes: TrackedRect[][] = [];
@@ -65,7 +56,7 @@ function harness(airspace: AirspaceRegistry = new AirspaceRegistry()): TrackerHa
   return { clock, tracker, writes };
 }
 
-/** Put an overlay of some size up, and hand back the removal. A dialog unless said. */
+/** Puts an overlay of some size up and returns its removal. A dialog unless said. */
 function overlayUp(airspace: AirspaceRegistry): () => void {
   const registration = airspace.register("dialog", () => ({ x: 0, y: 0, width: 10, height: 10 }));
   return () => {
@@ -78,8 +69,7 @@ describe("PaneRectTracker — when it writes", () => {
     const { clock, tracker, writes } = harness();
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
 
-    // `track` invalidates, which is the layout-mover source. Nothing may have been
-    // written yet: mutating layout from inside a measurement re-enters the observer.
+    // `track` invalidates as a layout mover; nothing may be written yet.
     expect(writes).toStrictEqual([]);
     expect(clock.pendingFrameCount).toBe(1);
 
@@ -105,9 +95,8 @@ describe("PaneRectTracker — when it writes", () => {
   });
 
   it("negative control: a rect that did not change produces no second write", () => {
-    // Without the dedupe the case above would still pass — four invalidations that
-    // each armed the same frame collapse by arming alone. This is the assertion
-    // that the composed key is doing work.
+    // The case above passes without dedupe, since invalidations arm one frame anyway; this
+    // asserts the composed key is doing work.
     const { clock, tracker, writes } = harness();
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
     clock.runFrame();
@@ -164,11 +153,9 @@ describe("PaneRectTracker — what it reports as visible", () => {
   });
 
   it("yields the airspace when an overlay opens, with nothing else asking it to look", () => {
-    // No manual invalidate anywhere in this case, and that absence IS the assertion.
-    // An overlay opening fires none of the four layout sources — the palette does not
-    // lock document scroll and its inert carrier is `display: contents` — so a tracker
-    // that only sampled occupancy inside `invalidate` would leave the last flushed
-    // visibility standing and composite a native view over the dialog.
+    // No manual invalidate here, on purpose: an overlay opening fires no layout source, so a
+    // tracker that only sampled occupancy inside `invalidate` would leave a native view over
+    // the dialog.
     const airspace = new AirspaceRegistry();
     const { clock, tracker, writes } = harness(airspace);
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
@@ -186,11 +173,8 @@ describe("PaneRectTracker — what it reports as visible", () => {
   });
 
   it("negative control: an airspace change that does not move occupancy asks for nothing", () => {
-    // The registry publishes EVERY change — a second overlay, and a registered one
-    // moving — because the preview feature's geometry publisher re-samples rectangles on those.
-    // This consumer reads only whether the count is above zero, so without the
-    // transition filter each of them would re-measure every tracked pane for an answer
-    // that cannot differ.
+    // The registry publishes every change (a second overlay, an overlay moving), but only the
+    // empty/occupied transition can change the answer, so the rest must not re-measure.
     const airspace = new AirspaceRegistry();
     const { clock, tracker } = harness(airspace);
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
@@ -216,8 +200,8 @@ describe("PaneRectTracker — what it reports as visible", () => {
   });
 
   it("negative control: two overlays, and the first to close does not free the airspace", () => {
-    // The whole reason this consumer reads a COUNT: a boolean would let the first
-    // overlay to close hand the airspace back while the second is still on screen.
+    // Why the tracker reads a count: a boolean would free the airspace when the first of two
+    // overlays closes.
     const airspace = new AirspaceRegistry();
     const { clock, tracker, writes } = harness(airspace);
     tracker.track("pane-1", elementMeasuring({ width: 400, height: 300 }));
@@ -236,7 +220,7 @@ describe("PaneRectTracker — what it reports as visible", () => {
 });
 
 describe("PaneRectTracker — what a clipping ancestor does to the rect", () => {
-  /** A real element whose box the test decides, inside a real clipping ancestor. */
+  /** A real element with a test-chosen box, inside a real clipping ancestor. */
   function paneInsideScroller(options: {
     readonly pane: ViewportBox;
     readonly scroller: ViewportBox;
@@ -257,9 +241,8 @@ describe("PaneRectTracker — what a clipping ancestor does to the rect", () => 
   });
 
   it("publishes the intersection with a scrolling ancestor rather than the border box", () => {
-    // A native view is composited by the host and is not clipped by the DOM ancestor
-    // that clips the pane, so a pane scrolled half out of the frame would have
-    // its view drawn over whatever sits beside it.
+    // A native view is not clipped by the DOM ancestor that clips its pane, so the tracker
+    // must report the clipped rect.
     const { clock, tracker, writes } = harness();
     tracker.track(
       "pane-1",
@@ -292,8 +275,7 @@ describe("PaneRectTracker — what a clipping ancestor does to the rect", () => 
   });
 
   it("negative control: an ancestor that does not clip leaves the pane's own rect alone", () => {
-    // Without this, both cases above would pass over a tracker that intersected with
-    // every ancestor it walked, which would report a pane hidden for having a parent.
+    // A tracker intersecting with every ancestor would hide any pane that has a parent.
     const { clock, tracker, writes } = harness();
     tracker.track(
       "pane-1",

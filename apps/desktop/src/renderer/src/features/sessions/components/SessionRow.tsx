@@ -3,18 +3,16 @@ import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { isAuditStubSession, type SessionListRow } from "../rows/session-rows.js";
 import { SessionRowFacts } from "./SessionRowFacts.js";
 
+/** What a session row is handed: the row and how to open it. */
 export interface SessionRowProps {
   readonly row: SessionListRow;
   readonly onOpen: (sessionId: string) => void;
 }
 
 /**
- * One row.
- *
- * Memoized, so a projection read that changes one session's attention re-renders
- * that row and not its neighbors. The comparison is the default shallow one and
- * that is sufficient here: `rows` is rebuilt from the store's own references, and
- * the callback is stable for the life of the screen.
+ * One session row, memoized so one session's attention change re-renders only that row.
+ * The default shallow comparison suffices: `rows` reuses the store's references and the
+ * callback is stable for the life of the screen.
  */
 export const SessionRow: MemoExoticComponent<(props: SessionRowProps) => React.JSX.Element> = memo(
   function SessionRow(props: SessionRowProps): React.JSX.Element {

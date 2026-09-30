@@ -14,10 +14,8 @@ export function useFocusedPaneAddress(
     if (pane === undefined) {
       return undefined;
     }
-    // Parsed rather than composed, for `paneContextFor`'s reason: the pair is not an
-    // address until `parsePaneAddress` says it is. A pane whose address it refuses routes
-    // nothing — which is the same answer as no focused pane, and is the honest one:
-    // the composer has no place to send to.
+    // Parsed rather than composed: a pair `parsePaneAddress` refuses routes nothing, the same
+    // as no focused pane, since the composer has nowhere to send.
     const address = parsePaneAddress(pane.kind, pane.entity);
     return "code" in address ? undefined : address;
   }, [panes, focusedPaneId]);

@@ -1,16 +1,9 @@
 // The arrangement the session screen restores, the one it saves, and the session each is
-// filed under.
-//
-// The persistence pair is the risky half and it fails quietly in both directions — a
-// restore that never ran leaves a person's arrangement on disk and invisible, and a
-// save that runs before the restore OVERWRITES it with an empty pane layout. Both look like
-// "the pane layout opened with one pane", which is also what success looks like the first
-// time.
-//
-// Navigating between two open sessions is that same failure with a second partition in
-// it. Sessions are opened and never closed, so moving from one to another re-renders
-// this component rather than remounting it, and a queued arrangement can flush after
-// the screen already shows somebody else's session.
+// filed under. Persistence fails quietly in both directions: a restore that never ran leaves
+// the arrangement on disk and invisible, and a save before the restore overwrites it with an
+// empty pane layout, which looks like a first run. Sessions are opened and never closed, so
+// moving between two re-renders this component and a queued arrangement can flush after the
+// screen shows the other session.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -46,8 +39,7 @@ describe("SessionScreen — the saved arrangement", () => {
   });
 
   it("negative control: a saved arrangement is restored instead", async () => {
-    // Without this, the case above would pass over a session screen that ignored the
-    // record entirely and always opened one transcript.
+    // Without this, the case above would pass over a screen that ignored the record.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
     const { container } = renderSessionScreen(store);
@@ -69,9 +61,8 @@ describe("SessionScreen — the saved arrangement", () => {
   });
 
   it("does not overwrite a saved arrangement with an empty pane layout", async () => {
-    // The ordering failure this file exists for: a save that fired before the
-    // restore completed would replace two panes with none, and the pane layout would look
-    // exactly like a first run.
+    // A save before the restore completed would replace two panes with none, looking exactly
+    // like a first run.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
     const { container } = renderSessionScreen(store);
@@ -91,14 +82,13 @@ describe("SessionScreen — the saved arrangement", () => {
     });
     const { container } = renderSessionScreen(store);
     await waitFor(() => {
-      // Scoped to the pane layout's own refusal strip: the announcer's polite region
-      // carries `role="status"` too and renders above every view.
+      // Scoped to the refusal strip: the announcer's polite region also has `role="status"`.
       expect(
         container.querySelector('.meridian-pane-layout__refusals[role="status"]')?.textContent,
       ).toContain("written by a different version");
     });
-    // Discarded WHOLE: the pane layout falls back to the transcript rather than adopting the
-    // pane the unknown record happened to name.
+    // Discarded whole: the pane layout falls back to the transcript instead of adopting the
+    // pane the unknown record named.
     expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(1);
   });
 });
@@ -114,10 +104,9 @@ describe("SessionScreen — navigating between two sessions the window already h
   }
 
   it("files a queued arrangement under the session that made it, not the one now on screen", async () => {
-    // The defect: sessions are opened and never closed, so navigating straight from
-    // one to another re-renders this component rather than remounting it. With the
-    // writer's partition read at write time, the first session's queued arrangement
-    // was filed under the second session's partition and overwrote its saved pane layout.
+    // Navigating straight between sessions re-renders rather than remounts. With the writer's
+    // partition read at write time, the first session's queued arrangement was filed under
+    // the second's partition and overwrote its saved pane layout.
     const adapter = new GatedPersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
@@ -129,22 +118,19 @@ describe("SessionScreen — navigating between two sessions the window already h
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
     });
 
-    // One write in flight against a closed gate, and a second arrangement waiting
-    // behind it — the state a resize drag spends its whole length in.
+    // One write in flight against a closed gate and a second waiting behind it, as in a drag.
     adapter.holdWrites();
     adapter.holdReads();
-    // Twice: the first commit goes in flight against the closed gate, the second
-    // lands in the writer's single pending request. That request is the whole subject —
-    // it is what outlives the navigation below.
+    // Twice: the first commit goes in flight, the second lands in the writer's single pending
+    // request, which is what outlives the navigation below.
     cyclePaneFocus(container);
     cyclePaneFocus(container);
     await crossMacrotaskBoundary();
     const askedBeforeNavigation = adapter.asked.length;
 
     rerender(workspaceFor(otherSession(), store, false));
-    // The arriving session's restore is held open, so the queued arrangement flushes
-    // while the screen already shows the second session — the ordering decided here
-    // rather than left to whichever promise happens to settle first.
+    // The arriving session's restore is held open, so the queued arrangement flushes while the
+    // screen shows the second session; the ordering is decided here.
     adapter.releaseWrites();
     await waitFor(() => {
       expect(adapter.asked.length).toBeGreaterThan(askedBeforeNavigation);
@@ -160,9 +146,8 @@ describe("SessionScreen — navigating between two sessions the window already h
   });
 
   it("starts the second session's pane layout from its own record, not the first one's panes", async () => {
-    // The half with no race in it at all: the restore replaces wholesale but only
-    // runs where a record exists, so a session with none used to inherit whatever
-    // panes were already on screen — and then have them written under its own name.
+    // No race here: the restore replaces wholesale but only where a record exists, so a
+    // session with none once inherited the panes on screen and wrote them under its own name.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
 
@@ -180,9 +165,8 @@ describe("SessionScreen — navigating between two sessions the window already h
   });
 
   it("negative control: without the key the second session inherits the first one's pane layout", async () => {
-    // Mounted at a stable position with no key, the subtree survives the navigation
-    // and carries the arrangement with it. This is the case that makes the key above
-    // an instrument rather than a decoration.
+    // With no key the subtree survives the navigation and carries the arrangement along,
+    // which is what makes the key above an instrument.
     const store = memoryStore();
     await saveLayout(store, SESSION_ID, ["transcript", "terminal"]);
 

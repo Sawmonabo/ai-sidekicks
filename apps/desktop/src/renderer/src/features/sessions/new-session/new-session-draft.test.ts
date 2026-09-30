@@ -1,15 +1,9 @@
-// The draft object: what it holds, and the one session it is allowed to make.
+// The draft object: what it holds, and the one session it may make however many times Send
+// is pressed. What the send puts on the wire is `new-session-send.test.ts`.
 //
-// `new-session-draft.ts` asks for a draft that is local until it is sent, and for one
-// draft object to make at most one session however many times Send is pressed. Both
-// halves are asserted here; what the send itself puts on the wire, and what each
-// ending says, is `new-session-send.test.ts` beside this one.
-//
-// EVERY COUNT IS OF CALLS THAT REACHED THE WIRE rather than of ids compared, and that
-// is the fixture's doing: the engine answers `session.create` with the same scripted
-// id every time, so a second session is indistinguishable from the first BY ITS
-// RESULT. The count is the only reading that tells one session from two — and, one
-// leg down, one queued turn from two.
+// Every count is of calls that reached the wire, not of ids compared: the fixture answers
+// `session.create` with the same scripted id every time, so a second session is
+// indistinguishable from the first by its result.
 
 import { describe, expect, it } from "vitest";
 
@@ -22,9 +16,8 @@ import {
   sentMethod,
   CREATED_SESSION_ID,
 } from "./new-session-draft.test-support.js";
-// The method the SEND names, taken from the module that sends it: a count asserted
-// against the suite's own copy of a wire string proves nothing about the string that
-// reached the wire.
+// The method the send names, taken from the module that sends it, so the count is asserted
+// against the string that reached the wire.
 import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
 describe("NewSessionDraft — what it holds", () => {
@@ -62,13 +55,12 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     const { draft, calls } = countedDraftFor({ scriptsCreate: true });
     draft.setPosture("trusted");
 
-    // Not awaited between the two: this is the double-click, where the second press
-    // lands while the first send is still in flight.
+    // Not awaited between the two: the double-click, where the second press lands while the
+    // first send is in flight.
     const [first, second] = await Promise.all([draft.send(), draft.send()]);
 
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
-    // The same settlement, not merely an equal one — the second caller joined the
-    // running send rather than starting a second that happened to agree.
+    // The same settlement, not an equal one: the second caller joined the running send.
     expect(second).toBe(first);
     expect(first.outcome).toBe("partial");
     expect(first.sessionId).toBe(CREATED_SESSION_ID);
@@ -79,8 +71,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     draft.setPosture("trusted");
 
     const first = await draft.send();
-    // What a person does after reading the partial: change nothing, press again.
-    // That is a retry of the send, not a request for a second session.
+    // A person reads the partial, changes nothing and presses again: a retry, not a second
+    // session.
     const retried = await draft.send();
 
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
@@ -90,9 +82,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
   });
 
   it("creates again for a fresh draft object, which is what closing gives", async () => {
-    // The invariant is scoped to the OBJECT, so the next "+ New" — which builds a
-    // new one — must still be able to make a session. A memory held anywhere wider
-    // would have made the second draft unsendable.
+    // The invariant is scoped to the object, so the next "+ New" builds a new draft that must
+    // still be able to make a session.
     const first = countedDraftFor({ scriptsCreate: true });
     first.draft.setPosture("trusted");
     await first.draft.send();
@@ -105,8 +96,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
   });
 
   it("negative control: a single press still reaches the wire exactly once", async () => {
-    // Without this, a build that had stopped calling `session.create` at all would
-    // satisfy every count above — zero is not two.
+    // Without this, a build that stopped calling `session.create` would satisfy every count
+    // above.
     const { draft, calls } = countedDraftFor({ scriptsCreate: true });
     draft.setPosture("trusted");
 
@@ -117,8 +108,7 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
   });
 
   it("resumes at the first unmade call rather than repeating the ones that landed", async () => {
-    // The per-leg memory, which is the invariant one leg down from "one draft, one
-    // session": a retry that re-queued would send the person's words twice.
+    // The per-leg memory: a retry that re-queued would send the person's words twice.
     const draft = draftFor({ scriptsCreate: true, scriptsFirstTurn: true });
     draft.setPosture("trusted");
     const stopped = await draft.send();
@@ -130,14 +120,14 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     const finished = await draft.send();
 
     expect(finished.outcome).toBe("sent");
-    // Every leg named once. The create is named because it EXISTS, not because this
-    // press made it — the completed-calls list's job is to say what is there.
+    // Every leg named once; the create is named because it exists, not because this press
+    // made it.
     expect(finished.completedCalls).toStrictEqual(["session.create", "run.queueCreate"]);
   });
 
   it("negative control: the second press re-issues nothing the first one landed", async () => {
-    // Without this the case above would pass over a build that re-issued the create,
-    // since a second create the fixture also answers changes no result it asserts.
+    // Without this the case above would pass over a build that re-issued the create, since
+    // the fixture answers a second create identically.
     const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
     counted.draft.setPosture("trusted");
     await counted.draft.send();
@@ -149,9 +139,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
   });
 
   it("retries the create when the first attempt never landed one", async () => {
-    // A create that FAILED left no session, so nothing is remembered and a retry is
-    // a real second attempt — the memory keys on the call having landed, not on the
-    // send having been pressed.
+    // A failed create left no session, so nothing is remembered; the memory keys on the call
+    // having landed, not on the send having been pressed.
     const { draft, calls } = countedDraftFor({ scriptsCreate: false });
     draft.setPosture("trusted");
 
@@ -161,8 +150,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
     expect(first.refusal?.code).toBe("session-create-failed");
     expect(retried.refusal?.code).toBe("session-create-failed");
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD, SESSION_CREATE_METHOD]);
-    // The retry is the same create, so it carries the same key: a first attempt that
-    // reached the daemon and lost only its answer is named again, not made twice.
+    // The retry carries the same key, so a first attempt that lost only its answer is named
+    // again, not made twice.
     const [firstKey, retriedKey] = calls.map(
       (call) => (call.params as { clientIdempotencyKey: string }).clientIdempotencyKey,
     );
@@ -172,8 +161,8 @@ describe("NewSessionDraft — one draft object, at most one session", () => {
 
 describe("NewSessionDraft — the create it cannot answer for", () => {
   it("settles a create whose reply cannot be read on its own arm, not as a refusal", async () => {
-    // An unreadable reply surfaced as `session-create-failed` would tell
-    // a person nothing was created and invite the press that makes a second session.
+    // An unreadable reply shown as `session-create-failed` would invite a press that makes a
+    // second session.
     const { draft } = countedDraftOverUnreadableCreate();
     draft.setFirstTurn("Start on the parser.");
 
@@ -182,17 +171,14 @@ describe("NewSessionDraft — the create it cannot answer for", () => {
     expect(result.outcome).toBe("created-unreadable");
     expect(result.refusal?.code).toBe("session-create-unreadable");
     expect(result.sessionId).toBeUndefined();
-    // Nothing is claimed as landed: the call may have made a session and may not, and
-    // the "Already sent" line is an assertion this draft has no evidence for.
+    // Nothing is claimed as landed, and the sentence says what to do instead of pressing again.
     expect(result.completedCalls).toStrictEqual([]);
-    // And the sentence says what to do instead of pressing again.
     expect(result.refusal?.detail).toContain("Check the sessions list");
   });
 
   it("negative control: no second `session.create` on any later press", async () => {
-    // The P1 itself, and the only reading that can see it: the fixture answers every
-    // create the same way, so two sessions are indistinguishable BY RESULT and the
-    // count of what reached the wire is the whole evidence.
+    // The fixture answers every create alike, so only the count of calls on the wire can show
+    // a second session.
     const { draft, calls } = countedDraftOverUnreadableCreate();
     draft.setFirstTurn("Start on the parser.");
 
@@ -201,8 +187,8 @@ describe("NewSessionDraft — the create it cannot answer for", () => {
     const third = await draft.send();
 
     expect(calls.map(sentMethod)).toStrictEqual([SESSION_CREATE_METHOD]);
-    // And every later press answers the SAME settlement, so the sentence a person is
-    // reading does not change under them.
+    // Every later press answers the same settlement, so the sentence does not change under
+    // the person reading it.
     expect(first.outcome).toBe("created-unreadable");
     expect(second.outcome).toBe("created-unreadable");
     expect(third.outcome).toBe("created-unreadable");
@@ -210,9 +196,8 @@ describe("NewSessionDraft — the create it cannot answer for", () => {
   });
 
   it("refuses a later press even after the draft is emptied and re-composed", async () => {
-    // The longer route to the same defect, on `discard()`'s own rule: the invariant is
-    // scoped to the OBJECT, so a draft that could be emptied and re-composed into a
-    // second create would be the same fault reached by a different press.
+    // The invariant is scoped to the object: an emptied and re-composed draft must not create
+    // again.
     const { draft, calls } = countedDraftOverUnreadableCreate();
     draft.setFirstTurn("Start on the parser.");
     await draft.send();

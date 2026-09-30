@@ -1,9 +1,5 @@
-// The five pane layout acts, driven against a real layout — what each one moves, and what
-// each one says.
-//
-// The announcements are the half that goes stale unwatched: the pane layout's focus is a
-// ring rather than DOM focus, so a screen reader follows nothing unless an act says
-// what happened. Every case below asserts the sentence as well as the move.
+// The five pane layout acts against a real layout: what each moves and what each says.
+// Focus is a ring rather than DOM focus, so every case asserts the announced sentence too.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -71,8 +67,8 @@ describe("focusing the next and previous pane", () => {
   });
 
   it("negative control: an empty pane layout says nothing, because the pane layout already does", () => {
-    // Without this the case above would pass over an act that announced on every
-    // press, including over a pane layout that renders its own "No panes are open."
+    // The case above would also pass over an act that announced on every press, even on an
+    // empty layout that renders its own "No panes are open."
     const announce = announcer();
     paneLayoutActsOn(
       new PaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP }),
@@ -86,8 +82,7 @@ describe("closing the focused pane", () => {
   it("closes it and names what closed", () => {
     const layout = threePaneLayout();
     const announce = announcer();
-    // The agents pane, whose kind id and on-screen title are different words, so the
-    // sentence can only pass by naming the pane the way the screen does.
+    // The agents pane's kind id and on-screen title differ, so the sentence must use the title.
     const third = layout.snapshot().panes[2];
     layout.focus(third?.paneId ?? "");
 

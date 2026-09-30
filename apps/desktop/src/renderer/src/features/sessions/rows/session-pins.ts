@@ -1,16 +1,10 @@
-// Which sessions are pinned, and where that fact lives.
+// Which sessions are pinned, and where that fact lives. Pins are per-install view state,
+// never auth material and never sent anywhere, so the map is a durable UI-state record in the
+// persistence layer's global partition under the `pin` value class, written through
+// `UiStateStore`.
 //
-// Pin and unpin are renderer-local, persisted to machine-local config: pins are
-// per-install view state, they are never auth material, and they never travel.
-//
-// So the pin map is a durable UI-state record in the persistence layer's GLOBAL
-// partition, the window-wide one, not a session's, under the `pin` value class. It
-// travels through `UiStateStore` like every other durable byte in this console;
-// nothing here opens an adapter or measures a quota.
-//
-// ONLY PINNED SESSIONS ARE WRITTEN DOWN. An unpinned row has no record at all and
-// unpinning DELETES its entry, so the record is proportional to the decisions a person
-// made and not to the number of sessions they have ever opened.
+// Only pinned sessions are written: unpinning deletes the entry, so the record grows with the
+// person's decisions, not with the sessions they have opened.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -28,7 +22,7 @@ export type SessionPins = Readonly<Record<string, typeof PINNED>>;
 /** The empty pin map: what a list shows before a record is read. */
 export const NO_PINS: SessionPins = {};
 
-/** What a view holds: the map, the refusal, and the one act that changes it. */
+/** What a view holds: the map, the last refusal, and the one act that changes it. */
 export interface SessionPinBinding {
   readonly pinned: SessionPins;
   readonly lastRefusal: Refusal | undefined;
@@ -49,6 +43,7 @@ export class SessionPinStore {
     });
   }
 
+  /** The current pin map. */
   public get pinned(): SessionPins {
     return this.#state.value;
   }
@@ -58,10 +53,12 @@ export class SessionPinStore {
     return this.#state.lastRefusal;
   }
 
+  /** Listens for changes; returns the unsubscribe. */
   public subscribe(sink: () => void): () => void {
     return this.#state.subscribe(sink);
   }
 
+  /** Reads the saved pin map once. */
   public async hydrate(): Promise<void> {
     await this.#state.hydrate();
   }
@@ -76,7 +73,7 @@ export class SessionPinStore {
     return this.#state.isDisposed;
   }
 
-  /** Pin or unpin one session. Unpinning removes the entry rather than storing a default. */
+  /** Pins or unpins one session. Unpinning removes the entry rather than storing a default. */
   public async setPinned(sessionId: string, isPinned: boolean): Promise<void> {
     const next: Record<string, typeof PINNED> = { ...this.#state.value };
     if (isPinned) {
@@ -89,11 +86,8 @@ export class SessionPinStore {
 }
 
 /**
- * Narrow a stored record back into a pin map, dropping entries that do not survive.
- *
- * Per ENTRY rather than per record: a single unrecognized value discards that session's
- * pin and keeps everyone else's, where refusing the whole record would silently un-pin
- * a list a person had arranged.
+ * Narrows a stored record back into a pin map, dropping entries that do not survive. Per entry,
+ * so one bad value loses one pin instead of un-pinning the whole list.
  */
 export function narrowSessionPins(raw: unknown): SessionPins | undefined {
   if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {

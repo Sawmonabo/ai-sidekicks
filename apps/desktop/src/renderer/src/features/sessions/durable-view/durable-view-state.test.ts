@@ -1,24 +1,7 @@
-// The one ordering this state has to get right: a durable read that settles after a
-// person has already acted.
-//
-// Both views built on it hydrate from an effect and mutate from a click, and the
-// two are not ordered by anything — a person can pin a session or flip the auto-pin
-// switch while the first read is still in flight. Installing the record that then
-// arrives puts their change back the way it was, with nothing on screen to say why,
-// and it stays that way until the next remount.
-//
-// Driven against the real `UiStateStore` over the memory adapter, and with the read
-// genuinely in flight rather than stubbed: the commit lands between `hydrate`'s call
-// and its settlement because that is when the defect happens, not because a fake
-// was told to wait.
-//
-// The write cases below need the same window on the OTHER side of the seam — a
-// second act while the first write is still at the store — and the memory adapter
-// answers in the turn it is asked, which closes that window before a case can act in
-// it. So they drive a store that holds each write until the case lets it
-// through, and the store is the REAL one with its write path subclassed rather than
-// a stand-in: what is under test is how this state orders its writes, and a fake
-// store would be asserting the fake.
+// A durable read that settles after a person has already acted must not overwrite the act.
+// Driven against the real `UiStateStore` over the memory adapter with the read genuinely in
+// flight. The write cases need a second act while the first write is still at the store, so
+// they use the real store with its write path subclassed to hold each write.
 
 import { describe, expect, it } from "vitest";
 
@@ -37,11 +20,8 @@ const STORED_IDS: readonly string[] = ["stored-alpha", "stored-beta"];
 const COMMITTED_IDS: readonly string[] = ["committed-only"];
 
 /**
- * Narrow a stored record back into the value.
- *
- * The caller's own, as the option is: what a record narrows to is the view's
- * decision and not this state's, so a case that borrowed one view's narrower
- * would be asserting that view's rule here.
+ * Narrow a stored record back into the value. The narrowing is the view's decision, so a
+ * borrowed narrower would assert that view's rule here.
  */
 function narrowIdList(raw: unknown): readonly string[] | undefined {
   return Array.isArray(raw)
@@ -50,14 +30,10 @@ function narrowIdList(raw: unknown): readonly string[] | undefined {
 }
 
 /**
- * A ceiling that admits a short list and refuses a long one.
- *
- * The recovery cases below need ONE store that refuses and then accepts, which a
- * fixed-capacity adapter gives only if the values differ in size. The adapter's
- * estimate is `partition + key + valueClass + JSON.stringify(value)`, so the base
- * cost here is 38 bytes: `[]` costs 40, `COMMITTED_IDS` costs 56, and `STORED_IDS`
- * costs 68. The number is asserted rather than trusted — a change to the estimate
- * that silently made every write fit would make every recovery case vacuous.
+ * A ceiling that admits a short list and refuses a long one, so one store refuses and then
+ * accepts. The adapter's size estimate is `partition + key + valueClass +
+ * JSON.stringify(value)`; the first recovery case asserts that this ceiling separates the
+ * two lists.
  */
 const CEILING_ADMITTING_A_SHORT_LIST = 60;
 
@@ -81,16 +57,14 @@ async function storeHoldingRecord(): Promise<UiStateStore> {
 
 describe("hydrating a durable view state", () => {
   it("installs the stored record when nothing was committed meanwhile", async () => {
-    // The arm that makes the next case mean something: with no local act, the
-    // record IS the answer and hydration must install it.
+    // With no local act the record is the answer and hydration must install it.
     const state = stateOver(await storeHoldingRecord());
     await state.hydrate();
     expect(state.value).toStrictEqual(STORED_IDS);
   });
 
   it("keeps a value committed while the read was still in flight", async () => {
-    // The defect: `commit` installs and persists at once, and the older record then
-    // arrives and overwrites it. On the unguarded class this ends as `STORED_IDS`.
+    // `commit` installs and persists at once; the older record then arrived and overwrote it.
     const state = stateOver(await storeHoldingRecord());
     const hydration = state.hydrate();
     await state.commit([...COMMITTED_IDS]);
@@ -99,11 +73,9 @@ describe("hydrating a durable view state", () => {
   });
 
   it("never signals a change back to the older record", async () => {
-    // The whole sequence a subscribed row would have rendered, not just where it
-    // ended: the unguarded class emits the committed value and then emits the stored
-    // one, so a person watches their own act undo itself. Counting emissions after
-    // the commit would not catch it — the read can settle before the commit's write
-    // does — so the values are recorded from the first subscription onward.
+    // Records every value a subscribed row would have rendered, from the first subscription
+    // onward. Counting emissions after the commit would miss it: the read can settle before
+    // the commit's write does.
     const state = stateOver(await storeHoldingRecord());
     const observedValues: (readonly string[])[] = [];
     state.subscribe(() => {
@@ -116,9 +88,7 @@ describe("hydrating a durable view state", () => {
   });
 
   it("still counts as hydrated, so a remount does not re-read over the newer value", async () => {
-    // Discarding the value is not the same as never having asked. The read settled,
-    // and a second `hydrate` — which every remount performs — must not go back for
-    // the record that was just refused.
+    // The read settled; a remount's second `hydrate` must not re-ask for the refused record.
     const state = stateOver(await storeHoldingRecord());
     const hydration = state.hydrate();
     await state.commit([...COMMITTED_IDS]);
@@ -129,8 +99,7 @@ describe("hydrating a durable view state", () => {
   });
 
   it("negative control: a commit AFTER the read settles is not treated as a race", async () => {
-    // Without this, the guard could pass by discarding every hydration. The
-    // generation is only ahead when an act happened DURING the read.
+    // Without this, the guard could pass by discarding every hydration.
     const state = stateOver(await storeHoldingRecord());
     await state.hydrate();
     expect(state.value).toStrictEqual(STORED_IDS);
@@ -153,8 +122,7 @@ describe("a durable view state whose store was replaced", () => {
   });
 
   it("discards a hydration that was already in flight", async () => {
-    // The record comes back from a store the window has closed, and installing it
-    // would put the previous scenario's value on screen under the new one.
+    // Installing a record from the closed store would show the previous scenario's value.
     const state = stateOver(await storeHoldingRecord());
     const hydration = state.hydrate();
     state.dispose();
@@ -163,8 +131,7 @@ describe("a durable view state whose store was replaced", () => {
   });
 
   it("negative control: the same hydration installs when nothing disposed it", async () => {
-    // Without this, the case above would pass over a state that discarded every
-    // record, which would make the stored value unreachable rather than superseded.
+    // Without this, the case above could pass over a state that discarded every record.
     const state = stateOver(await storeHoldingRecord());
     await state.hydrate();
     expect(state.value).toStrictEqual(STORED_IDS);
@@ -193,25 +160,21 @@ describe("a refusal this state has recovered from", () => {
   });
 
   it("tells its subscribers the failure has cleared", async () => {
-    // A recovery that cleared `lastRefusal` and emitted nothing would leave the
-    // pin list and the preference switch rendering a failure a person had
-    // already fixed — until something unrelated re-rendered the view.
+    // A recovery that cleared `lastRefusal` without emitting would leave a fixed failure on
+    // screen until an unrelated re-render.
     const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
     await state.commit([...STORED_IDS]);
     const observed = recordRefusalsSeenBy(state);
     await state.commit([...COMMITTED_IDS]);
 
     expect(state.lastRefusal).toBeUndefined();
-    // The LAST thing a subscriber was told to look at is the cleared value. Under
-    // the unguarded class the only emission is the pre-write one, taken while the
-    // stale refusal was still in place.
+    // The last emission must be the cleared value; the unguarded class only emits before the
+    // write, while the stale refusal stands.
     expect(observed.seen.at(-1)).toBeUndefined();
   });
 
   it("negative control: a refusal is still published when the write fails", async () => {
-    // Without this, the case above would pass over a class that had stopped
-    // emitting on settlement altogether — which would hide the failure instead of
-    // hiding the recovery.
+    // Without this, the case above could pass over a class that stopped emitting on settlement.
     const state = stateOver(openStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST }));
     const observed = recordRefusalsSeenBy(state);
     await state.commit([...STORED_IDS]);
@@ -221,9 +184,8 @@ describe("a refusal this state has recovered from", () => {
   });
 
   it("does not publish twice for a settlement that changed nothing", async () => {
-    // Two successful writes in a row leave the refusal `undefined` throughout, and
-    // a second emission for that would re-render every memoized row for a fact that
-    // did not move.
+    // Two successful writes leave the refusal `undefined`; a second emission would re-render
+    // every memoized row for nothing.
     const state = stateOver(openStore());
     await state.commit([...COMMITTED_IDS]);
     const observed = recordRefusalsSeenBy(state);
@@ -234,12 +196,9 @@ describe("a refusal this state has recovered from", () => {
 });
 
 /**
- * The real store, with every global write held until a case admits it.
- *
- * `writeGlobal` is overridden rather than the adapter's `write`, because the hold has
- * to be exactly the seam `DurableViewState` calls: holding the adapter would let the
- * chokepoint's own validation and trim run before the case had a chance to act, and
- * the ordering under test is the ordering of calls INTO the chokepoint.
+ * The real store with every global write held until a case admits it. `writeGlobal` is
+ * overridden rather than the adapter, because the ordering under test is that of calls into
+ * the chokepoint, before its validation and trim run.
  */
 class HeldWriteStore extends UiStateStore {
   /** Every value handed to `writeGlobal`, in call order. The ordering assertion. */
@@ -288,10 +247,8 @@ function heldWriteStore(options: { readonly capacityBytes?: number } = {}): Held
 
 describe("a durable view state whose writes overlap", () => {
   it("writes one snapshot per issued commit, in order, and leaves the newest durable", async () => {
-    // The defect: both writes go to the store at once, each carrying a COMPLETE
-    // record, and whichever the adapter finishes last is what stays durable. On the
-    // unserialized class the second value reaches the store before the first has
-    // settled, so the first assertion below already fails.
+    // Both writes reaching the store at once would each carry a complete record, and the last
+    // to finish would win; the first assertion fails on an unserialized class.
     const store = heldWriteStore();
     const state = stateOver(store);
 
@@ -309,8 +266,7 @@ describe("a durable view state whose writes overlap", () => {
   });
 
   it("spends no write on a snapshot a later act replaced before it was sent", async () => {
-    // Three acts, two writes: the middle snapshot was never at the store, so writing
-    // it would spend a write on a state no view shows any more.
+    // Three acts, two writes: the middle snapshot never reached the store.
     const store = heldWriteStore();
     const state = stateOver(store);
 
@@ -325,14 +281,12 @@ describe("a durable view state whose writes overlap", () => {
 
     expect(store.valuesWritten).toStrictEqual([STORED_IDS, COMMITTED_IDS]);
     expect(state.value).toStrictEqual(COMMITTED_IDS);
-    // Both callers settle on the one write that carried the newest state, which is
-    // the only answer the coalescing leaves true for either of them.
+    // Both callers settle on the one write that carried the newest state.
     expect(replaced).toStrictEqual(replacing);
   });
 
   it("negative control: two commits that do not overlap are two writes", async () => {
-    // Without this, the cases above would pass over a class that coalesced every
-    // commit into one write and simply dropped the rest.
+    // Without this, the cases above could pass over a class that dropped every later commit.
     const store = heldWriteStore();
     const state = stateOver(store);
 
@@ -348,10 +302,8 @@ describe("a durable view state whose writes overlap", () => {
   });
 
   it("publishes no refusal from a settlement a later act superseded", async () => {
-    // The long list does not fit and the short one does, so the write a person's
-    // CURRENT state rides succeeds — and the obsolete refusal must not be left
-    // standing beside a control whose value is durable. The unserialized class
-    // records it, so a pin list shows a failure for a state it is not showing.
+    // The long list does not fit and the short one does, so the obsolete refusal must not
+    // stand beside a control whose value is durable.
     const store = heldWriteStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST });
     const state = stateOver(store);
 
@@ -369,9 +321,7 @@ describe("a durable view state whose writes overlap", () => {
   });
 
   it("negative control: a settlement nothing superseded is still published", async () => {
-    // Without this, the case above would pass over a class that had stopped
-    // recording refusals altogether — which hides the failure instead of hiding the
-    // one that is obsolete.
+    // Without this, the case above could pass over a class that stopped recording refusals.
     const store = heldWriteStore({ capacityBytes: CEILING_ADMITTING_A_SHORT_LIST });
     const state = stateOver(store);
 

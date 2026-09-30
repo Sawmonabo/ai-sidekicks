@@ -1,9 +1,5 @@
-// What the session-header suites build: a store standing in for a session, and the
-// mount that hands back the header element.
-//
-// One module rather than a copy in each, because the suites assert against the SAME
-// header, and two spellings of "a session in this state" would let one file pass against
-// a header the others never build.
+// What the session-header suites build: a store standing in for a session, and the mount that
+// returns the header element. Shared so every suite asserts against the same header.
 
 import { render } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -13,23 +9,23 @@ import { SessionStore } from "@renderer/store/session/session-store.js";
 import { type StoredEntity } from "@renderer/store/session/entities/entities.js";
 import type { Scenario } from "../../../../../../../fixtures/scenario.js";
 
+/** The session id every header suite uses. */
 export const SESSION_ID = "session-header";
 
+/** One timeline event a case seeds into the store. */
 export interface TimelineRow {
   readonly sequence: number;
   readonly kind: string;
   readonly actorId: string;
-  /** The event's own payload — where every correlation id lives. */
+  /** The event's own payload, where every correlation id lives. */
   readonly payload?: Readonly<Record<string, unknown>>;
 }
 
 /** What a case says about the read that established this store's window. */
 export interface StoreWithOptions {
   /**
-   * The position the read was performed FROM, where it submitted one.
-   *
-   * Present, the window opens partway through the log and the rows below it were
-   * never delivered here. Absent, the read opened at the beginning of the log.
+   * The position the read was performed from, where it submitted one. Present, the window opens
+   * partway through the log; absent, at its beginning.
    */
   readonly readFromCursor?: string;
   /** Entities the read carried, for a case about what the base state authoritatively holds. */
@@ -38,6 +34,7 @@ export interface StoreWithOptions {
   readonly timelineCap?: number;
 }
 
+/** A session store initialized from `timeline` and `options`. */
 export function storeWith(
   timeline: readonly TimelineRow[] = [],
   options: StoreWithOptions = {},
@@ -63,12 +60,7 @@ export function storeWith(
   return store;
 }
 
-/**
- * A scenario that scripts no reply at all.
- *
- * The header reads nothing through the bridge, but the mount still needs one, so every
- * case renders inside a bridge whose scenario declares no answer.
- */
+/** A scenario that scripts no reply; the header reads nothing but the mount needs a bridge. */
 export const SESSION_HEADER_SILENT_SCENARIO: Scenario = {
   id: "session-header-silent",
   label: "Session header, nothing scripted",
@@ -80,11 +72,13 @@ export const SESSION_HEADER_SILENT_SCENARIO: Scenario = {
   replies: [],
 };
 
+/** Options for `renderSessionHeader`. */
 export interface RenderSessionHeaderOptions {
   /** Which scenario the bridge is built from. Silent by default. */
   readonly scenario?: Scenario;
 }
 
+/** Renders `element` in a fixture bridge and returns the header element; throws if none renders. */
 export function renderSessionHeader(
   element: React.JSX.Element,
   options: RenderSessionHeaderOptions = {},

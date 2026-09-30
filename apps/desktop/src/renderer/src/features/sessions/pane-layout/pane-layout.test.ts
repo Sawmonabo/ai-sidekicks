@@ -1,13 +1,6 @@
-// The pane layout's width arithmetic and its address identity, checked without
-// constructing a layout.
-//
-// The claim under test is the one `normalize` makes in its own name: whatever was on
-// disk, the row it returns sums to a whole pane layout. Rounding each pane independently
-// does not give that — three equal saved widths round to `333 + 333 + 333 = 999` —
-// and the widths come from the explicitly untrusted persisted snapshot, so the
-// shortfall reaches the panel group as an incomplete layout rather than staying
-// theoretical. Every case below asserts the exact sum, which is what fails on the
-// arithmetic that only rounds.
+// The pane layout's width arithmetic and address identity, without constructing a layout.
+// Whatever was on disk, `normalize` returns a row summing to the whole. Rounding alone gives
+// 333 + 333 + 333 = 999, so the cases assert the exact sum.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,7 +13,7 @@ import {
   type SessionPane,
 } from "./pane-layout.js";
 
-/** Panes carrying only the axis these cases are about: their widths. */
+/** Panes carrying only their widths. */
 function panesWithWidths(widths: readonly number[]): readonly SessionPane[] {
   return widths.map((sizePermille, position) => ({
     paneId: `pane-${String(position + 1)}`,
@@ -54,30 +47,25 @@ describe("normalize", () => {
   });
 
   it("gives the remainder to the widest pane, and to the first of equals", () => {
-    // The rule stated rather than implied: the drift settles on the pane with the
-    // most headroom, and a tie keeps the panes' own order. A snapshot therefore
-    // restores to one arrangement rather than to whichever the sort happened on.
+    // Drift settles on the pane with the most headroom, and a tie keeps the panes' own order.
     expect(widthsOf(normalize(panesWithWidths([333, 333, 333])))).toStrictEqual([334, 333, 333]);
-    // The widest is not first here, and it is still the pane the shortfall lands on.
+    // The widest is not first here and still takes the shortfall.
     expect(widthsOf(normalize(panesWithWidths([7, 10, 10])))).toStrictEqual([259, 371, 370]);
-    // An EXCESS comes back off the widest by the same rule.
+    // An excess comes back off the widest by the same rule.
     expect(widthsOf(normalize(panesWithWidths([10, 10, 10, 10, 10, 10, 10])))).toStrictEqual([
       142, 143, 143, 143, 143, 143, 143,
     ]);
   });
 
   it("keeps every pane at a permille or more", () => {
-    // A pane that rounds to nothing would come back as a column with no width for a
-    // person to grab, which is a pane lost rather than a pane restored.
+    // A pane rounding to nothing would be a column with no width to grab.
     const normalized = normalize(panesWithWidths([100_000, 1, 1]));
     expect(Math.min(...widthsOf(normalized))).toBeGreaterThanOrEqual(1);
     expect(sumOf(normalized)).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
   });
 
-  // The negative control: a row whose rounding already lands on the total is
-  // returned untouched. Without it the cases above would pass over a settle pass
-  // that redistributed every pane layout it saw, which would move panes a person had
-  // arranged deliberately.
+  // A row whose rounding already lands on the total is returned untouched; the cases above
+  // would also pass over a settle pass that redistributed every layout.
   it("negative control: leaves an already-exact row alone", () => {
     expect(widthsOf(normalize(panesWithWidths([500, 500])))).toStrictEqual([500, 500]);
     expect(widthsOf(normalize(panesWithWidths([250, 250, 250, 250])))).toStrictEqual([
@@ -91,10 +79,8 @@ describe("normalize", () => {
   });
 });
 
-// The address key is the pane layout's ONE definition of "the same thing". Two callers ask
-// two questions of it — the store asks whether an open pane is the pane it wants,
-// the snapshot decoder asks whether it has already adopted an address — and the
-// cases below assert they cannot answer differently.
+// The address key is the one definition of "the same pane", shared by the store's open and the
+// snapshot decoder's dedupe.
 describe("paneAddressKey", () => {
   function paneAt(
     kind: SessionPane["kind"],
@@ -112,17 +98,16 @@ describe("paneAddressKey", () => {
   }
 
   it("keys two different pane ids at one address identically", () => {
-    // The corrupted-snapshot shape, at the level the decoder dedupes on: the pane id
-    // is deliberately NOT part of the address, or a duplicate would key as distinct
-    // and mount twice.
+    // The pane id is not part of the address, or a corrupted snapshot's duplicate would mount
+    // twice.
     expect(paneAddressKey(paneAt("inspector", { kind: "run", id: "run-01" }, "pane-a"))).toBe(
       paneAddressKey(paneAt("inspector", { kind: "run", id: "run-01" }, "pane-b")),
     );
   });
 
   it("separates the same entity in two kinds of pane, and two entities in one kind", () => {
-    // A worktree legitimately appears in an `inspector` and in a `diff` pane, so kind is
-    // part of the address...
+    // A worktree appears in both an `inspector` and a `diff` pane, so kind is part of the
+    // address...
     expect(paneAddressKey(paneAt("inspector", { kind: "worktree", id: "worktree-01" }))).not.toBe(
       paneAddressKey(paneAt("diff", { kind: "worktree", id: "worktree-01" })),
     );
@@ -137,17 +122,14 @@ describe("paneAddressKey", () => {
   });
 
   it("cannot be collided by an entity id carrying the key's own separator", () => {
-    // The free-form field is last, so a crafted id cannot be re-read as a different
-    // address. Without this the key would be a string join hoping ids stay tame.
+    // The free-form field is last, so a crafted id cannot be re-read as another address.
     expect(paneAddressKey(paneAt("inspector", { kind: "run", id: "run\u001f01" }))).not.toBe(
       paneAddressKey(paneAt("inspector", { kind: "run", id: "run" })),
     );
   });
 
   it("is the rule addressesMatch answers with", () => {
-    // The predicate is DEFINED as key equality — there is one implementation, not
-    // two that agree — and these rows pin the behavior that definition gives, so a
-    // future re-fork would have to reproduce it exactly rather than approximately.
+    // The predicate is defined as key equality; these rows pin that behavior.
     const pane = paneAt("inspector", { kind: "run", id: "run-01" }, "pane-a");
     expect(addressesMatch(pane, { kind: "inspector", entity: { kind: "run", id: "run-01" } })).toBe(
       true,
@@ -162,7 +144,7 @@ describe("paneAddressKey", () => {
 });
 
 describe("carveSplitFrom", () => {
-  /** A pane with no width of its own yet — the arriving half of a split. */
+  /** A pane with no width of its own yet: the arriving half of a split. */
   const arriving: SessionPane = {
     paneId: "pane-arriving",
     kind: "browser",
@@ -173,11 +155,9 @@ describe("carveSplitFrom", () => {
   };
 
   it("takes the arriving pane's width from the source alone", () => {
-    // The claim the split act rests on: splitting the middle of a pane layout a person
-    // arranged leaves the panes on either side of it exactly as they were. The rule
-    // `distributeEvenly` applies — equalize everything — would answer [333,333,333,
-    // 333] here and destroy the arrangement while the sum stayed right, so the sum
-    // alone is not the assertion.
+    // Splitting the middle of an arranged layout leaves the panes either side unchanged.
+    // `distributeEvenly` would answer [333,333,333,333] with the sum still right, so the widths
+    // are asserted, not just the sum.
     const split = carveSplitFrom(panesWithWidths([200, 500, 300]), 1, arriving);
     expect(widthsOf(split ?? [])).toStrictEqual([200, 250, 250, 300]);
     expect(sumOf(split ?? [])).toBe(PANE_LAYOUT_TOTAL_PERMILLE);
@@ -200,15 +180,14 @@ describe("carveSplitFrom", () => {
   });
 
   it("refuses a source too narrow to halve, and an index the pane layout does not hold", () => {
-    // Both arms answer `undefined` rather than a row: a half of nothing is a column
-    // the panel group cannot grab, and a position outside the pane layout names no source.
+    // Both answer `undefined`: half of nothing cannot be grabbed, and an outside position names
+    // no source.
     expect(carveSplitFrom(panesWithWidths([1, 999]), 0, arriving)).toBeUndefined();
     expect(carveSplitFrom(panesWithWidths([500, 500]), 5, arriving)).toBeUndefined();
   });
 
   it("negative control: a source of two permille is wide enough and does split", () => {
-    // Without this the refusal above would pass over an implementation that refused
-    // every split, which is the failure the whole act would then have.
+    // The refusal above would also pass over an implementation that refused every split.
     const split = carveSplitFrom(panesWithWidths([2, 998]), 0, arriving);
     expect(widthsOf(split ?? [])).toStrictEqual([1, 1, 998]);
   });

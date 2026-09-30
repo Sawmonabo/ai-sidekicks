@@ -1,22 +1,18 @@
-// What every new-session suite needs before it can send anything.
-//
-// One home for the scaffolding both suites drive: the scripted reply the create leg
-// parses, the first-turn call a case makes answer or reject, and the two draft
-// factories — the plain one, and the one that records what reached the wire. The
-// suites split on what they assert (one send's ladder, and what repeated sends do);
-// the scaffolding does not split with them, and a second copy is how two files come to
-// script slightly different replies for one wire.
+// Scaffolding both new-session suites drive: the scripted create reply, the first-turn call a
+// case makes answer or reject, and the two draft factories (plain, and one that records what
+// reached the wire). One copy, so the suites never script slightly different replies.
+
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { withDaemonCall, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
 import type { Scenario } from "../../../../../../fixtures/scenario.js";
 import type { FirstTurnQueueCall } from "./new-session-control-contract.js";
 import { NewSessionDraft } from "./new-session-draft.js";
-// The method the SEND names, taken from the module that sends it rather than
-// re-declared here: a script keyed on the suite's own copy of a wire string would go
-// on answering a call production had stopped making.
+// The method the send names, taken from the module that sends it, so a script never keys on a
+// stale copy of a wire string.
 import { SESSION_CREATE_METHOD } from "./new-session-settlement.js";
 
+/** The session id the scripted create replies with. */
 export const CREATED_SESSION_ID = "019b793b-7b60-75e5-8510-ada11a5ac0de";
 
 /** The lead every new session in these suites starts on. */
@@ -28,12 +24,8 @@ export const NEW_SESSION_LEAD: AgentProviderBinding = {
 };
 
 /**
- * The WHOLE registered create response.
- *
- * Whole, because the fixture bridge parses a scripted reply against the method's own
- * shape and refuses one that is short of it — a partial script would have been a
- * console tested against a reply the daemon cannot send. Named once, so the scenario
- * and the counted arm below settle on the same thing.
+ * The whole registered create response. The fixture bridge refuses a scripted reply that is
+ * short of the method's shape, so a partial script would test a reply the daemon cannot send.
  */
 const CREATE_REPLY = {
   sessionId: CREATED_SESSION_ID,
@@ -57,16 +49,15 @@ export interface QueuedFirstTurn {
 export interface CountedDraft {
   readonly draft: NewSessionDraft;
   /**
-   * Every call `daemon.call` was given, in order.
-   *
-   * The recorder's own live array, not a snapshot: a case reads it after the send it
-   * is counting, and a copy taken at construction would always be empty.
+   * Every call `daemon.call` was given, in order. The recorder's live array, not a snapshot:
+   * a copy taken at construction would always be empty.
    */
   readonly calls: readonly RecordedDaemonCall[];
   /** Every first message the send handed the first-turn call, in order. */
   readonly firstTurns: readonly QueuedFirstTurn[];
 }
 
+/** A draft over the fixture bridge whose create is scripted by `options`. */
 export function draftFor(options: ScriptedLegs): NewSessionDraft {
   return new NewSessionDraft({
     bridge: createFixtureBridge({ scenario: scenario(options) }).bridge,
@@ -81,15 +72,9 @@ export function sentMethod(call: RecordedDaemonCall): string {
 }
 
 /**
- * A draft over the fixture bridge, with `daemon.call` recorded on the way past.
- *
- * Through `withDaemonCall`, the console's one shared arm for this, rather than a
- * spread written here: a suite that spelled its own would be a second implementation
- * of the `callDaemon` path every other suite already drives.
- *
- * The answer is `CREATE_REPLY` or a rejection, which is the two states the scenario
- * itself puts the fixture in — what these cases assert is what the DRAFT does with
- * each, and the count is of what it sent.
+ * A draft over the fixture bridge, with `daemon.call` recorded on the way past through
+ * `withDaemonCall`. The answer is `CREATE_REPLY` or a rejection, and the count is of what the
+ * draft sent.
  */
 export function countedDraftFor(options: ScriptedLegs): CountedDraft {
   const under = withDaemonCall(
@@ -114,10 +99,8 @@ export function countedDraftFor(options: ScriptedLegs): CountedDraft {
 }
 
 /**
- * The first-turn call a case scripts: it records each request, then resolves or rejects.
- *
- * A plain function, and its own array is the record, because the call is the send's
- * argument and never a daemon method a bridge answers.
+ * The first-turn call a case scripts: it records each request, then resolves or rejects. A
+ * plain function, since the call is the send's argument and never a daemon method.
  */
 function firstTurnCall(options: ScriptedLegs, recorded: QueuedFirstTurn[]): FirstTurnQueueCall {
   return (request) => {
@@ -142,21 +125,15 @@ function scenario(options: ScriptedLegs): Scenario {
 }
 
 /**
- * A reply to `session.create` the registered response schema refuses.
- *
- * Short of `shape` and `state`, which the create reply requires — so the call FULFILLS and
- * `callDaemon` answers `reply-unreadable`. That distinction is the whole subject of the
- * ambiguous arm: the daemon was reached, ran, and answered, and only this build's reading
- * of what it said failed.
+ * A reply to `session.create` the registered response schema refuses. It is short of `shape`
+ * and `state`, so the call fulfills and `callDaemon` answers `reply-unreadable`: the daemon
+ * answered and only this build's reading failed.
  */
 const UNREADABLE_CREATE_REPLY = { sessionId: CREATED_SESSION_ID } as const;
 
 /**
- * A draft whose create answers unreadably, with the tally of what reached the wire.
- *
- * The counted arm rather than the plain one, because what these cases assert is a
- * NEGATIVE about the wire — that a second press sends no second `session.create` — and
- * a result alone cannot say how many calls were made.
+ * A draft whose create answers unreadably, with the tally of what reached the wire. Counted,
+ * because the assertion is a negative about the wire (no second `session.create`).
  */
 export function countedDraftOverUnreadableCreate(): CountedDraft {
   const under = withDaemonCall(

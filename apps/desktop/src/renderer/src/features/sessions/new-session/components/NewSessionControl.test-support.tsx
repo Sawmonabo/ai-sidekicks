@@ -1,10 +1,6 @@
-// What both new-session suites mount: the fixture bridge the draft calls through, the
-// held and queued variants the ordering cases need, and the presses that drive them.
-//
-// One module rather than a copy in each, because every case in both files opens the
-// same control against the same registered `session.create` — and two spellings of
-// "a bridge whose create answers" would let one file pass against a wire the other
-// never scripts.
+// What both new-session control suites mount: the fixture bridge the draft calls through, the
+// held and queued variants the ordering cases need, and the presses that drive them. One
+// module, so no file passes against a wire the other never scripts.
 
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -15,9 +11,7 @@ import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAn
 import type { FirstTurnQueueCall } from "../new-session-control-contract.js";
 import { NewSessionControl } from "./NewSessionControl.js";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
-// The created session's id, from the module that DECLARES it. Both new-session
-// scaffolding modules script the same `session.create`, so a second copy of the id
-// here would be two spellings of one reply that no gate compares.
+// The created session's id, from the module that declares it, so one reply has one spelling.
 import {
   CREATED_SESSION_ID,
   NEW_SESSION_LEAD,
@@ -28,12 +22,8 @@ import {
 const SESSION_CREATE_CALL = "session.create";
 
 /**
- * The WHOLE registered create response.
- *
- * Whole, because the fixture bridge parses a scripted reply against the method's own
- * shape and refuses one that is short of it — a partial script would have been a
- * console tested against a reply the daemon cannot send. Named once, so the scripted
- * arm and the two suspended arms below settle on the same thing.
+ * The whole registered create response. The fixture bridge refuses a scripted reply that is
+ * short of the method's shape, so a partial script would test a reply the daemon cannot send.
  */
 export const CREATE_REPLY: {
   readonly sessionId: string;
@@ -65,11 +55,8 @@ export interface QueuedCreates {
 }
 
 /**
- * A first-turn call that resolves, and the requests it was asked to queue.
- *
- * Its resolving is what makes a COMPLETED send reachable at all: with the rejecting call
- * every send in these suites settles `partial`, which is the state the settlement arm is
- * deliberately not reached from.
+ * A first-turn call that resolves, and the requests it was asked to queue. Its resolving is
+ * what makes a completed send reachable: with the rejecting call every send settles `partial`.
  */
 export function completingFirstTurn(): {
   readonly call: FirstTurnQueueCall;
@@ -86,11 +73,9 @@ export function completingFirstTurn(): {
 }
 
 /**
- * A bridge whose `session.create` answers, or one whose does not.
- *
- * The fixture bridge rather than a hand-written stub: the draft calls through
- * `bridge.daemon.call`, and a stub of that member would be a second
- * implementation of the one daemon call these suites already drive.
+ * A bridge whose `session.create` answers, or one whose does not. The fixture bridge rather
+ * than a stub, since a stub of `bridge.daemon.call` would be a second implementation of the
+ * call these suites already drive.
  */
 export function bridgeFor(options: { readonly scriptsCreate: boolean }): PlatformBridge {
   const scenario: Scenario = {
@@ -107,14 +92,10 @@ export function bridgeFor(options: { readonly scriptsCreate: boolean }): Platfor
 }
 
 /**
- * The control under the window's announcer, which is where the frame mounts it.
- *
- * The settlement is an OPTION with a default that records nothing, because the
- * destination hands one over on every mount and a harness that omitted it would be
- * driving a control no composition produces. A case about the settlement passes its
- * own recorder; every other case ignores what the default collects. The first-turn call
- * defaults to the rejecting one, so a send stops after the create unless a case says
- * otherwise.
+ * The control under the window's announcer, where the frame mounts it. The settlement is an
+ * option with a default that records nothing, because the destination hands one over on every
+ * mount. The first-turn call defaults to the rejecting one, so a send stops after the create
+ * unless a case says otherwise.
  */
 export function renderControlOn(
   bridge: PlatformBridge,
@@ -138,17 +119,15 @@ export function renderControlOn(
   return container;
 }
 
+/** Render the control against a bridge that scripts (or not) the create. */
 export function renderControl(options: { readonly scriptsCreate: boolean }): HTMLElement {
   return renderControlOn(bridgeFor(options));
 }
 
 /**
- * A bridge whose `session.create` fulfills with a reply the registered schema refuses.
- *
- * Short of `state`, so `callDaemon` answers
- * `reply-unreadable` — the daemon was reached, ran, and answered, and only this
- * build's reading of what it said failed. That is the state a session may exist in
- * with no name this window holds.
+ * A bridge whose `session.create` fulfills with a reply the registered schema refuses. Short
+ * of `state`, so `callDaemon` answers `reply-unreadable`: the daemon answered and only this
+ * build's reading failed, which leaves a session that may exist with no name this window holds.
  */
 export function bridgeAnsweringCreateUnreadably(): PlatformBridge {
   const { bridge } = withDaemonCall(bridgeFor({ scriptsCreate: true }), async () => ({
@@ -158,16 +137,10 @@ export function bridgeAnsweringCreateUnreadably(): PlatformBridge {
 }
 
 /**
- * The fixture bridge with its `session.create` suspended until told to answer.
- *
- * A send that resolves within the same microtask cannot be observed mid-flight, and
- * "Send is disabled while a send is running" is a claim about exactly that moment.
- * Only the TIMING is the test's: what settles is `CREATE_REPLY`, the same whole
- * registered response every other case here reads.
- *
- * Through `withDaemonCall` rather than a spread written here, because a test reaches
- * `daemon.call` on the same terms production does, and one shared arm is what keeps
- * every suite driving the same `callDaemon` path.
+ * The fixture bridge with its `session.create` suspended until told to answer. A send that
+ * resolves within one microtask cannot be observed mid-flight, and "Send is disabled while a
+ * send is running" is a claim about that moment. Only the timing is the test's; the reply is
+ * `CREATE_REPLY`.
  */
 export function bridgeHoldingCreate(): HeldCreate {
   let answer = (): void => {};
@@ -189,11 +162,9 @@ export function bridgeHoldingCreate(): HeldCreate {
 
 /**
  * The fixture bridge with every `session.create` suspended, answerable one at a time.
- *
- * {@link bridgeHoldingCreate} holds them all behind one promise, which cannot show
- * what happens when an OLD draft's send settles while a new one is still running —
- * the case where a shared flag and an unguarded continuation do their damage. Every
- * reply is still `CREATE_REPLY`; only their order is the test's.
+ * {@link bridgeHoldingCreate} holds them behind one promise, which cannot show an old draft's
+ * send settling while a new one still runs, where a shared flag and an unguarded continuation
+ * do their damage.
  */
 export function bridgeQueueingCreates(): QueuedCreates {
   const suspended: (() => void)[] = [];
@@ -219,11 +190,8 @@ export function bridgeQueueingCreates(): QueuedCreates {
 }
 
 /**
- * Press a control and let React finish reacting.
- *
- * Unwrapped, an assertion would read a tree one render behind — and the send case
- * would additionally resolve its promise outside `act`, so the announcement it is
- * about would arrive after the assertion that reads for it.
+ * Press a control and let React finish reacting. Unwrapped, an assertion would read a tree one
+ * render behind, and the send's promise would resolve outside `act`.
  */
 export async function press(name: string | RegExp): Promise<void> {
   await act(async () => {
@@ -232,19 +200,16 @@ export async function press(name: string | RegExp): Promise<void> {
   });
 }
 
+/** The text of the polite live region. */
 export function politeText(container: HTMLElement): string {
   return container.querySelector('[data-live-region="polite"]')?.textContent ?? "";
 }
 
 /**
- * Open a draft and type its first message — the shortest composition that can be sent.
- *
- * The first message is the ONLY axis this control offers, so it is also the only way a
- * draft reaches `isEmpty === false` from the screen. Which means `first-turn-missing`
- * is unreachable through this control by construction, and the partial arm every case
- * below reads is the rejecting first-turn call instead — the send makes both calls and
- * reports the second. The missing-turn refusal is still exercised where a draft CAN be
- * composed without one, in `new-session-send.test.ts`.
+ * Open a draft and type its first message, the shortest composition that can be sent. The
+ * first message is the only axis this control offers, so `first-turn-missing` is unreachable
+ * here and the partial arm comes from the rejecting first-turn call; the missing-turn refusal
+ * is exercised in `new-session-send.test.ts`.
  */
 export async function openDraftWithFirstTurn(): Promise<void> {
   await press("+ New");
@@ -252,11 +217,9 @@ export async function openDraftWithFirstTurn(): Promise<void> {
 }
 
 /**
- * Type the first message, through the field a person types into.
- *
- * `fireEvent` rather than assigning `value`, because the draft holds the text and the
- * field renders off it: a direct assignment moves the DOM node and leaves the object
- * that decides what gets sent untouched.
+ * Type the first message through the field a person types into. `fireEvent` rather than
+ * assigning `value`, since the field renders off the draft and a direct assignment would
+ * leave the object that decides what is sent untouched.
  */
 export async function typeFirstTurn(firstTurn: string): Promise<void> {
   await act(async () => {
@@ -268,11 +231,8 @@ export async function typeFirstTurn(firstTurn: string): Promise<void> {
 }
 
 /**
- * Compose and send the one draft whose send COMPLETES — a first message, with a
- * first-turn call that resolves.
- *
- * Both calls land, so this is the only path in these suites that reaches the
- * settlement: `sendNewSessionDraft` reports `sent` exactly when neither leg refused.
+ * Compose and send the one draft whose send completes: a first message with a first-turn call
+ * that resolves. The only path here that reaches the settlement.
  */
 export async function composeAndCompleteASend(): Promise<void> {
   await openDraftWithFirstTurn();
@@ -280,12 +240,9 @@ export async function composeAndCompleteASend(): Promise<void> {
 }
 
 /**
- * The fixture with its create scripted and every request body recorded.
- *
- * A pass-through arm rather than an answering one: what a case reads here is what the
- * control ASKED for, and a bridge that answered on its own would be recording requests
- * nothing ever sent. `withDaemonCall` is the console's one seam for that, so a case
- * asserting over request bodies drives the same `callDaemon` path production does.
+ * The fixture with its create scripted and every request body recorded. A pass-through arm,
+ * so a case reads what the control asked for through the same `callDaemon` path production
+ * uses, via `withDaemonCall`.
  */
 export function bridgeRecordingASend(): BridgeUnderTest {
   return withDaemonCall(

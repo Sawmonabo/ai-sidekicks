@@ -1,7 +1,5 @@
-// What the session header renders before any read has answered: the session's own id,
-// and the shape it holds while the session opens.
-//
-// The readings the header puts are `SessionHeader.readings.test.tsx`.
+// What the session header renders before any read has answered: the session's id, and the shape
+// it holds while the session opens. Titles are in `SessionHeader.readings.test.tsx`.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,20 +21,16 @@ describe("SessionHeader — the session's identity", () => {
       <SessionHeader sessionId={SESSION_ID} sessionStore={undefined} />,
     );
     expect(bar.textContent).toContain("This session is opening.");
-    // The placeholder is the height the readings will be, so nothing below the header
-    // moves at the instant a person is reaching for something.
+    // The placeholder holds the header's height so nothing below it moves.
     expect(bar.querySelectorAll(".meridian-session-header__placeholder")).toHaveLength(1);
-    // And it says nothing: a screenshot of a session mid-open cannot be read as a
-    // session that has been measured.
+    // It is hidden from assistive technology: it is a shape, not a reading.
     expect(
       bar.querySelector(".meridian-session-header__placeholder")?.getAttribute("aria-hidden"),
     ).toBe("true");
   });
 
   it("negative control: an open session draws no placeholder at all", () => {
-    // Without this the case above would pass over a header that drew the placeholder
-    // for the life of the session, which is a shape standing in for a reading that has
-    // already landed beside it.
+    // The case above would also pass over a header that kept the placeholder forever.
     const bar = renderSessionHeader(
       <SessionHeader sessionId={SESSION_ID} sessionStore={storeWith()} />,
     );

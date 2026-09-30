@@ -1,13 +1,7 @@
-// The coalesced send: two calls in order, and what each ending says.
-//
-// `new-session-send.ts` holds no state, so these cases drive the whole ladder through
-// a draft that supplies the choices — the send that lands both calls, the send that
-// stops at each leg, and the two blankness rules. What repeated presses do to
-// one draft object is `new-session-draft.test.ts` beside this one.
-//
-// The counted arm reads what reached the wire rather than comparing ids: the engine
-// answers with the same scripted id every time, so a result alone cannot tell one
-// call from two.
+// The coalesced send: two calls in order, and what each ending says. `new-session-send.ts`
+// holds no state, so these cases drive the ladder through a draft that supplies the choices.
+// What repeated presses do to one draft is `new-session-draft.test.ts`. The counted arm reads
+// what reached the wire, since the fixture answers with the same id every time.
 
 import { describe, expect, it } from "vitest";
 
@@ -39,8 +33,7 @@ describe("NewSessionDraft — the send", () => {
     counted.draft.setFirstTurn("Start on the parser.");
     const result = await counted.draft.send();
 
-    // The whole point of the coalesced send: one act, two calls, named in the order
-    // they were made. There is no attach step, so none reaches the wire, and the first
+    // One act, two calls, named in the order made. There is no attach step, and the first
     // message is queued on the session the create returned.
     expect(result.outcome).toBe("sent");
     expect(result.sessionId).toBe(CREATED_SESSION_ID);
@@ -78,8 +71,8 @@ describe("NewSessionDraft — the send", () => {
   });
 
   it("names the missing first turn when the person typed none", async () => {
-    // The turn is the only call left after the create, and its absence is the person's
-    // own choice rather than a fact about the build, which is why it is its own code.
+    // The turn is the only call left after the create, and its absence is the person's choice,
+    // not a fact about the build, hence its own code.
     const draft = draftFor({ scriptsCreate: true });
     draft.setPosture("trusted");
     const result = await draft.send();
@@ -100,10 +93,8 @@ describe("NewSessionDraft — the send", () => {
   });
 
   it("treats a blank first turn as none, and never trims what it sends", async () => {
-    // Blankness is tested on both axes it decides, and they answer differently. A
-    // draft whose ONLY content is whitespace is empty, so the send refuses before any
-    // wire call — a person who typed spaces has composed nothing. Beside another axis
-    // the draft is real and the turn is the leg that is missing.
+    // Blankness decides two axes differently: a draft whose only content is whitespace is
+    // empty and refuses before any wire call; beside another axis the turn is the missing leg.
     const onlyBlank = draftFor({ scriptsCreate: true, scriptsFirstTurn: true });
     onlyBlank.setFirstTurn("   \n  ");
     expect((await onlyBlank.send()).refusal?.code).toBe("draft-empty");
@@ -114,9 +105,8 @@ describe("NewSessionDraft — the send", () => {
     const blank = await draft.send();
     expect(blank.refusal?.code).toBe("first-turn-missing");
 
-    // The negative control for the trim rule: the text reaches the wire as the person
-    // authored it, so indented code keeps its shape. A module that trimmed would send
-    // a different message and this case could not tell.
+    // Negative control for the trim rule: the text reaches the wire as authored, so indented
+    // code keeps its shape.
     const indented = "    const parser = build();";
     const counted = countedDraftFor({ scriptsCreate: true, scriptsFirstTurn: true });
     counted.draft.setFirstTurn(indented);
@@ -133,14 +123,12 @@ describe("NewSessionDraft — the send", () => {
     expect(result.sessionId).toBeUndefined();
     expect(result.completedCalls).toStrictEqual([]);
     expect(result.refusal?.code).toBe("session-create-failed");
-    // The draft survives a failed send: a person's choices are not thrown away
-    // because a wire was down.
+    // The draft survives a failed send: a person's choices are not lost to a wire being down.
     expect(draft.snapshot().isEmpty).toBe(false);
   });
 
   it("negative control: the daemon's own message never reaches the person", async () => {
-    // Without this, the case above would pass over a refusal that pasted an IPC
-    // stack into console copy.
+    // Without this, the case above would pass over a refusal that pasted an IPC stack.
     const draft = draftFor({ scriptsCreate: false });
     draft.setPosture("trusted");
     const result = await draft.send();
@@ -150,13 +138,10 @@ describe("NewSessionDraft — the send", () => {
 });
 
 describe("NewSessionDraft — what a send that REJECTED reports", () => {
-  // The arm this answers is defensive and, in this build, unreachable through the
-  // bridge: `callDaemon` returns a typed reply for a rejected call, an unsendable request
-  // and a schema failure alike, so no fixture bridge can make `send()` reject. An
-  // `undefined` in its place would clear the result and leave Send
-  // pressable with nothing on screen, nothing announced, and nothing recorded — a
-  // control that answers a press by doing nothing. So the SENTENCE is asserted here,
-  // where it is built, rather than through a path a test would have to fake.
+  // Unreachable through the bridge in this build: `callDaemon` returns a typed reply for a
+  // rejected call, an unsendable request and a schema failure alike. An `undefined` in its
+  // place would clear the result and leave Send doing nothing, so the sentence is asserted
+  // where it is built.
 
   it("carries a code of the draft's own vocabulary rather than clearing the press", () => {
     const reported = refuseSendThatRejected();
@@ -167,9 +152,8 @@ describe("NewSessionDraft — what a send that REJECTED reports", () => {
   });
 
   it("negative control: it claims nothing was created", () => {
-    // Without this the case above would pass over a report that named the fault and
-    // still carried a session id, which is a person told to retry a create that may
-    // already have landed.
+    // Without this, the case above would pass over a report that still carried a session id,
+    // telling a person to retry a create that may have landed.
     const reported = refuseSendThatRejected();
 
     expect(reported.sessionId).toBeUndefined();

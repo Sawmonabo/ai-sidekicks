@@ -1,17 +1,12 @@
-// The restore and the save are one story, and the story is about ORDER.
-//
-// The store lives behind a process boundary, so its read takes real time, and the pane layout
-// is live for every millisecond of it. Both directions fail quietly and both look like
-// success: a write during the read replaces the record being read, so the person finds
-// a first-run window where their arrangement was, and a restore landing after they have
-// arranged the pane layout takes the arrangement away with no error anywhere.
-//
-// Every case drives the real hook against a real `PaneLayoutStore` and a real store, because
-// the failure is in how the two effects interleave and neither half shows it alone.
-// `layout-writer.test.ts` holds the writer's own claims, and
-// `layout-persistence.read-failure.test.tsx` holds what the pair does when the read
-// never landed; this file holds the pair's own ordering. All three mount through
-// `layout-persistence.test-support.tsx`.
+// The restore and the save are one story, and the story is about order. The store lives
+// behind a process boundary, so its read takes real time while the pane layout is live. Both
+// directions fail quietly and look like success: a write during the read replaces the record
+// being read, and a restore landing after the person arranged the layout takes the
+// arrangement away with no error. Every case drives the real hook against a real
+// `PaneLayoutStore` and store, because the failure is in how the two effects interleave.
+// `coalescing-layout-writer.test.ts` holds the writer's claims and
+// `usePaneLayoutPersistence.read-failure.test.ts` the read that never landed; all mount
+// through `usePaneLayoutPersistence.test-support.tsx`.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -48,8 +43,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
       layout.open({ kind: "terminal" });
     });
 
-    // The pane layout of one pane the person is looking at has reached the store through no path,
-    // so the two-pane record the read is still resolving is exactly as it was.
+    // The one-pane layout on screen has reached the store through no path, so the two-pane
+    // record the read is resolving is as it was.
     expect(await savedPaneCount(store)).toBe(2);
     await drain();
   });
@@ -97,10 +92,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("leaves a pane the person closed during the read closed", async () => {
-    // A close made while the record is in flight leaves no trace in the pane layout's
-    // snapshot — the pane is simply gone — so a reconciliation that diffs the pane layout
-    // cannot see it, and the record puts the pane straight back. The person watches a
-    // pane they just closed return, and the write that follows files it as theirs.
+    // A close made during the read leaves no trace in the snapshot, so a reconciliation that
+    // diffs the layout cannot see it and the record would put the pane straight back.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "terminal"]);
     const layout = createPaneLayoutStore();
@@ -117,15 +110,11 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("keeps the widths the person set during the read while the record adds a pane", async () => {
-    // THE RECORD NAMES AN ADDRESS THAT IS NOT ON SCREEN, so the merge actually runs.
-    // A record every one of whose addresses is already open adopts nothing and leaves
-    // the pane layout untouched by construction, which is why the earlier shape of this case
-    // never reached the commit it was written to constrain: the merge equalized every
-    // live pane, so the drag the person had just finished was gone.
-    //
-    // The arriving pane takes the equal share a pane layout of three panes gives it and the two
-    // live panes keep their seventy-thirty ratio across what is left — 467 to 200,
-    // which is 700 and 300 rescaled into the 667 the pane layout still holds.
+    // The record names an address that is not on screen, so the merge actually runs; a record
+    // whose addresses are all open adopts nothing and cannot constrain the commit. The merge
+    // once equalized every live pane, undoing the drag the person had just finished. The
+    // arriving pane takes the equal share of three, and the two live panes keep their
+    // seventy-thirty ratio across the rest (467 to 200, from 700 and 300 rescaled into 667).
     const store = memoryStore();
     await savePaneLayout(store, ["agents"]);
     const layout = createPaneLayoutStore();
@@ -146,10 +135,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("focuses an adopted pane when the person left the pane layout focusing nothing", async () => {
-    // `close` clears the focus when the pane holding it goes, so an open-then-close
-    // during the read reaches the merge with the pane layout focusing nothing. Panes then
-    // arrived from the record with no focus among them, and the composer read that as
-    // having nowhere to send — recoverable only by a click or an arrow key.
+    // `close` clears the focus when its pane goes, so an open-then-close during the read
+    // reaches the merge focusing nothing; the composer then had nowhere to send until a click.
     const store = memoryStore();
     await savePaneLayout(store, ["agents"]);
     const layout = createPaneLayoutStore();
@@ -168,9 +155,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("negative control: a live focus is not moved onto the adopted pane", async () => {
-    // Without this the case above would pass over a merge that focused the record's
-    // panes unconditionally, which is the same window-undoing-work-under-their-hands
-    // defect the width rule exists for, one axis over.
+    // Without this the case above would pass over a merge that focused the record's panes
+    // unconditionally, undoing the person's work one axis over.
     const store = memoryStore();
     await savePaneLayout(store, ["agents"]);
     const layout = createPaneLayoutStore();
@@ -188,9 +174,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("keeps the order the person set during the read", async () => {
-    // Same two panes in both the record and the pane layout, in opposite orders. A wholesale
-    // restore has no way to prefer one, so it takes the record's and the reorder the
-    // person just performed is undone under their hands.
+    // The same two panes in opposite orders in the record and the layout. A wholesale restore
+    // takes the record's and undoes the reorder the person just made.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "terminal"]);
     const layout = createPaneLayoutStore();
@@ -207,8 +192,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("negative control: an untouched read restores the record and writes nothing back", async () => {
-    // Without this, a hook that wrote on every settle would pass the cases above while
-    // spending a durable write on every session a person opens.
+    // Without this, a hook that wrote on every settle would pass while spending a durable
+    // write on every session opened.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript", "terminal"]);
     const before = await store.read(RESTORE_SESSION_ID, PANE_LAYOUT_RECORD_KEY);
@@ -223,8 +208,7 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("negative control: with nothing saved the fallback transcript is opened and written", async () => {
-    // The gate must not swallow the first run's own record, which is the arrangement
-    // the person finds the next time they open the session.
+    // The gate must not swallow the first run's own record.
     const store = memoryStore();
     const layout = createPaneLayoutStore();
 
@@ -236,8 +220,8 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
   });
 
   it("negative control: a change made after the restore settled is written", async () => {
-    // The gate opens; it does not stay shut. Without this every case above would pass
-    // over a hook that had simply stopped writing.
+    // The gate opens and does not stay shut; without this every case above would pass over a
+    // hook that had stopped writing.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
     const layout = createPaneLayoutStore();
@@ -255,11 +239,9 @@ describe("usePaneLayoutPersistence — an arrangement made while the record was 
 
 describe("usePaneLayoutPersistence — the writer across a double-mount", () => {
   it("keeps saving after the mount that closed its writer re-committed it", async () => {
-    // `flushAndClose` is one-way and `request` then drops every arrangement in
-    // silence, so a holder that re-committed the retired writer left the person
-    // rearranging their pane layout all session with nothing kept and no refusal raised.
-    // React's own double-mount is the trigger, and it arrives with a wrapper nobody
-    // re-audits this call site for.
+    // `flushAndClose` is one-way and `request` then drops every arrangement silently, so a
+    // holder that re-committed the retired writer left the person rearranging with nothing
+    // kept. React's double-mount is the trigger.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
     const layout = createPaneLayoutStore();
@@ -275,8 +257,8 @@ describe("usePaneLayoutPersistence — the writer across a double-mount", () => 
   });
 
   it("negative control: the same arrangement lands under an ordinary single mount", async () => {
-    // Without this the case above would pass over a fixture whose pane layout reached the
-    // store on some path other than the writer being tested.
+    // Without this, the case above would pass over a fixture whose layout reached the store
+    // by some path other than the writer under test.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"]);
     const layout = createPaneLayoutStore();

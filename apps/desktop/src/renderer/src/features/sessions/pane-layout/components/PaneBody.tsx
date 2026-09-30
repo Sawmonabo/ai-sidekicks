@@ -1,9 +1,6 @@
-// The registered body a pane resolves to, or the refusal that says why it has none.
-//
-// Its own module for the one-component rule, and the narrowing is what earns the
-// split: whether the pane layout resolved an address or a refusal is a named predicate here
-// rather than a condition inside `SessionPaneSlot`'s ternary chain, which already has three
-// arms of its own.
+// The registered body a pane resolves to, or the refusal that says why it has none. Its own
+// module so "address or refusal" is a named predicate instead of a condition inside
+// `SessionPaneSlot`'s ternary chain.
 
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
 import { type Refusal } from "@renderer/lib/refusal.js";

@@ -1,59 +1,36 @@
-// One durable write in flight, and one pending snapshot behind it.
+// One durable write in flight, and one pending snapshot behind it. A resize drag commits a
+// new layout on every pointer move, and "save on change" would write sixty records a second
+// to a database that only needs the last.
 //
-// The problem is the resize drag: a separator commits a new layout on every
-// pointer move, so a naive "save on change" writes sixty records a second to a
-// database that only needs to hold the last one.
+// The coalescing comes from the write itself, not a debounce: at most one write is in flight,
+// and further changes replace a single pending snapshot. A drag costs as many writes as the
+// database can absorb, each the newest arrangement, with no timer to arm or leak. The
+// `RefreshScheduler` in `lib/reads/refresh-scheduler.ts` is for reads, and its reasons are a
+// diagnostics vocabulary a rearrangement has no honest value in.
 //
-// WHY THIS IS NOT A DEBOUNCE, AND NOT `lib/reads/refresh-scheduler.ts`. The obvious answer is
-// a trailing debounce, and the console already owns one — `RefreshScheduler`. It is
-// the wrong tool twice over: its own header says the session-store registry is what
-// constructs it and nothing else in the tree may arm a timer, and its
-// `RefreshReason` vocabulary is a diagnostics field whose doc forbids inventing a
-// value for a read nobody asked for. A pane layout rearrangement is not a refresh, and
-// there is no honest reason to hand it. Writing a second debouncer beside that one
-// would be a second implementation of the thing it exists to be.
+// The partition rides the request, not the caller's current state: the pump writes what the
+// request named however long it waited, so an arrangement queued in one session is never
+// filed under the session the person navigated to meanwhile.
 //
-// So the coalescing comes from the write itself: at most ONE write is in flight,
-// and while one is, further changes replace a single pending snapshot rather than
-// queueing. A drag costs as many writes as the database can absorb — each of them
-// the newest arrangement, never a stale one — with no timer to arm, cancel, or
-// leak, and nothing for a test to advance.
+// The writer is held per store through `hooks/subject-scoped/useSubjectScopedResource.ts`,
+// because the `UiStateStore` is replaced under a live pane layout on reconnect. A writer built
+// in a `useState` initializer would keep writing to the first render's store, which nothing
+// reads again.
 //
-// AND THE PARTITION RIDES THE REQUEST, NOT THE CALLER'S CURRENT STATE. A request
-// names the session its snapshot belongs to, and the single pending request carries
-// both, so the pump writes what the request named however long it waited. The
-// alternative — reading the caller's current session inside the write callback —
-// files a queued arrangement under whichever session the person navigated to while
-// it waited, which overwrites that session's saved pane layout with another one's.
-//
-// THE WRITER IS ADDRESSED BY THE STORE IT WRITES THROUGH. The record goes into a
-// `UiStateStore`, and that store is replaced under a live pane layout: a reconnect
-// re-mints it and the composition root hands the new one down without remounting
-// anything beneath. A writer built in a `useState` initializer closes over the store
-// of its FIRST render and keeps writing there, so every later arrangement is filed in
-// a store nothing will ever read again — and the restore, which does move, then reads
-// the newer store's older record. The writer is therefore held per store through
-// `hooks/subject-scoped/useSubjectScopedResource.ts`, which retires the one bound to the store that
-// was replaced.
-//
-// RETIREMENT FLUSHES; IT DOES NOT CANCEL. `flushAndClose` sends the pending snapshot
-// before it stops accepting requests, because the last arrangement a person made is
-// exactly the one they expect to find. A request arriving after
-// retirement is dropped rather than filed: the pane layout on screen holds the writer
-// bound to the live store, and that is where its arrangement belongs.
+// Retirement flushes rather than cancels: `flushAndClose` sends the pending snapshot, since
+// the last arrangement is the one a person expects to find, then drops later requests, as the
+// pane layout on screen holds the writer bound to the live store.
 
 import { type SubjectScopedDisposal } from "@renderer/lib/subject-scoped/subject-scoped-disposal.js";
 
 /**
- * The shape the persistence chokepoint's `layout` value class admits: an object of
- * objects whose members are numbers, booleans, and identifier-shaped strings.
- *
- * Written here rather than imported from the pane layout's grammar, because it is the
- * CLASS's constraint and not the grammar's preference — the pane layout names its own record
- * `PaneLayoutSnapshotRecord`, which satisfies this because it is stored under that class.
+ * The shape the persistence chokepoint's `layout` value class admits: an object of objects
+ * whose members are numbers, booleans, and identifier-shaped strings. Written here because it
+ * is the class's constraint, not the pane layout grammar's preference.
  */
 export type PersistedLayoutRecord = Record<string, Record<string, number | boolean | string>>;
 
+/** What a coalescing writer performs its writes and reports its failures through. */
 export interface CoalescingLayoutWriterOptions<TRecord extends PersistedLayoutRecord> {
   /**
    * Performs one durable write, under the partition the request named. A refusal
@@ -67,6 +44,7 @@ export interface CoalescingLayoutWriterOptions<TRecord extends PersistedLayoutRe
   readonly onFailed: (error: unknown, partition: string) => void;
 }
 
+/** Writes at most one record at a time, coalescing later requests into one pending snapshot. */
 export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   readonly #write: (partition: string, snapshot: TRecord) => Promise<void>;
   readonly #onFailed: (error: unknown, partition: string) => void;
@@ -86,13 +64,9 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   }
 
   /**
-   * True once `flushAndClose` has run. Terminal: no request is ever taken again.
-   *
-   * Published for the holder that owns this writer's lifetime. React's double-mount
-   * runs the committed cleanup and then re-runs the effect against the value it just
-   * closed, so a holder with no way to ask would re-commit a retired writer — and
-   * every save after that is dropped at `request` with no refusal raised anywhere,
-   * which is a person rearranging their pane layout all session and nothing being kept.
+   * True once `flushAndClose` has run. Terminal: no request is taken again. Published for the
+   * holder, because React's double-mount re-runs the effect against a value it just closed,
+   * and a retired writer drops every save silently.
    */
   public get isRetired(): boolean {
     return this.#isRetired;
@@ -104,19 +78,14 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   }
 
   /**
-   * Save this arrangement, under the session it belongs to.
-   *
-   * The newest request REPLACES an unsent one rather than joining a queue: the
-   * layout is a single current value, and writing an arrangement the person has
-   * already moved past would put a stale record on disk and then correct it. The
-   * partition travels with the snapshot for the same reason it exists at all — a
-   * queued write settles later than the act that queued it, and by then the caller's
-   * own idea of the current session may have moved on.
+   * Save this arrangement, under the session it belongs to. The newest request replaces an
+   * unsent one, since writing an arrangement the person moved past would put a stale record on
+   * disk. The partition travels with the snapshot because the caller's idea of the current
+   * session may move on before the write settles.
    */
   public request(partition: string, snapshot: TRecord): void {
     if (this.#isRetired) {
-      // Dropped rather than filed: this writer's store has been replaced, and the
-      // pane layout on screen is already holding the writer bound to the live one.
+      // Dropped: this writer's store was replaced and the pane layout holds the live one's.
       return;
     }
     this.#pending = { partition, snapshot };
@@ -124,13 +93,9 @@ export class CoalescingLayoutWriter<TRecord extends PersistedLayoutRecord> {
   }
 
   /**
-   * Send what is waiting, then stop accepting requests. The terminal, and total.
-   *
-   * Called when the store this writer was built over is replaced. It FLUSHES: the
-   * pending request holds the newest arrangement, and a teardown that dropped it would
-   * throw away the one act the person performed last. Where a write is already in
-   * flight there is nothing to start — the pump's own `finally` sends the pending one
-   * — so this needs no `await` and answers in both states.
+   * Send what is waiting, then stop accepting requests. Terminal and total. It flushes because
+   * the pending request holds the newest arrangement. With a write in flight the pump's own
+   * `finally` sends the pending one, so no `await` is needed.
    */
   public flushAndClose(): void {
     this.#pump();
@@ -171,18 +136,11 @@ function isWriterRetired(writer: CoalescingLayoutWriter<PersistedLayoutRecord>):
 }
 
 /**
- * How a retired writer ends, and how a retired one is recognized.
- *
- * THE TERMINAL ARM, BECAUSE `flushAndClose` IS ONE-WAY. A writer past it drops every
- * later request in silence — no refusal raised, nothing on screen — so a holder that
- * re-committed one after React's double-mount would leave a person rearranging all
- * session with nothing kept. `hooks/subject-scoped/useSubjectScopedResource.ts` reads `isClosed`
- * before it commits and mints a fresh writer instead, and the arm's shape is what
- * makes the reading impossible to omit: `{ dispose }` alone matches neither arm.
- *
- * ONE MODULE-LEVEL OBJECT RATHER THAN A LITERAL AT EACH CALL SITE. The hook holds
- * `dispose` and `isClosed` on a dependency of their own, so a fresh literal per render
- * would restart that lifetime effect on every pass for no change in what is open.
+ * How a retired writer ends and is recognized. `flushAndClose` is one-way and a writer past it
+ * drops requests silently, so the holder reads `isClosed` before committing and mints a fresh
+ * writer; the arm's shape makes omitting that impossible. One module-level object, because
+ * the hook holds `dispose` and `isClosed` on a dependency and a literal per render would
+ * restart that lifetime effect.
  */
 export const WRITER_RETIREMENT: SubjectScopedDisposal<
   CoalescingLayoutWriter<PersistedLayoutRecord>

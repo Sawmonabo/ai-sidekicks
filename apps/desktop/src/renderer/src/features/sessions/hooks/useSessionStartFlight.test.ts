@@ -1,13 +1,7 @@
-// How many sessions a burst of Start presses may create, and when the control returns.
-//
-// WHY A SECOND PRESS COSTS TWO SESSIONS AND GIVES ONE. A second press while the
-// first create is still in flight remounts the component that puts the create, its
-// cleanup suppresses the result, and the session that create goes on to produce is
-// named to nobody while a SECOND durable session is created beside it.
-//
-// DRIVEN THROUGH THE HOOK a start control calls, and every assertion is about what
-// `admit` answers: a press the hook admits is a `session.create` on the wire, so the
-// count of admitted presses is the count of sessions a burst can create.
+// How many sessions a burst of Start presses may create, and when the control returns. A
+// second press while the first create is in flight remounts the component that puts the
+// create, and its cleanup suppresses the result. Every assertion is about what `admit`
+// answers: each admitted press is a `session.create` on the wire.
 
 import { act, renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -33,9 +27,8 @@ describe("starting a session — one create at a time", () => {
   });
 
   it("admits one press of a burst inside a single frame", () => {
-    // Every press here happens before React re-renders, so each handler would read
-    // the rendered flag from the render that produced it and find the control idle;
-    // the key taken inside the tick is what refuses the second and third.
+    // Every press happens before React re-renders, so a rendered flag would read idle each
+    // time; the key taken inside the tick is what refuses the second and third.
     const { result } = renderHook(() => useSessionStartFlight(BRIDGE, true));
 
     const admitted: boolean[] = [];
@@ -58,8 +51,7 @@ describe("starting a session — one create at a time", () => {
   });
 
   it("gives the key back when the create settles, made a session or refused", () => {
-    // A settlement reported on the created arm alone would leave Start dead for the
-    // life of the mount after a single refusal, so the hook has one release for both.
+    // A settlement reported on the created arm alone would leave Start dead after one refusal.
     const { result } = renderHook(() => useSessionStartFlight(BRIDGE, true));
     act(() => {
       result.current.admit();
@@ -78,8 +70,7 @@ describe("starting a session — one create at a time", () => {
   });
 
   it("holds nothing where the mount puts no call at all", () => {
-    // No settlement will ever arrive to give a key back, so a key taken anyway
-    // would kill the control on its first press for a call never made.
+    // No settlement would ever return a key taken for a call never made.
     const { result } = renderHook(() => useSessionStartFlight(BRIDGE, false));
 
     const admitted: boolean[] = [];

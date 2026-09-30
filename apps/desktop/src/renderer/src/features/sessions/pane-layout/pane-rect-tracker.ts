@@ -1,40 +1,21 @@
-// Rect discipline — THIS MODULE'S OWN RULE, stated here because it is the one place
-// that implements it.
+// Decides when each pane's visible rect is measured and written.
 //
-// Every pane, and every native overlay the browser pane hosts, tracks its rect from four
-// invalidation sources: a `ResizeObserver` on the host, window resize, capture-phase
-// scroll on any ancestor, and layout movers (pane widths, rail collapse, theme change).
-// A `flushRect` step dedupes on a composed key so one frame produces one write. Native
-// views hide when either dimension of the visible clip is below one pixel. Overlay
-// elements register in the WINDOW'S airspace on mount so a native view yields to them or
-// hides while one is up — the airspace half of the own-built native-browser-view stack,
-// which covers the bounds bridge and the airspace policy of hiding the view and
-// swapping in a `capturePage` image while an overlay is open.
-// That set is `core/airspace-registry.ts`'s and never this module's: it was declared
-// here too, for one window, and a second declaration of one rule is a second answer
-// that no overlay registering through `primitives/` was ever put into.
+// Five sources invalidate a rect: a `ResizeObserver` on the host, window resize, capture-phase
+// scroll on any ancestor, layout movers (pane widths, rail collapse, theme change), and an
+// overlay opening or closing in the window's airspace. A native view hides while any overlay
+// is registered, or when either dimension of its visible clip is under
+// `NATIVE_VIEW_MINIMUM_VISIBLE_PX`.
 //
-// TWO RULES DO ALL THE WORK, and both are about WHEN rather than what:
+// Two rules do the work:
+//   1. Reads in the callback, writes on the next frame. Mutating layout inside a
+//      `ResizeObserver` callback re-enters the observer and can oscillate a pane a pixel per
+//      frame forever.
+//   2. One write per frame per composed key. Several sources fire for one visual change, and
+//      each would otherwise write.
 //
-//   1. **Reads in the callback, writes on the next frame.** Measuring inside a
-//      `ResizeObserver` callback is what the callback is for; mutating layout there
-//      re-enters the observer and the browser reports `ResizeObserver loop
-//      completed with undelivered notifications` — or, worse, does not, and the
-//      pane oscillates a pixel a frame forever. This class is the one implementation
-//      of the prohibition, so no pane has to remember it.
-//   2. **One write per frame, per composed key.** Four invalidation sources fire
-//      for one visual change — a drag moves a pane, which resizes it, which scrolls
-//      an ancestor, on a window that is itself being resized. Without the dedupe
-//      that is four writes for one moved edge.
-//
-// The clock is a dependency rather than a bare `requestAnimationFrame`, on
-// `lib/reads/refresh-scheduler.ts`' reasoning: a frozen clock is what lets a test assert that
-// the write did NOT happen during the callback and DID happen on the next frame.
-// Nothing here arms an interval.
-//
-// WHAT a rect is — the clip walk, the invalidation vocabulary, and the dedupe key —
-// is `rect-geometry.ts`, which holds no state and answers on demand. This module is
-// only the WHEN.
+// The clock is injected so a test can assert the write did not happen in the callback and did
+// on the next frame. Nothing here arms an interval. What a rect is lives in
+// `pane-rect-geometry.ts`.
 
 import { type AirspaceRegistry } from "@renderer/lib/airspace-registry.js";
 import { type Clock, type ScheduledHandle } from "@renderer/lib/clock.js";
@@ -52,14 +33,7 @@ export interface PaneRectTrackerOptions {
   readonly clock: Clock;
   /** Where a deduped batch of rects is written. Called at most once per frame. */
   readonly onFlush: (rects: readonly TrackedRect[]) => void;
-  /**
-   * Which overlays are up in this window, so a pane's rect yields while one is.
-   *
-   * Required and injected rather than optional: every window has exactly one, and a
-   * tracker constructed without one read `isVisible` from the size floor alone while
-   * reporting the airspace rule in its own header — an unarmed policy that no caller
-   * could tell apart from an armed one with nothing on screen.
-   */
+  /** Which overlays are up in this window, so a pane's rect yields while one is. */
   readonly airspace: AirspaceRegistry;
 }
 
@@ -84,19 +58,12 @@ export class PaneRectTracker {
     this.#onFlush = options.onFlush;
     this.#airspace = options.airspace;
     this.#wasAirspaceOccupied = options.airspace.registeredCount > 0;
-    // Subscribed HERE rather than sampled at each invalidation, because an overlay
-    // opening fires none of the other four sources: the palette deliberately does not
-    // lock document scroll and its inert carrier is `display: contents`, so nothing
-    // about one appearing changes layout. Visibility is part of the dedupe key, so
-    // without this the last flushed value simply stood — a native view composited over
-    // a dialog that had just opened, or hidden after one had closed.
+    // Subscribed rather than sampled per invalidation: an overlay opening fires no other
+    // source (it changes no layout), and visibility is part of the dedupe key, so the last
+    // flushed value would stand over a dialog.
     //
-    // FILTERED TO THE TRANSITION, because the registry reports every change and this
-    // consumer reads only whether the count is above zero. A second overlay opening
-    // above the first, and any registered overlay MOVING, are changes the registry is
-    // right to publish — the preview feature's geometry publisher re-samples rectangles on
-    // exactly those — and re-measuring every tracked pane for them would spend the
-    // whole pane layout on an answer that cannot differ.
+    // Filtered to the empty/occupied transition: a second overlay or a moving overlay cannot
+    // change the answer, and re-measuring every pane for them is wasted work.
     this.#releaseAirspace = options.airspace.subscribeToChanges(() => {
       const isOccupied = this.#airspace.registeredCount > 0;
       if (isOccupied === this.#wasAirspaceOccupied) {
@@ -107,53 +74,35 @@ export class PaneRectTracker {
     });
   }
 
-  /** Flushes performed. One per frame that held a changed rect; the dedupe assertion. */
+  /** Flushes performed: one per frame that held a changed rect. */
   public get flushCount(): number {
     return this.#flushCount;
   }
 
-  /**
-   * Measurements taken while a flush was running.
-   *
-   * Counted rather than ignored: a host that mutates layout from inside `onFlush`
-   * re-enters measurement, which is the loop the reads-in-the-callback rule above
-   * forbids, and a count is how it becomes visible instead of being felt as a stutter.
-   */
+  /** Measurements queued while a flush was running: a host mutating layout inside `onFlush`. */
   public get reentrantMeasurementCount(): number {
     return this.#writesDuringMeasurement;
   }
 
-  /**
-   * How many times each source asked for a re-measure.
-   *
-   * The counter that makes the dedupe claim checkable rather than asserted: four
-   * sources firing for one moved edge should read as four invalidations and one
-   * flush, and only a per-source count can tell that apart from one source firing
-   * four times, which is a different defect.
-   */
+  /** How many times `source` asked for a re-measure; separates many sources from one repeating. */
   public invalidationCount(source: RectInvalidationSource): number {
     return this.#invalidationCountBySource.get(source) ?? 0;
   }
 
+  /** Starts measuring `element` as the pane `paneId`. */
   public track(paneId: string, element: Element): void {
     this.#elementsByPaneId.set(paneId, element);
     this.invalidate("layout-mover");
   }
 
+  /** Stops measuring a pane and forgets its pending and last-written rect. */
   public untrack(paneId: string): void {
     this.#elementsByPaneId.delete(paneId);
     this.#pendingByPaneId.delete(paneId);
     this.#lastKeyByPaneId.delete(paneId);
   }
 
-  /**
-   * Re-measure every tracked pane and QUEUE the result. Never writes.
-   *
-   * This is the function all four invalidation sources call — the
-   * `ResizeObserver` callback, the window's `resize` listener, the capture-phase
-   * `scroll` listener, and the pane layout itself when it moves a pane. It reads the DOM
-   * and arms one frame; the host's write happens there and nowhere else.
-   */
+  /** Re-measures every tracked pane and queues the result for the next frame; never writes. */
   public invalidate(source: RectInvalidationSource): void {
     if (this.#disposed) {
       return;
@@ -162,11 +111,8 @@ export class PaneRectTracker {
       source,
       (this.#invalidationCountBySource.get(source) ?? 0) + 1,
     );
-    // COUNT and not intersection, which is this module's rule rather than an
-    // approximation of the preview feature's: the native-view policy is to hide the
-    // view while an overlay is open. The per-pane intersection reading belongs to
-    // `features/preview/geometry/`'s publisher, which owns a pane's own box; a tracker that
-    // re-derived it here would be a second answer to one question.
+    // The policy is to hide the view while any overlay is open, so this counts overlays; the
+    // per-pane intersection belongs to the preview geometry publisher.
     const isAirspaceOccupied = this.#airspace.registeredCount > 0;
     this.#wasAirspaceOccupied = isAirspaceOccupied;
     for (const [paneId, element] of this.#elementsByPaneId) {
@@ -187,12 +133,8 @@ export class PaneRectTracker {
   }
 
   /**
-   * Write the queued rects that actually changed, then disarm.
-   *
-   * The ONE write path. The armed frame calls it, and it is public so a host that
-   * is about to hand a rect to a native view can force delivery rather than wait a
-   * frame it does not have. A rect whose key is unchanged is not written at all,
-   * which is what keeps a scroll that moves nothing from costing a message.
+   * Writes the queued rects whose key changed, then disarms. The armed frame calls it; a host
+   * about to hand a rect to a native view may call it to force delivery.
    */
   public flush(): void {
     if (this.#armedHandle !== undefined) {
@@ -220,11 +162,10 @@ export class PaneRectTracker {
     }
   }
 
-  /** Drop everything armed. Terminal: a later invalidation measures nothing. */
+  /** Drops everything armed. Terminal: a later invalidation measures nothing. */
   public dispose(): void {
     this.#disposed = true;
-    // Released before anything else, and safe against a racing emit either way:
-    // `invalidate` early-returns once disposed.
+    // `invalidate` returns early once disposed, so a racing emit is harmless.
     this.#releaseAirspace();
     if (this.#armedHandle !== undefined) {
       this.#clock.cancel(this.#armedHandle);

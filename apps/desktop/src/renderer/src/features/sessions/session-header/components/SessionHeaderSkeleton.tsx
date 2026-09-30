@@ -1,14 +1,7 @@
-// What the session header draws while the session is opening.
-//
-// IT DRAWS A PLACEHOLDER, AND THAT IS THE WHOLE POINT. A line of text alone would make
-// the header one line of prose tall while the session opens and a different height a
-// moment later, so every view below it would move down the page at the exact instant
-// a person was reaching for something. The placeholder holds a fixed height, so the
-// header's height is settled before the store opens and nothing under it jumps.
-//
-// IT IS NOT ANNOUNCED. `aria-hidden` on the placeholder: it is the shape of an answer
-// and not an answer, so a screen reader is told the header is loading once, in words, by
-// the absence beside it.
+// What the session header draws while the session is opening: a placeholder of fixed height, so
+// the header does not change height and move everything below it when the store opens. The
+// placeholder is `aria-hidden` because it is a shape, not an answer; the `Nothing` beside it
+// tells a screen reader once, in words, that the header is loading.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
