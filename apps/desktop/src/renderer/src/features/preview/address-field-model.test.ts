@@ -61,4 +61,8 @@ describe("isFileAddress", () => {
     expect(isFileAddress("  /etc/hosts  ")).toBe(true);
     expect(isFileAddress("\tfile:///etc/hosts\n")).toBe(true);
   });
+
+  it("does not mistake a scheme that merely starts with the same letters", () => {
+    expect(isFileAddress("filesystem-notes.example.invalid")).toBe(false);
+  });
 });

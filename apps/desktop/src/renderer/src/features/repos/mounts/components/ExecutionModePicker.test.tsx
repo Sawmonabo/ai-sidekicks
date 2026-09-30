@@ -1,6 +1,6 @@
-// The mode picker: a restricted mode is drawn and cannot be picked, a change sends exactly one
-// selection, and the group holds while the mount withholds its controls or a switch is on the
-// wire.
+// The mode picker: one row per mode the reply names and none it does not, a restricted mode
+// drawn and unpickable, one selection per change, and the group held while the mount
+// withholds its controls or a switch is on the wire.
 
 import type { WorkspaceExecutionModeCapabilitiesReadResponse } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -57,6 +57,27 @@ function renderPicker(
 }
 
 describe("ExecutionModePicker — the rows come from the reply", () => {
+  it("renders one enabled row per available mode, in the daemon's order", () => {
+    const { container } = renderPicker(GIT_CAPABILITIES);
+    const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");
+    expect([...radios].map((radio) => radio.value)).toStrictEqual([
+      "bound-root",
+      "provisioned-worktree",
+    ]);
+    expect([...radios].every((radio) => !radio.disabled)).toBe(true);
+  });
+
+  it("negative control: a mode named in neither half of the reply gets no row", () => {
+    // A hardcoded mode list would still draw `provisioned-worktree` here, with no reason
+    // beside it.
+    const { container } = renderPicker({
+      availableModes: ["bound-root"],
+      defaultMode: "bound-root",
+    });
+    const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");
+    expect([...radios].map((radio) => radio.value)).toStrictEqual(["bound-root"]);
+  });
+
   it("renders a disabled row per restricted mode, carrying the daemon's own reason", () => {
     const { container, getAllByText } = renderPicker(RESTRICTED_CAPABILITIES);
     const radios = container.querySelectorAll<HTMLInputElement>("input[type=radio]");

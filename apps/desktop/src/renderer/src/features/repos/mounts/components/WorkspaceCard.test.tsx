@@ -1,5 +1,6 @@
-// A workspace row: a stale row quotes its `lastError`, and the root preparation is held while
-// the mount withholds its controls or a mode switch is on the wire.
+// A workspace row: it wears its binding and lifecycle position, a stale row quotes its
+// `lastError`, and the root preparation is held while the mount withholds its controls or a
+// mode switch is on the wire.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -51,6 +52,19 @@ describe("WorkspaceCard — the stale row", () => {
     const { getByText, container } = renderRow(workspace({ state: "stale", lastError: detail }));
     expect(getByText(detail)).toBeDefined();
     expect(container.querySelector(".meridian-workspace-card__last-error")).not.toBeNull();
+  });
+});
+
+describe("WorkspaceCard — the row wears what the list gave it", () => {
+  it("wears exactly the binding and the lifecycle position", () => {
+    const { container } = renderRow(
+      workspace({ state: "busy", executionMode: "provisioned-worktree" }),
+    );
+    const chips = container.querySelectorAll(".meridian-chip__label");
+    expect([...chips].map((chip) => chip.textContent)).toStrictEqual([
+      "provisioned-worktree",
+      "busy",
+    ]);
   });
 });
 

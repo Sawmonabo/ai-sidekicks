@@ -1,7 +1,7 @@
-// The mount card: an unreachable mount withholds its bind controls, a drifted one offers the
-// re-attach, and a healthy one offers the bind.
+// The mount card: the resolved root in its head, an unreachable mount withholding its bind
+// controls, a drifted one offering the re-attach, and a healthy one offering the bind.
 
-import { render } from "@testing-library/react";
+import { render, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
@@ -11,7 +11,12 @@ import { bridgeWrapper } from "@test/helpers/app-frame-fixtures.js";
 import { scriptedRepoOperations } from "../../repo-operations.test-support.js";
 import { MountCard } from "./MountCard.js";
 import type { RepoWorkspaceRow } from "../repo-mounts-model.js";
-import { ENTERED_PATH, buildMount, workspaceRow } from "../repo-mounts.test-support.js";
+import {
+  CANONICAL_ROOT,
+  ENTERED_PATH,
+  buildMount,
+  workspaceRow,
+} from "../repo-mounts.test-support.js";
 
 /** The card's own state sentence; each prepare form repeats a held reason in its disclosure. */
 function withheldLine(container: HTMLElement): string | null {
@@ -46,6 +51,16 @@ function renderCard(
     { wrapper: bridgeWrapper(bridge, clock) },
   );
 }
+
+describe("MountCard — the resolved root", () => {
+  it("renders the root the attach resolved, whole, in the card's head", () => {
+    // Scoped to the head because a workspace can root at the mount's canonical root, so the
+    // same string also appears on the row beneath.
+    const { container } = renderCard();
+    const head = container.querySelector(".meridian-mount-card__head") as HTMLElement;
+    expect(within(head).getByTitle(CANONICAL_ROOT).textContent).toBe(CANONICAL_ROOT);
+  });
+});
 
 describe("MountCard — an unreachable mount", () => {
   it("puts an unreachable mount in an error posture and withholds its bind controls", () => {

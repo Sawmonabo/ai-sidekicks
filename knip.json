@@ -135,11 +135,6 @@
         "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
         // The inspector's Rules section with Revoke.
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
-        // One worktree's row, its column layout and what its state means, for the worktree
-        // switcher's list.
-        "src/renderer/src/features/repos/mounts/components/WorktreeCard.tsx",
-        "src/renderer/src/features/repos/mounts/execution-root-columns.ts",
-        "src/renderer/src/features/repos/mounts/execution-root-model.ts",
         // Attaching a folder by path, for the session strip's `Attach a repo` and `Open folder…`.
         "src/renderer/src/features/repos/mounts/attach/AttachRepositoryDialog.tsx",
         // What the git host reports about a pull request, for the Pull request tab's header,
