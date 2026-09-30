@@ -1,76 +1,41 @@
-// The one call every screenshot capture goes through, the settle it refuses, and the
-// window it opens so the whole element is in the image.
+// The one call every screenshot capture goes through, the settle it refuses, and the window it
+// opens so the whole element is in the image. Capture files call `captureSettled` instead of
+// `toMatchScreenshot`, so an image cannot be written around either check (`eslint.config.mjs`).
 //
-// WHY A CAPTURE CAN BE WRONG WITHOUT BEING RED. A loader-backed pane body arrives as
-// its own chunk, so between the pane mounting and its module landing the pane is its
-// own chrome and nothing else. That frame is correct — it is what keeps the deferred
-// body off the initial import graph — and it is a catastrophic thing to photograph: the
-// image records a pane that had not finished loading, and the person who opens the
-// directory to look at the console is looking at a half-built element. Nothing about
-// that is red. The capture succeeds, the file is written, and the element in it is not
-// the element anyone sees.
+// A capture can be wrong without being red: before a loader-backed pane body lands, the pane is
+// its own chrome alone, and photographing it records a half-built element. So the refusal is
+// structural, not a wait: `PendingPaneBody` stamps a marker while its module is in flight,
+// `listPendingBodyNames` reads it back, and a capture whose tree carries one fails by name. An
+// element that needs its body awaits it in its own mount helper.
 //
-// SO THE REFUSAL IS STRUCTURAL RATHER THAN A WAIT. There is no timer to tune and no
-// "settled" heuristic to get wrong: `PendingPaneBody` stamps a marker while its module
-// is in flight, `listPendingBodyNames` reads it back, and a capture whose tree carries one
-// fails by name. An element that needs its body first awaits it in its own mount helper —
-// which is where the knowledge of what that element is waiting for lives.
-//
-// AND THE SECOND HALF OF THE SAME FAILURE IS THE WINDOW. A settled element taller than
-// the tester window was photographed to the window's bottom edge and then in the page's
-// own background color for every row beneath it, because a Playwright element
-// screenshot is a CLIP in page coordinates and nothing paints an iframe's overflow.
-// Every image
-// over 900 px carried that: real content to row 899, then pure white to the bottom, in
-// the dark scheme too — a picture of an element unreadable past its first window, which
-// is the same false green the pending-body refusal exists to forbid, arriving by a
-// different route. `capture-viewport.ts` states the mechanism and the rule; this file
-// opens the window, re-runs the refusal on the resized tree, and puts it back.
-//
-// ONE SHAPE OF ELEMENT STOPS THE GROWING RATHER THAN SATISFYING IT. A destination
-// sized from the window is one window tall plus its own padding at every window, so
-// the loop below recognizes that — on the SECOND pass after the first, having grown
-// once more to tell it apart from an element that reflowed while the first window was
-// opening — puts the window back, and photographs it at the tier's own size. The
-// reason and its consequence are `capture-viewport.ts`'s to state, and
-// `tall-capture.test.ts` drives both.
-//
-// EVERY CAPTURE, AND NOT MOST. The capture files call this instead of
-// `toMatchScreenshot`, so an image cannot be written around either check by an author
-// who did not know they existed. `apps/desktop/eslint.config.mjs` holds that rule.
+// The window is the second half: an element taller than the tester window was photographed to
+// the window's edge and then page background, since a Playwright clip paints nothing beyond an
+// iframe. `capture-viewport.ts` states the mechanism; this file opens the window, re-runs the
+// refusal on the resized tree and puts the window back (`tall-capture.test.ts` drives it).
 
 import { expect } from "vitest";
 import { page } from "vitest/browser";
 
-// The module that declares it: `listPendingBodyNames` has no production reader, so no
-// other module passes it on — an export only a test reaches is what the module-shape
-// rules in `apps/desktop/AGENTS.md` reject.
+// Imported from the declaring module: `listPendingBodyNames` has no production reader, so no
+// other module passes it on.
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 import { settle } from "../helpers/settle.js";
 import { captureWindowStep, stabilityWaitMsFor, type CaptureViewport } from "./capture-viewport.js";
 
 /**
- * How many times a capture may re-measure and re-open its window before it refuses.
- *
- * Opening a window is a layout change, so an element can answer the first grow with a
- * taller box than the one that was measured — a deferred image lands, a container
- * reflows — and settle on the second. An element sized BY its window is recognized on
- * the second pass after the first and spends two of these on being confirmed, for the
- * reason `CONFIRMING_NON_CLOSING_PASSES` states; what the rest of the budget bounds is
- * the element that keeps closing the gap by a little each pass, which would otherwise
- * resize the console hundreds of times before reaching the ceiling.
+ * How many times a capture may re-measure and re-open its window before it refuses. Opening a
+ * window is a layout change, so an element can answer the first grow with a taller box (a
+ * deferred image lands, a container reflows) and settle on the second. An element sized by its
+ * window spends two passes being confirmed (see `CONFIRMING_NON_CLOSING_PASSES`); the rest bounds
+ * an element that keeps closing the gap a little each pass, which would otherwise resize the
+ * console hundreds of times.
  */
 const CAPTURE_SIZING_PASSES = 4;
 
 /**
- * The two acts a sizing pass performs on the tester window.
- *
- * A PORT, because the ordering in `CaptureWindow` below is a claim about a FAILURE:
- * the window has to go back even when the settle after a resize rejects, and a settle
- * rejects on a state no capture can produce on demand — an effect throwing while React
- * flushes the layout the resize caused. Injected, that case is a few lines in a suite
- * and the real class is what runs; left implicit, it is a defect nothing can drive,
- * which is how it shipped.
+ * The two acts a sizing pass performs on the tester window. A port so the failure ordering in
+ * `CaptureWindow` can be driven: the window must go back even when the settle after a resize
+ * rejects, a state no capture produces on demand.
  */
 export interface CaptureWindowDriver {
   /** Move the tester window, and resolve once Vitest has applied the size. */
@@ -91,17 +56,9 @@ class TesterWindowDriver implements CaptureWindowDriver {
 }
 
 /**
- * Refuse a capture whose tree still holds an unloaded pane body.
- *
- * TAKES THE KINDS RATHER THAN THE ELEMENT, which is what makes the refusal itself
- * testable without a browser: the DOM read is `listPendingBodyNames`'s and has its own
- * suite beside the marker it reads, and this half is a pure function a node tier can
- * plant a failure into. Fused into one function, the only way to prove the refusal
- * fires would be to mint a real half-loaded capture, which is the thing it exists to
- * prevent.
- *
- * The message names the KINDS and the capture, because a failure that says "something
- * was pending" is a second debugging session and one that says `workflow-run` is a fix.
+ * Refuses a capture whose tree still holds an unloaded pane body. It takes the kinds, not the
+ * element, so the refusal is a pure function a node tier can plant a failure into; the DOM read
+ * is `listPendingBodyNames`'s, with its own suite. The message names the kinds and the capture.
  */
 export function assertNoPendingPaneBodies(
   pendingKinds: readonly string[],
@@ -118,14 +75,10 @@ export function assertNoPendingPaneBodies(
 }
 
 /**
- * How much window this element's box needs, in the tester's own coordinates.
- *
- * The element's DOCUMENT-space bottom-right corner rather than its size, because the
- * clip Playwright sends is anchored in page coordinates: an element 964 px tall sitting
- * 348 px down needs 1 312 px of window, and one that needs only its own height is the
- * special case where it starts at the origin. Rounded outward for the same reason
- * Playwright rounds its clip outward — a box that ends on a fraction of a pixel still
- * paints that pixel.
+ * How much window this element's box needs, in the tester's coordinates. It uses the
+ * document-space bottom-right corner, since the clip Playwright sends is anchored in page
+ * coordinates (a 964 px element 348 px down needs 1 312 px). Rounded outward because a box
+ * ending on a fraction of a pixel still paints that pixel.
  */
 function requiredViewportFor(element: Element): CaptureViewport {
   const box = element.getBoundingClientRect();
@@ -136,13 +89,9 @@ function requiredViewportFor(element: Element): CaptureViewport {
 }
 
 /**
- * The tester window for the length of one capture, and the size it goes back to.
- *
- * A class rather than a pair of functions because the restore is only correct against
- * the size this capture actually started from: reading it back off a module constant
- * would put the window at whatever the tier was configured with rather than at what the
- * previous caller left, and a capture that grew the window and did not put it back
- * hands the next spec a console laid out at 2 050 px.
+ * The tester window for the length of one capture, and the size it goes back to. The restore
+ * targets the size this capture started from, not a module constant, so a capture that grew the
+ * window does not hand the next spec a console laid out at 2 050 px.
  */
 export class CaptureWindow {
   readonly #restoreTo: CaptureViewport;
@@ -160,16 +109,12 @@ export class CaptureWindow {
   }
 
   /**
-   * Open the window until it holds the whole element, or stop when no window would.
-   *
-   * The settle after each resize is the shared act-wrapped one: a resize is a layout
-   * change, so an element that observes its own box writes state React has to flush
-   * before the next measurement means anything.
-   *
-   * The `grows-with-its-window` arm PUTS THE WINDOW BACK before returning rather than
-   * capturing at whatever size the loop reached. Both windows leave the same overhang
-   * unpainted, so the larger one buys nothing and costs an image taken at a size no
-   * other capture in the tier uses.
+   * Opens the window until it holds the whole element, or stops when no window would. The settle
+   * after each resize is the shared act-wrapped one, since a resize is a layout change that an
+   * element observing its own box answers with state React must flush. The
+   * `grows-with-its-window` arm puts the window back before returning: both windows leave the
+   * same overhang unpainted, so the larger one buys nothing and costs an image at a size no other
+   * capture uses.
    */
   public async holdWhole(element: Element, captureName: string): Promise<void> {
     const overhangsPx: number[] = [];
@@ -198,19 +143,11 @@ export class CaptureWindow {
   }
 
   /**
-   * How many of the window this capture started in fit in the one it is holding now.
-   *
-   * An AREA ratio over the two sizes this class already knows — the one it was
-   * constructed with and the one `holdWhole` left applied — because what a capture
-   * costs is pixels, and a window that grew only in height still pays its full width
-   * for every row it gained. Exactly `1` for a capture that fitted, and exactly `1`
-   * for one that took the `grows-with-its-window` arm, which puts the window back
-   * before it returns; both are photographed at the size the tier configures.
-   *
-   * Reported rather than re-measured by the caller. The sizes are this class's, and
-   * two derivations of one quantity is the drift the shared-code rule in
-   * `apps/desktop/AGENTS.md` forbids on the two sides of a seam — the caller reads what was held and
-   * `stabilityWaitMsFor` decides what holding it costs.
+   * How many of the window this capture started in fit in the one it holds now: an area ratio,
+   * because capture cost is pixels and a window that grew only in height still pays its full
+   * width per row. Exactly `1` for a capture that fitted and for one that took the
+   * `grows-with-its-window` arm. The caller reads this instead of re-measuring, and
+   * `stabilityWaitMsFor` decides what it costs.
    */
   public get heldViewportRatio(): number {
     return (
@@ -220,13 +157,10 @@ export class CaptureWindow {
   }
 
   /**
-   * Put the window back, and only when this capture is what moved it.
-   *
-   * Called twice on the `grows-with-its-window` path — once by `holdWhole` before it
-   * returns and once by `captureSettled`'s `finally` — and the second call is a no-op
-   * only because the first one finished. A restore whose settle rejects leaves the
-   * flag standing, so the outer call retries the move rather than trusting a window
-   * nothing confirmed.
+   * Puts the window back, only when this capture moved it. It runs twice on the
+   * `grows-with-its-window` path (from `holdWhole` and from `captureSettled`'s `finally`); the
+   * second is a no-op only because the first finished, and a restore whose settle rejects leaves
+   * the flag standing so the outer call retries.
    */
   public async restore(): Promise<void> {
     if (!this.#movedTheWindow) {
@@ -237,17 +171,11 @@ export class CaptureWindow {
   }
 
   /**
-   * Move the window, recorded as moved BEFORE anything that can fail.
-   *
-   * `#movedTheWindow` is what `restore` is gated on, and it is raised ahead of the
-   * resize rather than after the settle that follows it. Written afterwards — which is
-   * how this shipped — a settle that rejects leaves the window open, the flag false,
-   * and `restore` returning early, so every later capture in the run is taken in a
-   * console the previous one enlarged and every image after it holds an element laid
-   * out at a size no other capture in the tier uses. A flag raised too early costs one
-   * redundant resize of a window that may never have moved; a flag raised too late
-   * costs the rest of the run, and a resize that throws part-way has no defined size
-   * either, so the early write covers that arm as well.
+   * Moves the window, recording the move before anything that can fail. `#movedTheWindow` gates
+   * `restore`, so it is raised ahead of the resize: raised after the settle, a rejecting settle
+   * would leave the window open with `restore` returning early, and every later capture in the
+   * run would lay out in an enlarged console. Raised early costs one redundant resize; a resize
+   * that throws part-way has no defined size either.
    */
   async #moveTo(viewport: CaptureViewport): Promise<void> {
     this.#movedTheWindow = true;
@@ -258,31 +186,18 @@ export class CaptureWindow {
 }
 
 /**
- * Write one element's capture into `__screenshots__`, once it is whole.
+ * Writes one element's capture into `__screenshots__` once it is whole. The order matters: the
+ * refusal runs first, so a loading tree fails without overwriting a good picture with a
+ * fallback; the window opens before the capture, so the element is painted whole; and the
+ * refusal runs again on the resized tree, since a taller window is a different layout that can
+ * bring a deferred body into view. The restore is in `finally` so a refusal or a failed capture
+ * leaves the window where the next spec expects it.
  *
- * The order is load-bearing three times over. The refusal runs BEFORE anything else, so
- * a tree that is still loading fails without writing an image at all, rather than
- * quietly overwriting yesterday's good picture with one of a fallback. The window opens
- * BEFORE the capture, so the element is painted whole rather than clipped at the
- * window's edge. And the refusal runs AGAIN on the resized tree, because a taller window
- * is a different layout: it can bring a deferred body into view, and a check that only
- * ever held on the pre-resize tree would be a check of an element that was not the one
- * photographed.
- *
- * The restore is in `finally` so a refusal or a failed capture both leave the window
- * where the next spec expects it.
- *
- * THE MATCHER IS THE WRITER AND NOT A GATE. The tier runs in the `all` snapshot-update
- * mode, in which `toMatchScreenshot` writes the image and passes whether or not one was
- * already there — `vitest/tier-projects.ts` pins that mode, so a bare
- * `vitest run --project=screenshot` behaves as the package script does. What
- * survives of the matcher is its stability retry, which is worth keeping: an image taken
- * while the page is still painting is a bad picture for a person too.
- *
- * AND THE STABILITY WAIT IS SIZED TO WHAT THE WINDOW ENDED UP HOLDING, which is why it
- * is passed here and not configured on the project: the matcher's per-call options win
- * over the project's under its own merge, and a capture's size is not known until
- * `holdWhole` has run. `capture-viewport.ts` states the rule and owns the number.
+ * The matcher is the writer, not a gate: the tier runs in the `all` snapshot-update mode, where
+ * `toMatchScreenshot` writes the image and passes. Its stability retry is what survives, since an
+ * image taken while the page is still painting is a bad picture for a person too. The stability
+ * wait is sized to what the window ended up holding, so it is passed per call and not configured
+ * on the project (see `capture-viewport.ts`).
  */
 export async function captureSettled(element: Element, captureName: string): Promise<void> {
   assertNoPendingPaneBodies(listPendingBodyNames(element), captureName);

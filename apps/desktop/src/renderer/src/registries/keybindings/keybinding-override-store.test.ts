@@ -1,5 +1,5 @@
-// The store: an override wins over the shipped chord, a conflict is refused, a reset
-// restores, and what one window wrote the next one reads back from the keyboard map.
+// An override wins over the shipped chord, a conflict is refused, a reset restores, and what one
+// window wrote the next reads back from the keyboard map.
 
 import { describe, expect, it } from "vitest";
 
@@ -10,21 +10,15 @@ import { KeybindingTable } from "./keybinding-table.js";
 import { KeybindingOverrideStore } from "./keybinding-override-store.js";
 
 /**
- * This file's shipped table, authored on `Alt` rather than on `$mod`.
- *
- * `$mod` is resolved by tinykeys against the HOST at import time, and a press this
- * file synthesizes has to name the modifier that resolution picked. Rather than
- * re-deriving that rule here — a second platform reading, which is exactly what the
- * console keeps to one place — the dispatch cases use a modifier that means the same
- * thing everywhere. What is under test is which command a chord runs, not which key
- * `$mod` is.
+ * The shipped table on `Alt`, not `$mod`, which tinykeys resolves per host; the cases test which
+ * command runs.
  */
 const DEFAULTS: readonly Keybinding[] = [
   { chord: "Alt+Digit1", commandId: "frame.goToSessions" },
   { chord: "Alt+Digit2", commandId: "frame.goToWorkflows" },
 ];
 
-/** The acts this file's window has: the two its shipped table binds. */
+/** The acts this window has: the two the shipped table binds. */
 const REGISTERED_COMMAND_IDS: ReadonlySet<string> = new Set(
   DEFAULTS.map((binding) => binding.commandId),
 );
@@ -40,11 +34,7 @@ function overrideStore(): KeybindingOverrideStore {
 type KeyboardMapBridge = PreloadApi["keyboardMap"];
 
 /**
- * Main's keyboard map as the bridge answers it, held in memory.
- *
- * Reads can be held open until a case lets them answer: two hydrations can only be in
- * flight at once if the first read has not settled. Held from the moment
- * {@link holdReads} is called, so a case can seed the map it wants read back first.
+ * Main's keyboard map held in memory; {@link holdReads} keeps reads open so two hydrations overlap.
  */
 class MemoryKeyboardMap implements KeyboardMapBridge {
   public stored: KeyboardMap;
@@ -85,11 +75,7 @@ class MemoryKeyboardMap implements KeyboardMapBridge {
     return map;
   }
 
-  /**
-   * Let the held read answer, and let the hydration it belongs to run to its end.
-   * RAISES rather than returning quietly when no read is held: a release that resolved
-   * nothing would leave every assertion after it reading the state from before the read.
-   */
+  /** Lets the held read answer and its hydration finish; throws if no read is held. */
   public async answer(): Promise<void> {
     if (this.#letReadAnswer === undefined) {
       throw new Error("no read was held open to answer");
@@ -108,12 +94,12 @@ function heldMapHolding(commandId: string, chord: string): MemoryKeyboardMap {
   return keyboardMap;
 }
 
-/** A press of `Alt+1`, as the dispatch path receives it. */
+/** A press of `Alt+1`. */
 function altOnePress(): KeyboardEvent {
   return new KeyboardEvent("keydown", { key: "1", code: "Digit1", altKey: true });
 }
 
-/** The two navigation commands, and a record of which one a press ran. */
+/** The two navigation commands, recording which one a press ran. */
 function navigationRegistry(ran: string[]): CommandRegistry {
   const registry = new CommandRegistry();
   registry.registerAll([
@@ -140,8 +126,7 @@ function navigationRegistry(ran: string[]): CommandRegistry {
 describe("an override reaches the keyboard, not just the page", () => {
   it("dispatches the override's chord and not the shipped one", async () => {
     const overrides = overrideStore();
-    // The shipped `Alt+1` runs Sessions. Moved onto Workflows — after Sessions has
-    // let go of it — the SAME press has to reach the other command.
+    // The shipped `Alt+1` runs Sessions; once moved to Workflows, the same press must reach it.
     await overrides.unbind("frame.goToSessions");
     await overrides.bind("frame.goToWorkflows", "Alt+Digit1");
 
@@ -157,8 +142,7 @@ describe("an override reaches the keyboard, not just the page", () => {
   });
 
   it("negative control: the shipped table runs the other command on the same press", () => {
-    // Without this the case above would pass against a table that had always run the
-    // workflows command on this press, and would prove nothing about the override.
+    // Without this, a table that always ran workflows on this press would pass the case above.
     const ran: string[] = [];
     const table = new KeybindingTable({
       registry: navigationRegistry(ran),
@@ -180,7 +164,7 @@ describe("what the store refuses and what it restores", () => {
       expect(result.refusal.code).toBe("chord-taken");
       expect(result.refusal.detail).toContain("frame.goToWorkflows");
     }
-    // Refused before anything moved: the shipped chord is untouched.
+    // Refused before anything moved.
     expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
@@ -249,15 +233,14 @@ describe("what one window wrote, the next one reads", () => {
   });
 
   it("negative control: a store that read an empty map installs the shipped chords", async () => {
-    // Without this the round trip above would pass against a reader that had simply
-    // kept the writer's in-memory map, which no second window ever sees.
+    // Without this, a reader that kept the writer's in-memory map would pass the round trip above.
     const reader = overrideStore();
     await reader.hydrateFrom(new MemoryKeyboardMap());
     expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
   });
 
   it("declines a stored chord that no longer installs rather than raising on it", async () => {
-    // A map from an earlier release: this chord now collides with a shipped one.
+    // This stored chord now collides with a shipped one.
     const reader = overrideStore();
     await reader.hydrateFrom(new MemoryKeyboardMap({ "frame.goToSessions": "Alt+Digit2" }));
     expect(reader.snapshot.bindings).toStrictEqual(DEFAULTS);
@@ -267,8 +250,7 @@ describe("what one window wrote, the next one reads", () => {
   });
 
   it("skips an override for an act that no longer exists, and leaves it out of the next write", async () => {
-    // A map from a release that still had the two retired acts: one rebound, one
-    // explicitly left with no chord.
+    // Two stored entries name acts this window lacks: one rebound, one left unbound.
     const keyboardMap = new MemoryKeyboardMap({
       "frame.goToSessions": "$mod+9",
       "retired.openTranscript": "$mod+8",
@@ -292,10 +274,7 @@ describe("what one window wrote, the next one reads", () => {
   });
 
   it("keeps the newer hydration's overrides when the older one answers last", async () => {
-    // The frame replaces this window's bridge on a scenario change, and the read the
-    // first map had open does not stop. Answering last, it would install the map it
-    // read over the map the current bridge had just supplied — and the next rebinding
-    // would then write that stale map into the new one.
+    // A replaced bridge's read keeps running; answering last it must not install its stale map.
     const replaced = heldMapHolding("frame.goToSessions", "Alt+Digit3");
     const current = heldMapHolding("frame.goToWorkflows", "Alt+Digit4");
     const overrides = overrideStore();
@@ -311,8 +290,7 @@ describe("what one window wrote, the next one reads", () => {
   });
 
   it("negative control: the newer hydration's overrides do land when it answers last", async () => {
-    // Without this the case above would pass over a store that ignored every
-    // hydration but the first, which is the same defect pointing the other way.
+    // Without this, a store ignoring every hydration but the first would pass the case above.
     const replaced = heldMapHolding("frame.goToSessions", "Alt+Digit3");
     const current = heldMapHolding("frame.goToWorkflows", "Alt+Digit4");
     const overrides = overrideStore();
@@ -328,7 +306,7 @@ describe("what one window wrote, the next one reads", () => {
   });
 
   it("discloses a refused write rather than reporting a preference that was kept", async () => {
-    // The chord IS bound for this window, and the store says it will not come back.
+    // The chord is bound for this window, and the store says it will not come back.
     const keyboardMap = new MemoryKeyboardMap();
     keyboardMap.failWrites = true;
     const overrides = overrideStore();
@@ -348,7 +326,7 @@ describe("what one window wrote, the next one reads", () => {
     await overrides.hydrateFrom(keyboardMap);
     expect(overrides.snapshot.bindings).toStrictEqual(DEFAULTS);
     expect(overrides.readRefusal?.code).toBe("keyboard-map-unread");
-    // The refusal's detail never carries main's message, which can name a path.
+    // Main's message can name a path, so the detail must not carry it.
     expect(overrides.readRefusal?.detail).not.toContain("EACCES");
   });
 
@@ -365,7 +343,7 @@ describe("what one window wrote, the next one reads", () => {
 });
 
 describe("the shipped table is read, not captured", () => {
-  /** A base a case can grow, beside the signal that says it did. */
+  /** A base a case can grow, with the signal that says it did. */
   function growableBase(): {
     readonly options: {
       readonly defaults: () => readonly Keybinding[];
@@ -394,7 +372,7 @@ describe("the shipped table is read, not captured", () => {
           listener();
         }
       },
-      // The same growth with no signal, for the control below.
+      // The same growth with no signal, for the negative control.
       contributeSilently: (binding) => {
         base = [...base, binding];
       },
@@ -402,9 +380,7 @@ describe("the shipped table is read, not captured", () => {
   }
 
   it("composes over a table that grew after the store was built", () => {
-    // A feature contributes its chords from an effect, so the shipped table is not
-    // whole when this store is constructed. A store holding the array it was handed
-    // would install a keyboard missing every chord that arrived after it.
+    // Features contribute from effects, so the table is incomplete at construction.
     const growable = growableBase();
     const overrides = new KeybindingOverrideStore(growable.options);
     expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
@@ -418,10 +394,8 @@ describe("the shipped table is read, not captured", () => {
   });
 
   it("negative control: the signal is what refreshes it, not the next read", () => {
-    // The snapshot is cached on purpose — `useSyncExternalStore` compares by identity —
-    // so a base that moved without saying so is invisible until something else
-    // publishes. This is what makes `subscribeToDefaults` load-bearing rather than
-    // decorative, and it fails if the store recomposes on every read.
+    // The snapshot is cached because `useSyncExternalStore` compares by identity, so a silent move
+    // stays invisible; this fails if the store recomposes on every read.
     const growable = growableBase();
     const overrides = new KeybindingOverrideStore(growable.options);
     expect(overrides.snapshot.shippedBindings).toHaveLength(DEFAULTS.length);
@@ -432,9 +406,7 @@ describe("the shipped table is read, not captured", () => {
   });
 
   it("answers the shipped table beside the effective one, with the overrides only in the second", async () => {
-    // The Keyboard page needs both: the effective table is what this window listens on,
-    // and the shipped one is what "changed" is measured against. A page reading the
-    // effective table for both would report every row as unchanged.
+    // The page measures "changed" against the shipped table, not the effective one.
     const overrides = overrideStore();
     await overrides.hydrateFrom(new MemoryKeyboardMap());
     const result = await overrides.bind("frame.goToSessions", "Alt+Digit9");

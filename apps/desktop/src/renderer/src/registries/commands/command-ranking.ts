@@ -1,75 +1,46 @@
-// The ranking — how a query becomes rows, and what order rows come back in.
-//
-// The console names one matcher shared with settings search. `scoreSubsequence`
-// is that matcher, imported rather than re-implemented; this module is the POLICY
-// above it — which of a command's three text fields a hit is worth most on, what
-// recency is worth, and the total order two results are put in. It is separated
-// from `command-registry.ts` because the registry is a store with an identity
-// rule and this is a pure function of a command list, a query, and a recents
-// list: no state, nothing to own.
-//
-// The `CommandDefinition` type ranked here is declared in `command-types.ts`. The import
-// below is type-only and erased, so the runtime edge runs one way: the registry
-// reaches down here, and nothing here reaches back.
+// How a query becomes ranked rows. `scoreSubsequence` is the matcher shared with settings
+// search; this module is the policy above it: field weights, recency, and the total order.
+// It is a pure function of a command list, a query and a recents list.
 
 import { COMMAND_PALETTE_RESULT_CAP } from "./command-palette-caps.js";
 import type { CommandDefinition } from "./command-types.js";
 import { scoreSubsequence, type SubsequenceMatch } from "@ai-sidekicks/search-ranking";
 
-/** One ranked row. */
+/** One ranked palette row. */
 export interface CommandSearchResult {
   readonly command: CommandDefinition;
   /** Higher is better. Comparable only within one `search` call. */
   readonly score: number;
-  /**
-   * Character positions in `command.title` to emphasize, when the match was on the
-   * title. Deliberately a required member typed `| undefined` rather than an
-   * optional one: `exactOptionalPropertyTypes` makes those two different types,
-   * and a required-but-absent value is the honest shape for "there is no title
-   * match to emphasize".
-   */
+  /** Positions in `command.title` to emphasize; `undefined` when the match was not on the title. */
   readonly titleMatch: SubsequenceMatch | undefined;
   /** 0 = most recently invoked. `undefined` when the command is not in recents. */
   readonly recentRank: number | undefined;
 }
 
-/** The best field a command matched a query on, with what that match is worth. */
+/** The best field a command matched a query on, with its score. */
 export interface CommandFieldMatch {
   readonly score: number;
   readonly titleMatch: SubsequenceMatch | undefined;
 }
 
 /**
- * Subtracted from a match on a field other than the title.
- *
- * ADDITIVE, never multiplicative. A multiplier looks equivalent and is not: a
- * scattered title match can score below zero, and multiplying a negative by a
- * fraction makes it LARGER — a keyword hit would then outrank the title hit it
- * was supposed to sit under. Subtraction is monotone at every score.
+ * Subtracted from a keyword match. Subtracted, not multiplied: a scattered title match can
+ * score below zero, and scaling a negative by a fraction raises it above the title hit.
  */
 export const COMMAND_KEYWORD_FIELD_PENALTY = 40;
 
-/** As above, for the weakest field. A group name is context, not the act's name. */
+/** Subtracted from a group-name match, the weakest field. */
 export const COMMAND_GROUP_FIELD_PENALTY = 64;
 
 /**
- * Added to a recently invoked command's score, decaying by one per position.
- *
- * Small on purpose: recency breaks ties between comparable matches and must never
- * float a poor match over a good one, because a palette that answers with the
- * last thing you ran rather than the thing you typed stops being a search.
+ * Added to a recent command's score, decaying by one per position. Small so recency only
+ * breaks ties between comparable matches and never lifts a poor match over a good one.
  */
 export const COMMAND_RECENCY_BONUS = 12;
 
 /**
- * The console's display order for two commands: category, then title, then id.
- *
- * The chain ends at `id`, which is unique, so the order is TOTAL — two renders of
- * one command set are byte-identical, which is what the screenshot tier depends
- * on. One function rather than the same three-term chain written at each call
- * site, because an unranked list and the tail of a ranked one that disagreed
- * about category order would reshuffle the palette between an empty query and a
- * cleared one.
+ * Display order for two commands: category, then title, then id. Ends at the unique `id`, so
+ * the order is total and two renders of one command set are identical.
  */
 export function compareCommandsForDisplay(
   left: CommandDefinition,
@@ -83,9 +54,8 @@ export function compareCommandsForDisplay(
 }
 
 /**
- * The best of a command's three fields against a query, or `undefined` when none
- * of them matched. Field penalties are applied here, so a caller adding a bonus
- * is adding it to a figure the fields are already comparable on.
+ * The best of a command's title, keywords and group against a query, or `undefined` when none
+ * matched. Field penalties are already applied.
  */
 export function scoreCommandAgainstQuery(
   command: CommandDefinition,
@@ -117,10 +87,7 @@ export function scoreCommandAgainstQuery(
   return best;
 }
 
-/**
- * Score first, then a chain of stable keys ending in the display order, which is
- * itself total. Two renders of one result set are therefore byte-identical.
- */
+/** Orders results by score, then recency, then display order, so the order is total. */
 export function compareCommandSearchResults(
   left: CommandSearchResult,
   right: CommandSearchResult,
@@ -137,10 +104,8 @@ export function compareCommandSearchResults(
 }
 
 /**
- * Rank an already-visible command list against a non-empty query.
- *
- * `visibleCommands` has been filtered by the caller's `when` evaluation, so this
- * function decides rank only — it never decides what is offered.
+ * Ranks an already-visible command list against a non-empty query. The caller has applied
+ * `when` filtering, so this decides rank only, never what is offered.
  */
 export function rankCommandsForQuery(
   visibleCommands: readonly CommandDefinition[],
@@ -169,10 +134,8 @@ export function rankCommandsForQuery(
 }
 
 /**
- * The rows for an EMPTY query — recents first, then the rest in category order.
- *
- * An empty query is a different state, not a query that matches everything, which
- * is why it has its own function rather than a special case inside the scorer.
+ * The rows for an empty query: recents first, then the rest in category order. An empty
+ * query is its own state, not a query that matches everything.
  */
 export function rankCommandsForEmptyQuery(
   visibleCommands: readonly CommandDefinition[],
@@ -195,9 +158,7 @@ export function rankCommandsForEmptyQuery(
     }
   }
   recentResults.sort((left, right) => (left.recentRank ?? 0) - (right.recentRank ?? 0));
-  // `visibleCommands` already arrives in group-then-title order, so the
-  // remainder needs no second sort — and must not get one, or the categories
-  // would reshuffle between an empty query and a cleared query.
+  // `visibleCommands` already arrives in display order; the remainder must not be re-sorted.
   return [...recentResults, ...remainingResults].slice(0, COMMAND_PALETTE_RESULT_CAP);
 }
 

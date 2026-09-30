@@ -66,8 +66,7 @@ describe("setBindingEnabled", () => {
     expect(outcome).toEqual({ kind: "settled", binding: USER_BINDING, result: RESULT });
   });
 
-  // A retry of one press reuses one key: the caller supplies it, so two calls made
-  // with the key one press minted carry the same value.
+  // The caller supplies the key, so a retry of one press carries the same value.
   it("carries the key it was given rather than minting a second one", async () => {
     const send = sendAnswering();
     for (let attempt = 0; attempt < 2; attempt += 1) {

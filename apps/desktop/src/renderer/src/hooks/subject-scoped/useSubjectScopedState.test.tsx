@@ -1,26 +1,16 @@
-// What the hook promises about FRAMES, and what the shape it replaced actually did.
+// What the hook promises about frames, against the shape a plain `useState` reset gives.
 //
-// The React half of the subject-scoped rule. The rule itself — the addressing, the
-// epoch, and what a late settlement does — is drivable with no renderer at all and
-// lives beside `subject-scoped-holder.ts` in `subject-scoped-holder.test.ts`; what
-// needs a tree is the claim this file is about: which frames a re-address paints, and
-// which render a publisher captured at is the one it writes into.
+// The rule itself (addressing, epoch, late settlement) is driven with no renderer in
+// `subject-scoped-holder.test.ts`. This file needs a tree for which frames a re-address
+// paints and which render a publisher captured at is the one it writes into. A publisher
+// across a dropped pass is covered in `useSubjectScopedState.dropped-pass.test.tsx`.
 //
-// The publisher's own claim — that it names the visit on screen even after a render
-// React dropped moved the addressing underneath it — is a third subject and lives in
-// `subject-scoped-dropped-pass.test.tsx`, beside the resource hook's half of it.
-//
-// Every clean assertion here is paired with a NEGATIVE CONTROL that drives the naive
-// shape — a plain `useState` reset from an effect — over the identical script, and
-// shows it failing. Without that pairing "no frame carried the old subject" is a
-// sentence about a test rather than about the code: a holder that never re-addressed at
-// all would pass it too.
-//
-// Renders are COUNTED, not just inspected. The guarantee is not merely that the value
-// is eventually right; it is that the pass which first sees a new subject already
-// reads that subject's own seed. A holder that reached the same value by discarding a
-// render pass would satisfy every value assertion and cost a frame per re-address on
-// a pane the pane layout re-addresses on every pane move.
+// Each clean assertion has a negative control that drives a `useState` reset from an effect
+// over the identical script and fails, since a holder that never re-addressed would pass
+// "no frame carried the old subject" too. Renders are counted because the guarantee is that
+// the pass that first sees a new subject already reads its own seed: a holder that reached
+// the same value by discarding a pass would satisfy every value assertion and cost a frame
+// per re-address.
 
 import { act, render } from "@testing-library/react";
 import { useEffect, useState, type ReactElement } from "react";
@@ -80,11 +70,10 @@ function HolderProbe(props: ProbeProps): ReactElement {
 }
 
 /**
- * The shape this module replaced: state reset from an effect.
+ * Negative control: state reset from an effect.
  *
- * Not a stand-in for the holder — it is the OLD code, kept only so the assertions
- * above it are shown to discriminate. A test that reimplements the rule it checks
- * proves nothing; this one implements the rule's opposite on purpose.
+ * It implements the rule's opposite on purpose; a test that reimplemented the rule would
+ * prove nothing.
  */
 function EffectResetProbe(props: ProbeProps): ReactElement {
   const [value, setValue] = useState("seed");
@@ -132,14 +121,13 @@ describe("useSubjectScopedState — no frame carries the previous subject", () =
 
     expect(log.painted("beta", "alpha's answer")).toBe(false);
     expect(log.frames.at(-1)).toStrictEqual({ key: "beta", value: "seed" });
-    // One pass, not two: the holder is addressed before the value is read, so React
-    // never has a render to discard.
+    // One pass, not two: the holder is addressed before the value is read, so React has no
+    // render to discard.
     expect(log.renderCount).toBe(rendersBeforeMove + 1);
   });
 
   it("negative control: the effect-reset shape paints the previous subject's answer", () => {
-    // The exact script above, against the code this module replaced. Both claims
-    // above fail here, which is what makes them claims about the holder.
+    // The script above against state reset from an effect; both claims above fail here.
     const log = new FrameLog();
     let publishInto: (next: string) => void = () => {};
     const view = render(
@@ -209,9 +197,8 @@ describe("useSubjectScopedState — no frame carries the previous subject", () =
   });
 
   it("drops a settlement from a route round-trip back to the key it left", () => {
-    // The same defect through the hook, which is where it is reachable: a pane on
-    // session s1 routed to s2 and back re-seeds and dispatches a fresh read, and the
-    // FIRST visit's reply then lands last.
+    // A pane on session s1 routed to s2 and back re-seeds and dispatches a fresh read, and
+    // the first visit's reply then lands last.
     const log = new FrameLog();
     let capture: () => (next: string) => void = () => () => {};
     const record = (
@@ -233,8 +220,8 @@ describe("useSubjectScopedState — no frame carries the previous subject", () =
     });
     expect(log.frames.at(-1)).toStrictEqual({ key: "alpha", value: "seed" });
 
-    // Negative control: the visit on screen still settles, so the claim above is
-    // about which visit answered rather than about a publisher that never writes.
+    // Negative control: the visit on screen still settles, so the claim is about which visit
+    // answered.
     const settlementFromTheVisitOnScreen = capture();
     act(() => {
       settlementFromTheVisitOnScreen("the answer this visit read");

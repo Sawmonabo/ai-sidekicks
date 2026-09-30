@@ -1,8 +1,6 @@
-// The two questions, and the gap between them that the pane layout's defect lived in.
-//
-// The negative control this file exists for is the ANCESTOR arm: before it, a key
-// event fired from inside a `role="textbox"` composed of ordinary elements answered
-// "not editable", which is how a chord reached the pane layout while a person was typing.
+// The narrow and wide questions. The ancestor arm is the point: a key event from inside a
+// `role="textbox"` built of ordinary elements must answer "editable", or a chord reaches the
+// pane layout while a person is typing.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -65,8 +63,7 @@ describe("isEditableTarget", () => {
     }
   });
 
-  // The negative control: an ordinary subtree with no editable ancestor answers
-  // false, so the ancestor walk is discriminating rather than always-true.
+  // Negative control: without an editable ancestor the walk answers false, so it discriminates.
   it("answers false inside a widget that owns none of the keys", () => {
     const chrome = mount('<div role="group"><button>close</button></div>');
     const inner = chrome.querySelector("button");

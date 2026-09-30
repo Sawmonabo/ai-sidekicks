@@ -1,15 +1,8 @@
-// The screenshot tier for the agents feature: the console pane.
-//
-// `settled-capture.ts` owns the mechanism this file rides: every capture is written
-// into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether the pane can be captured at all.
-//
-// WHAT IS PINNED, AND WHY IT IS A PICTURE RATHER THAN AN ASSERTION. The console pane
-// draws a served roster as cards under one tool-grant line, and how those read together is
-// a layout claim: a DOM assertion reading nodes cannot see it; an image can.
-//
-// The pane carries this feature's palette — cards, chips, refusals, rules — and is worth
-// pinning in both schemes.
+// The screenshot tier for the agents console pane. `settled-capture.ts` owns the mechanism: every
+// capture is written into the gitignored `__screenshots__/` and compared against nothing, so this
+// file gates only on whether the pane can be captured at all. It is a picture rather than an
+// assertion because how the cards read together under the tool-grant line is a layout claim a DOM
+// assertion cannot see. The pane carries the feature's palette, so both schemes are captured.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -38,17 +31,15 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // Leave the emulation off, so a later file's baseline is not captured under whichever
-  // scheme this one finished in.
+  // Leave the emulation off so a later file's capture is not taken under this file's last scheme.
   await emulateSystemScheme("light");
 });
 
 describe("screenshot — the agents pane", () => {
   for (const capture of PINNED_CAPTURES) {
     it(`renders ${capture.captureName}`, async () => {
-      // Through the system preference rather than a stamped attribute: the token
-      // sheet's dark layer is a `prefers-color-scheme` block, and driving it is what a
-      // default install actually resolves.
+      // Through the system preference, not a stamped attribute: the token sheet's dark layer is a
+      // `prefers-color-scheme` block, which is what a default install resolves.
       await emulateSystemScheme(capture.scheme);
       const element = await capture.mount();
 

@@ -1,18 +1,11 @@
-// One batch of wire events, folded into the state a store commits.
+// One batch of wire events, folded into the state a store commits. `session-store.ts` owns the
+// chokepoint (who may write, the re-entrancy latch, the tripwire, the queue); this is a function
+// over a state and a list of rows.
 //
-// SPLIT FROM `session-store.ts`, which owns the chokepoint. That module answers who may
-// write and what a re-entrant write costs; this one answers what ONE admitted batch does
-// to a state — and together they were one file past the package's ceiling. The seam is
-// clean because nothing here is part of the chokepoint: the re-entrancy latch, the
-// tripwire, and the queue that drains into it all stay with the class, and this is a
-// function over a state and a list of rows.
-//
-// IT MUTATES THE COLLABORATORS IT IS HANDED, and that is what it is for rather than a
-// leak: the reconciler's cursor, the pre-initialization buffer, the hue wheel, and the
-// outstanding-ask register are all the STORE's, they all advance on exactly the rows a
-// batch admits, and a fold that copied them would leave four objects to be advanced
-// again by whoever committed the state. What it does not touch is the store's own
-// zustand cell — the state is ANSWERED and never set, so the one writer stays one.
+// It mutates the collaborators it is handed (the reconciler's cursor, the pre-initialization
+// buffer, the hue wheel and the outstanding-ask register), because they are the store's and all
+// advance on exactly the rows a batch admits. It never sets the store's own zustand cell: the
+// state is answered, so the one writer stays one.
 
 import { AgentHueAllocator } from "@renderer/styles/agent-hue.js";
 import { worstDegradedCause } from "../session-degradation.js";
@@ -46,21 +39,15 @@ export interface AppliedBatchDependencies {
 export interface AppliedBatch {
   readonly outcome: ApplyOutcome;
   /**
-   * The state to commit, or `undefined` where nothing about the projection moved.
-   *
-   * An absent state is not an empty one: a batch of pure duplicates changes nothing a
-   * subscriber could render, and committing a fresh object for it would re-render every
-   * open view on a re-delivery that cost nothing.
+   * The state to commit, or `undefined` where nothing about the projection moved. A batch of
+   * pure duplicates must not re-render every open view on a free re-delivery.
    */
   readonly nextState: SessionStoreState | undefined;
 }
 
 /**
- * Fold one batch against a committed state.
- *
- * Ordered before anything else is decided, because every rule below is about a row's
- * position relative to the cursor and a batch that arrived out of order would have each
- * of them answered against the wrong neighbor.
+ * Fold one batch against a committed state. The batch is ordered first, because every rule
+ * below is about a row's position relative to the cursor.
  */
 export function foldAppliedBatch(
   current: SessionStoreState,
@@ -85,8 +72,7 @@ export function foldAppliedBatch(
       continue;
     }
     if (!isReconcilableSequence(event.sequence)) {
-      // Refused BEFORE the buffer: no base state makes such a sequence applicable, so
-      // buffering it would only defer the same refusal.
+      // Refused before the buffer: no base state makes it applicable, so buffering only defers.
       refusedDivergedSequence += 1;
       continue;
     }
@@ -121,18 +107,16 @@ export function foldAppliedBatch(
     if (event.actorId !== undefined) {
       collaborators.hueAllocator.admit(event.actorId);
     }
-    // THE REGISTER ADVANCES ON THE ADMITTED ROW AND NOT ON THE TIMELINE IT JOINS. What
-    // is outstanding outlives the window: this row can be pruned by the cap or thrown
-    // away wholesale by the next read, and the lifecycle it opened is still open.
+    // The register advances on the admitted row, not the timeline it joins: what is outstanding
+    // outlives the window, and the cap or the next read can drop this row.
     collaborators.outstandingAsks.admit([event]);
     appended ??= [...current.timeline];
     appended.push(event);
     admitted += 1;
   }
 
-  // The dedupe set answers only for sequences the cursor cannot. Released here rather
-  // than never, so a session that runs all day holds a batch's worth of numbers instead
-  // of its whole history.
+  // The dedupe set answers only for sequences the cursor cannot, so a long session holds a
+  // batch's worth of numbers rather than its whole history.
   collaborators.reconciler.releaseSequencesAtOrBelowCursor();
 
   const outcome: ApplyOutcome = {
@@ -164,10 +148,8 @@ export function foldAppliedBatch(
           ? current.timeline
           : capTimeline(appended, collaborators.timelineCap, collaborators.retainedEnd),
       cursor: collaborators.reconciler.cursor,
-      // A drop at the cap is a known-incomplete projection for the same reason a skipped
-      // sequence is, so it takes the same cause. The sequences it cost are deliberately
-      // NOT recorded here — the drain re-derives them against the base state as an
-      // ordinary range.
+      // A drop at the cap is incomplete like a skipped sequence, so it takes the same cause. Its
+      // sequences are not recorded here; the drain re-derives them as an ordinary range.
       degradedCause: worstDegradedCause(
         current.degradedCause,
         refusedDivergedSequence > 0 ? "stream-diverged" : undefined,

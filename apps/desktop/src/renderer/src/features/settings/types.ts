@@ -19,85 +19,56 @@ export interface SettingsPageContext {
   /** Renderer-local rail navigation — the deep-link grammar's other half. */
   readonly openPage: (section: SettingsPageId) => void;
   /**
-   * What the address asked this page to be opened FOR, where it asked for anything.
+   * What the address asked this page to be opened for, where it asked for anything.
    *
-   * `#/settings/<page>/<selection>`'s second segment, carried through untouched. It is
-   * how a view elsewhere in the console hands a page its subject — the onboarding
-   * walkthrough's provider row deep-links here naming the provider whose remedy the
-   * person pressed — so a page opened from a row and the same page opened from the
-   * rail are the same page with and without a subject, rather than two entry points.
-   *
-   * A BARE STRING AND NEVER A NARROWED ONE. `routing/` sits below this feature and owns
-   * only the grammar; what the segment MEANS is the page's, and the page that reads it
-   * narrows it against its own vocabulary fail-closed. A selection this build does not
-   * recognize is therefore a page opened for nothing, which is what the rail hands it
-   * anyway — never a page that refuses to open.
-   *
-   * It authorizes nothing and selects nothing on its own: a page reads it to say what
-   * it was opened for, and every read it performs is the read it would have performed
-   * from the rail.
+   * The second segment of `#/settings/<page>/<selection>`, carried through untouched; it is
+   * how a view elsewhere hands a page its subject (`#/settings/providers/codex`). A bare
+   * string, never a narrowed one: `routing/` owns only the grammar, and the page narrows it
+   * against its own vocabulary, fail-closed, so an unrecognized selection is a page opened
+   * for nothing rather than one that refuses to open. It authorizes and selects nothing on
+   * its own.
    */
   readonly selection: string | undefined;
   /**
-   * The session this window most recently opened, or `undefined` where it has
-   * opened none.
+   * The session this window most recently opened, or `undefined` where it has opened none.
    *
-   * The frame store's RETAINED id and deliberately not its route projection. Every
-   * settings address is `kind: "settings"` and names no session, so the projection
-   * is `undefined` on every one of them — a session-scoped page handed it would
-   * render its no-session arm forever, which is a constant wearing an absence's
-   * clothes rather than a reading. The retained id is the fact that answers the
-   * question these pages are actually asking: which session this window is working
-   * in, whether or not the address it is parked on says so.
-   *
-   * `undefined` stays a real answer: a window that has opened no session hands the
-   * pages nothing, and a page that ASKED and was told nothing renders an honest
-   * absence. It is deliberately NOT the session STORE: a settings page that could
-   * reach the projection could hold session state, and the settings screen has no
-   * session to hold it for.
+   * The frame store's retained id, not its route projection: every settings address is
+   * `kind: "settings"` and names no session, so the projection is `undefined` on all of them
+   * and a session-scoped page handed it would render its no-session arm forever. `undefined`
+   * is still a real answer: a page that asked and was told nothing renders an honest absence.
    */
   readonly retainedSessionId: string | undefined;
   /**
    * That session's store, where this window has it open.
    *
-   * A page that reads a session-scoped wire needs a push signal or it goes stale
-   * with nothing on screen saying so, and the session's own event stream is the
-   * one the console already subscribes to — exactly once, in the frame's binder.
-   * Handing the STORE here is what lets a page bind to that stream rather than
-   * open a second `daemon.subscribe`, which would be a second copy of one feed.
-   *
-   * It is the retained session's store and never a store a page may open: the
-   * registry resolves it, `undefined` means this window has that session closed,
-   * and a page reads that as one refresh signal fewer rather than as a failure.
+   * A session-scoped read needs a push signal or it goes stale silently, and the session's
+   * event stream is the one the console already subscribes to, once, in the frame's binder.
+   * Handing the store lets a page bind to that stream instead of opening a second
+   * `daemon.subscribe`. It is the retained session's store only: `undefined` means this
+   * window has that session closed, and a page reads that as one refresh signal fewer, not a
+   * failure.
    */
   readonly retainedSessionStore: SessionStore | undefined;
   /**
    * What this window has been told about the main process it is running against.
    *
-   * READ FROM THE WINDOW'S OWN STORE, never re-read here. The frame opens exactly one
-   * subscription for it and every consumer — the frame's chip, the palette's
-   * read-only line, and the local-runtime page — renders the same value, so the three
-   * places cannot report different supervisor states in one window.
+   * Read from the window's own store, never re-read here: the frame opens one subscription
+   * for it, and the frame's chip, the palette's read-only line and the Runtime page all
+   * render the same value.
    */
   readonly mainProcessState: MainProcessState;
   /**
-   * This window's durable store, for the one page that reports on the store itself.
+   * This window's durable store, for a page that reports on the store itself.
    *
-   * Required rather than optional, because the settings screen that builds this context is
-   * handed one and every window has exactly one. An optional member would be a type
-   * saying a page might have to do without a store the composition always supplies,
-   * and the page reporting the store's own state would then carry an absence arm
-   * that is unreachable — an absence nothing can produce reads as a state a person
-   * might one day see.
-   *
-   * A page reaching for it to hold its OWN durable state is not what this admits:
-   * the chokepoint's value classes are closed, and a page storing something outside
-   * them is refused by the store rather than by this comment.
+   * Required, not optional, because every window has exactly one and the screen is handed
+   * it; an optional member would give the page an absence arm nothing can produce. A page
+   * holding its own durable state through it is not what this admits: the store's value
+   * classes are closed and it refuses anything outside them.
    */
   readonly uiStateStore: UiStateStore;
   /** This window's act for choosing a color scheme, the one the palette row cycles. */
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
-/** What a page renders. A function rather than a component type, as a screen's and a pane's render are. */
+/** What a page renders: a function, as a screen's and a pane's render are. */
 export type SettingsPageBody = (context: SettingsPageContext) => ReactNode;

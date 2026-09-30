@@ -1,11 +1,6 @@
-// The one line under the session header that says the window is catching up.
-//
-// While the window repairs a hole in what it received, or a read it depends on has
-// failed, this says so once, and nothing else on the screen repeats it. It names no
-// technical cause: the cause goes to the window's diagnostic capture, where the session
-// store's entry records it. A failed read reads `Couldn't catch up`, and `Try again`
-// reads again; the window's own refresh on focus and on reconnect reads again too, so
-// the screen never polls.
+// The one line under the session header that says the window is catching up, or that a read
+// failed. It names no technical cause (the session store's diagnostic entry records it),
+// and `Try again` reads again; the screen never polls.
 
 import { useClock } from "@renderer/services/platform/hooks/useClock.js";
 import { useSessionStore } from "@renderer/store/session/hooks/useOpenSessionStore.js";
@@ -14,6 +9,7 @@ import { type SessionStoreState } from "@renderer/store/session/session-state.js
 import { type SessionStore } from "@renderer/store/session/session-store.js";
 import { useCatchUpLineWords } from "../hooks/useCatchUpLineWords.js";
 
+/** What the catch-up line is handed: the session store and the retry callback. */
 export interface SessionCatchUpLineProps {
   readonly sessionStore: SessionStore;
   /** Reads this session again, for the press on `Try again`. */

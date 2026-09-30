@@ -1,6 +1,5 @@
-// Every reader answers on a registered value and refuses on one the wire would not
-// take — and the refusing half is the whole point, because the defect these replaced
-// was a cast, which has no refusing half at all.
+// Each reader answers on a registered value and refuses one the wire would not take; the refusing
+// half matters because a cast has none.
 
 import { describe, expect, it } from "vitest";
 import type { RunState } from "@ai-sidekicks/contracts";
@@ -27,9 +26,7 @@ describe("the identifier readers answer the wire's own value", () => {
   });
 
   it("refuses a value the registered shape does not admit", () => {
-    // The negative control: a friendly label reaches the daemon as a rejected round
-    // trip, and the reader is what turns it into a decision the view can render
-    // instead.
+    // Negative control: a friendly label would reach the daemon as a rejected round trip.
     expect(readSessionId(NOT_AN_IDENTIFIER)).toBeUndefined();
     expect(readRunId(NOT_AN_IDENTIFIER)).toBeUndefined();
     expect(readWorkspaceId(NOT_AN_IDENTIFIER)).toBeUndefined();
@@ -42,9 +39,7 @@ describe("the run-state reader answers the closed union", () => {
   });
 
   it("refuses a word this build has never heard", () => {
-    // A newer daemon against an older console is the real case, and answering
-    // `undefined` is what lets a view say so rather than falling into whichever
-    // arm its own branch happened to end on.
+    // A newer daemon against an older console is the real case; `undefined` lets a view say so.
     expect(readRunState("hibernating")).toBeUndefined();
   });
 });
@@ -60,17 +55,14 @@ describe("the liveness predicate answers over the same closed union", () => {
   });
 
   it("counts the two waiting states as live", () => {
-    // A blocked run is still the daemon's to move, so an act addressed to it is
-    // still meaningful — a waiting run has a turn a restart would interrupt.
+    // A blocked run is still the daemon's to move; a waiting run has a turn a restart interrupts.
     expect(isLiveRunState("waiting_for_approval")).toBe(true);
     expect(isLiveRunState("waiting_for_input")).toBe(true);
   });
 
   it("negative control: a state this build has never heard is not called live", () => {
-    // The reason the set is written positively rather than as a negation of the
-    // three terminals. A tenth state lands outside it and is not asserted finished
-    // — and is not asserted live either, which is the honest answer for a word the
-    // console cannot read.
+    // The set is positive, not a negation of the terminals, so a new state is not asserted
+    // finished, and is not asserted live either.
     expect(isLiveRunState("hibernating" as RunState)).toBe(false);
   });
 });

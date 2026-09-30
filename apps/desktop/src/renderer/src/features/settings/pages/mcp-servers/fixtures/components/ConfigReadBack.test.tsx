@@ -1,10 +1,7 @@
-// The configuration read-back, driven against the arguments the daemon serves.
-//
-// THE ARGUMENTS DECIDE WHAT THE COMMAND DOES. `--read-only` and `--allow-write` are
-// the same command and opposite grants, so a read-back that reported their COUNT told
-// an operator that two bindings were identical when one of them could write. They are
-// already part of the redacted view the daemon serves — the wire carries the strings —
-// so nothing is being disclosed here that was withheld.
+// The configuration read-back, driven against the arguments the daemon serves. The arguments
+// decide what the command does: `--read-only` and `--allow-write` are opposite grants, so a
+// count would call two different bindings identical. They are already in the redacted view the
+// wire carries, so nothing withheld is disclosed.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -47,8 +44,7 @@ describe("ConfigReadBack — the served arguments", () => {
     expect(readOnly.container.textContent).not.toBe(allowWrite.container.textContent);
   });
 
-  // Order and repetition are both part of what argv means: `--root /a --root /b` is
-  // two roots, and a list that folded the repeat would report one.
+  // Order and repetition are part of argv: `--root /a --root /b` is two roots.
   it("keeps a repeated argument in the position the daemon served it", () => {
     const { container } = render(
       <ConfigReadBack config={stdioConfigWithArguments(["--root", "/a", "--root", "/b"])} />,
@@ -56,8 +52,7 @@ describe("ConfigReadBack — the served arguments", () => {
     expect(renderedArguments(container)).toEqual(["--root", "/a", "--root", "/b"]);
   });
 
-  // Absent and empty are the same fact here — this binding declares no arguments —
-  // and both render as nothing rather than as an empty box.
+  // Absent and empty are the same fact (no arguments declared) and render as nothing.
   it("renders no argument list where the binding declares none", () => {
     const { container } = render(
       <ConfigReadBack config={{ transport: "stdio", command: "npx" }} />,
@@ -65,8 +60,8 @@ describe("ConfigReadBack — the served arguments", () => {
     expect(container.querySelector(".meridian-mcp__argument-list")).toBeNull();
   });
 
-  // The negative control on the reader above: an http binding has no `args` member at
-  // all, so a selector that matched anything here would be matching the wrong thing.
+  // Negative control on the reader: an http binding has no `args` member, so a selector that
+  // matched here would be matching the wrong thing.
   it("renders no argument list on the arm that carries no arguments", () => {
     const { container } = render(
       <ConfigReadBack

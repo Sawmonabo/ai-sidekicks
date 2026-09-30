@@ -1,21 +1,12 @@
-// What the script builder guarantees, and what it refuses.
+// What the script builder guarantees and what it refuses.
 //
-// Three scenarios are built through this module, so a defect here is a
-// defect in all three at once — and two of the three guarantees are invisible in a
-// rendered frame. A sequence that skips is read by the store as a delivery gap and
-// renders as "catching up"; an `occurredAt` that disagrees with its own `atMs`
-// renders as a perfectly ordinary row with a wrong timestamp. Both are caught here
-// or not at all.
-//
-// Every case drives the real builder. Its output is asserted against values derived
-// independently in the test — the start instant plus the entry's own `atMs` — never
-// against a second copy of the builder's arithmetic.
+// A skipped sequence renders as "catching up" and a wrong `occurredAt` renders as an
+// ordinary row, so neither shows in a frame. Expected values are derived independently
+// (start instant plus the entry's `atMs`), never from a copy of the builder's arithmetic.
 
 import { describe, expect, it } from "vitest";
 
-// The cast and the base instant the builder is driven with, imported rather than
-// restated: a restated instant would let an epoch change stamp the scenario's beats from
-// one instant and this file's expectations from another, every assertion still green.
+// Imported, not restated, so the scenario and these expectations share one start instant.
 import {
   EVENT_ID_STEM,
   RUN_IMPLEMENTER,
@@ -96,9 +87,8 @@ describe("composeScriptBeats", () => {
   });
 
   it("accepts two entries due at the same tick — simultaneity is not disorder", () => {
-    // The negative control for the case above: the refusal has to fire on a script
-    // that goes BACKWARDS and not merely on one that does not advance, because two
-    // lanes emitting on one tick is exactly what this console is for.
+    // Negative control: the refusal fires on a script that goes backwards, not on one that
+    // merely fails to advance, because two lanes emit on one tick.
     expect(() =>
       composeScriptBeats({
         sessionId: SESSION_ID,

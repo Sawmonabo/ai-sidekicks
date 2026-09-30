@@ -1,33 +1,22 @@
-// The endurance scenario — a session as long as the transcript claims to survive.
+// The endurance scenario: a session as long as the transcript claims to survive.
 //
-// Not a picker scenario, and deliberately not in `fixtures/index.ts`: nobody wants
-// to open a ten-thousand-row session from a menu, and a manifest entry that heavy
-// would be paid for by every suite that iterates the shipped set. It is a
-// GENERATOR the endurance and bench tiers call with the row count they are
-// measuring, which is also why the count is a required argument rather than a
-// constant here — a fixture that hard-coded ten thousand would have every caller
-// measuring one number and reporting another.
+// Not a picker scenario and not in `fixtures/index.ts`: a ten-thousand-row session in the
+// manifest would be paid for by every suite that iterates the shipped set. It is a generator the
+// endurance and bench tiers call with the row count they measure, so the count is a required
+// argument: a fixture that hard-coded ten thousand would have callers measuring one number and
+// reporting another.
 //
-// WHY IT IS GENERATED RATHER THAN WRITTEN
+// It is generated because the shape the transcript must survive is many run groups (runs
+// opening, streaming and folding to receipts), not one run with ten thousand rows, and
+// hand-writing that at scale would drift somewhere nobody reads.
 //
-// Ten thousand hand-written beats would be an unreadable file, and worse, an
-// unfaithful one: what the transcript has to survive is a session with MANY RUN GROUPS —
-// runs opening, streaming, and folding to receipts — not one run with ten thousand
-// rows under it, and hand-writing that shape at scale guarantees the pattern drifts
-// somewhere in the middle where nobody reads.
+// Determinism is the contract: every identifier, instant and kind is a function of the row index
+// alone (no `Math.random`, `Date.now` or hash iteration order), so a heap reading or frame
+// timing is comparable across runs and machines.
 //
-// DETERMINISM IS THE WHOLE CONTRACT. Every identifier, instant, and kind below is a
-// function of the row index and nothing else: no `Math.random`, no `Date.now`, no
-// iteration order over a hash. Two calls with the same arguments produce byte-equal
-// scenarios, which is what makes a heap reading or a frame timing taken over this
-// session comparable across runs and across machines.
-//
-// The beats are the same registered vocabulary the picker scenarios play — the
-// census is `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer is
-// `SessionEventSchema`, both in `packages/contracts/src/event.ts` — so an endurance
-// reading is taken over rows the daemon could really send. A generator that emitted
-// a cheaper synthetic row would be measuring a rendering path the product does not
-// have.
+// The beats use the registered vocabulary the picker scenarios play (the census
+// `SESSION_EVENT_CATEGORY_BY_TYPE` and the strict layer `SessionEventSchema`, both in
+// `packages/contracts/src/event.ts`), so a reading is taken over rows the daemon could send.
 
 import {
   composeOpeningEntry,
@@ -49,20 +38,16 @@ const ENDURANCE_ID_PREFIX = "019b7892-1c00";
 const SESSION_ID = `${ENDURANCE_ID_PREFIX}-75e5-8510-ada11a5a47a5`;
 
 /**
- * The stem this scenario's row ids are minted from — its own namespace, not its
+ * The stem this scenario's row ids are minted from, its own namespace rather than its
  * session's. `composeScriptBeats` completes it with the beat's position.
  */
 const EVENT_ID_STEM = `${ENDURANCE_ID_PREFIX}-7ea1-8110-e5e0d115`;
 const USER_YOU = `${ENDURANCE_ID_PREFIX}-79a4-8110-cca0117a0490`;
 /**
- * The base instant, minted from its fields rather than read back out of a string.
- *
- * `Date.parse` is not a validator — it reads a timezone-less stamp in the host's
- * zone and normalizes a day that does not exist — so a fixture that derived its
- * milliseconds by parsing its own literal was asking a reader to trust the one
- * function the console bans. `Date.UTC` states the instant, and the ISO spelling
- * every reply carries is derived from it, so the two can never disagree. The name
- * ends `Ms` because that is what it holds — a number, not a stamp behind a name.
+ * The base instant, minted from its fields rather than parsed from a string: `Date.parse` is not
+ * a validator (it reads a timezone-less stamp in the host's zone and normalizes a day that does
+ * not exist), and the console bans it. The ISO spelling every reply carries is derived from this
+ * value so the two cannot disagree.
  */
 const startedAtMs = Date.UTC(2026, 0, 1, 8, 0);
 
@@ -104,11 +89,10 @@ const RUN_LIFECYCLE_BEAT_COUNT = 4;
 /**
  * The body a run streams between `running` and `completed`, as a repeating cycle.
  *
- * Eight entries rather than four, so the generated log is not two alternating rows
- * repeated forever: a run group carries thinking, prose, three tool calls of which
- * one fails, and one compaction seam. That mix is what the run group fold folds, what
- * the find field searches, and what the row-height ledger has to measure — a uniform
- * body would have every one of them measuring its easiest case.
+ * Eight entries so the log is not two alternating rows: a run group carries thinking, prose,
+ * three tool calls of which one fails, and one compaction seam. That mix is what the run group
+ * fold folds, the find field searches and the row-height ledger measures; a uniform body would
+ * have each measuring its easiest case.
  */
 const ENDURANCE_BODY_CYCLE_LENGTH = 8;
 
@@ -126,10 +110,9 @@ const DEFAULT_ENDURANCE_RUN_COUNT = 24;
 /**
  * A generated session of exactly `rowCount` beats, spread over `runCount` run groups.
  *
- * The count is EXACT rather than approximate, and that is what makes it useful: an
- * endurance reading names the row count it was taken at, and a generator that
- * produced "about ten thousand" would have two runs of one measurement disagreeing
- * for a reason nobody could see in the number.
+ * The count is exact because an endurance reading names the row count it was taken at. Throws a
+ * `RangeError` for a non-integer row or run count, or a row count too small to give every run
+ * group a body.
  */
 export function createTranscriptEnduranceFixture(
   options: TranscriptEnduranceFixtureOptions,

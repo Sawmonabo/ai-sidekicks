@@ -1,25 +1,15 @@
-// When a window may call one of a session's items news, enumerated over the orderings
-// the address set actually settles in.
+// When a window may call one of a session's items news, enumerated over the orderings the
+// address set settles in. `attention-notifier.test.ts` covers the history rules; this file
+// covers the set itself, which arrives in two moves.
 //
-// `attention-notifier.test.ts` beside this drives the HISTORY rules — the dedup, the
-// eviction — over a window that has been addressing the same sessions
-// throughout. This file drives the set itself, because that set arrives in two moves
-// and the emitter used to assume it arrived in one.
+// The attention read fans out over the node's directory merged with the window's own open
+// sessions. A window opened on one session knows that half at mount and reads the directory's
+// half later, so a single window-wide baseline taken from the first read would leave every
+// later session already baselined, and its standing approvals would be announced as arrivals.
 //
-// THE DEFECT. `AttentionProvider` fans the read out over the node's directory
-// merged with this window's own open sessions. A window opened directly on a session
-// knows that half at mount and reads the directory's half afterwards, so its first
-// settled read covers exactly one session — and a baseline held once for the whole
-// window was therefore taken from a read that had never covered any of the others.
-// Every session the directory added next arrived already baselined, and its standing
-// approvals, waiting input requests, and failed runs were announced as arrivals: OS
-// banners for the state of the world, seconds after the console opened.
-//
-// SO THE ROWS ARE THE ORDERINGS. Each row is a script of settled reads, and each read
-// names the sessions its fan-out asked about, the ones that refused, what it carried,
-// and what the window may say out loud because of it. Written as data rather than as
-// six `it` bodies, because the property is the same in every row and what varies is
-// the order — and an enumeration makes an unlisted ordering visible as a missing row.
+// Each row is a script of settled reads: the sessions asked, the ones that refused, what was
+// carried, and what the window may announce. Rows as data make an unlisted ordering visible
+// as a missing row.
 
 import { describe, expect, it } from "vitest";
 
@@ -70,12 +60,8 @@ interface OrderingRow {
 }
 
 /**
- * The scripted read as the reading a settled fan-out actually produces.
- *
- * Built through the real `AttentionSummary` rather than handed to the notifier as a
- * list, because the summary is what drops resolved items and fixes their order — a
- * hand-built reading would be asserting over a projection this console cannot
- * produce.
+ * The scripted read as the reading a settled fan-out produces. Built through the real
+ * `AttentionSummary`, which drops resolved items and fixes their order.
  */
 function settledRead(script: ScriptedRead): AnsweredAttentionReading {
   return {
@@ -164,9 +150,8 @@ const ORDERING_MATRIX: readonly OrderingRow[] = [
         announces: [],
       },
       {
-        // The window is demonstrably announcing at this point, so the silence on the
-        // next read is about the session that joined and not about a notifier that
-        // had stopped speaking.
+        // The window is announcing here, so silence on the next read is about the joined session,
+        // not a notifier that stopped speaking.
         moment: "an ordinary arrival, proving this window is not simply silent",
         addressedSessionIds: [OPENED_SESSION_ID],
         items: [OPENED_ARRIVAL],
@@ -196,9 +181,9 @@ const ORDERING_MATRIX: readonly OrderingRow[] = [
         announces: [],
       },
       {
-        // The departed session's event is cleared from the projection, so the cap is
-        // free to forget it — and this read hands the cap more than enough to do so.
-        // The filler session is itself new, which is why none of it is announced.
+        // The departed session's event is cleared, so the cap may forget it, and this read hands
+        // the cap more than enough to do so. The filler session is itself new, so none of it is
+        // announced.
         moment: "the session drops out while the remembered events are pushed past the cap",
         addressedSessionIds: [OPENED_SESSION_ID, FILLER_SESSION_ID],
         items: [OPENED_STANDING, ...CAP_FILLERS],
@@ -222,10 +207,9 @@ const ORDERING_MATRIX: readonly OrderingRow[] = [
         announces: [],
       },
       {
-        // The merge that addresses this read re-derives its array on every settling
-        // directory, so the reader and the read holding it are replaced by ones
-        // carrying an equal set. The baseline is keyed on the ids and not on the
-        // array, so a replacement that asked the same question answers the same way.
+        // The merge that addresses this read re-derives its array on every settling directory, so
+        // the reader is replaced by one carrying an equal set. The baseline is keyed on the ids,
+        // not the array, so the answer is the same.
         moment: "the rebuilt read asks the same question in a different order",
         addressedSessionIds: [DIRECTORY_SESSION_ID, OPENED_SESSION_ID],
         items: [OPENED_STANDING, DIRECTORY_STANDING],
@@ -243,8 +227,7 @@ const ORDERING_MATRIX: readonly OrderingRow[] = [
     ordering: "a session refuses on the first read that addresses it",
     reads: [
       {
-        // Asked and unanswered is not covered: this window still has not been told
-        // what that session holds, so the refusal may not stand in for a baseline.
+        // Asked and unanswered is not covered, so the refusal may not stand in for a baseline.
         moment: "the first read, with the joining session refusing",
         addressedSessionIds: [OPENED_SESSION_ID, DIRECTORY_SESSION_ID],
         refusedSessionIds: [DIRECTORY_SESSION_ID],
@@ -275,8 +258,8 @@ const ORDERING_MATRIX: readonly OrderingRow[] = [
         announces: [],
       },
       {
-        // Still addressed, so it has not left — and a refusal that dropped its
-        // baseline would silence the first thing that arrived once it recovered.
+        // Still addressed, so it has not left; dropping its baseline on refusal would silence the
+        // first thing that arrived after recovery.
         moment: "one session refuses, without leaving the address set",
         addressedSessionIds: [OPENED_SESSION_ID, DIRECTORY_SESSION_ID],
         refusedSessionIds: [DIRECTORY_SESSION_ID],
@@ -299,14 +282,10 @@ describe("the attention emitter's baseline, per addressed session", () => {
   });
 
   it("negative control: the same item announces when its session was addressed all along", () => {
-    // The over-suppression direction, planted against the row that matters most. The
-    // matrix's second read is silent about a session that has only just joined the
-    // address set — and a notifier that suppressed every item of a session it had not
-    // announced from before would satisfy that row for the wrong reason, and would
-    // never say anything about a directory session again.
-    //
-    // Same item, same read index. The only difference is that this
-    // window had already covered the session when the item appeared.
+    // The over-suppression direction. The matrix's second read is silent about a session that
+    // just joined the address set, and a notifier that suppressed every item of an unannounced
+    // session would satisfy that row for the wrong reason. Same item, same read index; the only
+    // difference is that this window had already covered the session.
     playOrdering([
       {
         moment: "the first read covers both sessions, with nothing waiting",
@@ -324,11 +303,10 @@ describe("the attention emitter's baseline, per addressed session", () => {
   });
 
   it("negative control: the cap forgets an item of a session that never left", () => {
-    // The other half of the removal row. That row's last read is silent because the
-    // session had left the address set and lost its baseline — not because the cap
-    // was somehow still holding the event. Here the same session stays addressed
-    // throughout, the cap forgets its cleared event exactly as before, and the item
-    // comes back as an arrival: the duplicate banner this cap is allowed to raise.
+    // The other half of the removal row, whose last read is silent because the session lost its
+    // baseline, not because the cap still held the event. Here the session stays addressed, the
+    // cap forgets its cleared event, and the item returns as an arrival: the duplicate banner
+    // this cap may raise.
     playOrdering([
       {
         moment: "the first read, over both sessions",

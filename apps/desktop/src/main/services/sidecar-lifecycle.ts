@@ -1,20 +1,13 @@
-// Holds Electron's quit open while an async drain runs, then quits again.
-//
-// Electron's `will-quit` is a synchronous event. The handler calls
-// `event.preventDefault()`, runs the drain, and re-issues `app.quit()` on the next
-// tick. Electron then emits `will-quit` a second time, which the one-shot
-// `drainCompleted` guard lets through so the quit proceeds instead of looping.
-// The guard clears itself on that pass: if another `will-quit` listener cancels the
-// re-issued quit, the next quit attempt drains again.
-//
-// The drain is raced against a hard wall-clock cap, so a drain that never settles
-// cannot block the quit. The cap timer is `unref()`'d and never keeps the event
-// loop alive past `app.quit()`.
+// Holds Electron's quit open while an async drain runs, then quits again. `will-quit` is
+// synchronous, so the handler cancels it, runs the drain, and re-issues `app.quit()` on the
+// next tick; the one-shot `drainCompleted` guard lets the second `will-quit` through and
+// clears itself, so if another listener cancels that quit the next attempt drains again.
+// The drain is raced against a hard wall-clock cap, so a drain that never settles cannot block
+// the quit; the cap timer is `unref()`'d so it never keeps the event loop alive.
 
 import type { App } from "electron";
 
-// The wall-clock ceiling the drain is raced against, and the figure the console's
-// restart confirmation quotes to a person before they agree to a restart.
+// The drain's wall-clock ceiling, which the console's restart confirmation also quotes.
 import { DAEMON_SHUTDOWN_FLUSH_BUDGET_MS } from "@shared/shutdown-budget.js";
 
 /** Injection seams for the logger and the hard cap, so tests need no wall-clock wait. */

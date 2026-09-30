@@ -1,29 +1,16 @@
 // A chord reaches a destination's command directly, so the command has to warm.
 //
-// WHAT THE PRELOAD CALLBACK IS AND IS NOT. Every navigation command carries a
-// `preload` the palette calls while its row is highlighted — speculative warming, fired
-// on a person READING rather than acting. A chord calls none of it: `KeybindingTable`
-// resolves the binding and runs the command, and that is the whole path. So a
-// destination whose screen is loader-backed navigated with its chunk unrequested, and
-// the reserved frame the loader form exists to hide is what a keyboard user saw — the
-// one user who reached the destination fastest.
+// The palette calls a navigation command's `preload` while its row is highlighted; a chord calls
+// none of it, since `KeybindingTable` resolves the binding and runs the command. Without warming
+// in `run`, a loader-backed screen navigated with its chunk unrequested and a keyboard user saw
+// the reserved frame.
 //
-// DRIVEN THROUGH THE REAL COMPOSED WINDOW. The command under test is the one the window
-// registers from its own effect into the console's command registry, and it is
-// DISPATCHED by an installed `KeybindingTable` rather than called: what is claimed is
-// that the keyboard path warms, and calling `run` by hand would assert that over a path
-// no key press takes.
-//
-// THE CHORD IS REBOUND TO A MODIFIER-FREE KEY for `useWindowCommands.contributions.test.ts`'s
-// measured reason: `$mod` resolves against the real host at listen time, so a synthetic
-// press built here would have to guess which modifier this runner watches for, and
-// guessing wrong is a case that passes for the wrong reason. Which chord SHIPS is
-// `layout/NavigationRail/navigation-commands.test.ts`'s claim and not this file's.
-//
-// AND THE IDLE WARM CANNOT MASK IT. The window's own walk would eventually load every
-// registered body, which would make a "did it load" assertion vacuous — so the reading
-// is taken synchronously after the press, before any idle callback or its timer floor
-// has had a turn, and the case asserts the board was still cold on the line above.
+// Driven through the real composed window: the command is the one the window registers, and an
+// installed `KeybindingTable` dispatches it, since calling `run` by hand skips the key path.
+// The chord is rebound to a modifier-free key for the reason in
+// `useWindowCommands.contributions.test.ts`; which chord ships is
+// `layout/NavigationRail/navigation-commands.test.ts`'s claim. The reading is taken synchronously
+// after the press, before the window's idle walk can load the body and make it vacuous.
 
 import { describe, expect, it } from "vitest";
 
@@ -40,9 +27,8 @@ const WORKFLOWS_COMMAND_ID = "frame.goToWorkflows";
 /**
  * Dispatch the console's registered command for an id, through a real installed table.
  *
- * The table is built over the module-scope command registry the mounted window
- * registered into, so the command that runs is the window's own — this only supplies
- * the binding, which is the part a synthetic press cannot borrow.
+ * The table is built over the module-scope registry the mounted window registered into, so the
+ * command that runs is the window's own; this only supplies the binding.
  */
 function pressRebound(commandId: string): void {
   const table = new KeybindingTable({ registry: commandRegistry, readContext: () => ({}) });
@@ -57,22 +43,18 @@ describe("a rail destination reached by chord", () => {
   it("warms the destination's screen on the run path, not only the palette's", async () => {
     await mountApp();
 
-    // The control, in line and not in a case of its own: the board is cold here, so the
-    // reading after the press is about the press. A window whose idle walk had already
-    // run would fail this line rather than pass the next one for the wrong reason.
+    // Control: the board is cold here, so the reading after the press is about the press.
     expect(screenRegistry.unloadedKeys()).toContain("workflows");
 
     pressRebound(WORKFLOWS_COMMAND_ID);
 
-    // Read synchronously: `unloadedKeys` reports whether a load was ASKED for, so this
-    // is the frame in which the chunk request either exists or does not.
+    // Read synchronously: `unloadedKeys` reports whether a load was asked for.
     expect(screenRegistry.unloadedKeys()).not.toContain("workflows");
   });
 
   it("does nothing at all for a press that reaches no command", async () => {
-    // Without this, a table that ran something on every press would satisfy the case
-    // above. Asserted on the ROUTE rather than on the board, because the board is
-    // process-wide and this file has already warmed it by now.
+    // Without this, a table that ran something on every press would pass the case above.
+    // Asserted on the route, since the process-wide board is already warm by now.
     const mounted = await mountApp();
 
     pressRebound("frame.thisCommandIsNotRegistered");

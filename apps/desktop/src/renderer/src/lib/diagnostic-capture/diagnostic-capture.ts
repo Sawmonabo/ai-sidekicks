@@ -1,44 +1,24 @@
-// The console's always-on error capture.
+// The console's always-on error capture: JSONL batching under named caps, a positive marker
+// whenever a probe cannot be read, and a forward that carries a batch out of the window. Without
+// the marker a blind console looks like a healthy one; without the forward a finding dies with
+// the window. A probe the console cannot read is "not checked", never "empty".
 //
-// Three things together, and they are three because each one alone is a capture that
-// lies: JSONL batching under named caps, a POSITIVE marker whenever a probe cannot be
-// read, and a forward that carries a batch out of the window. Batching without the
-// marker reports an empty stream from a blind console exactly as it reports one from a
-// healthy console; the marker without the forward leaves the finding in the window
-// that is about to be closed.
+// It is on in every build, unlike the performance meters in `performance-meters/`, which
+// measure a console someone is watching.
 //
-// THE MARKER IS THE PART THE RULES ASK FOR BY NAME, and the other two are this
-// module's own shape for delivering it. The kinds-of-nothing rule holds _not checked_
-// and _empty_ to be different absences, and a renderer that collapses two of them into
-// one is wrong — a probe the console cannot read is _not checked_, which is a value
-// and not a gap in a stream. That rule is about what a VIEW renders; carrying the
-// distinction off the machine at all is what this module adds, and the batching and
-// the forward are this module's own.
+// It owns no wire: it batches and hands the batch to a forwarder the window composition
+// installs, because `lib/` imports nothing above it and each window has its own capture.
 //
-// ALWAYS ON, IN EVERY BUILD. This is the one observability module the fixture define
-// does not fold: the perf meters in `performance-meters/` measure a console an author is watching,
-// and this one captures what happened on a machine nobody was watching. A release
-// build that dropped it would ship the console whose failures are unreportable.
-//
-// IT OWNS NO WIRE, AND THAT IS DELIBERATE. The capture batches and hands the batch
-// to a forwarder the window's composition installs; the forwarder is what knows about
-// the bridge. Two reasons. The band is the daemon's, so the module that reaches it
-// belongs with the daemon services and not at the bottom of the import layering —
-// `lib/` imports nothing above it. And an auxiliary window is its own renderer process
-// with its own capture and its own forwarder, so the seam has to be installable rather
-// than resolved at import.
-//
-// NOTHING HERE SCHEDULES. A batch leaves when a batch is full or when a caller
-// flushes, never on a timer: a capture that woke an idle process to check whether it
-// had anything to say would be spending the budget it exists to report on.
+// Nothing here schedules. A batch leaves when it is full or a caller flushes, so an idle
+// process is never woken to check for work.
 
 import type { Clock } from "../clock.js";
 import { DIAGNOSTIC_CAPTURE_BOUNDS } from "./diagnostic-capture-bounds.js";
 
-/** How bad one record is. Closed — the tuple is the declaration. */
+/** How bad one record is. */
 export const DIAGNOSTIC_SEVERITIES = ["error", "warning", "notice"] as const;
 
-/** One severity, derived so the set is declared exactly once. */
+/** One severity from {@link DIAGNOSTIC_SEVERITIES}. */
 export type DiagnosticSeverity = (typeof DIAGNOSTIC_SEVERITIES)[number];
 
 /** One thing the console captured. */
@@ -55,25 +35,19 @@ export interface DiagnosticRecord {
 }
 
 /**
- * What the window's composition installs to carry a batch to the daemon's diagnostic
- * band.
+ * What the window's composition installs to carry a batch to the daemon's diagnostic band.
  *
- * Takes the JSONL text rather than the records, because JSONL IS the encoding the
- * band ingests and building it here means one encoder rather than one per forwarder.
- * Returns nothing and may throw: a forwarder that fails is a blind probe, and the
- * capture below marks it as one rather than losing the batch quietly.
+ * Takes the JSONL text the band ingests, so there is one encoder. It may throw: the capture
+ * then marks the forward seam blind and keeps the batch.
  */
 export type DiagnosticBatchForwarder = (jsonLines: string) => void;
 
-/** Detaches a forwarder. The only way to detach one. */
+/** Detaches a forwarder; inert once another forwarder has replaced it. */
 export type DiagnosticForwarderDetach = () => void;
 
 /**
- * A probe the console cannot read, and why.
- *
- * The "I am blind" marker, as a value rather than as an absence. A diagnostics view renders
- * these so an operator reading a quiet diagnostics panel can tell a console with
- * nothing to report from a console that cannot tell.
+ * A probe the console cannot read, and why: the "I am blind" marker as a value, so a quiet
+ * diagnostics view can be told apart from a console that cannot see.
  */
 export interface UnreadableProbe {
   readonly probe: string;
@@ -90,13 +64,7 @@ export const DIAGNOSTIC_FORWARD_PROBE = "diagnostic-band-forward";
 /** What a truncated detail ends with, so a reader can tell truncation from brevity. */
 const TRUNCATION_SUFFIX = "…";
 
-/**
- * The console's diagnostic capture.
- *
- * A class rather than module-level state so a test constructs one, drives it, and
- * drops it, and so an auxiliary window gets its own — the same no-shared-state
- * property the console states for stores.
- */
+/** The console's diagnostic capture; a class so a test or an auxiliary window gets its own. */
 export class DiagnosticCapture {
   readonly #pending: DiagnosticRecord[] = [];
   readonly #blindProbes = new Map<string, UnreadableProbe>();
@@ -108,11 +76,9 @@ export class DiagnosticCapture {
   /**
    * Attach the forwarder that carries batches to the band.
    *
-   * Installing flushes what has accumulated, because records captured before the
-   * window's composition finished wiring are exactly the boot failures nobody else
-   * will see. A second install replaces the first and returns a detach that is inert
-   * once replaced — a registry that could be silently re-pointed would let one
-   * subsystem's install drop another's.
+   * Installing flushes what has accumulated, since records captured before wiring finished are
+   * boot failures nobody else will see. A second install replaces the first, and the first's
+   * detach then does nothing.
    */
   public installForwarder(forwarder: DiagnosticBatchForwarder): DiagnosticForwarderDetach {
     this.#forwarder = forwarder;
@@ -125,12 +91,7 @@ export class DiagnosticCapture {
     };
   }
 
-  /**
-   * Capture one record.
-   *
-   * Records first and forwards second, so a throwing forwarder cannot lose the
-   * record that was being carried when it threw.
-   */
+  /** Capture one record. It is stored before any forward, so a throwing forwarder loses nothing. */
   public record(record: DiagnosticRecord): void {
     this.#pending.push({ ...record, detail: boundedDetail(record.detail) });
     while (this.#pending.length > DIAGNOSTIC_CAPTURE_BOUNDS.pendingRecordCount) {
@@ -143,34 +104,14 @@ export class DiagnosticCapture {
   }
 
   /**
-   * Say that a probe cannot be read, and why. The "I am blind" marker.
+   * Say that a probe cannot be read, and why.
    *
-   * Idempotent per probe name: a probe that is unsupported is unsupported on every
-   * attempt, and re-marking it on each one would spend the pending buffer restating
-   * one fact. The first marking is captured as a record too, so the band learns of
-   * the blindness through the same stream as everything else.
-   *
-   * AT THE BOUND THE REFUSAL IS ITSELF A MARKER, which is what the bounds table in
-   * `diagnostic-capture-bounds.ts` promises of this edge and what the perf-meter
-   * registry does with its own refused series. A capture that dropped the thirty-third
-   * blind probe in silence would be a module whose whole purpose is telling an operator
-   * it cannot see, going quiet at exactly the cascade that filled it. The count is
-   * incremented BEFORE the record is captured, so a re-entrant `markBlind` reaching
-   * this arm sees a second refusal and does not emit again.
-   *
-   * THE CAPTURE'S OWN FORWARD SEAM IS EXCLUDED FROM THE COUNT. `flush` marks it blind
-   * whenever no forwarder is installed, and `record` flushes at every batch boundary,
-   * so a full set turns one operator probe into a refusal of that seam per flush —
-   * the number an operator reads as "how many probes went blind past the bound" would
-   * instead be a measure of how often the capture ran. This probe is the capture
-   * describing itself rather than a subsystem reporting a reading it could not take.
-   *
-   * WHAT THAT COSTS, STATED RATHER THAN CLAIMED AT NOTHING: past a full set this seam
-   * is neither counted nor recorded, so if it is the FIRST refusal past the bound the
-   * `probe-blind-set-full` record never fires and a band whose forwarder then throws
-   * sees its stream stop with no marker naming why. Reaching it needs all thirty-two
-   * authored probe names blind first, which the bounds table calls far above the
-   * number that can exist.
+   * Idempotent per probe name, so a permanently unsupported probe does not fill the buffer, and
+   * the first marking is also captured as a record. At the bound the refusal is itself
+   * announced once by a `probe-blind-set-full` record and counted; the count is incremented
+   * before the record is captured, so a re-entrant call does not announce twice. The capture's
+   * own forward seam is excluded from that count, as the bounds table explains, so if it is the
+   * first refusal past the bound no announcement fires.
    */
   public markBlind(probe: string, reason: string, at: string): void {
     if (this.#blindProbes.has(probe)) {
@@ -218,13 +159,9 @@ export class DiagnosticCapture {
   /**
    * Hand what is pending to the forwarder, one bounded batch at a time.
    *
-   * With no forwarder installed this is where the capture discovers it is itself
-   * blind, and it says so through the marker rather than by dropping the batch: the
-   * records stay pending under their bound and go out when a forwarder arrives.
-   *
-   * A THROWING FORWARDER LOSES NOTHING. The batch is taken from the pending buffer
-   * only after the forward returns, so a forwarder that throws leaves its records
-   * where they were and the seam is marked blind with the thrown reason.
+   * With no forwarder the seam is marked blind and the records stay pending under their bound.
+   * A batch leaves the buffer only after the forward returns, so a throwing forwarder loses
+   * nothing; the seam is then marked blind with the thrown reason.
    */
   public flush(): void {
     const forwarder = this.#forwarder;
@@ -273,25 +210,15 @@ export class DiagnosticCapture {
   }
 
   /**
-   * Blind probes refused because the blind set was already full. Never silent.
-   *
-   * A count rather than a wider set, on `PerformanceMeterRegistry.refusedSeriesCount`'
-   * reasoning: the number IS the finding, and it says the console went blind in more
-   * places than a bounded set can name. Places OTHER THAN THIS MODULE'S OWN FORWARD
-   * SEAM, which `markBlind` excludes for the reason stated there.
+   * Blind probes refused because the blind set was full, excluding this module's own forward
+   * seam. A count rather than a wider set, like `PerformanceMeterRegistry.refusedSeriesCount`.
    */
   public get refusedBlindProbeCount(): number {
     return this.#refusedBlindProbeCount;
   }
 }
 
-/**
- * One record as one JSON line.
- *
- * Field order is fixed by the object literal so two records of the same shape encode
- * to the same bytes — which is what makes a captured batch diffable against a
- * recorded one in a test.
- */
+/** One record as one JSON line, with a fixed field order so equal records encode alike. */
 export function toJsonLine(record: DiagnosticRecord): string {
   return JSON.stringify({
     at: record.at,
@@ -302,11 +229,7 @@ export function toJsonLine(record: DiagnosticRecord): string {
   });
 }
 
-/**
- * A record's `at`, read off the clock the console runs on rather than off `Date`, so a
- * window driven by a frozen clock stamps its records at the instant the rest of the
- * window agrees it is.
- */
+/** An ISO-8601 stamp from the console's clock, so a frozen clock stamps consistently. */
 export function diagnosticStampAt(clock: Clock): string {
   return new Date(clock.now()).toISOString();
 }
@@ -327,17 +250,10 @@ function boundedDetail(detail: string): string {
 }
 
 /**
- * The console's capture. One per renderer process, on `windowTripwires`' reasoning:
- * an auxiliary window is its own renderer process and therefore its own capture.
+ * The console's capture, one per renderer process because an auxiliary window has its own.
  *
- * Its producers are the tripwire route and the window's own warnings that a person has
- * nothing to do about on screen: a session's degraded cause and transcript rows that share
- * an identifier. `tripwire-diagnostic-route.ts` routes this process's tripwire registry
- * into it and the composition site arms that route, so every invariant breach a window
- * detects is captured. It has no forwarder: the forwarder that would carry
- * a batch to the daemon's band is the window composition's, and the view that READS it
- * is a diagnostics page neither of them has built yet. Until one of those installs a
- * forwarder the capture marks its own forward seam blind and holds what it has under
- * the pending bound, which is the state its marker exists to make legible.
+ * Producers are the tripwire route (`tripwire-diagnostic-route.ts`) and warnings a person can
+ * do nothing about on screen. Until a forwarder is installed it marks its forward seam blind and
+ * holds records under the pending bound.
  */
 export const windowDiagnosticCapture: DiagnosticCapture = new DiagnosticCapture();

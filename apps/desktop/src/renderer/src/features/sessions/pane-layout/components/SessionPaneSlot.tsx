@@ -1,14 +1,7 @@
-// One pane's frame, and the body the pane layout resolves for it.
-//
-// ITS OWN MODULE BECAUSE IT IS A DIFFERENT SUBJECT. `SessionPaneLayout.tsx` decides which panes
-// exist, in what order, at what widths, and which one has focus — questions about
-// the SET. This file answers one question about a SINGLE member: given a pane and
-// the registry, what is drawn, and what is drawn when nothing is registered for its
-// kind. Neither half reads the other's state, which is why the cut is here and not
-// at a line count.
-//
-// Nothing here leaves the pane layout: both symbols are reached only from
-// `SessionPaneLayout.tsx`, so the sessions feature's public entry exports neither.
+// One pane's frame, and the body the pane layout resolves for it. `SessionPaneLayout.tsx`
+// decides which panes exist, their order, widths and focus (questions about the set); this
+// file answers what is drawn for a single pane, including when nothing is registered for its
+// kind. Both symbols are reached only from `SessionPaneLayout.tsx`.
 
 import { memo, useCallback, useMemo, useState } from "react";
 import { Panel } from "react-resizable-panels";
@@ -28,18 +21,17 @@ import { usePaneDragSource } from "../hooks/usePaneDragSource.js";
 import { usePaneDropTarget } from "../hooks/usePaneDropTarget.js";
 import { type PaneLayoutDragCoordinator, type PaneDropIndicator } from "../pane-drag.js";
 
+/** What a pane slot is handed: the pane, its registry, its context resolver and its handlers. */
 export interface SessionPaneSlotProps {
   readonly pane: SessionPane;
   readonly density: PaneLayoutDensity;
   readonly registry: PaneRegistry;
   /**
-   * What this pane's body is handed, or why its address cannot be served.
-   *
-   * A pane's kind and its entity reference come off a restored snapshot or a route,
-   * so the pair is not known to be an address any body admits until it is parsed. The
-   * refusal arm is what a pane slot draws instead of a body — never a throw, which would
-   * take the whole pane layout down for one pane, and never a body handed an address it
-   * cannot serve, which would query a partition that has never held the row.
+   * What this pane's body is handed, or why its address cannot be served. The kind and entity
+   * come off a restored snapshot or a route, so the pair is not known to be an address until
+   * it is parsed. The refusal arm is drawn instead of a body: a throw would take the whole
+   * pane layout down for one pane, and a body handed an address it cannot serve would query a
+   * partition that never held the row.
    */
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
   readonly dragCoordinator: PaneLayoutDragCoordinator;
@@ -52,20 +44,17 @@ export interface SessionPaneSlotProps {
 }
 
 /**
- * One pane's frame, and the body the pane registry resolves for it.
- *
- * Memoized on purpose: the console's frame budgets are written against a four-lane
- * streaming session, and an unmemoized map re-renders four pane bodies for every
- * event that touches one of them.
+ * One pane's frame, and the body the pane registry resolves for it. Memoized because the frame
+ * budgets assume a four-lane streaming session, and an unmemoized map would re-render four
+ * pane bodies for every event that touches one.
  */
 export const SessionPaneSlot: React.NamedExoticComponent<SessionPaneSlotProps> = memo(
   function SessionPaneSlotBody(props: SessionPaneSlotProps): React.JSX.Element {
     const { dragCoordinator, pane, onClose, onFocus, trackElement, untrackElement } = props;
     const descriptor = props.registry.descriptorFor(pane.kind);
 
-    // The panel's own root element, which is the one the library sizes. It is the
-    // element the rect discipline measures and the element a drop is aimed at, so
-    // both hold the same node rather than one holding a wrapper of the other.
+    // The panel's own root element, which the library sizes. The rect discipline measures it
+    // and a drop is aimed at it, so both hold the same node.
     const [panelElement, setPanelElement] = useState<HTMLDivElement | null>(null);
     const registerDragHandle = usePaneDragSource(dragCoordinator, pane.paneId);
     usePaneDropTarget(dragCoordinator, pane.paneId, panelElement);

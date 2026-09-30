@@ -1,44 +1,29 @@
-// A figure the daemon sent, wearing the provenance signature.
-//
-// The design language: every wire-true figure — costs, counts, SHAs, durations,
-// token totals, timestamps — renders in mono. Mono is the signature that a number came
+// A figure the daemon sent, wearing the mono provenance signature. Mono marks a value that came
 // from the wire; prose never paraphrases a figure.
 //
-// This carries BOTH classes the eight rules name, because both come from the wire and
-// both therefore earn the mono signature: a byte-for-byte string (an id, a digest, a
-// state name, an error code, a provider label) and a quantity formatted from the exact
-// wire value through `Intl` (`wire-figures.ts` is the only module allowed to do that
-// formatting). It is selectable, because a digest a person cannot copy is a digest they
-// have to retype.
+// Both wire classes render here: a byte-for-byte string (an id, digest, state name, error code)
+// and a quantity formatted from the exact wire value through `Intl` in `wire-figures.ts`, the
+// only module that formats. It is selectable, so a digest can be copied. `DerivedFigure` is a
+// separate module so a call site cannot pick the wrong class by omission.
 //
-// ITS OWN MODULE, AND `DerivedFigure` BESIDE IT RATHER THAN INSIDE IT. The
-// distinction between the two is the console's most load-bearing typographic claim,
-// and a single component with a `mono` flag would let a call site get it wrong by
-// omission. Two modules is the same argument one step further: the class a caller
-// reaches for is the import it writes.
-//
-// `title` is where the exact wire value goes when the visible text is a formatted
-// reading of it — the eight rules require that "no formatted figure hides the number
-// the daemon sent". It is an attribute rather than a tooltip component because the
-// platform's own tooltip needs no bytes and no render path.
+// `title` carries the exact wire value when the visible text is a formatted reading of it.
 
 import { formatWireString } from "@renderer/lib/wire-figures.js";
 
+/** Props for `WireFigure`. */
 export interface WireFigureProps {
   /** The figure as it will be shown — either verbatim, or already `Intl`-formatted. */
   readonly value: string;
   /** The exact wire value, when `value` is a formatted reading of it. */
   readonly title?: string;
   /**
-   * Truncate at the measure inside a row that cannot hold the whole value.
-   *
-   * The prop a composing component uses instead of declaring `.meridian-figure--wire`
-   * in its own stylesheet: one class has one owning sheet, and a value long enough to
-   * need this is exactly the value whose `title` must still carry it whole.
+   * Truncates at the measure inside a row too narrow for the value; use this instead of restyling
+   * `.meridian-figure--wire`. The `title` should still carry the whole value.
    */
   readonly truncate?: boolean;
 }
 
+/** Renders a wire-supplied figure in mono; `title` exposes the exact wire value. */
 export function WireFigure(props: WireFigureProps): React.JSX.Element {
   const className = props.truncate
     ? "meridian-figure meridian-figure--wire meridian-figure--truncate"

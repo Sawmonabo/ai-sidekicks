@@ -1,94 +1,35 @@
-// Store fan-out micro-benchmark — the console bench tier's first arm.
+// Store fan-out micro-benchmark: the bench tier's first arm.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// THE CLAIM UNDER TEST
-// ─────────────────────────────────────────────────────────────────────────────
+// The store design claims a flat entity map costs about 1.3 ms per event at 20,000 entities and
+// a partitioned one about 57 µs. This benchmark re-derives the comparison on every run and writes
+// it to the bench ledger, so the claim cannot go stale unnoticed.
 //
-// zustand is adopted under a named constraint — "one store per open session, partitioned
-// entity maps, per-frame event coalescing, per-row selectors" — and justifies
-// the partitioning with a figure: "A flat entity map costs 1.3 ms per event at
-// 20,000 entities and a partitioned one 57 µs."
+// The assertion gates the ratio, not either absolute figure, because an absolute time depends on
+// the machine, the engine and the entity shape. A first run on an Apple-silicon laptop under
+// Node 24 measured ~4.6 ms/event flat and ~0.35 ms/event partitioned, a 13× ratio against the
+// claimed ~23×; the structural claim reproduces with a wide margin. The ledger keeps every run's
+// absolutes with the machine that produced them.
 //
-// That figure is the load-bearing half of the fourth product bar ("light on the
-// machine"): the whole apply path's cost model rests on it, and the idle-CPU
-// and frame-time budgets are priced against it. A number a spec asserts and no
-// harness re-derives is a number nobody notices going stale, so this benchmark
-// re-derives it on every run and writes the result to the bench ledger.
+// What it measures is the immutable apply. Both stores hold the same entities and replace one
+// by id per event, but a flat `Record<string, StoredEntity>` copies all 20,000 keys to produce a
+// new identity, while a partitioned `Record<EntityKind, Record<string, StoredEntity>>` copies
+// only the touched kind's partition plus an outer record. Every count below is read off
+// `ENTITY_KINDS` (`lib/entity-kinds.ts`), so a new kind moves the arithmetic.
 //
-// WHAT IS GATED, AND WHAT IS NOT. The assertion below is on the RATIO, not on
-// either absolute figure — an absolute millisecond count is a property of the
-// machine, the engine, and the entity shape, and gating one would make this a
-// hardware detector. The first recorded run makes the reason concrete: on an
-// Apple-silicon laptop under Node 24, with the entity shape built below, the
-// flat arm measured ~4.6 ms/event and the partitioned arm ~0.35 ms/event —
-// roughly 3.5× and 6× the spec's two figures, at a 13× ratio against the spec's
-// ~23×. So the spec's absolutes should be read as an order of magnitude taken
-// on some other machine and shape, while the STRUCTURAL claim they were cited
-// for — that partitioning is what keeps the apply path cheap — reproduces with
-// a wide margin. The ledger keeps every run's absolutes, with the machine that
-// produced them, so a later reader can compare like with like.
+// A plain `test` with its own sampler is used rather than Vitest's `bench` (vitest 4.1.5):
+// `bench` runs only under `vitest bench`, a separate mode from every other tier's project, and
+// its tinybench 2.9.0 statistics publish p75, p99, p995 and p999 but no p95, which the ledger
+// row needs. Samples come from `performance.now()` and `summarizeBenchmarkSamples`; the arm runs
+// under `vitest run --project=bench`.
 //
-// The mechanism it measures is the immutable apply. Both stores hold the same
-// entities and do the same work per event — replace one entity by id — but a
-// flat `Record<string, StoredEntity>` must copy all 20,000 keys to produce the
-// new identity a subscriber can compare, while a partitioned
-// `Record<EntityKind, Record<string, StoredEntity>>` copies only the
-// touched kind's partition — `BENCHMARK_ENTITY_COUNT / ENTITY_KINDS.length`
-// keys — plus an outer record with one key per kind. The saving is structural,
-// not incidental, and it scales with the partition count rather than with any
-// figure written here: every count below is read off `ENTITY_KINDS`, which
-// `console/store/entities/entities.ts` declares once and this file imports, so a kind added
-// there moves the arithmetic without touching this comment.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY A PLAIN `test` AND AN OWN SAMPLER RATHER THAN VITEST'S `bench`
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// The pinned runner (vitest 4.1.5, `pnpm-workspace.yaml` `catalogs.testing`)
-// does export `bench`, so the API is available. Two properties of it decided
-// against using it here, both checked rather than assumed:
-//
-//   • `bench` runs only under `vitest bench`, a separate mode driven by a
-//     `benchmark.include` config rather than `test.include`. Using it would put
-//     this tier on a different invocation from every other console tier, which
-//     are registered as ordinary Vitest projects.
-//
-//   • Its statistics come from tinybench 2.9.0, whose `TaskResult` publishes
-//     `p75`, `p99`, `p995`, and `p999` and no `p95` — and reaches the calling
-//     file only through a `teardown` hook or a custom reporter. The ledger row
-//     this tier owes carries a p95, so the numbers would have to be re-derived
-//     from `result.samples` anyway, through reporter plumbing.
-//
-// So the arm below samples with `performance.now()` and computes its own
-// statistics from the raw series (`summarizeBenchmarkSamples`). It runs under
-// the ordinary `vitest run --project=bench` with every other tier.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHAT THE TWO ARMS ARE, AND WHAT THEY ARE NOT
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// THE PARTITIONED ARM IS THE CONSOLE'S OWN MERGE. It drives `mergeUpsert` from
-// `console/store/entities/entity-partitions.ts` — the single function every
-// projected upsert in the console goes through — over the partition set
-// `emptyPartitions()` builds. The store class below holds the value between calls
-// and computes no partition of its own, which is what makes this arm a gate: an
-// apply path refactored back onto a flat map under a per-row selector turns this
-// benchmark red, and a bench-local copy of the merge could not have noticed.
-//
-// It is the MERGE and not `SessionStore.applyBatch`, which also validates, dedupes,
-// detects gaps, and runs projectors — work the spec's figure is not about, and work
-// that would price a wire contract into a number stated about a map shape.
-//
-// THE FLAT ARM IS A MODEL, and is the one thing here that has to be. It is the
-// control the partitioned figure is a ratio against, and the console does not ship
-// a flat entity map to import — the shape exists only as the alternative this
-// benchmark exists to price.
-//
-// The entity KIND SET is not local either, and no longer could be.
-// `ENTITY_KINDS` is imported from `console/store/entities/entities.ts`,
-// which declares it once: a second copy here would have been a closed set restated,
-// and it drifted the moment the store grew `workflow-definition` — under-counting
-// the partitions this benchmark exists to measure.
+// The partitioned arm drives the console's own `mergeUpsert`
+// (`store/session/entities/entity-partitions.ts`) over `emptyPartitions()`, the merge every
+// projected upsert goes through, so an apply path refactored onto a flat map turns this
+// benchmark red. It is the merge and not `SessionStore.applyBatch`, whose validation, dedupe,
+// gap detection and projectors are not what the figure is about. The flat arm is a model: the
+// console ships no flat map, and the shape exists only as the alternative this benchmark prices.
+// `ENTITY_KINDS` is imported rather than copied, because a second copy would under-count the
+// partitions.
 
 import process from "node:process";
 import { performance } from "node:perf_hooks";
@@ -124,14 +65,9 @@ const WARM_UP_SAMPLE_COUNT = 5;
 const RECORDED_SAMPLE_COUNT = 25;
 
 /**
- * The floor the partitioned arm must clear against the flat one.
- *
- * The structural expectation is about `ENTITY_KINDS.length`× — one
- * partition out of that many, plus the outer record — and the spec's own figures
- * are ~23×. Three is deliberately far below both: this assertion exists to catch
- * the apply path losing its partitioning, not to police a shared runner's
- * variance, and a floor written as a multiple of the kind count would move every
- * time the store grew a partition.
+ * The floor the partitioned arm must clear against the flat one. The structural expectation is
+ * about `ENTITY_KINDS.length`× and the claimed figure ~23×; three is far below both because the
+ * assertion catches the apply path losing its partitioning, not a shared runner's variance.
  */
 const MINIMUM_PARTITIONING_SPEEDUP = 3;
 
@@ -142,12 +78,7 @@ interface BenchEntityStore {
   readonly entityCount: number;
 }
 
-/**
- * The control: one flat `Record<string, StoredEntity>` with an immutable apply.
- *
- * Never a product artifact — it exists so the partitioned arm has something to
- * be measured against.
- */
+/** The control: one flat `Record<string, StoredEntity>` with an immutable apply. */
 export class FlatEntityStore implements BenchEntityStore {
   #entities: Readonly<Record<string, StoredEntity>> = {};
 
@@ -169,18 +100,10 @@ export class FlatEntityStore implements BenchEntityStore {
 }
 
 /**
- * The console's own partitioned apply, held between calls.
- *
- * Everything measured here is imported: `emptyPartitions` builds the partition set
- * the console builds, and `mergeUpsert` is the single merge every projected upsert
- * goes through. This class contributes the value that carries from one apply to the
- * next and nothing else — no copy of the merge, no partition arithmetic of its own —
- * which is what makes the arm a gate on the shipped path rather than a measurement
- * of a shape that resembles it.
- *
- * The seed goes through the same merge for the same reason. It costs more than
- * building the maps directly and it is outside the timer, and what it buys is that
- * the population the timed applies run against is one the shipped path produced.
+ * The console's own partitioned apply, held between calls. It imports `emptyPartitions` and
+ * `mergeUpsert` and adds only the value carried from one apply to the next, so the arm gates
+ * the shipped path. The seed goes through the same merge, outside the timer, so the timed
+ * applies run against a population the shipped path produced.
  */
 export class PartitionedEntityStore implements BenchEntityStore {
   #partitions: SessionPartitions = emptyPartitions();
@@ -241,10 +164,7 @@ export function buildStoredEntities(entityCount: number): readonly StoredEntity[
   return entities;
 }
 
-/**
- * Builds the event stream: each event replaces one existing entity with an
- * updated copy, which is what a session-event apply does to a projection.
- */
+/** Builds the event stream: each event replaces one existing entity with an updated copy. */
 export function buildApplyEventStream(
   entities: readonly StoredEntity[],
   eventCount: number,
@@ -266,11 +186,8 @@ export function buildApplyEventStream(
 }
 
 /**
- * Times the per-event apply cost of one store, in milliseconds per event.
- *
- * Each sample seeds a fresh store outside the timer (seeding is a bulk build,
- * not the path under test) and then times exactly `EVENTS_PER_SAMPLE` immutable
- * applies against a steady-state population.
+ * Times the per-event apply cost of one store, in milliseconds per event. Each sample seeds a
+ * fresh store outside the timer, then times the events against a steady-state population.
  */
 export function measurePerEventApplyCost(
   createStore: () => BenchEntityStore,
@@ -291,8 +208,7 @@ export function measurePerEventApplyCost(
     }
     const elapsedMilliseconds = performance.now() - startedAt;
 
-    // Read the store after the timer so the applies are provably observed and
-    // cannot be optimized away as dead stores.
+    // Read after the timer so the applies cannot be optimized away as dead stores.
     if (store.entityCount !== entities.length) {
       throw new Error(
         `measurePerEventApplyCost: store lost entities (${store.entityCount} of ${entities.length})`,

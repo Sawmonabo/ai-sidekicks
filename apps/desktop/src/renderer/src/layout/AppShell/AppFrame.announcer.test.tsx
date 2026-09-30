@@ -1,19 +1,6 @@
-// The window has one live announcer, a raised banner reaches it, and it runs on
-// the window's own clock.
-//
-// The regions are the frame's because they have to outlive every view in it and
-// sit outside the `inert` wrapper; the banner is their first consumer because a
-// refusal that changes what the whole room can do is the frame's own event. So the
-// count is a claim in its own right — a second announcer anywhere in the window is
-// a second speaker — and so is where the regions sit relative to the wrapper a
-// modal overlay inerts, because a region under `inert` leaves the accessibility
-// tree and a refusal raised from inside a dialog would be announced to nobody.
-//
-// Which CLOCK the announcer holds its message on belongs here rather than beside the
-// primitive: the fixture clock is the only clock the renderer reads in fixture mode,
-// the announcer arms the one timeout the idle-CPU budget counts, and the frame is what
-// resolves the clock for the window. Both arms are cases and each is the other's
-// control.
+// The window has one live announcer, a raised banner reaches it, and it runs on the window's clock.
+// A second announcer is a second speaker, and a region under `inert` would leave the accessibility
+// tree, so a refusal raised inside a dialog would reach nobody.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -49,8 +36,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       { wrapper: liveBridgeWrapper() },
     );
 
-    // One PAIR, not one per view: the count is the claim, because a second
-    // announcer anywhere in the window is a second speaker.
+    // One pair, not one per view: a second announcer anywhere is a second speaker.
     expect(container.querySelectorAll("[data-live-region]")).toHaveLength(2);
     expect(liveRegionText(container, "polite")).toBe("");
     expect(liveRegionText(container, "assertive")).toBe("");
@@ -64,8 +50,7 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
       { wrapper: liveBridgeWrapper() },
     );
 
-    // A region under `inert` leaves the accessibility tree, so a refusal raised
-    // from inside a dialog would be announced to nobody.
+    // A region under `inert` leaves the accessibility tree, silencing a refusal raised in a dialog.
     const background = backgroundOf(container);
     expect(background.hasAttribute("inert")).toBe(true);
     expect(background.contains(liveRegionOf(container, "assertive"))).toBe(false);
@@ -87,25 +72,20 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
     );
 
     expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
-    // The banner keeps rendering exactly as it did; the announcer is beside it and
-    // not a replacement for it.
+    // The banner still renders; the announcer sits beside it.
     expect(container.querySelector(".meridian-refusal--banner")?.textContent).toContain(
       REFUSAL_BANNER.code,
     );
-    // Polite stays silent: a banner is a refusal, which is what the assertive lane
-    // is reserved for.
+    // Polite stays silent: the assertive lane is reserved for refusals.
     expect(liveRegionText(container, "polite")).toBe("");
   });
 
   it("negative control: a banner that is merely still standing is not announced again", () => {
-    // Without this, a frame that announced its whole banner list on every render
-    // would repeat every standing refusal on every keystroke — worse than saying
-    // nothing, because the reader never gets back to what the person is doing.
+    // Without this, a frame announcing its whole banner list would repeat every standing refusal
+    // on every render.
     //
-    // The clock has to be moved PAST the hold window first. Inside it the
-    // announcer's own coalescing swallows a repeat, so a re-render there passes
-    // whether the frame diffs or not: the control would be vacuous. Once the region
-    // has cleared, a second announcement of the same banner is visible.
+    // The clock moves past the hold window first: inside it the announcer's own coalescing swallows
+    // a repeat, so the control would pass whether or not the frame diffs.
     vi.useFakeTimers();
     try {
       const { container, rerender } = render(
@@ -136,15 +116,8 @@ describe("AppFrame — the window has one live announcer, and the banner reaches
 
 describe("AppFrame — the announcer runs on the window's clock", () => {
   it("holds a fixture window's announcement until the scenario's own clock moves", () => {
-    // The fixture clock is the only clock the renderer reads in fixture mode. The announcer
-    // arms the one timeout the idle-CPU budget counts, so on the wall clock it was a
-    // subsystem reaching past the frozen one — the assertive region cleared on how fast the
-    // runner happened to be, which makes an accessibility assertion and a screenshot of a
-    // standing refusal both depend on the host rather than on the beat that advanced time.
-    //
-    // The engine, the scenario, and the announcer are all the real ones: the only
-    // instrument is fake timers, which stand in for wall time and for nothing under
-    // test.
+    // In fixture mode the fixture clock is the only clock read; on wall time the region would clear
+    // on runner speed, not on the scenario's beat. Fake timers stand in for wall time only.
     vi.useFakeTimers();
     try {
       const { bridge, scenarioEngine } = createFixtureBridge({
@@ -158,14 +131,13 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
       );
       expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
-      // Wall time well past the hold window, twice over. Nothing clears, because
-      // nothing in this window is reading it.
+      // Wall time far past the hold window clears nothing.
       act(() => {
         vi.advanceTimersByTime(LIVE_ANNOUNCEMENT_HOLD_MS * 2);
       });
       expect(liveRegionText(container, "assertive")).toBe(REFUSAL_BANNER.detail);
 
-      // The scenario's own clock is what the hold was measured against.
+      // The hold is measured against the scenario's clock.
       act(() => {
         scenarioEngine.advance(LIVE_ANNOUNCEMENT_HOLD_MS + 1);
       });
@@ -176,10 +148,8 @@ describe("AppFrame — the announcer runs on the window's clock", () => {
   });
 
   it("negative control: a live window's announcement clears on wall time", () => {
-    // The other arm of the same seam, over the REAL live bridge — `createStubBridge`
-    // is the object the preload exposes. Without this the case above would be
-    // satisfied by an announcer that had simply stopped clearing at all, and the
-    // frozen-clock claim would say nothing about which clock is read.
+    // The other arm, over the real live bridge (`createStubBridge` is what the preload exposes):
+    // without it the case above passes for an announcer that never clears.
     vi.useFakeTimers();
     try {
       const { container } = render(

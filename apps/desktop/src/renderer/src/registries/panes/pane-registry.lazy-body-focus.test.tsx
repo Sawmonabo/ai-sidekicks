@@ -1,16 +1,7 @@
-// Where the keyboard is after a loader-backed body reveals.
-//
-// THE DEFECT. `Suspense` does not reconcile a fallback into its children — it deletes one
-// subtree and inserts another — so the pane chrome a person was standing on is removed
-// and an equivalent one takes its place. Focus went to the document body: a keyboard user
-// on the close control lost their place mid-keystroke, and a pane layout that had focused a pane
-// programmatically lost its own routing. The defect is invisible in a screenshot, which
-// is why it survived every capture the tier takes.
-//
-// DRIVEN THROUGH THE REAL BOARD, not through `LazyBody` directly. What has to hold is the
-// property a feature gets by registering a loader, so the case registers one, mounts what
-// the descriptor renders, and asks the document where focus is — the same three steps a
-// pane layout performs.
+// Where the keyboard is after a loader-backed body reveals. `Suspense` deletes the fallback subtree
+// and inserts the children, so the chrome a person was on is replaced and focus would fall to the
+// document body; a screenshot cannot show that. Driven through the real registry: register a
+// loader, mount the descriptor's render, and ask the document where focus is.
 
 import { render } from "@testing-library/react";
 import { createElement } from "react";
@@ -23,10 +14,10 @@ import { PaneControlsContext } from "@renderer/components/PaneFrame/pane-control
 import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";
 
-/** The chrome's own label for its close control, which is the identity being matched. */
+/** The chrome's label for its close control, the identity being matched. */
 const CLOSE_CONTROL_LABEL = "Close this pane";
 
-/** A pane body of the shape every feature ships: its own chrome around content. */
+/** A pane body of the shape features ship: its own chrome around content. */
 function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
   return (): React.ReactNode =>
     createElement(PaneFrame, {
@@ -37,11 +28,8 @@ function chromedBody(text: string): (context: PaneContext) => React.ReactNode {
 }
 
 /**
- * A registered loader-backed pane, mounted under a provider that offers a close control.
- *
- * The controls arrive through the pane layout's own context rather than as props, because that
- * is how a pane layout supplies them — and it is what makes the reserved chrome and the loaded
- * chrome draw the SAME control strip, which is the premise the transfer rests on.
+ * A registered loader-backed pane mounted under a provider that offers a close control. Controls
+ * come through the layout's context, so the reserved and loaded chrome draw the same strip.
  */
 function mountDeferredPane(): {
   readonly arrive: (Body: (context: PaneContext) => React.ReactNode) => void;
@@ -58,7 +46,7 @@ function mountDeferredPane(): {
   return { arrive: deferred.arrive, container };
 }
 
-/** The close control the chrome is drawing right now, whichever subtree drew it. */
+/** The close control the chrome is drawing now, whichever subtree drew it. */
 function closeControlIn(container: HTMLElement): HTMLElement {
   const control = container.querySelector<HTMLElement>(`[aria-label="${CLOSE_CONTROL_LABEL}"]`);
   if (control === null) {
@@ -77,8 +65,7 @@ describe("a loader-backed body revealing under a focused chrome", () => {
     arrive(chromedBody("the diff body"));
     await settle();
 
-    // The body landed — so the reserved chrome really was deleted and this is the
-    // replacement rather than the element the case focused.
+    // The reserved chrome was deleted, so this is the replacement, not the focused element.
     expect(container.textContent).toContain("the diff body");
     const loadedCloseControl = closeControlIn(container);
     expect(loadedCloseControl).not.toBe(reservedCloseControl);
@@ -86,9 +73,7 @@ describe("a loader-backed body revealing under a focused chrome", () => {
   });
 
   it("negative control: leaves focus alone when something else took it", async () => {
-    // Without this, "focus ends up on the close control" would also be satisfied by a
-    // transfer that stole the keyboard from wherever a person had moved it while the
-    // chunk was arriving — which is a worse defect than the one being fixed.
+    // Without this, a transfer that stole focus from where a person moved it would pass.
     const { arrive, container } = mountDeferredPane();
     closeControlIn(container).focus();
     const elsewhere = document.createElement("input");
@@ -104,8 +89,7 @@ describe("a loader-backed body revealing under a focused chrome", () => {
   });
 
   it("negative control: focuses nothing when the reveal took no focus", async () => {
-    // A mount nobody was standing on must end with focus exactly where it was, and not
-    // on a control the reveal happened to insert.
+    // A reveal nobody was standing on must leave focus where it was.
     const { arrive, container } = mountDeferredPane();
     expect(document.activeElement).toBe(document.body);
 

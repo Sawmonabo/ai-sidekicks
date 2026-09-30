@@ -1,13 +1,7 @@
-// The draft store: what a bounded window does with text nobody sent, and what it
-// tells the person whose text it dropped.
-//
-// The property worth the most here is the disclosure, because its failure is
-// silent. The module's own header states the rule the whole class exists for — a
-// draft is never lost without the user being told — and the live ceiling
-// reached around it: past the bound the least-recently-typed draft was deleted and
-// its composer notified with `undefined`, which is byte-for-byte what a send looks
-// like. Cleared, sent, and evicted arrived through one signal and only one of them
-// is a loss nobody asked for.
+// The draft store: what a bounded window does with text nobody sent, and what it tells the
+// person whose text it dropped. The disclosure matters most because its failure is silent:
+// cleared, sent and evicted reach a composer through the same `undefined` signal, and only
+// eviction is a loss nobody asked for.
 
 import { describe, expect, it } from "vitest";
 
@@ -42,9 +36,7 @@ describe("the draft store — a ceiling that drops text says so", () => {
   });
 
   it("negative control: a draft that survived carries no notice", () => {
-    // Without this, the case above would hold for a store that armed the notice on
-    // every key it had ever seen — which would tell a person their text was lost
-    // while it sat on screen in front of them.
+    // Guards against a store that armed the notice on every key it had seen.
     const { store, typeInto } = storeHolding(2);
     typeInto("composer-a", "the oldest thing anybody typed");
     typeInto("composer-b", "something newer");
@@ -55,9 +47,8 @@ describe("the draft store — a ceiling that drops text says so", () => {
   });
 
   it("negative control: text the user themselves cleared carries none either", () => {
-    // A send and an eviction reach the subscriber through the same `undefined`, so a
-    // store that armed on every removal would put a loss notice beside a message the
-    // user had just sent.
+    // A send and an eviction reach the subscriber through the same `undefined`, so arming on
+    // every removal would put a loss notice beside a message the user just sent.
     const { store, typeInto } = storeHolding(2);
     typeInto("composer-a", "about to be sent");
     store.clear("composer-a");
@@ -87,8 +78,7 @@ describe("the draft store — a ceiling that drops text says so", () => {
   });
 
   it("bounds the armed notices by the same ceiling the drafts carry", () => {
-    // A record of losses that grew without limit would be the leak the draft bound
-    // exists to prevent, kept in a second map.
+    // An unbounded record of losses would be the leak the draft bound exists to prevent.
     const { store, typeInto } = storeHolding(1);
     typeInto("composer-a", "first");
     typeInto("composer-b", "second");
@@ -99,8 +89,8 @@ describe("the draft store — a ceiling that drops text says so", () => {
   });
 
   it("still tells the subscriber its draft went", () => {
-    // The notice is beside the signal, never instead of it: a composer that stopped
-    // being told its text was gone would render text the store no longer holds.
+    // The notice is beside the signal, never instead of it; otherwise a composer would keep
+    // rendering text the store no longer holds.
     const { store, typeInto } = storeHolding(1);
     const seen: (string | undefined)[] = [];
     store.subscribe("composer-a", (draft) => seen.push(draft?.text));
@@ -113,10 +103,7 @@ describe("the draft store — a ceiling that drops text says so", () => {
 
 describe("the draft store — a ceiling with no room in it is refused", () => {
   it("refuses a ceiling of zero rather than dropping every keystroke", () => {
-    // Zero makes every write evict its own entry and notify `undefined`, so no draft
-    // ever sticks: a store that silently holds nothing, which is the opposite of the
-    // one thing this class is for. Unreachable from the frame today, and the option
-    // is public.
+    // Zero would evict every write's own entry, so no draft would ever stick.
     expect(() => new DraftStore({ maximumDraftCount: 0 })).toThrow(RangeError);
   });
 
@@ -126,8 +113,7 @@ describe("the draft store — a ceiling with no room in it is refused", () => {
   });
 
   it("negative control: a ceiling of one is admitted and holds one draft", () => {
-    // Without this, the cases above would hold for a constructor that refused every
-    // ceiling there is.
+    // Guards against a constructor that refused every ceiling.
     const { store, typeInto } = storeHolding(1);
     typeInto("composer-a", "held");
 

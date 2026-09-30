@@ -1,27 +1,13 @@
-// Whether the charged deadline actually REACHES the host queries it bounds.
+// Whether the charged deadline reaches the host queries it bounds.
 //
-// `bounded-cleanup-probe-budget.test.ts` beside this owns the loop's own rule —
-// that an exhausted deadline stops the next attempt. That rule bounds how many
-// probe pairs run and says nothing about how long ONE of them may take, and one
-// pair is still two blocking `spawnSync` calls at `HOST_QUERY_TIMEOUT_MS` each:
-// half the registered cleanup budget apiece. So the second half of the fix is a
-// number traveling — from the deadline, through `ProcessTerminator`, into the
-// shared `runBoundedHostCommand` in `readers.ts` that takes the smaller of that ceiling and what it
-// is handed and spawns nothing at all once it reaches zero.
+// One probe pair is two blocking `spawnSync` calls at `HOST_QUERY_TIMEOUT_MS` each, so the budget
+// must travel from the deadline through `ProcessTerminator` into `runBoundedHostCommand` in
+// `process-tree/readers.ts`, which takes the smaller of its ceiling and the figure it is handed
+// and spawns nothing at zero. A dropped argument would only make a slow host slower with no wrong
+// answer to notice, so the cases read the figure the seam was handed.
 //
-// A NUMBER THAT TRAVELS IS CHECKABLE, AND THAT IS WHY THE SEAM CARRIES IT. An
-// argument dropped at the binding would leave every reading below on its own
-// ceiling with nothing to say so — the failure mode is a slow host, not a wrong
-// answer, so no verdict here would ever look different. The cases below read the
-// figure the seam was handed instead, which fails the moment the forward stops.
-//
-// WHY THE REAL BINDING IS ASKED SO LITTLE. `ELECTRON_PROCESS_TERMINATOR` reaches
-// the platform: its `terminate` signals a process group, which from inside the
-// runner is this suite's own. So it is exercised only through `isRunning`, and
-// only against pids whose answer is not in doubt — this process, which is
-// running by definition, and a pid nothing holds. What that shows is that the
-// binding forwards a budget of zero without spawning and without throwing; the
-// clamping arithmetic itself belongs to `readers.ts` and is held there.
+// The real `ELECTRON_PROCESS_TERMINATOR` is asked only through `isRunning`: its `terminate` would
+// signal a process group that is this suite's own. The clamping arithmetic is held in `readers.ts`.
 
 import process from "node:process";
 
@@ -45,10 +31,9 @@ const UNHELD_PROCESS_ID = 0x7ff_ffff;
 
 describe("bounded cleanup — the remaining budget reaches both host-query seams", () => {
   it("charges each probe what the termination deadline has left when it runs", async () => {
-    // THE FORWARD, read as the figures the seam received. The clock does not
-    // move on its own here, so every number is the deadline's arithmetic rather
-    // than a runner's timing: the first kill is entitled to the whole budget,
-    // and the liveness read after it is entitled to what that kill left.
+    // Reads the figures the seam received. The clock does not move on its own, so every number is
+    // the deadline's arithmetic: the first kill gets the whole budget and the liveness read gets
+    // what that kill left.
     const clock = new SteppedClock();
     const recorded: RecordedBudgets = { terminate: [], isRunning: [] };
     const spendPerProbe = Math.floor(TEST_BUDGET_MS / 4);
@@ -69,8 +54,7 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
       recorded.isRunning[0],
       "the liveness read reused the kill's budget instead of re-reading — a probe that has already spent the deadline is charged as though it had not",
     ).toBe(TEST_BUDGET_MS - spendPerProbe);
-    // Every figure is a real remaining budget: never negative, never above the
-    // deadline, and strictly decreasing as the probes spend it.
+    // Every figure is a real remaining budget: never negative, never above the deadline.
     const charged = [...recorded.terminate, ...recorded.isRunning];
     for (const budget of charged) {
       expect(budget).toBeGreaterThanOrEqual(0);
@@ -80,15 +64,13 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
   });
 
   it("stops at zero rather than charging a negative budget", async () => {
-    // The floor, and the reading `runBoundedHostCommand` depends on: at or below zero it
-    // spawns nothing, so a negative figure arriving there would be the same
-    // "unbounded" it exists to prevent, spelled as a number.
+    // The floor: at or below zero `runBoundedHostCommand` spawns nothing, so a negative figure
+    // would be unbounded spelled as a number.
     const clock = new SteppedClock();
     const recorded: RecordedBudgets = { terminate: [], isRunning: [] };
     const outcome = await new BoundedCleanup(
       applicationThatNeverCloses(4242),
-      // Each probe spends far more than the whole deadline, which is what a real
-      // `HOST_QUERY_TIMEOUT_MS` does to a budget this size.
+      // Each probe spends more than the whole deadline, as a real host-query timeout would.
       budgetRecordingTerminator(clock, recorded, TEST_BUDGET_MS * 4),
       profileSpy(),
       TEST_BUDGET_MS,
@@ -105,10 +87,7 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
   });
 
   it("negative control: a deadline nothing spends charges every attempt in full", async () => {
-    // Without this the two cases above are ambiguous between "the budget is
-    // charged as it is spent" and "the budget is always the same number", and
-    // the second would pass while forwarding a constant that bounds nothing.
-    // Same seam, same recorder, probes that cost the clock nothing.
+    // Tells "charged as spent" from "always the same number"; probes cost the clock nothing.
     const clock = new SteppedClock();
     const recorded: RecordedBudgets = { terminate: [], isRunning: [] };
     await new BoundedCleanup(
@@ -130,19 +109,15 @@ describe("bounded cleanup — the remaining budget reaches both host-query seams
   });
 
   it("forwards an exhausted budget through the real binding without spawning", async () => {
-    // The binding itself, asked the only way a test may ask it. Both readings
-    // run with nothing left, so `runBoundedHostCommand` starts no process at all — and
-    // both still answer, because the existence probe underneath is a syscall
-    // rather than a command. A pid that is gone reads gone; this runner reads
-    // running, which is the fail-closed direction the charge is allowed to take.
+    // Both readings run with nothing left, so no process starts, and both still answer because the
+    // existence probe is a syscall. A gone pid reads gone; this runner reads running, the
+    // fail-closed direction.
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, 0)).toBe(true);
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(UNHELD_PROCESS_ID, 0)).toBe(false);
-    // And the same answers with a real budget, so the exhausted arm above is the
-    // budget being honored rather than the reading having changed meaning.
+    // Same answer with a real budget, so the exhausted case is the budget being honored.
     expect(ELECTRON_PROCESS_TERMINATOR.isRunning(process.pid, HOST_QUERY_TIMEOUT_MS)).toBe(true);
-    // The structural half the verdicts cannot show: both members DECLARE the
-    // second parameter. A binding that dropped it would keep every answer above
-    // and silently put `HOST_QUERY_TIMEOUT_MS` back outside the deadline.
+    // Both members must declare the second parameter; a binding that dropped it keeps every answer
+    // above and puts the host-query ceiling back outside the deadline.
     expect(
       ELECTRON_PROCESS_TERMINATOR.terminate.length,
       "the tree kill no longer takes a remaining budget — its host commands are unbounded by this cleanup again",

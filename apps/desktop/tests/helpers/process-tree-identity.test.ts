@@ -1,24 +1,18 @@
-// A pid is a NAME, and the operating system hands it back out.
+// A pid is a name, and the operating system hands it back out.
 //
-// Split from `process-tree.test.ts` beside it because it is a different subject
-// with a different instrument. That file asks what a pid is DOING — does it name
-// anything, is what it names still able to run — and answers with probes over one
-// moment. This one asks whether the pid still names the same PROCESS across two
-// moments, which is the question every reading over there quietly assumed an
-// answer to: the launcher shim exits early and is reaped, so the number a tree is
-// addressed through can belong to somebody else by the time a disposal runs.
+// Split from `process-tree.test.ts`, which asks what a pid is doing (does it name anything, can it
+// run) over one moment. This asks whether the pid still names the same process across two
+// moments: the launcher shim exits early and is reaped, so the number a tree is addressed through
+// can belong to somebody else by disposal time.
 //
-// AND THE SAME QUESTION IS ASKED OF EVERY DESCENDANT. The captured set is what a
-// rootless tree is addressed by once its root pid is gone, so a capture that is
-// only a list of numbers hands the arm a stranger to kill one indirection along —
-// the same defect as signaling a reissued root. Each member therefore carries
-// the stamp it was captured with, and `verifyCapturedMembers` is where that pair
-// is spent.
+// The same question applies to every descendant. The captured set is what a rootless tree is
+// addressed by once its root pid is gone, so a list of bare numbers would hand the arm a stranger
+// to kill. Each member carries the stamp it was captured with, and `verifyCapturedMembers` spends
+// that pair.
 //
-// WHAT CANNOT BE PROVOKED. Pid reuse is the kernel's own bookkeeping — a test can
-// neither ask for a number back nor wait out a wrap of the pid space — so the
-// stamp reading is injected here, and the real platform arm is checked in
-// `process-tree-readers.test.ts` against the pids whose answers are already known.
+// Pid reuse is the kernel's bookkeeping: a test can neither ask for a number back nor wait out a
+// wrap of the pid space. So the stamp reading is injected, and the real platform arm is checked in
+// `process-tree-readers.test.ts` against pids whose answers are known.
 
 import { spawnSync } from "node:child_process";
 import process from "node:process";
@@ -43,19 +37,10 @@ const IMPOSTOR_CHILD_PID = 4244;
 const REISSUED_ROOT_TABLE = processTableOf([[IMPOSTOR_CHILD_PID, CAPTURED_ROOT_PID, "impostor"]]);
 
 describe("process termination — a pid is a NAME, and the operating system reissues it", () => {
-  // WHY THIS IS SCRIPTED AND NOT PROVOKED. The state under test is a pid whose
-  // holder CHANGED between two moments, and pid reuse is the kernel's own
-  // bookkeeping: a test cannot ask for the number back, and waiting for a wrap
-  // around the pid space is not a test. So the stamp reading is injected and the
-  // real platform arm is checked separately, against the two pids whose answers
-  // are already known — this process, and one that has certainly exited.
-
   it("captures the root's stamp at construction rather than at the kill", () => {
-    // THE PROPERTY THE WHOLE FIX RESTS ON. A capture taken when the kill is
-    // issued compares the pid against itself an instant later and answers `same`
-    // for every pid on the host — a check that cannot fail wearing the shape of
-    // one that can. The construction read is what makes the later comparison
-    // mean anything, so it is asserted as a MOMENT and not only as a value.
+    // The property the fix rests on: a capture taken when the kill is issued compares the pid
+    // against itself an instant later and answers `same` for every pid, a check that cannot
+    // fail. So the construction read is asserted as a moment, not only a value.
     const stamps = new ScriptedStartStamps(["stamp-at-spawn", "stamp-at-spawn"]);
     const identity = new SpawnedTreeIdentity(
       CAPTURED_ROOT_PID,
@@ -70,19 +55,17 @@ describe("process termination — a pid is a NAME, and the operating system reis
     ).toStrictEqual([CAPTURED_ROOT_PID]);
     expect(identity.readIdentity()).toBe("same");
     expect(stamps.reads).toStrictEqual([CAPTURED_ROOT_PID, CAPTURED_ROOT_PID]);
-    // WITH THE STAMP THE SAME LISTING REPORTED, which is what makes the set
-    // addressable after the root is gone rather than a list of bare numbers.
+    // With the stamp the same listing reported, which makes the set addressable after the root is
+    // gone instead of a list of bare numbers.
     expect(identity.capturedDescendants).toStrictEqual([
       { processId: CAPTURED_CHILD_PID, startStamp: CHILD_STAMP },
     ]);
   });
 
   it("reads a reissued pid as recycled, and keeps the capture taken while it was ours", () => {
-    // THE FINDING. Between the two readings the root exited, was reaped, and its
-    // number went to somebody else — so the process table now hangs the
-    // STRANGER's child off that pid. A capture refreshed there would hand the
-    // termination arm a pid to kill that this package never started, which is
-    // the same defect as signaling the root, one indirection along.
+    // Between the two readings the root exited, was reaped and its number went to somebody else,
+    // so the table now hangs the stranger's child off that pid. Refreshing there would hand the
+    // termination arm a pid this package never started.
     let table: ReadonlyMap<number, ProcessTableRow> = CAPTURED_TREE_TABLE;
     const stamps = new ScriptedStartStamps(["stamp-at-spawn", "stamp-at-spawn", "somebody-else"]);
     const identity = new SpawnedTreeIdentity(
@@ -107,11 +90,9 @@ describe("process termination — a pid is a NAME, and the operating system reis
   });
 
   it("reads a pid that names nothing as gone, without asking for a stamp at all", () => {
-    // Existence decides this one and the stamp is never consulted, which is the
-    // ORDER rather than an economy: a stamp that could not be read on a live
-    // process is an unreadable probe, and answering `gone` to that would skip the
-    // one walk that reaches the tree. The script is one answer long, so a reading
-    // that asked anyway throws instead of passing quietly.
+    // Existence decides this and the stamp is never consulted: a stamp that could not be read on a
+    // live process is an unreadable probe, and answering `gone` would skip the one walk that
+    // reaches the tree. The script is one answer long, so a reading that asked anyway throws.
     const stamps = new ScriptedStartStamps(["stamp-at-spawn"]);
     const identity = new SpawnedTreeIdentity(
       CAPTURED_ROOT_PID,
@@ -125,12 +106,10 @@ describe("process termination — a pid is a NAME, and the operating system reis
   });
 
   it("degrades to the pre-identity reading when no stamp can be read, and captures nothing there", () => {
-    // The honest failure direction on a host whose stamp probe does not work.
-    // Refusing every kill there would leak every tree on that host, which is a
-    // larger failure than the one this reading closes — and detection is
-    // impossible by construction rather than by choice. What it must NOT do is
-    // spend a process-table read per attempt building a capture that the
-    // reissued-root arm, which it can never reach, is the only consumer of.
+    // The failure direction on a host whose stamp probe does not work: refusing every kill would
+    // leak every tree there, a larger failure than the one this closes. It must not spend a
+    // process-table read per attempt building a capture only the reissued-root arm consumes,
+    // which it can never reach.
     let processTableReads = 0;
     const stamps = new ScriptedStartStamps([undefined, undefined]);
     const identity = new SpawnedTreeIdentity(
@@ -152,18 +131,15 @@ describe("process termination — a pid is a NAME, and the operating system reis
   });
 
   it("negative control: an unverified tree asks the platform for no stamp and reads `same`", () => {
-    // The named degradation `terminateProcessTree` defaults to, driven rather
-    // than described. Without this the cases above are ambiguous between "the
-    // reading compares stamps" and "the reading always compares stamps", and the
-    // second would make every caller that holds no spawn moment — `BoundedCleanup`,
-    // handed a pid by Playwright — unable to kill anything at all.
+    // The degradation `terminateProcessTree` defaults to, driven. It guards the cases above
+    // against a reading that always compares stamps, which would leave every caller with no spawn
+    // moment, such as `BoundedCleanup` handed a pid by Playwright, unable to kill anything.
     expect(SpawnedTreeIdentity.unverified(process.pid).readIdentity()).toBe("same");
     expect(SpawnedTreeIdentity.unverified(process.pid).capturedDescendants).toStrictEqual([]);
 
-    // And it still reads `gone` for a pid that names nothing, which is the arm
-    // that decides whether the rootless walk is even reached. `spawnSync` returns
-    // only once its child is gone, so its pid names a process that certainly ran
-    // and certainly is not running.
+    // And it still reads `gone` for a pid that names nothing, which decides whether the rootless
+    // walk is reached. `spawnSync` returns once its child is gone, so its pid certainly ran and is
+    // not running.
     const reaped = spawnSync(process.execPath, ["-e", ""]);
     expect(reaped.pid).toBeGreaterThan(0);
     expect(SpawnedTreeIdentity.unverified(reaped.pid).readIdentity()).toBe("gone");
@@ -171,11 +147,10 @@ describe("process termination — a pid is a NAME, and the operating system reis
 });
 
 describe("process termination — a captured descendant is a pair, not a pid", () => {
-  // WHY VERIFICATION IS ITS OWN FUNCTION. The captured set is the only handle a
-  // rootless tree has, and it is spent by two arms of `terminateExternalTree`
-  // that cannot both be reached in one case. The rule they share — refuse on a
-  // stamp that DISAGREES, never on one that is missing — is therefore checked
-  // once, here, against the table shapes each arm is handed.
+  // The captured set is the only handle a rootless tree has, and two arms of
+  // `terminateExternalTree` spend it that cannot both be reached in one case. The rule they
+  // share, refuse on a stamp that disagrees and never on one that is missing, is checked once
+  // here.
 
   const capturedChild: CapturedTreeMember = {
     processId: CAPTURED_CHILD_PID,
@@ -189,11 +164,9 @@ describe("process termination — a captured descendant is a pair, not a pid", (
   });
 
   it("drops a member whose pid the table now lists under a different stamp", () => {
-    // THE SECOND REISSUE, and the one a fix that stopped at the root would miss.
-    // The descendant exited, was reaped, and its number went to somebody else —
-    // so a capture that carried only the pid would hand `taskkill` a process
-    // this package never spawned, with the root's own identity check reporting
-    // nothing wrong because the root is not what moved.
+    // The second reissue, which a fix stopping at the root would miss: the descendant exited, was
+    // reaped, and its number went to somebody else, so a pid-only capture would hand `taskkill` a
+    // process this package never spawned while the root's identity check reports nothing wrong.
     expect(
       verifyCapturedMembers(
         [capturedChild],
@@ -204,11 +177,9 @@ describe("process termination — a captured descendant is a pair, not a pid", (
   });
 
   it("keeps a member the table does not list at all, because absence convicts nobody", () => {
-    // THE FAILURE DIRECTION, and it is the opposite of the case above on purpose.
-    // A row missing from the listing is the ordinary shape of a descendant that
-    // has already exited — the caller's own liveness reading filters that one
-    // before anything is signaled — and an EMPTY listing is a read that failed.
-    // Reading either as "this member is somebody else now" would disarm the
+    // The failure direction, opposite to the case above on purpose. A missing row is the ordinary
+    // shape of a descendant that already exited (the caller's liveness reading filters it), and an
+    // empty listing is a failed read. Reading either as "somebody else now" would disarm the
     // rootless arm on exactly the host whose readings do not work.
     expect(verifyCapturedMembers([capturedChild], processTableOf([]))).toStrictEqual([
       CAPTURED_CHILD_PID,
@@ -216,8 +187,8 @@ describe("process termination — a captured descendant is a pair, not a pid", (
   });
 
   it("keeps a member captured under no stamp, and one the table lists under none", () => {
-    // The two halves of the same degradation the root takes: a comparison needs
-    // both sides, and a side that was never read is not evidence of a reissue.
+    // The two halves of the root's degradation: a comparison needs both sides, and a side never
+    // read is not evidence of a reissue.
     expect(
       verifyCapturedMembers(
         [{ processId: CAPTURED_CHILD_PID, startStamp: undefined }],

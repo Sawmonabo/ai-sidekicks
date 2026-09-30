@@ -1,28 +1,25 @@
 /*
- * A control that sits flush against the edge of a box that clips it wears
- * `meridian-focus-inset` beside its own class. The browser's own focus mark, its style
- * and its color untouched, is then drawn inside the control's edge rather than outside
- * it, so the clip cannot cut it and nothing moves: a pane frame, a scroll area that
- * fills its pane, a diff's file entries and body, and the command palette's input and
- * result list. `space-1` is the smallest step that puts the whole painted mark inside.
+ * A control flush against the edge of a box that clips it wears `meridian-focus-inset` beside its
+ * own class. The browser's focus mark is then drawn inside the control's edge, so the clip cannot
+ * cut it and nothing moves: a pane frame, a full-pane scroll area, a diff's entries, the command
+ * palette's input and list. `space-1` is the smallest step that puts the whole mark inside.
  */
 .meridian-focus-inset {
   outline-offset: calc(-1 * var(--meridian-space-1));
 }
 
 /*
- * Inside the edge, the control's own positioned content would paint over the mark: a
- * diff's sticky file header and tinted rows, a filled transcript row at the top of the
- * scrolled log. So the mark moves onto a box laid over the control. The box is anchored
- * to the control, so it stays put while the control scrolls; it stacks above the
- * content, takes no pointer and names nothing. It takes the control's border and
- * corners, so the browser places the mark exactly where it would on the control. An
- * input cannot hold that box and keeps its own mark.
+ * Inside the edge, the control's own positioned content (a diff's sticky header and tinted rows,
+ * a filled transcript row at the top of the log) would paint over the mark. So the mark moves
+ * onto a box laid over the control: anchored to it so it stays put while the control scrolls,
+ * stacked above the content, taking no pointer, and copying the control's border and corners so
+ * the browser places the mark as it would on the control. An input cannot hold that box and
+ * keeps its own mark.
  *
- * The control's parent holds the box: an identity scale makes the parent the box's
- * containing block and its own stacking layer while the control has focus, and changes
- * nothing on screen. So a list that scrolls the control partly out of view clips the
- * mark with it, and a pop-up opened later in the page stays above the mark.
+ * The parent holds the box: an identity scale makes it the box's containing block and its own
+ * stacking layer while the control has focus, and changes nothing on screen. A list that scrolls
+ * the control partly out of view therefore clips the mark with it, and a later pop-up stays
+ * above it.
  */
 .meridian-focus-inset:focus-visible {
   anchor-name: --meridian-focus-inset;

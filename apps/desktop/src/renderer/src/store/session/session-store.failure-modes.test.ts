@@ -1,24 +1,12 @@
-// How the apply chokepoint admits what arrives, and what it records when it cannot.
+// How the apply chokepoint admits what arrives, and what it records when it cannot: an event
+// that came early, one addressed elsewhere, one that skipped a sequence, a subscriber writing
+// back during notification, and the dedupe set over a long-lived session. The other modes are in
+// `session-store.repair.test.ts` (authoritative re-read, pre-initialization cap),
+// `session-store.sequence.test.ts` (unreconcilable sequences) and
+// `session-store.projection-failure.test.ts` (a throwing projector).
 //
-// The class: every way a batch can reach `SessionStore.applyBatch` at a moment the
-// store is not ready for it. This file owns the three that are about ARRIVAL — an
-// event that came early, one addressed elsewhere, one that skipped a sequence —
-// plus the two the chokepoint answers with memory: a subscriber writing back during
-// notification, and the dedupe set over a long-lived session. The other modes have
-// their own files: `failure-modes.repair.test.ts` for the authoritative re-read and
-// the pre-initialization cap, `failure-modes.sequence.test.ts` for a delivered
-// sequence the store cannot reconcile, and `failure-modes.projection.test.ts` for a
-// projector that throws.
-//
-// They live in `store/` because the subject is the chokepoint itself: what it
-// admits, what it buffers, what it refuses, and what it records when a caller
-// breaches it. The scenario engine that feeds it and the persistence layer that
-// outlives it have their own `failure-modes.test.ts`, covering their own subjects.
-//
-// Where a mode has a "the code should have refused" shape, the assertion is on the
-// REFUSAL — its count, its tripwire, its detail — rather than merely on the absence
-// of a crash. Not throwing is not the same as behaving correctly, and the
-// difference is where every silent-corruption bug lives.
+// Where the code should have refused, the assertion is on the refusal (count, tripwire, detail)
+// rather than the absence of a crash, since not throwing is not behaving correctly.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -26,11 +14,8 @@ import { windowTripwires } from "@renderer/lib/tripwires.js";
 import { eventAt } from "./session-store.test-support.js";
 import { SessionStore } from "./session-store.js";
 
-// Tripwires throw in development so a breach is impossible to ignore. Under test
-// they are RECORDED, because the re-entrancy case below asserts that the breach was
-// detected and described — a throw would only prove it was noticed. This file is the
-// only one of the four that can reach a tripwire: `applyBatch`'s re-entrancy guard
-// is the store's single `reportTripwire` call site.
+// Tripwires throw in development. Under test they are recorded, since the re-entrancy case
+// asserts the breach was detected and described; a throw would only prove it was noticed.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
@@ -47,9 +32,7 @@ describe("failure matrix — a bridge event arrives before the store is initiali
 
     store.initialize({ cursor: 1, entities: [] });
 
-    // Both buffered events land, ordered, with no gap recorded: the events were
-    // never missing, only early. Dropping them would have left a hole the console
-    // could only heal with a full re-pull.
+    // Both buffered events land ordered with no gap: they were only early, never missing.
     const timeline = store.snapshot().timeline;
     expect(timeline.map((event) => event.sequence)).toStrictEqual([2, 3]);
     expect(store.snapshot().gaps).toStrictEqual([]);
@@ -89,9 +72,8 @@ describe("failure matrix — a subscriber writes back into the apply chokepoint"
         return;
       }
       hasReentered = true;
-      // The bug this models: a selector-driven effect that writes during
-      // notification. Left unguarded it interleaves two transitions and the
-      // second one's `current` snapshot is already stale.
+      // Models an effect writing during notification, which unguarded would interleave two
+      // transitions with the second's `current` already stale.
       store.applyBatch([eventAt(2)]);
     });
 
@@ -99,8 +81,7 @@ describe("failure matrix — a subscriber writes back into the apply chokepoint"
     unsubscribe();
 
     expect(outcome.admitted).toBe(1);
-    // The re-entrant events are not lost — they are applied after the outer batch
-    // settles, so state stays consistent — but the breach is recorded.
+    // The re-entrant events are applied after the outer batch settles, and the breach is recorded.
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([1, 2]);
     expect(windowTripwires.firingCount("apply-chokepoint-bypass")).toBe(1);
     const report = windowTripwires.reports()[0];
@@ -136,16 +117,13 @@ describe("failure matrix — dedupe memory over a long-lived session", () => {
     }
 
     expect(store.snapshot().cursor).toBe(batchSize * batchCount);
-    // Every one of those sequences is at or below the cursor, and the cursor test
-    // refuses them without help. Retaining them would have grown this set by one
-    // number per event for as long as the session stayed open — behind a timeline
-    // the cap had already trimmed.
+    // Every sequence is at or below the cursor, which refuses them alone; retaining them would
+    // grow the set by one number per event for the session's life.
     expect(store.retainedDedupeSequenceCount).toBe(0);
   });
 
   it("negative control: an in-batch duplicate is still rejected", () => {
-    // The set's whole remaining job. A release that cleared it mid-batch would
-    // admit the second copy of a sequence the same batch already carried.
+    // The set's remaining job: clearing it mid-batch would admit a repeat within the batch.
     const store = new SessionStore({ sessionId: "session-1" });
     store.initialize({ cursor: 0, entities: [] });
 

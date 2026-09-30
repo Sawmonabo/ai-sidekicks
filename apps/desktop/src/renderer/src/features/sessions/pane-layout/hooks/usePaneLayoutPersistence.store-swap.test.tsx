@@ -1,15 +1,8 @@
-// The store an arrangement is written THROUGH, when that store is replaced under a
-// live pane layout.
-//
-// The failure this file exists for is silent in both directions and looks like
-// nothing at all: the composition root re-mints the `UiStateStore` on a reconnect and
-// hands the new one down, the session screen subtree is keyed on the session and does not
-// remount, and a writer minted in a `useState` initializer goes on writing into the
-// store that was retired. Every later arrangement is filed where nothing will read it
-// again, and the pane layout on screen is the only place it still exists.
-//
-// So the assertion is about WHICH store was asked, not about whether a write
-// happened: two adapters, one per store, and a ledger on each.
+// The store an arrangement is written through, when that store is replaced under a live pane
+// layout. The composition root re-mints the `UiStateStore` on a reconnect and the session
+// screen subtree does not remount, so a writer minted in a `useState` initializer keeps
+// writing into the retired store, where nothing reads it again. The assertion is about which
+// store was asked: two adapters, one per store, and a ledger on each.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { useState } from "react";
@@ -52,8 +45,7 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
     await saveLayout(retiredStore, SESSION_ID, ["transcript", "terminal"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };
 
-    // Unkeyed, because that is the shape the defect lives in: the same session with a
-    // replaced store re-renders this subtree rather than remounting it.
+    // Unkeyed, the shape the defect lives in: a replaced store re-renders this subtree.
     const { container, rerender } = render(workspaceFor(session, retiredStore, false));
     await waitFor(() => {
       expect(container.querySelectorAll(".meridian-pane-layout__pane")).toHaveLength(2);
@@ -72,9 +64,8 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
   });
 
   it("negative control: a writer held in `useState` files into the retired store", async () => {
-    // A writer held in `useState`, driven over the same swap. Without this the case
-    // above would pass over a pane layout that stopped writing anywhere at all, and the
-    // two ledgers would agree for the wrong reason.
+    // A writer held in `useState`, driven over the same swap. Without this the case above
+    // would pass over a layout that wrote nowhere, and the ledgers would agree by accident.
     const retiredAdapter = new GatedPersistenceAdapter();
     const liveAdapter = new GatedPersistenceAdapter();
 
@@ -114,10 +105,8 @@ describe("SessionScreen — the arrangement follows the store on screen", () => 
 
 describe("SessionScreen — the restore runs once for the session on screen", () => {
   it("does not read the record again when the store is replaced under it", async () => {
-    // `PaneLayoutStore.restore` replaces wholesale, which is right at a mount against an
-    // empty pane layout and wrong against one somebody has been arranging: the two records
-    // below deliberately disagree, so a second restore is visible as the pane layout losing a
-    // pane rather than as nothing at all.
+    // `PaneLayoutStore.restore` replaces wholesale, which is wrong against a layout somebody
+    // has been arranging. The two records disagree so a second restore shows as a lost pane.
     const firstStore = storeOver(new GatedPersistenceAdapter());
     await saveLayout(firstStore, SESSION_ID, ["transcript", "terminal"]);
     const secondStore = storeOver(new GatedPersistenceAdapter());
@@ -137,8 +126,7 @@ describe("SessionScreen — the restore runs once for the session on screen", ()
   });
 
   it("negative control: the second store's record really is a pane layout of one pane", async () => {
-    // Without this, the case above would pass over two records that said the same
-    // thing, and the assertion would be about nothing.
+    // Without this, the case above would pass over two records that said the same thing.
     const secondStore = storeOver(new GatedPersistenceAdapter());
     await saveLayout(secondStore, SESSION_ID, ["transcript"]);
     const session: SessionWithStore = { sessionId: SESSION_ID, store: sessionStore() };

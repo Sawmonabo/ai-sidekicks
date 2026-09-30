@@ -1,13 +1,8 @@
-// The banner the session screen raises when a save of the pane layout fails.
-//
-// Every case drives the real screen rather than the fold: what a person sees is one
-// banner under the session header in plain words, however many saves fail and however
-// they fail, while each failure's code goes to the window's diagnostic capture; and a
-// banner raised in one session does not go on standing over the next.
-//
-// A banner is raised by a failed save, so each case commits an arrangement — cycling
-// pane layout focus commits one without opening or closing a pane — against a store whose
-// writes have been made to fail.
+// The banner the session screen raises when a save of the pane layout fails. Every case
+// drives the real screen: one banner under the header in plain words however many saves fail,
+// each failure's code going to the diagnostic capture, and a banner raised in one session not
+// standing over the next. Each case commits an arrangement (cycling focus commits one without
+// opening or closing a pane) against a store whose writes fail.
 
 import { fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -30,11 +25,8 @@ import {
 } from "./SessionScreen.test-support.js";
 
 /**
- * How the store answers a write.
- *
- * `reject` is a write that fails outright; `refuse` is one the store turns into its own
- * refusal. Two modes because both are a save that failed, and both say so in the same
- * words.
+ * How the store answers a write: `reject` fails outright, `refuse` becomes the store's own
+ * refusal. Both are a failed save and say so in the same words.
  */
 type WriteMode = "accept" | "reject" | "refuse";
 
@@ -85,12 +77,9 @@ async function commitArrangement(container: HTMLElement): Promise<void> {
 
 /**
  * One session screen and one store, with the route between two sessions inside that mount.
- *
- * UNKEYED, which is the whole shape the second describe is about: the session screen stays
- * mounted across a navigation between two open sessions, so a value held for the life
- * of the MOUNT survives the route. ONE bridge across both renders, because the fixture
- * mints a new one per call and a replaced transport is a second reason to drop what this
- * column holds — a case that let both move could not say which one did the clearing.
+ * Unkeyed, because the screen stays mounted across a navigation between open sessions. One
+ * bridge across both renders, since a replaced transport is a second reason to drop what the
+ * column holds and a case letting both move could not say which did the clearing.
  */
 function renderRoutableSession(store: UiStateStore): {
   readonly container: HTMLElement;
@@ -171,10 +160,9 @@ describe("SessionScreen — the pane layout's save failure", () => {
 
 describe("SessionScreen — the banner column belongs to the session that raised it", () => {
   it("stops showing one session's banners once the session screen routes to another", async () => {
-    // The defect: a mount-lifetime list. The session screen is not remounted between two
-    // open sessions, so a banner raised while the first was on screen went on standing
-    // over the second's pane layout — a sentence about an act nobody performed in the session
-    // they are looking at, with nothing on screen tying it to the one they left.
+    // A mount-lifetime list: the screen is not remounted between two open sessions, so a
+    // banner raised in the first once stood over the second's pane layout, about an act nobody
+    // performed in the session on screen.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);
@@ -188,8 +176,7 @@ describe("SessionScreen — the banner column belongs to the session that raised
   });
 
   it("negative control: the session arrived at raises a banner of its own", async () => {
-    // Without this, the case above would pass over a column that had stopped raising
-    // banners at all.
+    // Without this, the case above would pass over a column that stopped raising banners.
     const { store, adapter } = await storeWithSavedLayouts();
     const { container, routeTo } = renderRoutableSession(store);
     await awaitRestoredPaneLayout(container);

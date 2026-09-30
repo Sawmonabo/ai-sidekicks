@@ -12,23 +12,11 @@ import { toneForServerStatus } from "../server-status-tone.js";
 /**
  * One binding's live legs, one row per session that holds it open.
  *
- * THE GRAIN IS PRESERVED RATHER THAN FOLDED. One configuration backs however many
- * concurrent sessions there are, and two legs of one binding can honestly disagree —
- * a session that authorized and one that has not, a process that died under one
- * session and not another. A row that showed one scalar would report a partial
- * outage as either fine or broken, and both readings would be wrong.
- *
- * AND EACH LEG IS KEYED BY THE PAIR THE DAEMON IDENTIFIES IT BY. `bindingId` names one
- * live binding inside one session, so two sessions holding this configuration open can
- * report it under the same string; keying on that alone gave both rows one React
- * identity, and React then reuses the wrong row when a leg is added, removed, or
- * reordered. `live-leg-key.ts` owns the encoding, and the outcome list shares it.
- *
- * THE AGGREGATE ABOVE THIS LIST IS THE DAEMON'S AND IS NEVER RECOMPUTED HERE. The
- * severity rule that folds these legs into the row's own status lives at the daemon;
- * this component renders the legs and the row renders the aggregate, and neither
- * derives the other. Two rows of this page make that testable: one binding's legs
- * agree with its aggregate and another's do not, and the disagreement is the point.
+ * The per-leg grain is preserved, not folded: one configuration backs many concurrent
+ * sessions, and two legs can honestly disagree, so one scalar would report a partial outage
+ * as fine or broken. Each leg is keyed by `(sessionId, bindingId)` through `live-leg-key.ts`,
+ * shared with the outcome list. The aggregate above this list is the daemon's and is never
+ * recomputed here.
  */
 export function ServerLegs(props: {
   readonly legs: readonly McpServerLegStatus[] | undefined;

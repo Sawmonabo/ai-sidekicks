@@ -1,8 +1,5 @@
 // The store that folds the service's answers about the machine's settings file into a
-// snapshot.
-//
-// The vocabulary it folds into is `machine-settings-snapshot.ts`; who owns a store for
-// how long, and how React acquires one, is `machine-settings-holder.ts`.
+// snapshot; `machine-settings-holder.ts` owns its lifetime.
 
 import type { MachineSettings, MachineSettingsChange } from "@ai-sidekicks/contracts";
 import type { PreloadApi, Unsubscribe } from "@shared/preload-api.js";
@@ -17,23 +14,16 @@ import {
 /**
  * The latch key a write's answer is installed under.
  *
- * One key for every member, because every answer is the WHOLE file: a newer write's
- * answer or a feed delivery already carries what an older write's answer would install,
- * so an older answer landing after either is stale whichever member it was about.
+ * One key for every member: every answer is the whole file, so an older answer landing after
+ * a newer write's answer or a feed delivery is stale whichever member it was about.
  */
 const ANSWER_KEY = "answer";
 
 /**
  * The machine settings for one window.
  *
- * A class with private fields rather than a hook body, per `apps/desktop/AGENTS.md`: it
- * owns a subscription, a write generation, and a teardown. `useMachineSettings` is the
- * React binding and holds nothing of its own.
- *
- * THE FEED IS THE READ. The bridge's subscription delivers the file as it stands first
- * and then each written change, from this window or any other, so the store asks for no
- * separate read and refreshes on nothing: a delivery always installs, because it is the
- * newest thing the service has said.
+ * The feed is the read: the bridge's subscription delivers the file as it stands and then
+ * each written change, so a delivery always installs and no separate read is made.
  */
 export class MachineSettingsStore {
   readonly #machineSettings: PreloadApi["machineSettings"];
@@ -42,17 +32,11 @@ export class MachineSettingsStore {
   #unsubscribe: Unsubscribe | undefined;
   #disposed = false;
   /**
-   * Whether a write's answer may still install. A write takes the key, and a later
-   * write or a feed delivery supersedes it, so an answer that lands after newer news is
-   * dropped rather than put over it. Being DISPOSED is the separate flag above: that
-   * fact is terminal and this is not.
+   * Whether a write's answer may still install; a later write or a feed delivery supersedes
+   * it. Separate from the terminal disposed flag.
    */
   readonly #answers = new GenerationLatch();
-  /**
-   * How many writes are in flight per member: the rows a person is waiting on. A count
-   * rather than a flag, so the first of two writes for one member settling does not
-   * stop the row saying the second is still on its way.
-   */
+  /** Writes in flight per member; a count, so one of two settling does not clear the row. */
   readonly #writesInFlight = new Map<MachineSettingsMember, number>();
 
   public constructor(machineSettings: PreloadApi["machineSettings"]) {
@@ -67,11 +51,7 @@ export class MachineSettingsStore {
     return this.#changes.subscribe(sink);
   }
 
-  /**
-   * Subscribe to the service's feed.
-   *
-   * Idempotent, because React mounts an effect twice under strict mode.
-   */
+  /** Subscribe to the service's feed. Idempotent, because strict mode mounts an effect twice. */
   public start(): void {
     if (this.#unsubscribe !== undefined || this.#disposed) {
       return;
@@ -100,10 +80,8 @@ export class MachineSettingsStore {
   /**
    * Choose one member's value.
    *
-   * The change is offered to the service and its answer, the file as written, is
-   * installed unless newer news arrived first. A written change carries no repair, so
-   * the answer clears one. A rejected write is not caught; the member stops pending and
-   * the stored value stands.
+   * The service's answer (the file as written) is installed unless newer news arrived first.
+   * A rejected write is not caught: the member stops pending and the stored value stands.
    */
   public async choose<Member extends MachineSettingsMember>(
     member: Member,

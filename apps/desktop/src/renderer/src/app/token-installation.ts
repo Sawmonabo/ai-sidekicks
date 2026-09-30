@@ -1,28 +1,12 @@
 // Getting the Meridian tokens into the document.
 //
-// The token sheet is GENERATED at mount from `generateMeridianCss()` rather than
-// committed as a `.css` file, and that is a decision rather than a shortcut. A
-// committed sheet would be a second copy of `palette.ts` — the two would drift, and
-// the only defense would be a byte-diff test whose failure mode is "someone forgot
-// to run the generator". Generating at mount deletes the second copy: there is one
-// source of truth for every color, and the sheet cannot disagree with it.
+// The token sheet is generated at mount from `generateMeridianCss()`, not committed as a `.css`
+// file, so there is one source of truth for every color and the sheet cannot drift from it. The
+// cost is a few kilobytes of string building once per window, before first paint. Installation is
+// idempotent by element id, because a second window and a hot reload both re-enter this path.
 //
-// The cost is a few kilobytes of string building once per window, before first
-// paint. That is well inside the frame budget and is paid exactly once; the
-// alternative costs a build step, a generated artifact in review diffs, and a class
-// of drift bug.
-//
-// Installation is idempotent and keyed by element id, because an auxiliary window
-// and a hot-module reload both re-enter this path and two copies of the sheet would
-// double the cascade for no benefit.
-//
-// WHY THIS IS IN `app/` AND NOT IN `styles/`. It is the one part of the token
-// story that touches a `Document`, and `styles/` is a vocabulary that node context
-// reads — the generated-asset check imports it to byte-diff the emitted sheet
-// against the palette it came from. A DOM-typed module there puts `Document` into a
-// program that has none, so the folder stops being readable by the tooling that
-// validates it. Mounting is the window's job anyway: `AppBootstrap` is the only
-// production caller, and an auxiliary window re-enters through its own root.
+// It lives in `app/` and not `styles/` because it is the one part that touches a `Document`, and
+// node-context tooling imports `styles/` with no DOM lib.
 
 import { SCHEME_ATTRIBUTE, generateMeridianCss } from "@renderer/styles/generate-css.js";
 import { type SchemePreference } from "@renderer/styles/tokens.js";
@@ -32,8 +16,8 @@ import { generateTypefaceCss } from "@renderer/styles/typeface.js";
 export const MERIDIAN_STYLE_ELEMENT_ID = "meridian-tokens";
 
 /**
- * Install the token sheet into a document. Returns true when it wrote the sheet,
- * false when one was already present.
+ * Install the token sheet into a document. Returns true when it wrote the sheet, false when one
+ * was already present.
  */
 export function installMeridianTokens(targetDocument: Document): boolean {
   if (targetDocument.getElementById(MERIDIAN_STYLE_ELEMENT_ID) !== null) {
@@ -41,15 +25,9 @@ export function installMeridianTokens(targetDocument: Document): boolean {
   }
   const styleElement = targetDocument.createElement("style");
   styleElement.id = MERIDIAN_STYLE_ELEMENT_ID;
-  // The faces lead the sheet. `@font-face` participates in no cascade — a face is
-  // matched by family and weight, never overridden — so the order buys nothing at
-  // paint time; it is here because a reader meeting `font-family: var(--meridian-
-  // font-sans)` a few lines down should have already met the bytes that name
-  // resolves to. Both halves are generated, so this is one string built once per
-  // window rather than a second install path.
+  // The faces lead the sheet for readability; `@font-face` takes part in no cascade.
   styleElement.textContent = `${generateTypefaceCss()}\n\n${generateMeridianCss()}`;
-  // Prepended rather than appended so component stylesheets, which reference these
-  // custom properties, cascade after the definitions they read.
+  // Prepended so component stylesheets cascade after the custom properties they read.
   targetDocument.head.prepend(styleElement);
   return true;
 }
@@ -57,11 +35,9 @@ export function installMeridianTokens(targetDocument: Document): boolean {
 /**
  * Apply a scheme choice to the document root.
  *
- * `"system"` REMOVES the attribute rather than writing a resolved value. The sheet's
- * middle layer is a `prefers-color-scheme` block guarded by
- * `:root:not([data-color-scheme="light"])`, so with no attribute the OS decides
- * and keeps deciding — a resolved value written once would freeze the window at
- * whatever the OS was doing at mount and stop following a later change.
+ * `"system"` removes the attribute rather than writing a resolved value: the sheet's
+ * `prefers-color-scheme` layer is guarded by `:root:not([data-color-scheme="light"])`, so with
+ * no attribute the OS keeps deciding, including after a later change.
  */
 export function applyColorScheme(targetDocument: Document, scheme: SchemePreference): void {
   const root = targetDocument.documentElement;

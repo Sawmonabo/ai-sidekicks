@@ -1,16 +1,11 @@
-// The endurance generator's three claims: exact, deterministic, and wire-true.
-//
-// Each one is load-bearing for a measurement rather than for a rendering, which is
-// why they are asserted here and nowhere else:
-//
-//   • EXACT — an endurance reading names the row count it was taken at. A generator
-//     that produced "about ten thousand" would have two runs of one measurement
-//     disagreeing for a reason invisible in the number.
-//   • DETERMINISTIC — a heap or frame reading is only comparable across runs if the
-//     session it was taken over is byte-identical. This is the case that would fail
-//     the day someone reached for a random id or a wall clock in here.
-//   • WIRE-TRUE — the rows are the same registered events the picker scenarios play,
-//     so the reading is taken over the rendering path the product actually has.
+// The endurance generator's three claims, each load-bearing for a measurement rather than a
+// rendering:
+//   - exact: a reading names the row count it was taken at, so "about ten thousand" would leave
+//     two runs of one measurement disagreeing for an invisible reason;
+//   - deterministic: a heap or frame reading is comparable across runs only if the session is
+//     byte-identical, which fails the day a random id or wall clock enters the generator;
+//   - wire-true: the rows are the registered events the picker scenarios play, so the reading is
+//     taken over the rendering path the product has.
 
 import { describe, expect, it } from "vitest";
 
@@ -31,9 +26,8 @@ describe("createTranscriptEnduranceFixture", () => {
   });
 
   it("plays exactly the row count for an odd count no run group divides evenly", () => {
-    // The negative control for the case above: an exact count that only holds when
-    // the budget divides cleanly is not an exact count. 9,997 leaves a remainder the
-    // last run group has to absorb.
+    // The negative control for the case above: an exact count that holds only when the budget
+    // divides cleanly is not exact. 9,997 leaves a remainder the last run group must absorb.
     expect(createTranscriptEnduranceFixture({ rowCount: 9_997 }).beats).toHaveLength(9_997);
   });
 
@@ -44,8 +38,8 @@ describe("createTranscriptEnduranceFixture", () => {
   });
 
   it("produces a different session for a different row count", () => {
-    // The negative control for determinism: two equal strings prove nothing if the
-    // generator ignores its arguments.
+    // The negative control for determinism: two equal strings prove nothing if the generator
+    // ignores its arguments.
     const smaller = createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT });
     const larger = createTranscriptEnduranceFixture({ rowCount: WIRE_TRUTH_ROW_COUNT + 8 });
     expect(JSON.stringify(larger)).not.toBe(JSON.stringify(smaller));
@@ -87,9 +81,8 @@ describe("createTranscriptEnduranceFixture", () => {
   });
 
   it("accepts the smallest row count that does fit", () => {
-    // The negative control for the refusal above: 1 opening beat, plus 12 run groups
-    // of 4 lifecycle beats, plus one body row for each of those 12, is 61 — and one
-    // row fewer leaves a run group with no body at all.
+    // The negative control for the refusal above: 1 opening beat, 12 run groups of 4 lifecycle
+    // beats and one body row each is 61, and one row fewer leaves a run group with no body.
     expect(() => createTranscriptEnduranceFixture({ rowCount: 61, runCount: 12 })).not.toThrow();
     expect(() => createTranscriptEnduranceFixture({ rowCount: 60, runCount: 12 })).toThrow(
       RangeError,

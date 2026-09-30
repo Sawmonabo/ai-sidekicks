@@ -1,9 +1,5 @@
-// The card shape: in the transcript, because the refusal is now part of what happened.
-//
-// `refusal-props.ts` states the grammar all three shapes obey and declares the
-// props they share; this module decides only what a refusal looks like once it has
-// joined the session's history — a block in the feed rather than a line beside a
-// control, and no live region of its own, because the feed announces its own rows.
+// The card shape: a block in the transcript, once the refusal is part of the session's history.
+// It has no live region of its own, because the feed announces its own rows.
 
 import "./Refusal.css";
 
@@ -13,7 +9,7 @@ import { WireFigure } from "../WireFigure/WireFigure.js";
 import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
-/** In the transcript, when the refusal is now part of what happened. */
+/** A refusal as a block in the transcript. */
 export function RefusalCard(props: RefusalProps): React.JSX.Element {
   return (
     <div className="meridian-refusal meridian-refusal--card">

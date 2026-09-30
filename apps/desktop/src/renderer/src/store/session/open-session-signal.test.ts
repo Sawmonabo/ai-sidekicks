@@ -1,8 +1,5 @@
-// The signal every open session shares.
-//
-// Two properties, and the rebinding one is why this is a class rather than a closure:
-// a session opened after the signal started has to be bound, or the window goes quiet
-// for exactly the sessions a person just opened.
+// The signal every open session shares. The rebinding is why it is a class: a session opened
+// after the signal started must be bound, or the window goes quiet for it.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,8 +23,7 @@ describe("subscribeToOpenSessions", () => {
   });
 
   it("binds a session opened AFTER it started", () => {
-    // The rebinding rule. A signal that bound once would answer the registry's own
-    // open event and then go silent for that session's projection forever.
+    // A signal that bound once would go silent for that session's projection.
     const registry = emptyRegistry();
     const store = registry.open("session-a");
     let changes = 0;

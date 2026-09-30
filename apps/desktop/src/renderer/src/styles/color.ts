@@ -1,22 +1,14 @@
-// Meridian color math — OKLCH authoring, sRGB rendering, WCAG 2.2 measurement.
+// Meridian color math: OKLCH authoring, sRGB rendering, WCAG 2.2 measurement. One conversion path
+// serves the contrast floors a test must measure and the twelve hues drawn from an OKLCH wheel.
+// OKLCH is perceptually uniform in lightness, sRGB is what a display emits, and WCAG relative
+// luminance is what the floors are stated in.
 //
-// The design language states contrast floors that a test must be able to *measure*,
-// and generates the twelve user hues from an OKLCH wheel. Both need one
-// conversion path, so this module owns it: OKLCH is the authoring space (perceptually
-// uniform lightness, so one lightness really does read as one lightness across the
-// wheel), sRGB is what a display emits, and WCAG relative luminance is what the floors
-// are stated in.
+// Colors are pre-fitted into gamut here rather than left to the browser: CSS Color 4 gamut-maps an
+// out-of-gamut `oklch()` by a binary search against a deltaE bound, and a test modeling that would
+// measure its own guess. Every color is chroma-fitted at authoring time (`fitChromaIntoSrgbGamut`),
+// so the browser maps nothing and `oklchToSrgb` is exact.
 //
-// Why the values are pre-fitted into gamut here rather than left to the browser:
-// CSS Color 4 gamut-maps an out-of-gamut `oklch()` by reducing chroma along a
-// binary search against a deltaE bound. Modeling that in a test is guesswork,
-// and a test that guesses at the renderer's mapping measures the guess. Every
-// Meridian color is therefore chroma-fitted (`fitChromaIntoSrgbGamut`) at
-// authoring time, so the emitted `oklch()` is already inside sRGB, the browser
-// maps nothing, and `oklchToSrgb` below is exact rather than approximate.
-//
-// The matrices are Björn Ottosson's OKLab publication (the same constants the
-// CSS Color 4 specification carries in its sample code).
+// The matrices are Björn Ottosson's OKLab constants, the same ones CSS Color 4 carries.
 
 /** A color authored in OKLCH. `hueDegrees` is the CSS hue angle. */
 export interface OklchColor {
@@ -95,10 +87,8 @@ function isInsideSrgbGamut(linear: LinearSrgbColor): boolean {
 }
 
 /**
- * The number of bisection steps `fitChromaIntoSrgbGamut` takes. Twenty halvings
- * of a 0.4-wide chroma interval settle below 4e-7, which is two orders of
- * magnitude finer than the three decimal places the emitted CSS carries — so the
- * fit is exact at the precision anything downstream can observe.
+ * The number of bisection steps `fitChromaIntoSrgbGamut` takes. Twenty halvings of a 0.4-wide
+ * chroma interval settle below 4e-7, finer than the decimals the emitted CSS carries.
  */
 export const GAMUT_FIT_BISECTION_STEPS = 20;
 
@@ -135,15 +125,10 @@ export function oklchToSrgb(color: OklchColor): SrgbColor {
 }
 
 /**
- * WCAG 2.2 contrast ratio between two colors already in sRGB; 1 (identical) to 21
- * (black on white).
- *
- * The sRGB entry point exists because a CSS `filter` is defined over sRGB channels
- * and has no OKLCH form: measuring what a filtered control really shows means
- * measuring the triple the filter produced. Scaling both of a pair's channels does
- * NOT preserve their ratio — relative luminance carries a 0.05 offset that a
- * multiplication does not distribute over — so a filtered treatment is only
- * checkable this way.
+ * WCAG 2.2 contrast ratio between two colors already in sRGB; 1 (identical) to 21 (black on
+ * white). A CSS `filter` works on sRGB channels and has no OKLCH form, so a filtered treatment is
+ * measured on the triple the filter produced: scaling both channels does not preserve their
+ * ratio, because relative luminance carries a 0.05 offset.
  */
 export function srgbContrastRatio(foreground: SrgbColor, background: SrgbColor): number {
   const foregroundLuminance = srgbRelativeLuminance(foreground);
@@ -159,10 +144,9 @@ export function contrastRatio(foreground: OklchColor, background: OklchColor): n
 }
 
 /**
- * The CSS `oklch()` function text for a color, at three decimal places for
- * lightness and chroma and one for hue. The rounding is applied before the
- * value is ever measured, so the number the contrast test reads and the number
- * the browser paints are the same number.
+ * The CSS `oklch()` function text for a color, at three decimal places for lightness, four for
+ * chroma and one for hue. Rounding happens before measurement, so the number a contrast test
+ * reads is the number the browser paints.
  */
 export function formatOklch(color: OklchColor): string {
   const lightness = color.lightness.toFixed(3);
@@ -181,11 +165,8 @@ export function roundToEmittedPrecision(color: OklchColor): OklchColor {
 }
 
 /**
- * WCAG 2.2 relative luminance of a displayed sRGB triple.
- *
- * The triple is what the display shows, not the unclamped linear one, because a
- * channel the display cannot show contributes the luminance of the channel it
- * shows instead.
+ * WCAG 2.2 relative luminance of a displayed sRGB triple. The triple is what the display shows,
+ * since a channel it cannot show contributes the luminance of the channel it shows instead.
  */
 function srgbRelativeLuminance(displayed: SrgbColor): number {
   return (
@@ -199,17 +180,13 @@ function srgbRelativeLuminance(displayed: SrgbColor): number {
 const CHROMA_EMITTED_DECIMALS = 4;
 
 /**
- * The value a token actually carries: rounded to the precision the CSS emits AND
- * inside sRGB at that precision.
+ * The value a token actually carries: rounded to the precision the CSS emits and inside sRGB at
+ * that precision.
  *
- * The order matters, and the obvious order is wrong. Fitting first and rounding
- * second rounds the fitted chroma to the NEAREST emitted step, which is upward
- * half the time — back across the boundary the fit just found, by up to half a
- * step, which is fifty times the gamut epsilon. So: lightness and hue are rounded
- * first (the fit moves neither), the fit runs against those final values, and the
- * fitted chroma is rounded DOWN. Reducing chroma at fixed lightness and hue only
- * moves further inside the gamut, so the emitted value is inside by construction
- * rather than by luck.
+ * The order matters. Lightness and hue round first (the fit moves neither), the fit runs on
+ * those values, and the fitted chroma rounds down. Rounding to nearest could cross back over the
+ * boundary the fit found by up to half a step, fifty times the gamut epsilon; reducing chroma
+ * only moves further inside the gamut.
  */
 export function resolveEmittedColor(color: OklchColor): OklchColor {
   const rounded = roundToEmittedPrecision(color);

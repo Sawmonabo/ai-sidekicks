@@ -72,8 +72,7 @@ describe("AirspaceRegistry", () => {
   });
 
   it("observes nothing at all until a consumer installs an observer", () => {
-    // The idle-CPU claim, checked rather than promised: an overlay registered into a
-    // window that is drawing no native view arms no frame source of any kind.
+    // An overlay in a window drawing no native view must arm no frame source.
     const registry = new AirspaceRegistry();
     registry.register("dialog", () => rect(0, 0, 10, 10), overlayElement());
     expect(registry.observedOverlayCount).toBe(0);
@@ -119,8 +118,7 @@ describe("AirspaceRegistry", () => {
   });
 
   it("installs one observer identity once", () => {
-    // A second install would overwrite the first arming's disarm and leave it live
-    // after an uninstall — the leak the identity check exists to prevent.
+    // A second install would overwrite the first arming's disarm and leak it past uninstall.
     const registry = new AirspaceRegistry();
     const observe: AirspaceMotionObserver = vi.fn(() => () => undefined);
     registry.register("dialog", () => rect(0, 0, 10, 10), overlayElement());

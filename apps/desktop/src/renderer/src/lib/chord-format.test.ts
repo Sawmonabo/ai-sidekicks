@@ -1,18 +1,6 @@
-// The chord printer, pinned.
-//
-// This file exists because of a specific escape. The console authors chords in the
-// `KeyboardEvent.code` form (`"$mod+KeyK"`) so a binding stays on the same physical
-// key across keyboard layouts, and the binding table decoded that form correctly for
-// the strings it printed into palette rows. The `ChordHint` primitive kept a second,
-// parallel set of tables that did NOT decode it, and its doc comment asserted the
-// two were one function. Every hint for a `code`-form binding therefore printed the
-// literal string `KeyK` on a keycap, and nothing caught it until a screenshot did.
-//
-// The tests below are written against the property that failure violated — one
-// decoding, reachable from both renderings — rather than against the one string that
-// was wrong. Its other half, that the palette's CONFLICT comparator decodes by the
-// same function, is asserted in `palette/keybindings/chord-decoding.test.ts`, which is where
-// the comparator lives.
+// A chord authored in the `KeyboardEvent.code` form (`"$mod+KeyK"`) must print as one decoding
+// shared by the keycap and the string form. Its other half, that the conflict comparator decodes
+// the same way, is asserted in `registries/keybindings/keybinding-chord.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -51,43 +39,35 @@ describe("chord rendering — the `code` form reaches the keycap", () => {
   });
 
   it("decodes punctuation codes to the character on the key", () => {
-    // The whole point of the code form: `Comma` is the NAME of a key, and a person
-    // reading a hint needs the mark, not the noun.
+    // `Comma` names the key; a person reading a hint needs the mark.
     expect(glyphsOf("$mod+Comma", "darwin")).toStrictEqual(["⌘", ","]);
     expect(glyphsOf("$mod+Slash", "darwin")).toStrictEqual(["⌘", "/"]);
     expect(glyphsOf("$mod+BracketLeft", "darwin")).toStrictEqual(["⌘", "["]);
   });
 
   it("speaks the punctuation key by name rather than by mark", () => {
-    // "Command comma" is a sentence. "Command ," is a pause.
+    // "Command comma" reads as a sentence; "Command ," does not.
     expect(spokenOf("$mod+Comma", "darwin")).toStrictEqual(["Command", "Comma"]);
   });
 
   it("leaves a literally-authored key alone", () => {
-    // Both forms are admissible — `FRAME_KEY_BINDINGS` authors `$mod+,` literally,
-    // because a comma should follow the layout rather than the physical key — so
-    // the decoder must not mangle what was never a code spelling.
+    // Both forms are admissible (the navigation commands author `$mod+,` literally so the comma
+    // follows the layout), so the decoder must leave a non-code spelling alone.
     expect(glyphsOf("$mod+,", "darwin")).toStrictEqual(["⌘", ","]);
     expect(glyphsOf("$mod+k", "darwin")).toStrictEqual(["⌘", "K"]);
   });
 
   it("does not mistake a longer name that merely starts with a prefix", () => {
-    // `Key` and `Digit` are stripped only at their exact code lengths; a named key
-    // is not a code with a prefix, and shaving three characters off `Keyboard`
-    // would be a silent corruption.
+    // `Key` and `Digit` are stripped only at their exact code lengths.
     expect(glyphsOf("Keyboard", "darwin")).toStrictEqual(["Keyboard"]);
   });
 });
 
 describe("chord rendering — one source, two renderings", () => {
   it("prints the same glyphs the formatted string is built from", () => {
-    // The property the old duplication broke: whatever a keycap shows, the string
-    // form shows the same. Asserted over the platforms and forms that differ, so a
-    // future second table cannot pass this by agreeing in one case.
+    // Whatever a keycap shows, the string form shows the same, on every platform and form.
     const chords = ["$mod+KeyK", "$mod+Digit1", "$mod+Comma", "Shift+ArrowUp", "Alt+Enter"];
-    // Driven from the closed set itself rather than a list repeated here: a fourth
-    // platform added to the vocabulary must arrive already covered by this
-    // property, not silently skipped by a stale literal.
+    // Driven from the closed set so a new platform is covered automatically.
     for (const platform of CHORD_PLATFORMS) {
       for (const chord of chords) {
         const glyphs = glyphsOf(chord, platform);
@@ -98,10 +78,8 @@ describe("chord rendering — one source, two renderings", () => {
   });
 
   it("never speaks a glyph", () => {
-    // A screen reader pronounces ⌘ as "place of interest sign". Every spoken token
-    // must be words, which here means ASCII — the arrow keys are the deliberate
-    // exception check, since their glyph IS in the printed set and their spoken
-    // form must not be.
+    // A screen reader mispronounces glyphs, so every spoken token must be ASCII words, arrow
+    // keys included.
     const spoken = [
       ...spokenOf("$mod+Shift+Alt+KeyK", "darwin"),
       ...spokenOf("Shift+ArrowUp", "darwin"),
@@ -120,21 +98,19 @@ describe("chord rendering — platform conventions", () => {
   });
 
   it("names the Meta key the way each platform brands it", () => {
-    // "⌘" printed on Windows would name a key that is not on the keyboard.
+    // "⌘" on Windows would name a key that is not on the keyboard.
     expect(formatChordForPlatform("Meta+KeyK", "darwin")).toBe("⌘K");
     expect(formatChordForPlatform("Meta+KeyK", "win32")).toBe("Win+K");
     expect(formatChordForPlatform("Meta+KeyK", "linux")).toBe("Super+K");
   });
 
   it("omits an optional modifier rather than instructing a person to hold it", () => {
-    // `[Shift]` is what the chord TOLERATES. Printing it would be a lie about what
-    // must be pressed.
+    // `[Shift]` is tolerated, not required, so it is not printed.
     expect(formatChordForPlatform("$mod+[Shift]+KeyK", "darwin")).toBe("⌘K");
   });
 
   it("renders a multi-press sequence as separate presses", () => {
-    // `parseChord` refuses to BIND a sequence, but the printer is also asked about
-    // chords the table never installed — a platform accelerator main owns, say.
+    // `parseChord` refuses to bind a sequence, but the printer also renders chords never installed.
     const presses = renderChordForPlatform("KeyG KeyS", "darwin");
     expect(presses).toHaveLength(2);
     expect(presses.map((press) => press.key.glyph)).toStrictEqual(["G", "S"]);
@@ -144,31 +120,24 @@ describe("chord rendering — platform conventions", () => {
 
 describe("chord rendering — every platform in the closed set is renderable", () => {
   it("prints and speaks something for `$mod` on each platform", () => {
-    // The vocabulary is a tuple with the union derived from it, so this walks the
-    // real set. `$mod` is the token with the widest per-platform divergence, which
-    // makes it the one that catches a platform added to the union with no entry in
-    // either modifier table.
+    // `$mod` diverges most across platforms, so it catches a platform with no modifier-table entry.
     const printed = CHORD_PLATFORMS.map((platform) =>
       formatChordForPlatform("$mod+KeyK", platform),
     );
 
     for (const [index, platform] of CHORD_PLATFORMS.entries()) {
       expect(spokenOf("$mod+KeyK", platform)[0]).toMatch(/^[A-Za-z]+$/u);
-      // The unknown-modifier fallback prints the raw token, so a platform with no
-      // table entry would leak "$mod" onto a keycap rather than fail loudly.
+      // The unknown-modifier fallback prints the raw token, which would leak "$mod".
       expect(printed[index]).not.toContain("$mod");
     }
 
     expect(printed).toHaveLength(3);
-    // The control: macOS and the two non-macOS platforms genuinely disagree, so the
-    // set is being walked rather than one entry rendered three times.
+    // macOS differs from the other two, so the set is walked rather than one entry repeated.
     expect(new Set(printed).size).toBe(2);
   });
 
   it("detects a host platform that is a member of the set", () => {
-    // `HOST_CHORD_PLATFORM` is the ONE reading of the real host, and it is taken
-    // from the user agent rather than from `process` — so its fallback arm has to
-    // land inside the union rather than on whatever the sniff produced.
+    // The user-agent sniff's fallback must land inside the union.
     const hostPlatform: ChordPlatform = HOST_CHORD_PLATFORM;
     expect(CHORD_PLATFORMS).toContain(hostPlatform);
     expect(formatChordForPlatform("$mod+KeyK", hostPlatform)).not.toContain("$mod");

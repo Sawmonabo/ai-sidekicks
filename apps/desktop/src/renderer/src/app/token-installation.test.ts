@@ -1,19 +1,8 @@
-// Getting the tokens into a document, and applying a scheme choice.
-//
-// Two claims, and each is one a caller depends on rather than a description of
-// what the code happens to do:
-//
-//   • Installation is idempotent by element id, because an auxiliary window and a
-//     hot reload both re-enter it and two copies double the cascade.
-//   • `"system"` REMOVES the scheme attribute rather than writing a resolved
-//     value, so the sheet's `prefers-color-scheme` layer keeps deciding. A
-//     resolved value written once freezes the window at whatever the OS was doing
-//     at mount, and the shape of that bug is a preference that works until the
-//     person changes their OS theme.
-//
-// The browser tier owns the cascade half of this (a custom property that resolves
-// to a real color); happy-dom resolves nothing, so what is asserted here is
-// strictly the DOM manipulation, which is the half a shim can answer honestly.
+// Getting the tokens into a document, and applying a scheme choice. Installation is idempotent by
+// element id, and `"system"` removes the scheme attribute rather than writing a resolved value,
+// so the sheet's `prefers-color-scheme` layer keeps deciding. The browser tier owns the cascade
+// half (a custom property resolving to a real color); happy-dom resolves nothing, so only the DOM
+// manipulation is asserted here.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -52,8 +41,7 @@ describe("token installation — one sheet per document", () => {
   });
 
   it("negative control: the sheet is absent before anything installs it", () => {
-    // Every case above reads the document by id, and every one of them would
-    // pass over a sheet some earlier file left behind.
+    // Every case above reads the document by id and would pass over a sheet an earlier file left.
     expect(document.getElementById(MERIDIAN_STYLE_ELEMENT_ID)).toBeNull();
   });
 });
@@ -67,9 +55,7 @@ describe("token installation — applying a scheme choice", () => {
   it("removes the attribute for `system` rather than resolving it", () => {
     applyColorScheme(document, "dark");
     applyColorScheme(document, "system");
-    // Not `"system"`, and not `"light"` — ABSENT. The sheet's middle layer is a
-    // `prefers-color-scheme` block guarded on the attribute not being `light`, so
-    // any written value stops the OS from deciding.
+    // Absent, not `"system"` or `"light"`: any written value stops the OS from deciding.
     expect(document.documentElement.hasAttribute(SCHEME_ATTRIBUTE)).toBe(false);
   });
 });

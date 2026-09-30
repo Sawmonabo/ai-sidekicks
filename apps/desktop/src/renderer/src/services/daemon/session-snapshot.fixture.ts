@@ -1,38 +1,20 @@
-// The base state the fixture's session read establishes.
+// The base state the fixture's session read establishes: what one session already contains when a
+// store opens on it. `session-answers.fixture.ts` serves it.
 //
-// `session-answers.ts` serves it. This file derives what one session already CONTAINS at
-// the moment a store opens on it.
-//
-// AND THAT MOMENT IS WHAT SCOPES IT. What a session contains LATER is a fold of the
-// delivered log over this base state, and each reader that needs one owns its own fold.
-// This file is every such fold's opening term and answers nothing about what has
-// happened since.
-//
-// WHAT THE BASE STATE HONESTLY IS
-//
-// Cursor zero, no entities, and the scripted timeline cursors. Zero rather than a
-// position derived from the scenario's beats, because a base state ahead of the stream
-// would make the store discard every beat below it; the subscription is
-// replay-then-tail, so nothing is missed by starting at the bottom. A re-read therefore
-// lands behind an initialized store's cursor and is a silent no-op, which is
-// `SessionStore.admitsSnapshotAt`'s documented behavior and not a defect of this
-// derivation: repairing a degraded store needs a read that carries a position, and this
-// one cannot until the wire does.
-//
-// IT CARRIES NO ENTITIES, AND THAT IS A READING RATHER THAN A GAP. Every partition a
-// view reads is projected from the delivered log by a registered projector, so a
-// base state that filed rows of its own would be a second source of truth for them.
+// It is cursor zero, no entities and the scripted timeline cursors. Zero rather than a position
+// derived from the beats, because a base state ahead of the stream would make the store discard
+// every beat below it; the subscription is replay-then-tail, so nothing is missed. A re-read
+// therefore lands behind an initialized store's cursor and is a silent no-op (`admitsSnapshotAt`),
+// so repairing a degraded store needs a read that carries a position, which the wire does not yet.
+// There are no entities because every partition is projected from the delivered log.
 
 import { scriptedSessionReadMember } from "./scripted-session-read.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { BASE_STATE_CURSOR, type SessionSnapshot } from "@renderer/store/session/session-state.js";
 
 /**
- * The base state one scenario establishes for one session.
- *
- * Scoped to the session the scenario is PLAYING: another id reads as an empty session
- * rather than as a refusal — the read IS answered, and what it found for that session
- * is nothing.
+ * The base state one scenario establishes for one session. Another id reads as an empty session,
+ * not a refusal: the read is answered and found nothing.
  */
 export function fixtureSessionSnapshot(scenario: Scenario, sessionId: string): SessionSnapshot {
   if (sessionId !== scenario.sessionId) {
@@ -41,11 +23,8 @@ export function fixtureSessionSnapshot(scenario: Scenario, sessionId: string): S
   return {
     cursor: BASE_STATE_CURSOR,
     entities: [],
-    // Carried UNREAD from the scenario's own reply, which is where a daemon puts it.
-    // The store's resume rule owns the shape and the narrowing, so a scenario that
-    // scripts no cursor block, or one that predates the floor member, reaches the
-    // refusal arm here exactly as an older daemon would — which is the state this
-    // fixture has to be able to reproduce rather than paper over.
+    // Carried unread from the scenario's reply, as a daemon does; the store narrows it. A scenario
+    // that scripts no cursor block reaches the refusal arm, as an older daemon would.
     timelineCursors: scriptedSessionReadMember(scenario, "timelineCursors"),
   };
 }

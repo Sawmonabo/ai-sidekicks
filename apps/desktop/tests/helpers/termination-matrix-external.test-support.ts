@@ -1,18 +1,8 @@
-// The `taskkill` arm's cells: every state a Windows tree kill can be asked in.
-//
-// Split from the signal arm's beside it because the two arms are two functions
-// and neither can be executed on the platform the suite runs on — `arms.ts` says
-// so in its own header, and the matrix's `treeMode` axis is that same split
-// written as data. `termination-matrix-catalog.test-support.ts` composes both
-// halves back into the one table the suite asserts over, so the enumeration is
-// still one table and this is still one role.
-//
-// A CELL IS DATA AND ITS ANSWER IS THE REAL CODE. `answer` calls the shipped
-// decision with the scripted collaborators from
-// `termination-matrix-tools.test-support.ts`; where the verdict alone is
-// satisfiable the wrong way, the cell also asserts the EVIDENCE — which pid was
-// signaled and which was not — because a path that reports a tree gone because
-// its root is gone answers `true` without ever naming a member.
+// The `taskkill` arm's cells: every state a Windows tree kill can be asked in. The two arms cannot
+// both run on the suite's platform (see `process-tree/platform-termination.ts`); the `treeMode`
+// axis records that split. A cell's `answer` calls the shipped decision with the scripted tools
+// from `termination-matrix-tools.test-support.ts`, and asserts the evidence (which pid was
+// signaled) where the verdict alone could be satisfied the wrong way.
 
 import { expect } from "vitest";
 
@@ -92,9 +82,8 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       settleRegistration: "accepted",
     },
     owedTermination: true,
-    // The verdict AND the evidence, because the verdict alone is satisfiable the
-    // wrong way: an arm reporting the tree gone because its ROOT is gone answers
-    // `true` without naming the descendant. Conjoining the ask discriminates.
+    // The verdict and the evidence: an arm that reports the tree gone because its root is gone
+    // answers `true` without naming the descendant.
     answer: () => {
       const tools = rootlessTreeTools(true);
       const terminated = terminateExternalTree(ROOT_PID, "SIGKILL", tools);
@@ -115,14 +104,10 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       Promise.resolve(terminateExternalTree(ROOT_PID, "SIGKILL", rootlessTreeTools(false))),
   },
   {
-    // THE DEAD ROOT'S NUMBER STILL CARRIES ROWS, AND ONE OF THEM IS NOT OURS.
-    // Windows keeps a process's recorded parent id after that parent exits, so a
-    // long-lived child of whoever held `ROOT_PID` BEFORE this tree sits in the
-    // table under the same row shape this tree's own descendant sits in. A kill
-    // list built from that table hands `taskkill` a process this package never
-    // started — the same false success as walking a reissued pid, arriving
-    // as a `gone` reading. Two claims: the stranger was not signaled,
-    // and the member this tree captured was.
+    // A dead root's number still carries rows: Windows keeps a recorded parent id after the
+    // parent exits, so a long-lived child of the number's former holder looks like this tree's
+    // descendant. A kill list built from the table would signal a process this package never
+    // started. The stranger must not be signaled and the captured member must be.
     name: "a stale parent row under a dead root pid is read, never signaled",
     axes: {
       root: "reaped-with-a-stale-parent-row",
@@ -131,11 +116,9 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       surviving: "unverifiable-claimant",
       settleRegistration: "accepted",
     },
-    // A REFUSAL rather than a success, and the reason is the same asymmetry: the
-    // table is sound evidence that something claims the dead number and no
-    // evidence at all that it is ours. Killing it risks an unrelated process and
-    // ignoring it risks reporting a live tree as gone, so the verdict is withheld
-    // and the caller's bounded retry ends in an honest `unterminable`.
+    // A refusal: the table shows that something claims the dead number, not that it is ours.
+    // Killing it risks an unrelated process and ignoring it risks calling a live tree gone, so
+    // the verdict is withheld and the bounded retry ends in `unterminable`.
     owedTermination: false,
     answer: () => {
       const tools = rootlessTreeTools(true, STALE_PARENT_ROW_TABLE);
@@ -152,11 +135,8 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     },
   },
   {
-    // THE SECOND REISSUE. The captured member's OWN pid went back to the
-    // operating system and came out as somebody else — so a capture carrying
-    // only numbers would hand `taskkill` a stranger with the root's identity
-    // check reporting nothing wrong, because the root is not what moved. The
-    // stamp each member is captured with is what refuses it.
+    // The captured member's own pid was reissued to somebody else. Only the start stamp taken at
+    // capture refuses it, since the root's identity check reports nothing wrong.
     name: "a captured member whose own pid was reissued is not signaled",
     axes: {
       root: "reaped-with-nothing-behind-it",
@@ -165,8 +145,8 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       surviving: "nothing",
       settleRegistration: "accepted",
     },
-    // The member is gone — that is what a reissued pid means — and nothing else
-    // claims the dead root, so this is the honest success rather than a refusal.
+    // The member is gone (that is what a reissued pid means) and nothing claims the dead root:
+    // an honest success.
     owedTermination: true,
     answer: () => {
       const tools = reissuedDescendantTools();
@@ -202,14 +182,11 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       ),
   },
   {
-    // THE CASE A BLANKER RULE WOULD HAVE BROKEN, and the reason the rootless
-    // arm's refusal is keyed on evidence rather than on an empty kill list. The
-    // root pid names nothing, nothing was ever captured — `BoundedCleanup` is
-    // handed a pid by Playwright and has no spawn moment to capture at — and the
-    // host lists no row under that number. That last reading is the positive
-    // evidence: Windows does not reparent, so a live descendant would still be
-    // recording the dead root as its parent. Answering `false` here would report
-    // every ordinary already-exited tree as unterminable.
+    // Refusal is keyed on evidence, not on an empty kill list. The root names nothing, nothing
+    // was captured (`BoundedCleanup` is handed a pid with no spawn moment), and the host lists no
+    // row under that number; Windows does not reparent, so a live descendant would still record
+    // the dead root as its parent. Answering `false` would call every already-exited tree
+    // unterminable.
     name: "a dead root pid nothing claims is a success even with nothing captured",
     axes: {
       root: "reaped-with-nothing-behind-it",
@@ -235,20 +212,11 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     },
   },
   {
-    // THE HOST THAT WOULD NOT ANSWER, and the exact foil for the cell above.
-    // Same dead root, same absent capture, same empty result from the parent
-    // walk — and a different reason for it. There the listing RAN and named
-    // nothing beneath the pid, which on Windows is positive evidence that
-    // nothing survives it; here the query would not start, spent its bound, or
-    // exited non-zero, and no row is evidence of anything at all.
-    //
-    // Read as an empty table, this answered `true`: dead root, no unreached
-    // member, no claimant, tree reported gone — with a live browser under it.
-    // It is reachable on exactly the two shapes that carry no capture to hold
-    // the verdict false, a Playwright-supplied pid and a managed child whose
-    // exit-time capture was itself the reading that failed. So `readers.ts`
-    // answers an unreadable host with a sentinel and the verdict fails closed:
-    // the caller retries and ends at an honest `unterminable`.
+    // The foil for the cell above: same dead root and absent capture, but the listing failed
+    // (would not start, spent its bound, or exited non-zero), so an empty result is no evidence.
+    // Read as an empty table it would answer `true` with a live browser under it;
+    // `process-tree/readers.ts` returns a sentinel for an unreadable host so the verdict fails
+    // closed and the caller's bounded retry ends in `unterminable`.
     name: "an unreadable process listing is a refusal, not a dead root with nothing behind it",
     axes: {
       root: "exited-holding-stdio",
@@ -262,8 +230,8 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       const tools = scriptedExternalTools({
         killTreeFrom: () => true,
         processTable: UNREADABLE_TABLE,
-        // The root is genuinely gone and every other reading this arm takes is
-        // clean, which is precisely what made the false success reachable.
+        // The root is gone and every other reading is clean, which is what made a false success
+        // reachable.
         hasTerminated: (processId: number) => processId === ROOT_PID,
         rootIdentity: "gone",
       });
@@ -276,14 +244,10 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
     },
   },
   {
-    // THE PID IS A NAME AND THE NAME WAS REISSUED. The root exited, was reaped,
-    // and its number now belongs to an unrelated process — the ordinary shape
-    // here, since the launcher shim exits under a live browser. `taskkill /pid
-    // <that number> /t` walks the STRANGER's tree, exits zero, and that zero
-    // used to latch `ManagedElectronChild` as killed while this package's own
-    // descendant kept running. Two claims, and the second is the one the verdict
-    // alone cannot make: nothing reachable through the reissued number was
-    // signaled, and the member captured while the pid was still this tree's was.
+    // The root exited, was reaped, and its number now belongs to an unrelated process (the
+    // launcher shim exits under a live browser). `taskkill /pid <number> /t` would walk the
+    // stranger's tree and exit zero. Nothing reachable through the reissued number may be
+    // signaled, and the member captured while the pid was still this tree's must be.
     name: "a reissued root pid is signaled by nothing, and the tree it no longer names is not reported killed",
     axes: {
       root: "recycled",
@@ -320,11 +284,9 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       surviving: "nothing",
       settleRegistration: "accepted",
     },
-    // The foil for the cell above, and the reason the refusal there is about
-    // EVIDENCE rather than about the word `recycled`. Everything this tree was
-    // ever known to hold has terminated, so there is nothing to kill and nothing
-    // to report — a path that answered `false` for every reissued pid would hold
-    // teardown open on every ordinary Windows run whose shim was reaped early.
+    // The foil for the cell above: everything this tree held has terminated, so there is nothing
+    // to kill or report. Answering `false` for every reissued pid would hold teardown open on
+    // every Windows run whose shim was reaped early.
     owedTermination: true,
     answer: () => {
       const tools = reissuedRootTools([CAPTURED_DESCENDANT], true);
@@ -345,12 +307,9 @@ export const EXTERNAL_TERMINATION_CELLS: readonly TerminationCell[] = [
       surviving: "unobservable",
       settleRegistration: "accepted",
     },
-    // The third arm, and the one a fix that stopped at "do not signal a reissued
-    // pid" would get wrong: with nothing captured there is no member to address
-    // and no member to read, and reporting the tree gone on that basis is the
-    // same false success as walking the stranger — quieter, and with the same
-    // Electron left running. The caller's bounded retry and its eventual
-    // `unterminable` are what a reader is owed here.
+    // With nothing captured there is no member to address or read, and reporting the tree gone
+    // would be the same false success as walking the stranger. The caller's bounded retry and its
+    // `unterminable` are what is owed.
     owedTermination: false,
     answer: () => {
       const tools = reissuedRootTools([]);

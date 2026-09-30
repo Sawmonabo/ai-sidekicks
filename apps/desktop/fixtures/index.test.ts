@@ -1,13 +1,7 @@
-// The catalog: every scenario on it names a frozen tick, and the lookup finds each by id.
+// Every scenario in the catalog names a frozen tick, and the lookup finds each by id.
 //
-// The case the design asks for: a scenario the registry names no frame for fails, so a
-// scenario that lands and pins no frame is stopped by the build rather than by a
-// reviewer noticing.
-//
-// WHY IT IS HERE AND NOT BESIDE THE REGISTRY. The subject is the catalog — this file reads
-// `SCENARIOS` and holds the registry to it — and the registry imports nothing from
-// the catalog. The registry's own rules, which need no catalog at all, stay beside the
-// registry in `services/daemon/frozen-tick-registry.fixture.test.ts`.
+// It lives here because it reads `SCENARIOS`, which the registry does not import; the
+// registry's own rules are in `services/daemon/frozen-tick-registry.fixture.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

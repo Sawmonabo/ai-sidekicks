@@ -1,16 +1,10 @@
-// The collector's memo, and the order dependence it used to have.
+// The collector's memo belongs to the instance that holds it. The subject is `heap-sampling.ts`,
+// whose collector decides whether a heap assertion here is admissible at all: a collector
+// reported unavailable for another file's reason makes every reading beside it noise.
 //
-// The subject is `heap-sampling.ts`, which this tier's terminal cases
-// measure through. It lives beside them rather than in a tier of its own because
-// its one consumer is here, and because the property under test is the one that
-// decides whether a heap assertion in this directory is admissible at all: if the
-// collector reports itself unavailable for a reason belonging to some other file,
-// every reading beside it is skipped or is noise.
-//
-// The resolver is injected in every case below. A test cannot make this process
-// refuse a collector on demand — `v8.setFlagsFromString("--expose-gc")` succeeds
-// here — so a case that drove the real one could only ever exercise the arm that
-// works, which is the arm that was never broken.
+// The resolver is injected throughout: this process cannot be made to refuse a collector
+// (`v8.setFlagsFromString("--expose-gc")` succeeds here), so the real one would only exercise
+// the arm that was never broken.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,9 +35,8 @@ describe("the collector's memo belongs to the instance that holds it", () => {
     collector.collect();
     collector.available();
 
-    // The whole reason the resolution is memoized: it mutates a process-wide V8
-    // flag, and a sample-time resolution would flip that flag once per round for
-    // the length of the run.
+    // The memo exists because resolution mutates a process-wide V8 flag; resolving per sample
+    // would flip it every round.
     expect(resolutionCount).toBe(1);
   });
 
@@ -61,9 +54,8 @@ describe("the collector's memo belongs to the instance that holds it", () => {
   });
 
   it("does not let one instance's failed resolution narrow another's", () => {
-    // The defect this shape removes. With the memo in module variables, the first
-    // resolution to fail was the answer every later caller in the process got —
-    // including one that ran after a collector had been installed.
+    // With the memo in module variables, the first failed resolution was every later caller's
+    // answer, even after a collector had been installed.
     const collections: string[] = [];
     const resolve = resolverRefusingOnce(() => collections.push("collected"));
 
@@ -77,9 +69,8 @@ describe("the collector's memo belongs to the instance that holds it", () => {
   });
 
   it("negative control: one instance really does keep its own first answer", () => {
-    // Without this, the case above would pass against a collector that re-resolved
-    // on every call — which would fix the order dependence by removing the memo,
-    // and flip the process-wide flag once per sample to do it.
+    // Without this, the case above would pass against a collector that re-resolved on every
+    // call, which fixes the order dependence by removing the memo.
     const refusingThenServing = new HeapCollector(resolverRefusingOnce(() => undefined));
     expect(refusingThenServing.available()).toBe(false);
     expect(refusingThenServing.available()).toBe(false);
@@ -97,26 +88,22 @@ describe("the sampler, over the collector it was handed", () => {
 
     const sample = await sampler.sample();
 
-    // Four rounds and the final collection. The rounds are what make two readings
-    // comparable; a sampler that read straight after one collection would report a
-    // disposed instance's bytes as still retained.
+    // Four rounds and the final collection. Reading straight after one collection would report
+    // a disposed instance's bytes as still retained.
     expect(collectionCount).toBe(5);
     expect(sample.retainedBytes).toBe(sample.heapUsedBytes + sample.arrayBufferBytes);
   });
 
   it("reads on a runtime that gives no collector rather than refusing to read", async () => {
-    // The reading is still taken — it is the CALLER that decides a reading with no
-    // collection behind it is inadmissible, and it decides that from this flag.
+    // The reading is still taken; the caller decides from this flag that it is inadmissible.
     const sampler = new HeapSampler(new HeapCollector(() => undefined));
     expect(sampler.isCollectorAvailable).toBe(false);
     expect((await sampler.sample()).retainedBytes).toBeGreaterThan(0);
   });
 
   it("reports the collector this process actually has, by default", () => {
-    // The default path, asserted once so the injection above is not the only shape
-    // this module is ever driven in. Node gives the accessor up through
-    // `v8.setFlagsFromString`, which is the premise every heap case in this tier
-    // rests on.
+    // The default path, asserted once so injection is not the only shape this module is driven
+    // in. Node gives the accessor up through `v8.setFlagsFromString`.
     expect(new HeapSampler().isCollectorAvailable).toBe(true);
   });
 });

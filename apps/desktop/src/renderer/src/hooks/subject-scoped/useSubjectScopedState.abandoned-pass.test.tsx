@@ -1,24 +1,15 @@
 // A render React parks and never commits changes nothing about the visit on screen.
 //
-// The sibling of `subject-scoped-dropped-pass.test.tsx`, and the difference between
-// the two files is the difference between the two discards. There, React retries the
-// pass: the component is re-invoked, every hook cell is rebuilt, and the question is
-// what a MEMO may be keyed on. Here the pass is parked and then superseded — a
-// transition that suspends on a promise nothing resolves, which is the shape a slow
-// route change or an interrupted concurrent render really has — and the question is
-// what the HOLDER may do while it is pending.
+// The sibling of `useSubjectScopedState.dropped-pass.test.tsx`: there React retries the pass
+// and the question is what a memo may be keyed on; here the pass is parked and superseded (a
+// transition that suspends on a promise nothing resolves) and the holder may do nothing while
+// it is pending. The tree on screen is still painted, still reading and still settled into.
+// An addressing that retired the committed one as it was minted would make the publisher
+// refuse every settlement, replace the value with a seed nothing painted, and open a
+// connection no commit reaches.
 //
-// THE ANSWER THIS FILE IS ABOUT: nothing. The tree on screen is still painted, still
-// reading, and still being settled into by calls dispatched before the parked pass
-// began. An addressing that retired the committed one as it was minted would take all
-// three away — the publisher the component holds would refuse every settlement, the
-// value it had already been given would be replaced by a seed for a subject nothing
-// painted, and for a resource the pass would open a connection no commit ever reaches.
-//
-// Every claim is paired with a NEGATIVE CONTROL driving the REAL holder in the
-// arrangement this replaced: `address` and `commit` in the same breath, from the
-// render body. Without it, "the visit on screen survived" would be a sentence about a
-// test — a holder that never re-addressed at all would satisfy it too.
+// Each claim has a negative control over the real holder with `address` and `commit` in the
+// same breath from the render body.
 
 import { act, render } from "@testing-library/react";
 import {
@@ -58,12 +49,11 @@ import {
 const WHAT_THE_VISIT_ON_SCREEN_READ = "what the visit on screen read";
 
 /**
- * The first publisher each subject's render handed out, so a late call can be made
- * through the one a given pass really gave its caller.
+ * The first publisher each subject's render handed out, so a late call goes through the one
+ * a given pass really gave its caller.
  *
- * FIRST rather than last: the claim is about the publisher the tree on screen has been
- * holding since before the parked pass began, and about the one the parked pass handed
- * out and nothing ever committed. A record of the newest would name neither.
+ * First rather than last: the claim is about the publisher the tree on screen has held since
+ * before the parked pass began, and the one the parked pass handed out.
  */
 class CapturedPublishers<TValue> {
   readonly #bySubject = new Map<object, (next: TValue) => void>();
@@ -84,11 +74,10 @@ class CapturedPublishers<TValue> {
 }
 
 /**
- * The arrangement this replaced: an addressing confirmed by the render that made it.
+ * Negative control: an addressing confirmed by the render that made it.
  *
- * Not a stand-in for the hook — it drives the real holder, with the real memo key,
- * and collapses the one thing this fix separated: `commit` runs in the render body,
- * so a pass that never becomes a frame retires the visit that is one.
+ * Drives the real holder with the real memo key but runs `commit` in the render body, so a
+ * pass that never becomes a frame retires the visit that is one.
  */
 function RenderTimeRetireValueProbe(props: ValueProbeProps): ReactElement {
   const [holder] = useState(() => new SubjectScopedHolder<string>());
@@ -112,8 +101,8 @@ function RenderTimeRetireValueProbe(props: ValueProbeProps): ReactElement {
 }
 
 /**
- * The same arrangement for a resource: the holder retires at render time and an
- * effect owns the disposal, which is what the two frame subsystems ran.
+ * The same arrangement for a resource: the holder retires at render time and an effect owns
+ * the disposal.
  */
 function RenderTimeRetireResourceProbe(props: ResourceProbeProps): ReactElement {
   const { ledger } = props;
@@ -197,17 +186,16 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
     });
 
     expect(detour.text()).toBe(WHAT_THE_VISIT_ON_SCREEN_READ);
-    // TWO addressings, not three: the parked pass proposed one and never committed
-    // it, so the render back at the subject on screen found the committed addressing
-    // already right and re-seeded nothing.
+    // Two addressings, not three: the parked pass proposed one and never committed it, so the
+    // render back at the subject on screen found the committed addressing right and
+    // re-seeded nothing.
     expect(detour.seedings()).toBe(2);
   });
 
   it("negative control: retiring at render time drops that settlement and re-seeds", async () => {
-    // The identical script against the arrangement this replaced. The parked pass
-    // retired the visit on screen as it addressed, so the publisher that visit handed
-    // out names an addressing nothing holds and its answer is refused — and the value
-    // the component reads is a seed produced for a pass that never became a frame.
+    // The parked pass retired the visit on screen as it addressed, so that visit's publisher
+    // names an addressing nothing holds and its answer is refused; the value read is a seed
+    // produced for a pass that never became a frame.
     const detour = await driveValueCase(RenderTimeRetireValueProbe);
     act(() => {
       detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
@@ -218,10 +206,9 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
   });
 
   it("refuses the settlement a pass that never committed handed out", async () => {
-    // The other direction, and the reason a proposal is not simply left standing: the
-    // parked pass really handed its caller a publisher, and that publisher names an
-    // addressing no frame ever carried. Admitting it would write another subject's
-    // answer into the visit on screen.
+    // The other direction, and why a proposal is not simply left standing: the parked pass
+    // handed its caller a publisher naming an addressing no frame carried, and admitting it
+    // would write another subject's answer into the visit on screen.
     const detour = await driveValueCase(DiscardedRenderValueProbe);
     act(() => {
       detour.publishers.from(SUBJECT_TWO)("what a pass nobody saw read");
@@ -229,9 +216,8 @@ describe("useSubjectScopedState — a parked pass leaves the visit on screen alo
 
     expect(detour.text()).toBe("seed");
 
-    // Negative control on that refusal: the visit on screen still settles, so the
-    // claim is about which pass answered rather than about a holder that refuses
-    // everything.
+    // Negative control: the visit on screen still settles, so the claim is about which pass
+    // answered.
     act(() => {
       detour.publishers.from(SUBJECT_ONE)(WHAT_THE_VISIT_ON_SCREEN_READ);
     });
@@ -246,16 +232,16 @@ describe("useSubjectScopedResource — a parked pass's resource is closed, and o
     expect(resources.ledger.opened).toStrictEqual(["settled", "discarded"]);
     expect(resources.ledger.closed).toStrictEqual(["discarded"]);
 
-    // And the resource on screen was never retired, so nothing was opened to cover
-    // for one that had been: it is closed once, at the mount's end.
+    // The resource on screen was never retired, so nothing was opened to cover for it; it is
+    // closed once, at the mount's end.
     resources.unmount();
     expect(resources.ledger.closed).toStrictEqual(["discarded", "settled"]);
   });
 
   it("negative control: retiring at render time leaks that resource and re-opens", async () => {
-    // The identical script against the shape the two frame subsystems ran. The parked
-    // pass's connection is installed nowhere and closed by nothing, and the connection
-    // the component was reading through is retired and opened again underneath it.
+    // The parked pass's connection is installed nowhere and closed by nothing, and the
+    // connection the component was reading through is retired and opened again underneath
+    // it.
     const resources = await driveResourceCase(RenderTimeRetireResourceProbe);
 
     expect(resources.ledger.opened).toStrictEqual(["settled", "discarded", "settled"]);
@@ -266,10 +252,9 @@ describe("useSubjectScopedResource — a parked pass's resource is closed, and o
   });
 
   it("closes a parked pass's resource where the mount ends before any later render", async () => {
-    // The one bound the two supersession paths do not reach: a component whose parked
-    // pass is followed by no render at all because the component itself went away. The
-    // proposal is reachable through nothing else, so the mount's end is its last
-    // moment.
+    // The bound neither supersession path reaches: the component goes away with no render
+    // after the parked pass. The proposal is reachable through nothing else, so the mount's
+    // end is its last moment.
     const ledger = new ResourceOpenCloseLog();
     const treeAt = (
       subject: NamedFixtureSubject,

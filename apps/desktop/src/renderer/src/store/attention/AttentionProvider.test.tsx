@@ -1,13 +1,7 @@
-// The window's attention reading outlives a destination.
-//
-// A person who navigates away must not take the reading down with them, or the window
-// says "nothing is waiting on you" while the daemon is answering perfectly well.
-// Lifetime is what is asserted here, and it is invisible to a case that mounts one
-// tree and leaves it mounted.
-//
-// SO EVERY CASE SWAPS THE SUBTREE. The child under the provider is what a route change
-// replaces, so re-rendering with a different child is a navigation as far as this seam
-// is concerned, and the assertion is the number of times each call was put.
+// The window's attention reading outlives a destination: navigating away must not take it
+// down and leave the window saying nothing is waiting while the daemon is answering. Each
+// case swaps the subtree under the provider, which stands in for a route change, and asserts
+// how many times each call was made.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";

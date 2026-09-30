@@ -1,36 +1,23 @@
 // What `close` means to a managed child, and the two decisions that rest on it.
 //
-// Both are about the SAME window — between `exit` and `close`, and after
-// `close` — and both were decided from `exitCode` before this suite existed,
-// which is a different fact:
+// Both concern the window between `exit` and `close`, and after `close`:
 //
-//   1. Settle-time cleanup releases what the child was holding. Doing that on
-//      an exit code releases it while a descendant that inherited the child's
-//      stdio is still running and may still hold files inside it. On POSIX the
-//      unlink succeeds anyway and the bug is invisible; on Windows the removal
-//      fails against the open handle and the directory outlives the run.
-//   2. Disposal signals the child's tree. Doing that after `close` signals a
-//      pid the operating system has already reaped and may already have
-//      reissued — and `smoke-probe-harness.ts` and `gc-probe-harness.ts` both call
-//      `dispose` from the child's own `close` handler, so this is the ordinary
-//      path rather than a corner of one.
+//   1. Settle-time cleanup releases what the child held. Doing that on an exit code releases it
+//      while a descendant that inherited the child's stdio may still hold files inside it; on
+//      Windows the removal fails against the open handle and the directory outlives the run.
+//   2. Disposal signals the child's tree. After `close` the pid is already reaped and may have
+//      been reissued, and `smoke-probe-harness.ts` and `gc-probe-harness.ts` both call `dispose`
+//      from the child's own `close` handler, so that is the ordinary path.
 //
-// THE GAP IS REAL AND IS PRODUCED, NOT SIMULATED. The child spawned here hands
-// its stdout to a grandchild and then exits, which is the launcher shim one step
-// smaller: `node_modules/.bin/electron` exits and the browser process it started
-// keeps the inherited write end. So `exit` has fired and `exitCode` is set while
-// `close` has not been delivered — the state a fake with a `kill` spy could
-// assert about but not be wrong about.
+// The gap is produced, not simulated: the child hands its stdout to a grandchild and exits, like
+// the launcher shim whose browser keeps the inherited write end, so `exit` has fired and
+// `exitCode` is set while `close` has not. The gap is entered through `expectExitReported`, not
+// the pid, because `expectTerminatedWithin` counts an unreaped zombie as gone and a case that
+// waited on it reached its assertions with `exitCode` still `null`.
 //
-// THE GAP IS ENTERED THROUGH `expectExitReported` AND NOT THROUGH THE PID. That
-// distinction is measured rather than stylistic: `expectTerminatedWithin` counts
-// an unreaped zombie as gone, so a case that waits on it reaches its assertions
-// with `exitCode` still `null` — and the first version of this file did, which
-// made its control pass against the very defect it was written for.
-//
-// The doubles a spawn is handed are `electron-child-doubles.test-support.ts`'s,
-// the child programs are `electron-child-lifetime.test-support.ts`'s, and the
-// bounded readings are `electron-child-liveness.test-support.ts`'s; the claims are here.
+// Doubles are in `electron-child-doubles.test-support.ts`, child programs in
+// `electron-child-lifetime.test-support.ts`, bounded readings in
+// `electron-child-liveness.test-support.ts`.
 
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -69,11 +56,9 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
         },
       });
       try {
-        // THE GAP, ASSERTED BEFORE ANYTHING IS ASKED OF IT. The child is gone by
-        // the reading the superseded cleanup returned on, and `close` has still
-        // not been delivered because the grandchild holds the pipe. Without both
-        // halves the case below would pass over a child that had simply closed,
-        // which is the state that reading is right about.
+        // Assert the gap first: the child has exited but `close` is undelivered because the
+        // grandchild holds the pipe. Without both halves the case would pass over a child that had
+        // simply closed.
         await expectExitReported(managed);
         expect(
           managed.hasClosed,
@@ -85,9 +70,7 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
 
         await registrar.settle();
 
-        // The control the exit-code proxy fails: with `whenChildIsGone` deciding
-        // on `exitCode`, this reads false, because the code was set before the
-        // disposer was even registered.
+        // Fails if the wait is on `exitCode`, which is set before the disposer is registered.
         expect(
           closedWhenRemoved,
           "the profile was removed while a descendant still held the child's stdio open — the wait is back on an exit code",
@@ -114,9 +97,8 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
       });
       try {
         await expectExitReported(managed);
-        // Through the REAL terminator, so the observed one still records nothing
-        // but what `dispose` asks of it. Releasing the grandchild releases the
-        // inherited write end, which is what lets `close` be delivered at all.
+        // Through the real terminator, so the observed one records only what `dispose` asks of it.
+        // Releasing the grandchild releases the inherited write end, which lets `close` arrive.
         reap(grandchildPid);
         await expect
           .poll(() => managed.hasClosed, {
@@ -125,14 +107,9 @@ describe("a managed child is gone when it CLOSES, not when it reports an exit co
           })
           .toBe(true);
 
-        // Both pids are now reaped, so every target a kill could name is the
-        // operating system's to reissue. This is the call `smoke-probe-harness.ts`
-        // makes from its own `close` handler.
-        //
-        // The other side of this rule — that a disposal BEFORE `close` still
-        // signals the tree — is `electron-child-lifetime.test.ts`'s first case
-        // and its refused-kill case, which run in this same tier. Restating it
-        // here would be a second home for a claim that already has one.
+        // Both pids are reaped, so any target a kill could name is the OS's to reissue;
+        // `smoke-probe-harness.ts` makes this call from its `close` handler. Disposal before
+        // `close` still signaling is covered in `electron-child-lifetime.test.ts`.
         managed.dispose();
 
         expect(

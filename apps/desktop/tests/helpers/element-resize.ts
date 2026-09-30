@@ -1,20 +1,12 @@
 // The size observer the console arms, under test control.
 //
-// `lib/element-resize.ts` is the console's one `ResizeObserver` construction site, and
-// several suites drive it: the seam's own, the preview feature's geometry suites — the
-// pane geometry publisher and the motion module that arms it over an ancestry — and the
-// terminal emulator's, which re-fits its grid from it. A fake per suite is the same
-// duplication the seam itself exists to prevent: the fakes drift, and the one that drifts
-// is the one whose suite then passes for the wrong reason.
+// `lib/element-resize.ts` is the console's one `ResizeObserver` construction site, and several
+// suites drive it (the seam's own, the preview geometry suites, the terminal emulator's re-fit),
+// so one fake lives here: per-suite fakes drift, and the one that drifts passes for the wrong
+// reason. It is under `tests/helpers/` so no feature imports another feature's test support.
 //
-// IT LIVES IN `tests/helpers/` rather than in the feature that first needed it, because a
-// terminal suite importing it from the preview feature would be one feature reaching into
-// another.
-//
-// DELIVERY IS TARGETED, not just broadcast. A caller that observes N elements
-// arms N observers, so "an ancestor resized" and "everything resized" are
-// different facts and a control that could only say the second could not tell a
-// single ancestor's relayout from a window-wide one.
+// Delivery is targeted, not just broadcast: a caller observing N elements arms N observers, so
+// "an ancestor resized" and "everything resized" are different facts.
 
 import { vi } from "vitest";
 
@@ -33,16 +25,12 @@ export interface FakeResizeObserverControl {
 }
 
 /**
- * Install a `ResizeObserver` the test drives.
+ * Installs a `ResizeObserver` the test drives.
  *
- * `vi.stubGlobal` rather than a constructor injected into the module under test,
- * because the seam reads `globalThis.ResizeObserver` at arm time — which is the
- * behavior being checked, including its absence — and a caller that took the
- * constructor as an argument would be a different module.
- *
- * The caller restores the global with `vi.unstubAllGlobals()`; this returns the
- * control rather than a disposer so a suite already carrying that `afterEach`
- * gains no second teardown to forget.
+ * `vi.stubGlobal` rather than an injected constructor, because the seam reads
+ * `globalThis.ResizeObserver` at arm time, including its absence. The caller restores with
+ * `vi.unstubAllGlobals()`; this returns the control rather than a disposer so a suite already
+ * carrying that `afterEach` gains no second teardown to forget.
  */
 export function installFakeResizeObserver(): FakeResizeObserverControl {
   const records: FakeObserverRecord[] = [];
@@ -68,8 +56,7 @@ export function installFakeResizeObserver(): FakeResizeObserverControl {
     }
 
     public unobserve(target: Element): void {
-      // The consumers disconnect rather than unobserving; present so the fake is
-      // the shape the platform declares rather than the subset one caller uses.
+      // The consumers disconnect instead; present so the fake has the platform's declared shape.
       this.#record.targets.delete(target);
     }
 

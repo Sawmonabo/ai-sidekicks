@@ -1,23 +1,12 @@
 // What the store knows about itself, and the one place a refusal is classified.
 //
-// The chokepoint in `ui-state-store.ts` decides whether a write may land. This module decides
-// what that decision MEANT: which refusals are the caller handing the store
-// something it may not keep, which are the store failing to keep something
-// legitimate, which of them fires the `persistence-value-class` tripwire, and what
-// an operator reading the diagnostics view is shown afterwards.
-//
-// WHY IT IS ITS OWN MODULE. Two failure modes that share no evidence. The
-// chokepoint is wrong when a write it should have refused lands, or one it should
-// have taken does not; this ledger is wrong when a refusal is filed under the wrong
-// half of the caller/store line — a full disk reported as a caller defect, or a
-// caller smuggling prose reported as storage pressure — and an operator then audits
-// the wrong thing entirely. Neither reading tells you anything about the other, and
-// the classification table is the part that has to be read as a table.
-//
-// Stateful, so it is a class with private fields rather than counters scattered
-// across the store. Its readings are cumulative for the window's lifetime: nothing
-// here resets, because a count that could be cleared cannot answer "has this
-// happened since the window opened".
+// The chokepoint in `ui-state-store.ts` decides whether a write may land; this module decides
+// what that decision meant: whether a refusal is the caller handing the store something it may
+// not keep or the store failing to keep something legitimate, which fires the
+// `persistence-value-class` tripwire, and what the diagnostics view shows. It is separate
+// because the two can be wrong independently: a full disk reported as a caller defect sends an
+// operator to audit the wrong half. Counts are cumulative for the window's lifetime, since a
+// count that could be cleared cannot answer "has this happened since the window opened".
 
 import { reportTripwire } from "@renderer/lib/tripwires.js";
 import {
@@ -29,14 +18,11 @@ import {
 import type { PersistenceRefusal, PersistenceRefusalCode } from "./persistence-refusals.js";
 
 /**
- * Which refusals mean the CALLER handed the store something it may not keep, as
- * opposed to the store failing to keep something legitimate.
+ * Which refusals mean the caller handed the store something it may not keep, as opposed to the
+ * store failing to keep something legitimate.
  *
- * A total table over the closed code union rather than a disjunction inside an
- * `if`: the caller-fault half fires the `persistence-value-class` tripwire and the
- * other half deliberately does not — a full disk is nobody's defect. Written this
- * way so a new refusal code does not compile until somebody decides which side of
- * that line it falls on, which an `if` would have let it slip past silently.
+ * A total table over the closed code union, so a new code does not compile until it is
+ * classified. Only the caller-fault half fires the tripwire; a full disk is nobody's defect.
  */
 const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>> = {
   "address-not-identifier-shaped": true,
@@ -49,14 +35,9 @@ const IS_CALLER_FAULT_REFUSAL: Readonly<Record<PersistenceRefusalCode, boolean>>
 };
 
 /**
- * The site a refused ADDRESS is reported under.
- *
- * Every other arm reports `partition/key`, which names the record the breach was
- * about. That is the one thing an address refusal cannot do: the address IS what
- * was wrong, and a tripwire report quoting it would carry the prose the store
- * just refused into the report — one layer further out than the chokepoint that
- * stopped it. The refusal's own detail names the offending component and its
- * length, which is what an author needs to find the call site.
+ * The site a refused address is reported under. Other arms report `partition/key`, but a
+ * tripwire report quoting a refused address would carry the prose the store just refused; the
+ * refusal's own detail names the offending component and its length instead.
  */
 export const REFUSED_ADDRESS_SITE = "<address>";
 
@@ -83,18 +64,13 @@ export class PersistenceHealthTracker {
   #lastQuota: QuotaGauge = unmeasuredQuota("not-attempted");
 
   /**
-   * File one refusal, and fire the tripwire if it is the caller's.
-   *
-   * Counting and classifying are one act on purpose. A count kept here while the
-   * caller/store split was decided at the call site would let two arms of the
-   * same write disagree about which side a code falls on, and the count would
-   * still look right.
+   * Files one refusal, and fires the tripwire if it is the caller's. Counting and classifying
+   * are one act so two arms of a write cannot disagree about which side a code falls on.
    */
   public recordRefusal(refusal: PersistenceRefusal, site: string): void {
     this.#refusalCounts.set(refusal.code, (this.#refusalCounts.get(refusal.code) ?? 0) + 1);
     if (IS_CALLER_FAULT_REFUSAL[refusal.code]) {
-      // A caller tried to put something the durable store may not hold. In dev this
-      // throws; in production it is reported and the write is refused.
+      // In dev this throws; in production it is reported and the write is refused.
       reportTripwire("persistence-value-class", site, refusal.detail);
     }
   }
@@ -120,11 +96,8 @@ export class PersistenceHealthTracker {
   }
 
   /**
-   * The reading the diagnostics view renders, for one adapter.
-   *
-   * The adapter is passed in rather than held: this ledger outlives no adapter and
-   * owns none, and a second reference to the one the store already awaited would
-   * be a second answer to "which adapter is this store on".
+   * The reading the diagnostics view renders, for one adapter. The adapter is passed in rather
+   * than held, so there is one answer to which adapter the store is on.
    */
   public snapshot(adapter: PersistenceAdapter): PersistenceHealth {
     return {

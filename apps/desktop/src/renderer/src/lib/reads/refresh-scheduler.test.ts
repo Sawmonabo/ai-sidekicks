@@ -1,17 +1,6 @@
-// The refresh scheduler, driven on frozen time.
-//
-// Every assertion here is about a claim the console's own rules make and that a
-// happy-path test cannot see: a burst costs one read, a continuous stream still gets
-// one (the absolute deadline), two reads never overlap, the reasons a read is performed
-// for are the ones callers gave, and nothing stays armed after a pane goes away.
-//
-// It runs on `ManualClock` and arms no real timer at all. That is not a convenience:
-// `clock.pendingCount === 0` after settle is the only way the idle-CPU budget's
-// "no timer fires" claim can be CHECKED rather than asserted, and a test on real
-// timers could not make it.
-//
-// `ApplyQueue`, the write half of the console's scheduling, is driven by
-// `store/session/apply-queue.test.ts`.
+// The refresh scheduler on frozen time: a burst costs one read, a continuous stream still gets
+// one, reads never overlap, reasons are the callers', and nothing stays armed after dispose.
+// `ManualClock.pendingCount` is how "no timer left armed" is checked, which real timers cannot.
 
 import { describe, expect, it } from "vitest";
 
@@ -42,25 +31,23 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     }
     await settleMicrotasks();
 
-    // One read, at exactly the absolute deadline measured from the FIRST request.
-    // A bare trailing debounce would have been pushed out ten times and read never.
+    // One read, at the absolute deadline counted from the first request; a bare debounce would
+    // have been pushed out ten times.
     expect(firedAt).toStrictEqual([1000]);
     expect(scheduler.performCount).toBe(1);
-    // And it carries every reason that asked for it BEFORE it fired, in order —
-    // the diagnostics read this, so a coalesced read must not lose why it
-    // happened. Ten, not eleven: the deadline lands inside the tenth `advance`,
-    // so the tenth request is made against a read already in flight…
+    // The read carries every reason requested before it fired, in order; diagnostics read them.
+    // Ten, not eleven: the deadline lands inside the tenth `advance`, so the last request is
+    // made against a read already in flight...
     expect(reasonsSeen[0]?.[0]).toBe("subscribe");
     expect(reasonsSeen[0]).toHaveLength(10);
-    // …and is therefore held for the NEXT read rather than dropped. A request
-    // that arrived one instruction too late must still be honored.
+    // ...and is held for the next read rather than dropped.
     expect(scheduler.pendingReasons).toStrictEqual(["terminal-event"]);
     expect(scheduler.isArmed).toBe(true);
   });
 
   it("negative control: without the absolute deadline the stream starves the read", () => {
-    // Same script, same class, one option changed. This is what makes the case
-    // above a claim about `maxWaitMs` rather than about the clock harness.
+    // Same script with one option changed, so the case above is about `maxWaitMs`, not the
+    // clock harness.
     const clock = new ManualClock(0);
     let performCount = 0;
     const scheduler = new RefreshScheduler({
@@ -103,8 +90,8 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     clock.advance(10);
     expect(batches).toStrictEqual([["subscribe"]]);
 
-    // Asked for while the first read is still outstanding. It must not run in
-    // parallel, and it must not be re-labeled.
+    // Asked for while the first read is outstanding: it must not run in parallel or be
+    // re-labeled.
     scheduler.request("gap-repull");
     expect(batches).toHaveLength(1);
 
@@ -113,19 +100,14 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     clock.advance(10);
     await settleMicrotasks();
 
-    // Exactly `gap-repull`. An earlier shape re-armed by calling
-    // `request("reconnect")`, which invented a diagnostics reason for a read
-    // nobody asked for under that name.
+    // Exactly `gap-repull`: the re-arm invents no reason of its own.
     expect(batches[1]).toStrictEqual(["gap-repull"]);
     expect(scheduler.performCount).toBe(2);
   });
 
   it("runs a mid-flight request at completion when its max-wait already elapsed", async () => {
-    // The absolute deadline belongs to the REQUEST, not to the timer. A request
-    // made while a slow read is outstanding is already waiting; it just has no
-    // timer yet. Dating the deadline from the read's completion made a repair
-    // queued behind an over-long read serve a further debounce interval past the
-    // absolute deadline it was already overdue against.
+    // The absolute deadline counts from the request, not the timer: a repair queued behind an
+    // over-long read must not wait a further debounce past a deadline it is already overdue on.
     const clock = new ManualClock(0);
     const firedAt: number[] = [];
     let releaseInFlightRead: (() => void) | undefined;
@@ -145,24 +127,23 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     clock.advance(120);
     expect(firedAt).toStrictEqual([120]);
 
-    // Queued at 120 against a 1000 ms max-wait, so it is due at 1120 — and the
-    // read it is queued behind does not finish until 1120 exactly.
+    // Queued at 120 against a 1000 ms max-wait, so due at 1120; the read ahead of it finishes
+    // at exactly 1120.
     scheduler.request("gap-repull");
     clock.advance(1000);
     releaseInFlightRead?.();
     await settleMicrotasks();
 
-    // Overdue on arrival at the re-arm, so the delay floors at zero and the read
-    // runs on the completion tick rather than at 1240.
+    // Overdue at the re-arm, so the delay floors at zero and the read runs on the completion
+    // tick rather than at 1240.
     clock.advance(0);
     expect(firedAt).toStrictEqual([120, 1120]);
     expect(scheduler.performCount).toBe(2);
   });
 
   it("negative control: a mid-flight request well inside the window still debounces", async () => {
-    // Same script, a short read instead of an over-long one. Without this, a
-    // scheduler that had stopped debouncing altogether — firing every re-arm at
-    // zero delay — would pass the case above while coalescing nothing.
+    // Same script with a short read; a scheduler that fired every re-arm at zero delay would
+    // pass the case above while coalescing nothing.
     const clock = new ManualClock(0);
     const firedAt: number[] = [];
     let releaseInFlightRead: (() => void) | undefined;
@@ -185,8 +166,8 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     releaseInFlightRead?.();
     await settleMicrotasks();
 
-    // Due at 1120 and the read completed at 130: the debounce is the binding
-    // deadline, so nothing runs on the completion tick.
+    // The absolute deadline is 1120 but the debounce (130 + 120) binds, so nothing runs on the
+    // completion tick.
     clock.advance(0);
     expect(firedAt).toStrictEqual([120]);
     clock.advance(120);
@@ -235,8 +216,7 @@ describe("RefreshScheduler — one read per burst, and one under a stream", () =
     releaseInFlightRead?.();
     await settleMicrotasks();
 
-    // The pane is gone: the in-flight read's own `finally` must not re-arm a timer
-    // behind it, and a later request must not start one either.
+    // After dispose, neither the in-flight read's `finally` nor a later request may arm a timer.
     expect(clock.pendingCount).toBe(0);
     scheduler.request("terminal-event");
     expect(clock.pendingCount).toBe(0);
@@ -263,9 +243,7 @@ describe("the user's own reason — a press, recorded as a press", () => {
     clock.advance(10);
     await settleMicrotasks();
 
-    // Both reasons, in the order they were asked for, and the press is still a press.
-    // A console that folded it into the subscription beside it would report a read
-    // nobody asked for, with nothing afterwards able to tell the two apart.
+    // Both reasons, in request order; the press is not folded into the subscription beside it.
     expect(reasonsSeen).toStrictEqual([["subscribe", "user-request"]]);
   });
 
@@ -288,19 +266,17 @@ describe("the user's own reason — a press, recorded as a press", () => {
     clock.advance(10);
     await settleMicrotasks();
 
-    // One read. A reason names why a read happened, never how urgent it was — a member
-    // that read immediately would be a second scheduling policy hiding inside a label.
+    // One read: a reason names why a read happened, not how urgent it was.
     expect(performCount).toBe(1);
     expect(clock.pendingCount).toBe(0);
   });
 
   it("negative control: the union without it cannot hold the value", () => {
-    /** The defect class, planted: the vocabulary as it stood before the press had one. */
+    /** The reason union without `user-request`. */
     type ReasonsBeforeThePress = "subscribe" | "window-focus" | "reconnect" | "terminal-event";
     const press: RefreshReason = "user-request";
 
-    // @ts-expect-error — the planted union has no member for a user's press, so
-    // a console holding it had to reuse a neighbor's reason or invent one.
+    // @ts-expect-error — the union has no member for a user's press.
     const borrowed: ReasonsBeforeThePress = press;
 
     expect(String(borrowed)).toBe("user-request");

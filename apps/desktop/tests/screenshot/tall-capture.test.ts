@@ -1,26 +1,15 @@
-// The tier photographs the WHOLE element, proved on pixels rather than on mechanism.
+// Proves the tier photographs the whole element, on pixels rather than mechanism. A Playwright
+// element screenshot is a clip in page coordinates and nothing composites an iframe's overflow,
+// so an image of a 2 050 px element carried content to row 899 and white to row 2 049, in both
+// schemes; every such image is stable, self-consistent and blank below the window's edge. This
+// probe renders an element far taller than the window, paints its last hundred rows a color no
+// console token carries, holds the window through the real `CaptureWindow`, then decodes the
+// capture and asserts what is in it. Without the window logic the band comes back `#ffffff`, the
+// page background.
 //
-// WHAT WAS GREEN AND WRONG. A Playwright element screenshot is a clip in page
-// coordinates, the tester iframe is a fixed-size box in that page, and nothing
-// composites an iframe's overflow: an image of an element 2 050 px tall carried real
-// content to row 899 and pure white to row 2 049, in the dark scheme too. Nothing about
-// that was red — while this tier still compared against committed images, every one
-// of them was stable and self-consistent and blank below the window's edge.
-//
-// SO THIS PROBE READS THE IMAGE. It renders an element far taller than the window, paints
-// its last hundred rows a color no console token carries, holds the window open through
-// the same `CaptureWindow` every capture goes through, and then DECODES the capture and
-// asserts what is in it. Against the unfixed window logic the band comes back `#ffffff` —
-// the page's own background, which is the whole finding — and no assertion about the
-// capture mechanism, the viewport, or the clip could have said that as directly.
-//
-// IT WRITES NOTHING. The read below is `save: false`, so the bytes come back to the page
-// and no image is written under a name a person would later look at and mistake for a
-// capture of the console. The window bookkeeping is the real class's, so what is proved here is
-// the mechanism `settled-capture.ts` composes rather than a second copy of it.
-//
-// AND IT IS PINNED TO NO HOST. The colors are flat fills, so there is no glyph and no
-// font in the claim — it holds on any machine that can run the tier.
+// It writes nothing: the read is `save: false`, so no image lands under a name a person would
+// mistake for a capture of the console. The colors are flat fills, so no glyph or font is in the
+// claim and it holds on any host that can run the tier.
 
 import { afterEach, describe, expect, it } from "vitest";
 import { page } from "vitest/browser";
@@ -28,25 +17,23 @@ import { page } from "vitest/browser";
 import { CapturedPng } from "./png-reader.js";
 import { CaptureWindow } from "./settled-capture.js";
 
-/** Well past the 900 px window, so the band sits in territory no capture used to reach. */
+/** Well past the 900 px window, so the band sits below the original window's edge. */
 const PROBE_HEIGHT_PX = 2400;
 
 /** The band at the bottom, deep enough that a one-row rounding error cannot explain it. */
 const PROBE_BAND_HEIGHT_PX = 100;
 
 /**
- * Inset from the document's left edge and narrower than the window.
- *
- * The tier captures full-width elements, such as a repos section spanning the full 1440,
- * and an element inset from the page is the one the clip arithmetic can get wrong in a
- * way a full-width element hides. So the probe is the inset shape.
+ * Inset from the document's left edge and narrower than the window: the tier captures full-width
+ * elements, and an inset element is the one the clip arithmetic can get wrong in a way a
+ * full-width one hides.
  */
 const PROBE_WIDTH_PX = 1200;
 
 /** How far in from the document's left edge the probe starts. */
 const PROBE_LEFT_PX = 24;
 
-/** The field, in a color `tokens/palette.ts` carries nowhere. */
+/** The field, in a color `styles/palette.ts` carries nowhere. */
 const PROBE_FIELD_COLOR = "#00ffff";
 
 /** The band, in a second such color, so neither can be mistaken for the other. */
@@ -56,11 +43,9 @@ const PROBE_BAND_COLOR = "#ff00ff";
 const PAGE_BACKGROUND_COLOR = "#ffffff";
 
 /**
- * How far the window-derived probe below hangs past whatever window it is in.
- *
- * The console's two full-height destinations measure exactly this much past theirs —
- * `min-height: 100%` around 32px of their own padding — so the probe reproduces the
- * shape with the arithmetic written out rather than inherited from a layout.
+ * How far the window-derived probe hangs past whatever window it is in. The console's two
+ * full-height destinations measure this much past theirs (`min-height: 100%` around 32px of
+ * padding), so the probe writes the arithmetic out instead of inheriting a layout.
  */
 const PROBE_OVERHANG_PX = 64;
 
@@ -88,12 +73,9 @@ function mountTallProbe(): HTMLElement {
 }
 
 /**
- * A probe one window tall plus a constant, which is the shape no window holds.
- *
- * `calc(100vh + …)` states the dependence outright instead of building an ancestor
- * chain that happens to produce it: the claim under test is about a box that tracks
- * its window, and a probe whose tracking is three stylesheets deep would be a probe
- * of those stylesheets.
+ * A probe one window tall plus a constant, the shape no window holds. `calc(100vh + …)` states
+ * the dependence outright; a box whose tracking is three stylesheets deep would be a probe of
+ * those stylesheets.
  */
 function mountWindowDerivedProbe(): HTMLElement {
   const probe = document.createElement("div");
@@ -108,12 +90,9 @@ function mountWindowDerivedProbe(): HTMLElement {
 }
 
 /**
- * Hold the window the way a capture does, and hand back the pixels rather than a file.
- *
- * The window bookkeeping is the REAL class — the same one `captureSettled` composes —
- * so the sizing, the ceiling, the `grows-with-its-window` arm, and the restore are all
- * the shipped ones. Only the last step differs: a capture writes an image and this
- * takes the bytes, because a claim about what is in a picture has to read the picture.
+ * Holds the window the way a capture does and returns the pixels, not a file. The window
+ * bookkeeping is the real class `captureSettled` composes; only the last step differs, since a
+ * claim about what is in a picture has to read the picture.
  */
 async function capturePixelsOf(element: Element, probeName: string): Promise<CapturedPng> {
   const captureWindow = new CaptureWindow({
@@ -141,33 +120,30 @@ describe("the screenshot tier's capture reaches the whole element", () => {
 
     const image = await capturePixelsOf(probe, "tall-probe");
 
-    // The dimensions first, so a capture that was clipped rather than blanked fails
-    // here with the two numbers rather than in the band assertion with a color.
+    // Dimensions first, so a clipped capture fails here with the two numbers, not in the band
+    // assertion with a color.
     expect(image.width).toBe(PROBE_WIDTH_PX);
     expect(image.height).toBe(probe.scrollHeight);
 
-    // The band, at both its edges. Before the fix these rows are `#ffffff` — the page
-    // showing through where the iframe stopped painting.
+    // The band at both its edges; unpainted rows would read `#ffffff`, the page showing through
+    // where the iframe stopped painting.
     expect(image.rowColors(image.height - 1)).toStrictEqual([PROBE_BAND_COLOR]);
     expect(image.rowColors(image.height - PROBE_BAND_HEIGHT_PX)).toStrictEqual([PROBE_BAND_COLOR]);
 
-    // The field immediately above it, so the band assertion is not satisfied by an
-    // image that is magenta everywhere — and a row deep in the region the window never
-    // used to reach, which is the row the defect turned white.
+    // The field just above the band, so an all-magenta image cannot pass, and a row past the
+    // original window, which is the row an unpainted capture turns white.
     expect(image.rowColors(image.height - PROBE_BAND_HEIGHT_PX - 1)).toStrictEqual([
       PROBE_FIELD_COLOR,
     ]);
     expect(image.rowColors(windowHeightBefore * 2)).toStrictEqual([PROBE_FIELD_COLOR]);
 
-    // Nothing in the image is the page's own background, which is the whole finding
-    // stated as the property that failed: every row of this capture was painted.
+    // Nothing is the page's own background: every row of this capture was painted.
     expect(image.rowColors(0)).not.toContain(PAGE_BACKGROUND_COLOR);
   });
 
   it("puts the window back after a capture that grew it", async () => {
-    // The other half of the fix, and the half a pixel assertion cannot see: a capture
-    // that opened the window and left it open hands the next spec a console laid out
-    // at 2 400 px, and every image after it in the file shows a different layout.
+    // The half a pixel assertion cannot see: a capture that leaves the window open hands the next
+    // spec a console laid out at 2 400 px.
     const probe = mountTallProbe();
     const windowBefore = { width: window.innerWidth, height: window.innerHeight };
 
@@ -177,11 +153,9 @@ describe("the screenshot tier's capture reaches the whole element", () => {
   });
 
   it("photographs a window-derived element at the tier's own window", async () => {
-    // The one shape growing cannot fix, and the reason the chokepoint stops instead
-    // of chasing: this probe is one window tall plus 64px at EVERY window, so each
-    // grow moves both numbers together. The claim is that the capture is taken at
-    // the size the tier configures — not at whatever the loop climbed to — and that
-    // the unpainted band is exactly the overhang and nothing more.
+    // The one shape growing cannot fix, so the chokepoint stops instead of chasing: this probe is
+    // one window tall plus 64px at every window. The capture is taken at the size the tier
+    // configures, not where the loop climbed to, and the unpainted band is exactly the overhang.
     const probe = mountWindowDerivedProbe();
     const windowBefore = { width: window.innerWidth, height: window.innerHeight };
 
@@ -190,11 +164,9 @@ describe("the screenshot tier's capture reaches the whole element", () => {
     expect({ width: window.innerWidth, height: window.innerHeight }).toStrictEqual(windowBefore);
     expect(image.height).toBe(windowBefore.height + PROBE_OVERHANG_PX);
 
-    // Painted to the window's last row, and the page's background for the overhang
-    // below it. Asserting the band rather than eliding it is the point: it is the
-    // residual this arm accepts, it is bounded by a full-height screen's own padding, and a
-    // change in its size fails here rather than appearing at the bottom of an image
-    // nobody scrolls to.
+    // Painted to the window's last row, and the page background for the overhang. Asserting the
+    // band is the point: it is the residual this arm accepts, bounded by a full-height screen's
+    // own padding, and a change in its size fails here.
     expect(image.rowColors(windowBefore.height - 1)).toStrictEqual([PROBE_FIELD_COLOR]);
     expect(image.rowColors(image.height - 1)).toStrictEqual([PAGE_BACKGROUND_COLOR]);
   });

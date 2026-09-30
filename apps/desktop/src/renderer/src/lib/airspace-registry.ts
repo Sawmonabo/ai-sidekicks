@@ -1,49 +1,20 @@
-// The overlay set a native view yields to — the console's one airspace.
+// The overlays a native view yields to. Every overlay primitive registers a rectangle reader on
+// mount, and a view yields while any registered rectangle intersects its pane. It lives in `lib/`
+// because the registrants are the shared overlay components (through
+// `hooks/useAirspaceRegistration.ts`) and the readers are the preview geometry and the session
+// pane layout.
 //
-// Every overlay primitive registers its own rectangle on mount. The visibility
-// predicate consults the registry, and an overlay whose rectangle intersects the pane
-// makes the view yield. Registration happens once, at the primitive layer, never per
-// overlay instance. The pane layout states the same rule from its own side and calls it the
-// airspace registry. The wire table for both reads `renderer-local`, and this module
-// is that locality.
-//
-// WHY IT IS IN `lib/`. The registrants are the shared overlay components, through
-// `hooks/useAirspaceRegistration.ts`, and the readers are the preview feature's
-// geometry and the session pane layout. Shared components sit below every feature, so
-// a registry kept inside a feature could have no registrant at all; `lib/` is the one
-// layer both sides can import — one airspace per window, not one per feature that
-// draws into it. Nothing but review keeps that true: a second class of this name inside
-// a feature would build no registrant, reach no accessor, and pass every automated
-// check made about it.
-//
-// WHAT IT HOLDS AND WHAT IT DOES NOT. It holds registrations, their rectangle
-// READERS, and the change stream a publisher re-samples on. It observes nothing by
-// itself: the motion sampler lives in the preview feature, which `lib/` may not
-// import, and that is no loss, because the only consumer that needs sub-frame accuracy
-// is the one drawing a native view. So OBSERVATION IS INSTALLED BY THAT CONSUMER
-// through {@link AirspaceRegistry.installMotionObserver}, and while no such consumer
-// exists no frame is ever armed, so no overlay samples while nothing is watching.
-//
-// AND IT NAMES NO DOM TYPE, on `clock.ts`'s precedent and for its reason: `lib/` is
-// reached from Node-context programs with no DOM lib, so `Element` does not resolve
-// there and `Document` resolves to something that is not a document. The two things
-// this module holds on an overlay's behalf — the element an installed observer watches,
-// and the window an airspace belongs to — are opaque here because this module never
-// reads either one. The types below say exactly that, and the consumer that DOES read
-// an element narrows to the platform type at its own boundary.
+// It observes nothing by itself: the consumer that draws a native view installs the motion
+// sampler through {@link AirspaceRegistry.installMotionObserver}, so no frame is armed while
+// nothing watches. It names no DOM type because `lib/` is also compiled by programs with no DOM
+// lib; the element and the window are opaque here.
 
 import { Emitter, type Unsubscribe } from "./emitter.js";
 
-/**
- * The element an overlay hands over for an installed observer to watch.
- *
- * Opaque, because the registry holds it and passes it on and reads no property of it.
- * A caller passes a DOM element; the type is the widest one that is honest about what
- * happens to it here.
- */
+/** The element an overlay hands over for an installed observer to watch; never read here. */
 export type AirspaceOverlayElement = object;
 
-/** A rectangle in CSS pixels, viewport-relative. The one rect shape both sides read. */
+/** A rectangle in CSS pixels, viewport-relative. */
 export interface AirspaceRect {
   readonly x: number;
   readonly y: number;
@@ -54,10 +25,7 @@ export interface AirspaceRect {
 /** One overlay's live rectangle, read at the moment the predicate asks. */
 export type AirspaceRectReader = () => AirspaceRect | undefined;
 
-/**
- * The closed set of overlay kinds the console draws. The enumeration is the claim: a new
- * overlay primitive joins this tuple in the edit that makes it register.
- */
+/** The closed set of overlay kinds the console draws; a new overlay primitive joins this tuple. */
 export const AIRSPACE_OVERLAY_KINDS = [
   "dialog",
   "popover",
@@ -68,15 +36,14 @@ export const AIRSPACE_OVERLAY_KINDS = [
   "diagram-lightbox",
 ] as const;
 
+/** One of {@link AIRSPACE_OVERLAY_KINDS}. */
 export type AirspaceOverlayKind = (typeof AIRSPACE_OVERLAY_KINDS)[number];
 
 /**
  * What a registered overlay holds.
  *
- * An object rather than a bare disposer, because removal is not the only thing an
- * overlay has to say: positioning code that has just written `top` and `left` in one
- * synchronous pass changes neither the box's size nor its animation state, so no
- * observer can see it and the overlay has to report the move itself.
+ * Not a bare disposer because code that sets `top` and `left` in one pass changes neither size
+ * nor animation state, so no observer sees the move and the overlay must report it.
  */
 export interface AirspaceRegistration {
   /** Report a rectangle this overlay just moved by code. Idempotent, safe after removal. */
@@ -88,9 +55,7 @@ export interface AirspaceRegistration {
 /**
  * How a consumer that draws a native view watches one overlay element for movement.
  *
- * Installed rather than owned, for the reason the header gives: the machinery lives
- * in the preview feature, above this module, and a registry that armed it unconditionally would run
- * a frame loop for overlays nothing is yielding to.
+ * Installed rather than owned, so no frame loop runs for overlays nothing is yielding to.
  */
 export type AirspaceMotionObserver = (
   element: AirspaceOverlayElement,
@@ -98,12 +63,10 @@ export type AirspaceMotionObserver = (
 ) => Unsubscribe;
 
 /**
- * Which overlays are on screen right now, as a set of rectangle READERS.
+ * Which overlays are on screen right now, as a set of rectangle readers.
  *
  * Readers rather than rectangles because an overlay animates: a rectangle captured at
- * registration is where the overlay was before it opened, and the view would yield to
- * a box that has moved. A class rather than a module-level `Set` because an auxiliary
- * window is its own renderer process with its own overlays.
+ * registration is where the overlay was before it opened.
  */
 export class AirspaceRegistry {
   readonly #overlaysByToken = new Map<number, RegisteredOverlay>();
@@ -112,13 +75,11 @@ export class AirspaceRegistry {
   #nextToken = 1;
 
   /**
-   * Register one live overlay. `remove` is the only removal, so an overlay that
-   * unmounts without calling it keeps the view hidden — the fail-closed direction: a
-   * stuck-hidden view is a visible bug, a view painted over a dialog is a hazard.
+   * Register one live overlay. `remove` is the only removal, so an overlay that unmounts without
+   * it keeps the view hidden: a stuck-hidden view is a visible bug, a view over a dialog a hazard.
    *
-   * `element` is what an installed observer watches. It is optional because an overlay
-   * whose rectangle is computed rather than laid out has nothing to hand over, and
-   * such an overlay is still correct through `moved()`.
+   * `element` is what an installed observer watches; an overlay with a computed rectangle has
+   * none and reports movement through `moved()`.
    */
   public register(
     kind: AirspaceOverlayKind,
@@ -151,16 +112,12 @@ export class AirspaceRegistry {
   }
 
   /**
-   * Watch every registered overlay element for movement, until the answer is called.
-   *
-   * Arms the overlays already registered and every one that registers later, which is
-   * what makes install order irrelevant: a pane that opens after a dialog watches that
-   * dialog, and a dialog that opens after a pane is watched by it.
+   * Watch every registered overlay element for movement until the returned function is called.
+   * Arms overlays already registered and every later one, so install order does not matter.
    */
   public installMotionObserver(observe: AirspaceMotionObserver): Unsubscribe {
     if (this.#installedObservers.has(observe)) {
-      // One identity, one installation. A second install of the same observer would
-      // overwrite its own disarms and leave the first arming un-disarmable.
+      // A second install of the same observer would overwrite its disarms.
       return () => {
         this.#uninstallMotionObserver(observe);
       };
@@ -191,18 +148,12 @@ export class AirspaceRegistry {
     return rects;
   }
 
-  /** How many overlays are registered. Read by the pane's own diagnostics. */
+  /** How many overlays are registered. */
   public get registeredCount(): number {
     return this.#overlaysByToken.size;
   }
 
-  /**
-   * How many overlay armings are live across every installed observer.
-   *
-   * Zero with nothing installed is the idle-CPU budget's precondition for this
-   * registry, and it is how "no observation while nothing is watching" is checked
-   * rather than promised.
-   */
+  /** How many overlay armings are live across all installed observers; zero when none is. */
   public get observedOverlayCount(): number {
     let observed = 0;
     for (const overlay of this.#overlaysByToken.values()) {

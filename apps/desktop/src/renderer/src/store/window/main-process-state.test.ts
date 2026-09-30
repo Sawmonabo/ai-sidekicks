@@ -14,8 +14,7 @@ describe("describeDaemonConnection", () => {
       expect(sentence.length, connection.kind).toBeGreaterThan(0);
       described.add(sentence);
     }
-    // Distinct per state: two states sharing a sentence is a state a person cannot
-    // tell they are in.
+    // Distinct per state: two states sharing a sentence would be indistinguishable to a person.
     expect(described.size).toBe(REPORTED_CONNECTIONS.length + 1);
   });
 });
@@ -39,8 +38,7 @@ describe("mainProcessReportsAreEqual", () => {
   });
 
   it("sees the attempt move", () => {
-    // The one that matters: a ladder that advanced is a different report, and a
-    // comparison that missed it would freeze the count on screen at its first value.
+    // A ladder that advanced is a new report; missing it would freeze the count on screen.
     expect(
       mainProcessReportsAreEqual(base, {
         ...base,

@@ -1,8 +1,5 @@
-// The parser's job is what it REFUSES, so most of this file is refusals — each one
-// paired with the `Date.parse` reading it replaces, because `Date.parse` answering a
-// number for a value RFC 3339 does not admit is the whole defect this module exists
-// to close. Those pairings are the negative controls: every one of them fails
-// against the old code, which had no validator at all.
+// Most of this file is refusals, each paired with the `Date.parse` reading it replaces, since
+// `Date.parse` answering a number for a value RFC 3339 does not admit is the defect being closed.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,9 +20,8 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
     expect(reading.text).toBe("2026-09-01T12:00:00Z");
   });
 
-  // Arithmetic needs the number, and the number is only readable once the arm is
-  // narrowed — the type doing the guard's job, which is why the malformed arm carries
-  // `epochMilliseconds?: undefined` rather than a `NaN`.
+  // The number is readable only once the arm is narrowed, hence `epochMilliseconds?: undefined`
+  // on the malformed arm rather than a `NaN`.
   const epochMillisecondsOf = (text: string): number => {
     const reading = parseInstant(text);
     if (reading.kind === "malformed") {
@@ -35,8 +31,7 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
   };
 
   it("reads a numeric offset as the instant it names, not as the digits it shows", () => {
-    // The defect in one line: this stamp READS later than the Z one below and IS
-    // earlier. Anything that compared the two as text had them backwards.
+    // This stamp reads later than the Z one below yet is earlier; a text comparison gets it wrong.
     expect(epochMillisecondsOf("2026-09-01T10:00:00+02:00")).toBe(
       epochMillisecondsOf("2026-09-01T09:00:00Z") - 3_600_000,
     );
@@ -59,8 +54,7 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
     expect(parseInstant("2026-09-01T12:00:00.123456Z").kind).toBe("instant");
   });
 
-  // Each case below is a value `Date.parse` reads as a NUMBER. The second assertion
-  // in each is the negative control: it is what the console rendered before.
+  // Each case is a value `Date.parse` reads as a number; the second assertion is the control.
   it.each([
     ["a day that does not exist", "2026-02-30T10:00:00Z"],
     ["February 29 in a common year", "2027-02-29T10:00:00Z"],
@@ -89,19 +83,16 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
   });
 
   it("answers an absent number on the malformed arm rather than NaN", () => {
-    // The property is readable without narrowing, and it is `undefined` and not
-    // `NaN` — the one number that compares false against everything including
-    // itself, so a caller that forgot a guard would get an order that depends on
-    // which side the unreadable value landed on.
+    // Readable without narrowing, and `undefined` rather than `NaN`, which compares false against
+    // everything and would make an order depend on where the unreadable value landed.
     const reading = parseInstant("nope");
     expect(reading.epochMilliseconds).toBeUndefined();
     expect(reading.epochMilliseconds).not.toBeNaN();
   });
 
   it("records the one RFC 3339 spelling this reader narrows away", () => {
-    // A leap second is permitted by RFC 3339 section 5.6 and refused here, and it fails
-    // CLOSED — an em dash and a row sorted last, never a wrong instant. Asserted so
-    // the narrowing is a decision on the record rather than a surprise in a bug report.
+    // A leap second is permitted by RFC 3339 section 5.6 and refused here; it fails closed as a
+    // row sorted last, never a wrong instant.
     expect(parseInstant("2026-12-31T23:59:60Z").kind).toBe("malformed");
   });
 
@@ -131,7 +122,7 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
     yearNinetyNine.setUTCFullYear(99, 0, 1);
     yearNinetyNine.setUTCHours(0, 0, 0, 0);
     expect(epochMillisecondsOf("0099-01-01T00:00:00Z")).toBe(yearNinetyNine.getTime());
-    // The negative control: `Date.UTC` alone reads the same digits as 1999.
+    // Control: `Date.UTC` alone reads the same digits as 1999.
     expect(epochMillisecondsOf("0099-01-01T00:00:00Z")).not.toBe(Date.UTC(99, 0, 1));
   });
 
@@ -146,9 +137,8 @@ describe("parseInstant — the encoding the wire declares, and nothing wider", (
 });
 
 describe("parseInstant — the offset policy the caller's contract declares", () => {
-  // The pairing is the point of every case here: the same text, read two ways, with
-  // the `"any-offset"` reading as the negative control for the `"utc-only"` refusal.
-  // A refusal nobody can show the cost of is a refusal nobody keeps.
+  // Each case reads one text two ways, with `"any-offset"` as the control for the `"utc-only"`
+  // refusal.
   it.each([
     ["a positive numeric offset", "2026-09-01T10:00:00+02:00"],
     ["a negative numeric offset", "2026-09-01T07:00:00-05:00"],
@@ -178,21 +168,15 @@ describe("parseInstant — the offset policy the caller's contract declares", ()
   });
 
   it("keeps every other refusal a refusal under utc-only too", () => {
-    // The policy narrows; it never widens. A day that does not exist is still
-    // malformed with `Z` and a `T` in place.
+    // The policy only narrows: a day that does not exist stays malformed with `Z` and `T`.
     expect(parseInstant("2026-02-30T10:00:00Z", "utc-only").kind).toBe("malformed");
     expect(parseInstant("2026-01-01", "utc-only").kind).toBe("malformed");
   });
 });
 
 describe("parseInstant — total against a value that is not a string at all", () => {
-  // The reachable case, not a hypothetical: this reader is handed wire values the
-  // console did not validate — a `resetAt` read off a rejection, a stamp off a reply —
-  // so the parameter's type is a claim about the CALLERS and not about the values.
-  //
-  // Each case below carries its own negative control in the same assertion: the raw
-  // `exec` the parser opens with THROWS on the value, which is what the module did
-  // before the guard and is why the guard is not decoration.
+  // The parser is handed wire values the console did not validate, so the parameter type says
+  // nothing about the value. Each case is its own control: the raw `exec` throws on the value.
   const RFC_3339_SHAPED = /^(\d{4})-/;
 
   it.each([
@@ -222,9 +206,7 @@ describe("parseInstant — total against a value that is not a string at all", (
   ])("refuses %s and quotes it as a string", (_label, value, quoted) => {
     const reading = parseInstant(value as unknown as string);
     expect(reading.kind).toBe("malformed");
-    // `text` is declared `string` and is what a refusal renders. Before the guard the
-    // number case put the number itself here, so a refusal quoted a non-string
-    // through a member every consumer reads as one.
+    // `text` is declared `string` and is what a refusal renders, so it must be a string here too.
     expect(reading.text).toBe(quoted);
     expect(typeof reading.text).toBe("string");
   });
@@ -255,8 +237,7 @@ describe("compareInstants — unreadable last, in both directions", () => {
   });
 
   it("orders an offset stamp by its instant, where text ordering has it backwards", () => {
-    // `10:00+02:00` is 08:00Z, so it precedes `09:00Z`. The control is the lexical
-    // comparison the console used to make, which answers the opposite.
+    // `10:00+02:00` is 08:00Z, so it precedes `09:00Z`; a lexical comparison says the opposite.
     expect(compareInstants(offsetEarlier, earlier)).toBe(-1);
     expect(offsetEarlier.text.localeCompare(earlier.text)).toBeGreaterThan(0);
   });
@@ -291,9 +272,8 @@ describe("compareInstants — unreadable last, in both directions", () => {
       "2026-09-01T10:00:00+02:00",
       "nope",
     ]);
-    // The negative control for the whole module: the same two lists ordered as TEXT.
-    // Both put the offset stamp on the wrong side of `09:00Z`, and the descending
-    // one puts the unreadable value first.
+    // Control for the module: ordered as text, the offset stamp lands on the wrong side of `09:00Z`
+    // and the descending list puts the unreadable value first.
     expect(
       [...readings]
         .sort((left, right) => left.text.localeCompare(right.text))
@@ -307,9 +287,7 @@ describe("compareInstants — unreadable last, in both directions", () => {
   });
 
   it("answers only a sign, never a magnitude", () => {
-    // Days apart and milliseconds apart answer the same number: the only contract
-    // `Array.prototype.sort` has is the sign, and returning a magnitude invites a
-    // caller to read one.
+    // Days apart and milliseconds apart answer the same number: `sort` only defines the sign.
     expect(compareInstants(parseInstant("2020-01-01T00:00:00Z"), later)).toBe(-1);
     expect(compareInstants(parseInstant("2026-09-01T11:59:59.999Z"), later)).toBe(-1);
   });
@@ -317,10 +295,8 @@ describe("compareInstants — unreadable last, in both directions", () => {
 
 describe("the millisecond unit factors", () => {
   it("names the magnitude of each unit, independently of the chain that derives it", () => {
-    // The factors are written as arithmetic over one base so a reader can check the
-    // sentence rather than count digits, and this is the other half of that trade:
-    // the magnitudes are stated here as literals, so a wrong multiplier in the chain
-    // fails here instead of traveling into every duration the console composes.
+    // The factors are arithmetic over one base; the magnitudes are literals here so a wrong
+    // multiplier fails in this file.
     expect(MILLISECONDS_PER_SECOND).toBe(1_000);
     expect(MILLISECONDS_PER_MINUTE).toBe(60_000);
     expect(MILLISECONDS_PER_HOUR).toBe(3_600_000);
@@ -328,10 +304,8 @@ describe("the millisecond unit factors", () => {
   });
 
   it("agrees with the platform's own calendar arithmetic", () => {
-    // The negative control for a chain that is internally consistent and wrong: four
-    // factors derived from a base of 100 would satisfy every ratio above and none of
-    // these. `Date.UTC` is the independent instrument, and the day is measured across
-    // a boundary the parser has no say in.
+    // Control for a chain that is consistent and wrong (a base of 100 satisfies every ratio):
+    // `Date.UTC` is the independent instrument, measured across a day boundary.
     expect(Date.UTC(2026, 8, 2) - Date.UTC(2026, 8, 1)).toBe(MILLISECONDS_PER_DAY);
     expect(Date.UTC(2026, 8, 1, 1) - Date.UTC(2026, 8, 1, 0)).toBe(MILLISECONDS_PER_HOUR);
     expect(Date.UTC(2026, 8, 1, 0, 1) - Date.UTC(2026, 8, 1, 0, 0)).toBe(MILLISECONDS_PER_MINUTE);

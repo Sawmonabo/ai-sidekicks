@@ -19,9 +19,8 @@ import {
 /**
  * The list itself: the session's mounts, read and kept current.
  *
- * A separate component because the read's lifetime is this component's: it is
- * constructed on the session it reads, started in an effect, and disposed when the
- * pane leaves.
+ * Its own component because the read's lifetime is this component's: built on the session
+ * it reads, started in an effect, and disposed when the pane leaves.
  */
 export function MountedFolderList(props: {
   readonly bridge: SettingsPageContext["bridge"];
@@ -30,23 +29,18 @@ export function MountedFolderList(props: {
   readonly sessionStore: SettingsPageContext["retainedSessionStore"];
 }): ReactNode {
   const { bridge, calls, sessionId, sessionStore } = props;
-  // The scenario's frozen clock under the fixture, the real one otherwise, so a story
-  // advances this read's coalescing window exactly when it advances everything else's.
-  //
-  // From the window's own clock hook, which keeps one clock identity for the life of the
-  // mount, so this `dispose()`-bearing read is never rebuilt around a new clock when the
-  // bridge is replaced in place.
+  // The scenario's frozen clock under the fixture, the real one otherwise. It comes from
+  // the window's clock hook, which keeps one identity for the mount, so this read is not
+  // rebuilt around a new clock when the bridge is replaced.
   const clock = useClock();
-  // The openings made for this list. Its only job is to be a dependency the read's
-  // construction can be moved by: a subscription that could not be opened at all is
-  // terminal without one, because the read seam skips the snapshot in that arm and
-  // the effect below re-runs only when the session or the transport moves.
+  // A dependency that moves the read's construction: a subscription that could not be
+  // opened is terminal without one, because the read requests no snapshot then and the
+  // effect below re-runs only when the session or the transport moves.
   const [openingOrdinal, setOpeningOrdinal] = useState(0);
   const inventoryRead = useMemo(
     () => createMountInventoryRead({ calls, sessionId, clock, sessionStore }),
-    // `openingOrdinal` is the re-open. Moving it builds a fresh read, and the effect
-    // below disposes the previous one before starting it, so the release and the
-    // re-subscribe are one act rather than two paths to keep in step.
+    // `openingOrdinal` is the re-open: moving it builds a fresh read, and the effect below
+    // disposes the previous one first, so release and re-subscribe are one act.
     [calls, sessionId, clock, sessionStore, openingOrdinal],
   );
   useEffect(() => {
@@ -55,11 +49,10 @@ export function MountedFolderList(props: {
       inventoryRead.dispose();
     };
   }, [inventoryRead]);
-  // Focus is the second of the section's three signals and not a poll: a window
-  // that was away may have missed a mount going unreachable, and the request goes
-  // through the read's own scheduler so a flurry of focus changes still costs one
-  // read. The first is the session's own event stream, bound by the read itself
-  // (see `mount-inventory.ts`).
+  // Focus is the second of the section's three refresh signals: a window that was away may
+  // have missed a mount going unreachable. It goes through the read's scheduler, so a
+  // flurry of focus changes costs one read. The first signal is the session's event stream,
+  // bound by the read (see `mount-inventory.ts`).
   useEffect(() => {
     const onWindowFocus = (): void => {
       inventoryRead.refresh("window-focus");
@@ -69,16 +62,11 @@ export function MountedFolderList(props: {
       window.removeEventListener("focus", onWindowFocus);
     };
   }, [inventoryRead]);
-  // Reconnect is the third, and it is a DIFFERENT fact from the two beside it. A
-  // window that never lost focus and whose session never went degraded can still
-  // have had its transport drop and come back, and everything read across that gap
-  // is as stale as if nobody had been looking — with nothing on screen saying so.
-  //
-  // A SEPARATE EFFECT rather than a second listener inside the one above, because
-  // the two release differently: the focus listener is the window's and the
-  // reconnect subscription is the transport's, and a single cleanup that released
-  // both would be one identity for two lifetimes. The signal itself decides what a
-  // reconnect IS — this only asks for the read.
+  // Reconnect is the third, and a different fact: a window that never lost focus can still
+  // have had its transport drop and come back, leaving everything read across the gap stale
+  // with nothing on screen saying so. A separate effect from focus because the two release
+  // differently: the focus listener is the window's, the reconnect subscription the
+  // transport's.
   useEffect(
     () =>
       bridge.transportReconnect.subscribe(() => {
@@ -88,21 +76,19 @@ export function MountedFolderList(props: {
   );
 
   const state = usePushDrivenRead(inventoryRead);
-  // Said once, when the inventory lands — and once more only if a later refresh
-  // settles differently. The focus refresh above re-reads this list every time the
-  // window comes back, so the sentence deliberately names the counts and nothing
-  // that moves on its own; an unchanged inventory read again says nothing again.
+  // Said once when the inventory lands, and again only if a later refresh settles
+  // differently. The focus refresh re-reads on every return, so the sentence names counts
+  // and nothing that moves on its own.
   useSettlementAnnouncement(mountSettlementSentence(state));
 
   if (state.kind === "not-loaded") {
     return <Nothing kind="not-loaded" placement="block" title="Reading this session's mounts." />;
   }
   if (state.kind === "failed") {
-    // The control is the way back. A failed READ recovers on its own — the session's
-    // event stream pushes again and the next refresh publishes the inventory — but a
-    // subscription that could not be OPENED leaves nothing to push, and the read seam
-    // deliberately asks for no snapshot in that arm rather than rendering an
-    // inventory behind a channel that has stopped listening.
+    // The control is the way back. A failed read recovers when the event stream pushes
+    // again, but a subscription that could not be opened leaves nothing to push, and the
+    // read asks for no snapshot then rather than render an inventory behind a channel that
+    // has stopped listening.
     return (
       <Nothing
         kind="error"
@@ -150,14 +136,10 @@ export function MountedFolderList(props: {
 /**
  * The one sentence this list announces, or `undefined` while the read is in flight.
  *
- * The counts are what a person cannot get any other way: on screen the rows ARE the
- * count, and spoken they are not. The unread tail is named in the same sentence rather
- * than dropped, for the reason the aside beside it exists — a bounded read that said
- * only what it opened would report a smaller session than the one it found.
- *
- * A refused read speaks the refusal's own detail, never a sentence of this console's
- * own: the card on screen renders those words, and the announcement is the spoken half
- * of the same fact rather than a second, friendlier account of it.
+ * The counts are what speech lacks: on screen the rows are the count. The unread tail is
+ * named in the same sentence, since a bounded read that said only what it opened would
+ * report a smaller session. A refused read speaks the refusal's own detail, the words the
+ * card shows.
  */
 function mountSettlementSentence(state: PushDrivenReadState<MountInventory>): string | undefined {
   if (state.kind === "not-loaded") {

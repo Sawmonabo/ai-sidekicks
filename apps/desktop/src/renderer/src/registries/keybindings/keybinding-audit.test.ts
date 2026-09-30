@@ -1,5 +1,5 @@
-// Every verdict about a binding set comes back from the keybinding service, and the
-// reserved-chord table names a host's own chords and nothing else.
+// Every verdict about a binding set comes from the keybinding table; the reserved-chord table
+// lists only a host's own chords.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,8 +12,7 @@ describe("reserved chords", () => {
   });
 
   it("negative control: an ordinary chord is not reserved anywhere", () => {
-    // Without this the assertions above would pass over a table that called every
-    // chord reserved, which would render the whole keyboard unavailable.
+    // Without this, a table that called every chord reserved would pass the case above.
     expect(reservedChordReason("$mod+KeyK", "darwin")).toBeUndefined();
     expect(reservedChordReason("$mod+Space", "linux")).toBeUndefined();
   });
@@ -30,9 +29,7 @@ describe("auditing a binding set", () => {
   });
 
   it("negative control: two commands on one chord in one scope are named as a conflict", () => {
-    // The clean result above means nothing unless the audit bites. It is the real
-    // keybinding service answering, so a conflict rule that changed there changes
-    // every reader's report in the same act.
+    // The clean result above means nothing unless the audit detects a real conflict.
     const audit = auditKeybindings([
       { chord: "$mod+1", commandId: "frame.goToSessions" },
       { chord: "$mod+1", commandId: "frame.goToWorkflows" },

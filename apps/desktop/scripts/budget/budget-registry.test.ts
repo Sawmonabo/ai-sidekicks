@@ -1,24 +1,8 @@
-// The registry's SHAPE — which rows exist, and what each one must carry.
-//
-// `budgets.json` is the single source of truth for every numeric budget the
-// console is gated on, and two failure modes that would make it worthless are shape
-// failures this file closes:
-//
-//   • A budget quietly missing. Every product budget is asserted present by id,
-//     so deleting one fails here rather than going unnoticed as a gate nobody
-//     runs.
-//
-//   • A budget quietly ungated. Every `"n/a"` entry must say why it is not
-//     measurable yet.
-//
-// Three neighboring questions are deliberately elsewhere, each beside the module
-// that answers it: whether the loader REFUSES a malformed document is
-// `budget-document.test.ts`'s, whether the report names every un-measured row is
-// `budget-report.test.ts`'s, and whether the comparison bites is
-// `budget-evaluation.test.ts`'s. Whether the file a row NAMES actually drives the
-// row's subject is a question over a file rather than over the registry, and no
-// gate asks it: a row's `measuredBy` is checked by the reviewer of the diff that
-// writes it.
+// The registry's shape: which rows exist and what each must carry. `budgets.json` is the single
+// source of truth for every numeric budget, so a budget quietly missing (every product budget is
+// asserted present by id) or quietly ungated (every `"n/a"` row must say why) fails here. The
+// loader's refusals, the report and the comparison are tested beside their own modules. Whether a
+// row's `measuredBy` file really drives its subject is left to the reviewer of the diff.
 
 import { describe, expect, it } from "vitest";
 
@@ -37,22 +21,9 @@ const EXPECTED_PRODUCT_BUDGET_IDS: readonly string[] = [
 ];
 
 /**
- * Bounds no spec figure backs — the complement of the list above rather than one
- * kind of thing.
- *
- * They share `budgets.json` because one value gets one home, and they are
- * `scope: "harness"` rather than merged into the list above because the claim
- * that list makes — the spec's table names these and nothing else — has to stay
- * countable. Before this they were TypeScript literals one directory away, the
- * only numbers in the tree gated by nothing.
- *
- * Five of them are the launch slices the scaffolding applies to ITSELF.
- * `renderer-initial-fonts` is not: it bounds a shipped artifact, the
- * self-hosted `woff2` faces on the renderer's initial graph, and it is here
- * because the spec's table names no font row and a ninth `product` id would cost
- * the countability that list exists for. Its unit is raw bytes rather than gzip
- * for the reason `harnessBudgetDerivation` states — a `woff2` is a Brotli
- * container, so a compressed figure over one measures nothing.
+ * Bounds no spec figure backs, kept in `scope: "harness"` so the product list stays countable.
+ * Five are the launch slices the scaffolding applies to itself; `renderer-initial-fonts` bounds
+ * the shipped `woff2` faces in raw bytes, since a `woff2` is already compressed.
  */
 const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
   "renderer-initial-fonts",
@@ -64,14 +35,10 @@ const EXPECTED_HARNESS_BUDGET_IDS: readonly string[] = [
 ];
 
 /**
- * Budgets that are measured. Every other row must be `"n/a"`.
- *
- * The heap, transcript-row, frame-time and terminal-memory rows are taken by the
- * endurance tier because their subject is a running renderer, and no process without
- * one holds it: a harness that held less than its row's subject would report green
- * over a renderer past its ceiling. The frame-time row is hardware-dependent: it
- * prints its figure on every runner and compares it only on the pinned class, which
- * `tests/endurance/pinned-runner-class.ts` decides.
+ * Budgets that are measured; every other row must be `"n/a"`. The heap, transcript-row,
+ * frame-time and terminal-memory rows belong to the endurance tier because only a running
+ * renderer holds their subject. The frame-time row prints its figure on every runner and compares
+ * it only on the pinned class, which `tests/endurance/pinned-runner-class.ts` decides.
  */
 const EXPECTED_ENFORCED_BUDGET_IDS: readonly string[] = [
   "renderer-initial-bundle",
@@ -100,9 +67,7 @@ describe("console budget registry", () => {
   });
 
   it("carries every product budget, and no others", () => {
-    // Scoped to the product rows, which is what makes this claim survive the
-    // harness rows joining the file: the product list is a closed set and the
-    // scaffolding's own bounds are not part of it.
+    // Scoped to the product rows: the scaffolding's own bounds are not part of the closed list.
     expect(
       registry
         .productBudgets()
@@ -161,8 +126,7 @@ describe("console budget registry", () => {
     ).toStrictEqual([...EXPECTED_ENFORCED_BUDGET_IDS].sort());
     for (const budget of registry.enforcedBudgets()) {
       expect(budget.measuredBy, `${budget.id}: measuredBy`).not.toBeNull();
-      // The symbol is what makes the path checkable at all — by a reader, who
-      // can open the named harness and look for it.
+      // The symbol is what lets a reader open the named harness and look for it.
       expect(budget.subjectSymbol, `${budget.id}: subjectSymbol`).not.toBeNull();
       expect(budget.notMeasurableReason, `${budget.id}: notMeasurableReason`).toBeNull();
     }

@@ -1,5 +1,4 @@
-// Every channel main answers for the bridge answers only a console document: a frame on
-// any other origin is refused before its request is read.
+// Every bridge channel refuses a frame that is not a console document.
 
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";

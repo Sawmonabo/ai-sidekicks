@@ -1,40 +1,30 @@
-// What the persistence layer keeps and how large one record may be, beside the live
-// drafts that never reach it.
+// Bounds on what the persistence layer keeps, and on the live drafts that never reach it.
+
 /**
- * Sessions whose UI state the persistence layer keeps. Past this the least
- * recently touched partition is trimmed, so a long-lived install does not grow
- * an unbounded IndexedDB.
+ * Sessions whose UI state the persistence layer keeps. Past this the least recently touched
+ * partition is trimmed, so a long-lived install does not grow an unbounded IndexedDB.
  */
 export const PERSISTENCE_SESSION_PARTITION_CAP = 40;
 
 /**
- * Bytes one persisted UI-state RECORD may occupy: its partition, its key, its
- * class, and its serialized value together. A layout snapshot or an expansion set
- * is kilobytes; anything past this is content that does not belong in the store,
- * so the cap is a second line of defense behind the value-class enumeration
- * rather than a performance knob.
- *
- * The address is inside the cap rather than beside it because the address is
- * stored too — a ceiling over the value alone would leave the key unbounded by
- * anything but the identifier grammar, and the key is the part an index holds a
- * second copy of.
+ * Bytes one persisted UI-state record may occupy: its partition, key, class and serialized
+ * value together. A layout snapshot or an expansion set is kilobytes, so the cap is a second
+ * line of defense behind the value-class enumeration, not a performance knob. The address
+ * counts because it is stored too, and an index holds a second copy of the key.
  */
 export const PERSISTENCE_RECORD_BYTE_CAP: number = 64 * 1024;
 
 /**
- * Fraction of the storage quota at which the gauge reports pressure. Reported,
- * never acted on silently: the console tells the operator rather than dropping
- * their layout behind their back.
+ * Fraction of the storage quota at which the gauge reports pressure. Reported, never acted on
+ * silently: the operator is told rather than losing their layout behind their back.
  */
 export const PERSISTENCE_QUOTA_PRESSURE_RATIO = 0.8;
 
 /**
  * Live composer drafts one window holds before the oldest is evicted.
  *
- * More composers than a person has open, and still bounded: drafts are held in
- * memory and never persisted, so the ceiling is what keeps a long session's
- * abandoned text from growing without limit. It is supplied to `DraftStore` by the
- * frame rather than defaulted inside it, because that module imports nothing at all
- * and must not: acquiring anything there is the first move of persisting a draft.
+ * More composers than a person has open, and still bounded: drafts are held in memory only, so
+ * the ceiling keeps abandoned text from growing without limit. The frame supplies it to
+ * `DraftStore` because that module imports nothing.
  */
 export const MAXIMUM_LIVE_DRAFT_COUNT = 64;

@@ -1,20 +1,11 @@
-// What the snapshot writer promises: every chunk reaches the file whole and in order,
-// and a stream that cannot be written to says so through this call rather than past it.
+// What the snapshot writer promises: every chunk reaches the file whole and in order, and a
+// stream that cannot be written to says so through the call, not past it.
 //
-// ORDER AND COMPLETENESS, DELIBERATELY NOT PEAK MEMORY. The writer's queue relocates the
-// buffered bytes rather than removing them — `heap-snapshot-analysis.ts`' own header says
-// why the seam admits no fix — so there is no memory claim here to hold it to, and a case
-// that asserted one would be asserting something the subject does not do.
-//
-// The CDP session is a double and the write stream is REAL, which is the split the two
-// surviving claims ask for: both are properties of the stream half, and a doubled stream
-// would answer `true` to every `write` and prove nothing about either.
-//
-// IN `tests/helpers/` RATHER THAN BESIDE ITS SUBJECT, on `bounded-cleanup.test.ts`' and
-// `launch-deadline.test.ts`' precedent — cross-process scaffolding driven with doubles,
-// in the `main-unit` project a person runs before pushing. Under
-// `tests/endurance/**` its two cases ran only when someone opted into the
-// thirty-minute tier by name, and this file launches no window and needs no built bundle.
+// Order and completeness only, not peak memory: the writer's queue relocates the buffered bytes
+// rather than removing them (see `tests/endurance/heap-snapshot-analysis.ts`). The CDP session is
+// a double and the write stream is real, since a doubled stream would answer `true` to every
+// `write` and prove nothing. It lives here so it runs in the `main-unit` project; it launches no
+// window and needs no built bundle.
 
 import { EventEmitter } from "node:events";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
@@ -27,32 +18,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { captureHeapSnapshot } from "../endurance/heap-snapshot-analysis.js";
 
 /**
- * A chunk large enough that a few of them cross the stream's high-water mark.
- *
- * 512 KiB against the 64 KiB default: the first write already fills the buffer, so
- * every chunk after it is written behind a `drain` wait rather than into memory.
+ * A chunk large enough that a few of them cross the stream's high-water mark: 512 KiB against
+ * the 64 KiB default, so later chunks are written behind a `drain` wait.
  */
 const CHUNK_BYTE_COUNT = 512 * 1024;
 
 const CHUNK_COUNT = 8;
 
 /**
- * How long the doubled command stays outstanding after its chunks are emitted.
- *
- * Load-bearing rather than padding. `takeHeapSnapshot` on a real renderer is
- * outstanding for the whole of the write, so a stream failure arrives while the
- * caller is still awaiting the command — which is the window in which an unlistened
- * `"error"` event is thrown by the emitter rather than folded into a wait. A double
- * that resolved on the same tick would close that window and test the easy half.
+ * How long the doubled command stays outstanding after its chunks are emitted. A real
+ * `takeHeapSnapshot` is outstanding for the whole write, so a stream failure arrives while the
+ * caller awaits; a double resolving on the same tick would skip the window in which an
+ * unlistened `"error"` is thrown by the emitter.
  */
 const COMMAND_OUTSTANDING_MS = 25;
 
 /**
- * A CDP session that emits the chunks it is given when the snapshot is requested.
- *
- * The chunks are emitted synchronously from inside `send`, which is the shape the
- * real protocol produces — a burst of events while the caller is awaiting the
- * command — and therefore the shape that fills a write buffer.
+ * A CDP session that emits the chunks it is given when the snapshot is requested, synchronously
+ * from inside `send` as the real protocol does, which is what fills a write buffer.
  */
 function emittingCdpSession(chunks: readonly string[]): CDPSession {
   const events = new EventEmitter();
@@ -98,16 +81,14 @@ describe("writing a heap snapshot to a file", () => {
 
     const written = await readFile(snapshotPath, "utf8");
     expect(written).toHaveLength(CHUNK_BYTE_COUNT * CHUNK_COUNT);
-    // Order, not merely volume: a queue that let two waiters run would produce a
-    // file of the right length whose chunks had interleaved.
+    // Order, not merely volume: a queue letting two waiters run would interleave the chunks.
     expect(written).toBe(chunks.join(""));
   });
 
   it("rejects with the stream's own failure rather than throwing past the caller", async () => {
-    // A path whose directory does not exist. The stream raises asynchronously, while
-    // the doubled command is still outstanding — and an `EventEmitter` THROWS an
-    // `"error"` it has no listener for, so with no listener registered up front this
-    // leaves the process rather than the call, and takes the worker with it.
+    // A path whose directory does not exist. The stream raises while the doubled command is
+    // outstanding, and an `EventEmitter` throws an `"error"` with no listener, so without one
+    // registered up front it would leave the process instead of the call.
     const unwritablePath = join(directory, "no-such-directory", "renderer.heapsnapshot");
 
     await expect(captureHeapSnapshot(emittingCdpSession(["{}"]), unwritablePath)).rejects.toThrow(

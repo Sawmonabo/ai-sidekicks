@@ -1,20 +1,10 @@
-// One open session's three parts, driven directly.
-//
-// Almost everything an entry does is reached through `SessionStoreRegistry` and is
-// asserted there, against the real registry — the repair loop the drain closes
-// included. What is asserted HERE is the one claim the registry test structurally
-// cannot make: that `dispose()` is terminal on BOTH children. `registry.close()`
-// disposes an entry and then forgets it, so there is no handle left to ask whether
-// a later delivery or a later refresh request re-arms a timer behind the pane that
-// went away — and "a timer that outlives its pane" is the failure this binding
-// exists to make unrepresentable.
-//
-// AND THE RESUME POSITION, for the same structural reason. The registry forwards the
-// DECISION and not what the reader was handed, so a suite driving the registry can
-// only ask what the entry decided — which is the reading that stayed green for the
-// whole time the console decided a position and submitted it nowhere. Driving the
-// entry directly is what lets the reader RECORD its third argument, and that record
-// is the only assertion the defect could not have passed.
+// One open session's three parts, driven directly. Most of an entry's behavior is asserted
+// through `SessionStoreRegistry`; two claims need the entry itself. First, `dispose()` is
+// terminal on both children: `registry.close()` disposes then forgets the entry, so no handle
+// remains to ask whether a later delivery or refresh re-arms a timer behind the gone pane.
+// Second, the resume position is submitted on the read: the registry forwards only the decision,
+// so recording the reader's third argument is the one assertion that fails if the console
+// decides a position and submits it nowhere.
 
 import { describe, expect, it } from "vitest";
 
@@ -45,9 +35,7 @@ describe("OpenSessionEntry — dispose is terminal on both children", () => {
     ]);
     entry.refreshScheduler.request("window-focus");
 
-    // Neither child re-arms, and the dropped delivery is counted rather than
-    // silently ignored: a subscription still feeding a closed session is a leak
-    // one layer up, and the count is how it becomes visible.
+    // Neither child re-arms, and the dropped delivery is counted (an upstream leak otherwise).
     expect(clock.pendingCount).toBe(0);
     expect(entry.applyQueue.droppedAfterDisposeCount).toBe(2);
     expect(entry.refreshScheduler.isArmed).toBe(false);
@@ -55,8 +43,7 @@ describe("OpenSessionEntry — dispose is terminal on both children", () => {
   });
 
   it("negative control: the same two calls before dispose DO arm both children", () => {
-    // Without this, an entry whose queue and scheduler had stopped arming at all
-    // would pass the case above by doing nothing in either state.
+    // Guards a queue and scheduler that stopped arming, which would pass the case above.
     const clock = new ManualClock(0);
     const entry = new OpenSessionEntry("session-1", {
       read: readsNothing,
@@ -92,13 +79,9 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   type ScriptedRead = SessionSnapshot | { readonly rejectWith: unknown };
 
   /**
-   * An entry whose successive reads follow a script, recording what each was handed.
-   *
-   * The RECORD is the assertion this suite exists to make. The decision was computed,
-   * kept, and forwarded long before it was submitted anywhere, so an assertion that
-   * only read the decision back off the entry passed for the whole time the console
-   * was deciding a position and opening the stream wherever it opened before. What the
-   * reader was HANDED is the only reading that cannot pass in that state.
+   * An entry whose successive reads follow a script, recording what each was handed. The record
+   * is the assertion: reading the decision back off the entry would pass while the position is
+   * decided but never submitted.
    */
   function entryReadingInTurn(
     clock: ManualClock,
@@ -164,8 +147,7 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
     await refresh(clock, entry);
     await refresh(clock, entry);
 
-    // Two reads, and the second one starts where the first was acknowledged. This is
-    // the whole of the defect: the second entry here used to be `undefined`.
+    // The second read starts where the first was acknowledged.
     expect(reads).toStrictEqual([
       { resumeFromCursor: undefined },
       { resumeFromCursor: "7_1723291480000000000" },
@@ -174,9 +156,8 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   });
 
   it("negative control: a read that acknowledges nothing leaves the next read at the start", async () => {
-    // Without this, an entry that submitted some remembered value unconditionally
-    // would satisfy the case above — and would send a position on a session where
-    // nothing has been acknowledged, which is a cursor the daemon has to refuse.
+    // Guards an entry that submitted a remembered value unconditionally, sending a position
+    // the daemon must refuse where nothing was acknowledged.
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [snapshotAt(7), snapshotAt(9)]);
 
@@ -199,28 +180,25 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
     await refresh(clock, entry);
     await refresh(clock, entry);
 
-    // Three reads: the first, the one that carried the refused position, and the
-    // recovery that carried none. The recovery goes through the SAME reader, so no
-    // second read path exists to get out of step with this one.
+    // Three reads: the first, the one carrying the refused position, and the recovery carrying
+    // none. The recovery uses the same reader, so no second read path can drift.
     expect(reads).toStrictEqual([
       { resumeFromCursor: undefined },
       { resumeFromCursor: "7_1723291480000000000" },
       { resumeFromCursor: undefined },
     ]);
-    // The refusal STANDS as the decision — a recovery that overwrote it would leave
-    // the view with nothing to say about a position it silently gave up.
+    // The refusal stands as the decision; overwriting it would hide a position given up.
     expect(entry.timelineResume?.outcome).toBe("refused");
-    // And the store keeps its projection: the recovery answered at the beginning of
-    // the window, which `admitsSnapshotAt` refuses for arriving behind the cursor.
-    // Which is exactly why the settlement is REPORTED rather than left to ride a
-    // store transition that does not happen.
+    // The store keeps its projection: the recovery answered behind the cursor, which
+    // `admitsSnapshotAt` refuses, so the settlement is reported rather than left to a store
+    // transition that does not happen.
     expect(entry.store.snapshot().cursor).toBe(7);
     expect(settlements.length).toBeGreaterThanOrEqual(2);
   });
 
   it("never submits a refused position twice", async () => {
-    // The loop this closes: refuse, recover, be acknowledged at the same unresolvable
-    // position, submit it again — two reads on every refresh for as long as it stood.
+    // Closes the loop of refuse, recover, be acknowledged at the same position, submit again:
+    // two reads per refresh.
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [
       snapshotAt(7, "7_1723291480000000000"),
@@ -242,9 +220,8 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   });
 
   it("degrades the store rather than recovering when a read fails for any other reason", async () => {
-    // The other half of the classification. A read that failed is not a position that
-    // was refused: it takes the scheduler's own error arm, which marks the store
-    // degraded, and it takes no second read.
+    // A failed read is not a refused position: it takes the scheduler's error arm, which marks
+    // the store degraded, and takes no second read.
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [
       snapshotAt(7, "7_1723291480000000000"),
@@ -260,9 +237,8 @@ describe("OpenSessionEntry — the resume position is submitted on the read", ()
   });
 
   it("does not claim a refused position when it submitted none", async () => {
-    // `event.cursor_unresolvable` refuses a request that carried a cursor, so it
-    // cannot be about a position this read did not send. Taking it as ours would
-    // report a lost place on a first read and re-read the window for nothing.
+    // The code refuses a request that carried a cursor, so it cannot be about a position this
+    // read did not send; taking it as ours would report a lost place on a first read.
     const clock = new ManualClock(0);
     const { entry, reads } = entryReadingInTurn(clock, [CURSOR_REFUSAL, snapshotAt(0)]);
 

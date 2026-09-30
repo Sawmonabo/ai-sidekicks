@@ -1,8 +1,6 @@
-// The handle a Playwright driver holds on the running scenario.
-//
-// It is called from OUTSIDE this process, so every case below pins a fact that end
-// depends on. Each has a negative control, because a handle that answered a constant
-// would satisfy the positive half of every one of them.
+// The handle a Playwright driver holds on the running scenario. It is called from outside this
+// process, so each case pins a fact that end depends on, with a negative control since a handle
+// answering a constant would satisfy the positive half.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,8 +24,7 @@ describe("ScenarioFixtureControl — the handle a driver holds", () => {
     const control = new ScenarioFixtureControl(engine);
     const lastBeatMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
 
-    // Negative control for the counter: a handle answering a constant would
-    // satisfy the growth assertions below without ever moving the engine.
+    // Negative control: a handle answering a constant would satisfy the growth assertions below.
     expect(control.deliveredBeatCount()).toBe(0);
 
     control.advance(1);

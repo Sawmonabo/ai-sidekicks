@@ -1,16 +1,13 @@
 // An anchor the mounted window does not hold, driven.
 //
-// The defect in terms: a list reopened on a selected row starts its keyboard there,
-// and a window mounts the rows a SCROLL POSITION needs. Where the two disagreed the
-// hook made the unmounted row active, every mounted row was rendered
-// `isTabbable={false}`, and the list held no sequential tab stop at all — the same
-// reachability failure the clamp exists for, arriving through the anchor rather than
-// through a narrowed set. The caller was silently required to have scrolled the
-// anchor into view first, which is a rule no caller can check.
+// A list reopened on a selected row starts its keyboard there, while a window mounts the
+// rows a scroll position needs. If the two disagree and the unmounted row is made active,
+// every mounted row is `isTabbable={false}` and the list has no sequential tab stop, the
+// same reachability failure the clamp prevents for a narrowed set.
 //
-// So two claims are driven here: the anchor is ASKED FOR, and until it arrives the
-// nearest mounted row holds the stop. The list and the Tab scans come from
-// `RovingList.test-support.tsx` / `windowed-row-index.test-support.ts`.
+// Two claims are driven: the anchor is asked for, and until it arrives the nearest mounted
+// row holds the stop. The list and the Tab scans are in `RovingList.test-support.tsx` and
+// `useWindowedRovingIndex.test-support.ts`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
@@ -48,8 +45,8 @@ describe("useWindowedRovingIndex — an anchor outside the mounted window", () =
       />,
     );
     const list = listOf(container);
-    // Rows 0..3 are mounted and the anchor is 30, so the stop is row 3 — the mounted
-    // row closest to it — and there is exactly one.
+    // Rows 0..3 are mounted and the anchor is 30, so the stop is row 3, the mounted row
+    // closest to it, and there is exactly one.
     expect(tabbableIndexes(list)).toStrictEqual(["3"]);
     expect(sequentialTabStops(list).map((element) => element.tagName)).toStrictEqual(["BUTTON"]);
   });
@@ -89,8 +86,8 @@ describe("useWindowedRovingIndex — an anchor outside the mounted window", () =
         onReveal={onReveal}
       />,
     );
-    // A render that changes nothing must not re-ask: a virtualizer hands back a fresh
-    // window value every render, so an unguarded reveal would fire on every one.
+    // A render that changes nothing must not re-ask: a virtualizer hands back a fresh window
+    // value every render, so an unguarded reveal would fire on every one.
     rerender(
       <RovingList
         rowCount={40}
@@ -130,11 +127,9 @@ describe("useWindowedRovingIndex — an anchor outside the mounted window", () =
   });
 
   it("negative control: an unrevealed anchor leaves the list with no tab stop at all", () => {
-    // The shipped shape, stated as the scan that finds it: a window that mounts rows
-    // 0..3 while the active index is 30 has every mounted row at `tabindex="-1"`, so
-    // Tab reaches nothing in the list. Rendered directly here — not through the hook —
-    // because the hook no longer produces it, and the claims above are only findings
-    // if this is what they rule out.
+    // A window that mounts rows 0..3 while the active index is 30 has every mounted row at
+    // `tabindex="-1"`, so Tab reaches nothing in the list. Rendered directly, not through the
+    // hook, which no longer produces it; the claims above rule this out.
     const { container } = render(
       <ul>
         {[0, 1, 2, 3].map((rowIndex) => (

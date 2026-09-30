@@ -1,8 +1,5 @@
-// What a served payload reply is, as the arm the pane draws.
-//
-// It reaches neither the port nor the wire: it takes one served reply and answers with
-// the arm the pane draws. The bytes are read by the contract's decoder, which switches
-// on the reply's own encoding and never sniffs.
+// Reads one served payload reply as the arm the pane draws. The contract's decoder reads the
+// bytes by the reply's own encoding and never sniffs.
 
 import {
   decodeArtifactPayloadText,
@@ -15,14 +12,9 @@ import {
 /**
  * What one artifact's payload fetch has established.
  *
- * `ArtifactReadResponse` is a union: the deferred arm hands back a content-addressed key and
- * no bytes, the inline arm hands back the bytes with the encoding to read them by. Both
- * are served answers the pane has to draw. The inline arm splits on whether the bytes
- * are text: a payload that decodes is drawn whole, and one that does not is reported as
- * what it is rather than drawn as replacement characters.
- *
- * Before anyone asks there is no reading at all, which is why `ArtifactListReading.payload`
- * is absent rather than one more arm here.
+ * The deferred arm carries a content-addressed key and no bytes; the inline arm carries bytes
+ * plus the encoding to read them by, and a payload that is not text is reported as such rather
+ * than drawn as replacement characters. Before any fetch there is no reading at all.
  */
 export type ArtifactPayloadReading =
   | { readonly status: "fetching"; readonly artifactId: ArtifactId }
@@ -44,21 +36,18 @@ export type ArtifactPayloadReading =
     };
 
 /**
- * How a payload fetch settled, with the arm it reached on the one that served.
- *
- * `superseded` is a fetch whose answer changed nothing on screen and never will: the
- * reader was disposed under it.
+ * How a payload fetch settled. `superseded` is a fetch whose answer changes nothing on screen
+ * because the reader was disposed under it.
  */
 export type ArtifactPayloadOutcome =
   | { readonly status: "settled"; readonly payload: ArtifactPayloadReading }
   | { readonly status: "superseded" };
 
 /**
- * Read one served payload reply as the arm the pane draws.
+ * Reads one served payload reply as the arm the pane draws.
  *
- * The reply's own `payloadEncoding` decides the arm: it is present exactly when
- * `payload` is. A decode that fails is an answer, not an error: base64 that will not
- * decode and bytes that are not UTF-8 both land on `opaque` with the reason named.
+ * The reply's `payloadEncoding` decides the arm; it is present exactly when `payload` is. A
+ * failed decode is an answer, not an error: it lands on `opaque` with the reason named.
  */
 export function artifactPayloadReadingFrom(
   artifactId: ArtifactId,

@@ -1,19 +1,8 @@
-// The write chokepoint.
-//
-// Every durable write goes through one function that refuses a value outside the
-// closed class enumeration AND fires the tripwire — the refusal alone would not be
-// enough, because a refused write that nobody is told about is a preference that
-// silently stops working. The address is held to the same grammar as the value, the
-// record byte cap counts both halves, and the LRU trim orders on the injected
-// clock's stamps.
-//
-// The clock is frozen, so that ordering is driven by named instants rather than by
-// whether two writes happened to land in the same millisecond.
-//
-// The store's other two subjects have their own files:
-// `ui-state-store.degradation.test.ts` for what the console says when there is no
-// durable store, and `ui-state-store.adapter-failure.test.ts` for a write whose
-// bookkeeping fails underneath it.
+// The write chokepoint refuses a value outside the closed class enumeration and fires the
+// tripwire, since a refused write nobody hears about is a preference that silently stops
+// working. The address is held to the same grammar as the value, the record byte cap counts
+// both halves, and the LRU trim orders on the injected clock's stamps (frozen, so ordering is
+// driven by named instants). Degradation and adapter-failure cases have their own files.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -24,9 +13,8 @@ import { PERSISTENCE_GLOBAL_PARTITION } from "./persistence-adapter.js";
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
 
-// Tripwires throw in development so a breach is impossible to ignore. Here they
-// are RECORDED, because these cases assert that the breach was detected and
-// described — a throw would only prove it was noticed.
+// Tripwires throw in development; here they are recorded, because these cases assert the
+// breach was detected and described.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
@@ -43,8 +31,7 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
       clock: new ManualClock(1_000),
     });
 
-    // Cast deliberately: the compiler already refuses this, and the runtime guard
-    // has to hold for anything arriving across a boundary the compiler cannot see.
+    // Cast deliberately: the runtime guard must hold for input the compiler cannot see.
     const result = await store.write("session-1", "body", "composer-draft" as never, "hello");
 
     expect(result.outcome).toBe("refused");
@@ -56,7 +43,7 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
 
     const health = await store.health();
     expect(health.refusalCounts["value-class-unknown"]).toBe(1);
-    // Nothing was written: a refusal is not a write that also complained.
+    // A refusal is not a write that also complained.
     await expect(store.read("session-1", "body")).resolves.toBeUndefined();
     await store.close();
   });
@@ -80,9 +67,8 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
   });
 
   it("refuses a key built from prose, writes nothing, and fires the tripwire", async () => {
-    // The address half of the record. Nothing in the value here is wrong — an
-    // expansion set of two run ids is exactly what the class is for — so a
-    // chokepoint that validated only the value would have written the sentence.
+    // Nothing in the value is wrong, so a chokepoint validating only the value would have
+    // written the sentence.
     const store = new UiStateStore({
       adapter: new MemoryPersistenceAdapter(),
       clock: new ManualClock(1_000),
@@ -125,8 +111,7 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
   });
 
   it("counts the address against the record byte cap, not only the value", async () => {
-    // A cap that measured the value alone would let a caller spend the ceiling on
-    // the value and then an unbounded further amount on the key beside it.
+    // A cap over the value alone would leave the key unbounded.
     const value = ["run-01"];
     const store = new UiStateStore({
       adapter: new MemoryPersistenceAdapter(),
@@ -150,8 +135,7 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
   });
 
   it("negative control: an in-enumeration write lands and fires nothing", async () => {
-    // Without this, a chokepoint that refused every write would pass both cases
-    // above while having broken persistence entirely.
+    // Guards against a chokepoint that refused every write.
     const clock = new ManualClock(1_000);
     const store = new UiStateStore({ adapter: new MemoryPersistenceAdapter(), clock });
 
@@ -202,8 +186,8 @@ describe("the write chokepoint refuses what the durable store may not hold", () 
     expect(await store.read("session-old", "expansion")).toBeUndefined();
     expect(await store.read("session-mid", "expansion")).toBeDefined();
     expect(await store.read("session-new", "expansion")).toBeDefined();
-    // The global partition is written once at boot and is therefore permanently
-    // the least recently touched one. It must never be the first casualty.
+    // The global partition is written once at boot, so it is permanently the least recently
+    // touched one and must never be the first casualty.
     expect(await store.readGlobal("scheme")).toBeDefined();
     await store.close();
   });

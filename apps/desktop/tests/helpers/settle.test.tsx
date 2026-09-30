@@ -1,16 +1,8 @@
-// The shared settle, and the bound that stopped being a caller's argument.
+// The shared settle waits on a boundary, not a counted number of microtask passes.
 //
-// Nine suites carried this loop with nine hard-coded bounds (3, 3, 3, 4, 4, 4, 6, 8)
-// and no way to assert anything across them. Each number was the depth of one
-// component's own effect chain as its author found it, which is a fact that goes stale
-// the moment a read grows a link — and goes stale SILENTLY, because a case that stops
-// waiting long enough reports the absence of an answer still in flight.
-//
-// So the property pinned here is the one that replaced the argument: the settle is a
-// BOUNDARY. The two cases are chosen to be the ones a counted loop fails — a chain
-// deeper than any single pass, and an arrival that no number of microtask passes can
-// reach at all — so a regression to counting fails here rather than intermittently in
-// whichever suite was written over the shortest chain.
+// The two cases are the ones a counted loop fails: a chain deeper than any single pass, and an
+// arrival no number of microtask passes can reach. A regression to counting fails here rather than
+// intermittently in whichever suite has the shortest chain.
 
 import { useEffect, useState } from "react";
 import { render } from "@testing-library/react";
@@ -65,10 +57,8 @@ describe("the shared settle", () => {
   });
 
   it("lands an arrival raised on a task, which no count of microtasks reaches", async () => {
-    // The discriminating case. Every hard-coded bound this module replaced counted
-    // microtask passes, and a component whose read completes on a timer is not one
-    // pass away from settling — it is unreachable that way at any count. A settle
-    // that regressed to counting reports "outstanding" here.
+    // A component whose read completes on a timer is unreachable by counting microtask passes at
+    // any count; a settle that regressed to counting reports "outstanding" here.
     const { container } = render(<TaskArrival />);
 
     await settle();
@@ -77,8 +67,7 @@ describe("the shared settle", () => {
   });
 
   it("asks its caller for no bound at all", () => {
-    // The shape claim, pinned where a reader can see it: the argument is gone, so no
-    // caller can state a depth and no caller's stated depth can go stale.
+    // With no argument, no caller can state a depth that goes stale.
     expect(settle).toHaveLength(0);
   });
 });

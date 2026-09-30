@@ -1,16 +1,9 @@
 // What one provider's import stream has said, in its own words.
 //
-// Its own module rather than a second component beside the panel, which the console's
-// one-component-per-module rule forbids — and the split earns itself here: the panel
-// owns the start call and its disclosure, and this owns the arms one stream can be in.
-//
-// EVERY ARM RENDERS, including the ones that are easy to leave out: an open stream that
-// has not spoken yet is "nothing counted so far" and never a blank, a closed one that
-// never spoke is a stream that ended having said nothing, and every way an import
-// ends — finished, nothing new, stopped, refused — has its own sentence.
-//
-// NOTHING IS COMPUTED FROM THE MESSAGES. The counts and the refusal are the service's
-// own; a percentage would be this console inventing a denominator nobody sent.
+// Every arm renders: an open stream that has not spoken is "nothing counted yet", a closed
+// one that never spoke ended having said nothing, and each way an import ends has its own
+// sentence. Nothing is computed from the messages: the counts and the refusal are the
+// service's own, and a percentage would invent a denominator nobody sent.
 
 import type { ProviderImportOutcome } from "@ai-sidekicks/contracts";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";

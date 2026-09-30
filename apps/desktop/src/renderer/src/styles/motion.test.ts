@@ -9,22 +9,16 @@ function samplesOf(easing: string): readonly number[] {
   return inner.split(", ").map((sample) => Number(sample));
 }
 
-// The sampler is `spring-sampler.test-support.ts`'s whole public API, so every
-// claim below is made about the string it emits. That is deliberate rather than a
-// narrowing forced on the suite: the closed-form solution and the sample count are
-// private, and a test that reached them would be checking the sampler against the
-// very function it samples — which passes over any sampler that calls it, correctly
-// or not.
-//
-// AND THIS SUITE IS WHAT LETS THE SAMPLER LEAVE THE BUNDLE. The console ships the
-// sampled string rather than the sampler, so the last case below re-derives that
-// constant here — the one place the two are held together.
+// The sampler's public API is the emitted string, so every claim is made about it: the closed
+// form and sample count are private, and a test reaching them would check the sampler against
+// the function it samples. The last case re-derives the shipped constant, the one place the two
+// are held together.
 describe("the sampled linear() easing", () => {
   const easing = sampleSpringEasing(CHROME_SETTLE_SPRING);
 
   it("is pinned to exactly 0 and 1 at its ends", () => {
-    // A settle approaches asymptotically, so the raw final sample is a hair short
-    // and an easing ending at 0.9997 leaves the animated property short forever.
+    // A settle approaches its target asymptotically, so the raw final sample is a hair short and
+    // an easing ending at 0.9997 would leave the property short forever.
     const samples = samplesOf(easing);
     expect(samples.length).toBeGreaterThan(2);
     expect(samples[0]).toBe(0);
@@ -38,15 +32,15 @@ describe("the sampled linear() easing", () => {
   });
 
   it("overshoots once the spring is under-damped — the negative control for that", () => {
-    // Without this the assertion above passes over a sampler that clamped, or over
-    // one that never reached the under-damped branch at all.
+    // Without this the assertion above passes over a sampler that clamped, or never reached the
+    // under-damped branch.
     const bouncy = { ...CHROME_SETTLE_SPRING, damping: 8 };
     expect(Math.max(...samplesOf(sampleSpringEasing(bouncy, 64)))).toBeGreaterThan(1);
   });
 
   it("settles without overshoot from the over-damped side too", () => {
-    // The third branch of the solution, which nothing else here reaches: two real
-    // roots and no oscillation term. It arrives later and never passes its target.
+    // The over-damped branch, which nothing else reaches: two real roots, no oscillation. It
+    // arrives later and never passes its target.
     const sluggish = sampleSpringEasing({ ...CHROME_SETTLE_SPRING, damping: 120 });
     for (const sample of samplesOf(sluggish)) {
       expect(sample).toBeLessThanOrEqual(1);
@@ -55,11 +49,9 @@ describe("the sampled linear() easing", () => {
   });
 
   it("rises monotonically and never retreats once it has arrived", () => {
-    // Non-decreasing rather than strictly increasing, and the difference is a fact
-    // about this spring rather than a weakened assertion: critically damped at these
-    // constants it is within 1e-4 of its target before the last sample, so at the
-    // emitted precision the tail repeats 1. Strict increase is asserted where it is
-    // true — every step that has not yet arrived.
+    // Non-decreasing, not strictly increasing: critically damped at these constants the spring is
+    // within 1e-4 of its target before the last sample, so at the emitted precision the tail
+    // repeats 1. Strict increase is asserted for every step that has not yet arrived.
     const samples = samplesOf(easing);
     for (let index = 1; index < samples.length; index += 1) {
       const previous = samples[index - 1] as number;
@@ -82,11 +74,9 @@ describe("the sampled linear() easing", () => {
   });
 
   it("is exactly what `motion.ts` ships, so the shipped curve cannot drift from it", () => {
-    // The sampler does not reach the renderer any more — the token sheet spends the
-    // string, and this is the assertion that makes that safe. Editing a spring
-    // constant, the sample count, or the emitted precision without re-deriving
-    // `CHROME_SETTLE_EASING` fails here rather than leaving the sheet quietly
-    // describing a spring the design never chose.
+    // The token sheet spends the shipped string, not the sampler, and this makes that safe:
+    // editing a spring constant, the sample count or the precision without re-deriving
+    // `CHROME_SETTLE_EASING` fails here.
     expect(CHROME_SETTLE_EASING).toBe(easing);
   });
 });

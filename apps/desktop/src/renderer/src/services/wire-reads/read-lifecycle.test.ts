@@ -1,10 +1,6 @@
-// The four transitions a reading's phase, refusal, and stream state make together.
-//
-// Driven against the real class rather than against a copy of its rules: every case
-// below is a reading's own call sequence, written out so the sequence can be read
-// without a bridge, a clock, or React. What a reading then DOES with these transitions
-// is asserted where it is wired, because a class that says "openable" and a reading
-// that actually re-opens are two claims.
+// The transitions a reading's phase, refusal and stream state make together, driven against the
+// real class as a reading's own call sequence, without a bridge, clock or React. What a reading
+// does with them is asserted where it is wired.
 
 import { describe, expect, it } from "vitest";
 
@@ -24,16 +20,14 @@ describe("a served read clears the refusal that preceded it", () => {
 
     lifecycle.settleRead();
 
-    // BOTH halves. The member is cleared, which is what makes `readRefusal` mean
-    // "the newest read failed"; and the accessor derives the same answer from the
-    // phase, so a later arm that forgot the clear still renders honestly.
+    // Both halves: the member is cleared, which makes `readRefusal` mean "the newest read failed",
+    // and the accessor derives the same answer from the phase.
     expect(lifecycle.state.readRefusal).toBeUndefined();
     expect(findReadRefusal(lifecycle.state)).toBeUndefined();
   });
 
   it("negative control: a refusal nothing has superseded is still carried", () => {
-    // Without this the case above would pass over a class that never carried a
-    // refusal at all, which renders a failed read as a node with nothing to report.
+    // Without this the case above would pass over a class that never carried a refusal at all.
     const lifecycle = new WireReadLifecycle();
     lifecycle.markOpen();
     lifecycle.refuseRead(READ_REFUSED);
@@ -42,8 +36,8 @@ describe("a served read clears the refusal that preceded it", () => {
   });
 
   it("renders nothing for a refusal stranded on a served phase", () => {
-    // The accessor's own claim, stated over the shape it defends against: a state
-    // whose phase says served and whose member still carries a refusal renders none.
+    // The accessor's own claim: a state whose phase says served renders no refusal even if the
+    // member still carries one.
     expect(findReadRefusal({ phase: "read", readRefusal: READ_REFUSED })).toBeUndefined();
     expect(findReadRefusal({ phase: "reading", readRefusal: READ_REFUSED })).toBeUndefined();
   });
@@ -56,8 +50,7 @@ describe("a refused open says whether trying again is worth anything", () => {
 
     expect(lifecycle.state.phase).toBe("refused");
     expect(lifecycle.isOpen).toBe(false);
-    // The reading is closed rather than open, which is what makes a read guarded on
-    // `isOpen` a no-op — and openable, which is what lets a trigger re-open it.
+    // Closed, so a read guarded on `isOpen` is a no-op; openable, so a trigger can re-open it.
     expect(lifecycle.isOpenable).toBe(true);
   });
 
@@ -71,9 +64,8 @@ describe("a refused open says whether trying again is worth anything", () => {
   });
 
   it("does not report an open tail while the reading is closed", () => {
-    // The state that made a dead account-plane reading present itself as current: a
-    // read served behind no tail. `isOpen` is the guard, so it has to be false on
-    // every arm but the one where the subscription is genuinely in hand.
+    // A read served behind no tail is what made a dead reading present itself as current, so
+    // `isOpen` must be false on every arm but the one where the subscription is in hand.
     const lifecycle = new WireReadLifecycle();
     expect(lifecycle.isOpen).toBe(false);
 
@@ -91,8 +83,8 @@ describe("a refused open says whether trying again is worth anything", () => {
     lifecycle.markOpen();
     lifecycle.refuseRead(READ_REFUSED);
 
-    // A refused snapshot is not a refused stream: the tail is still the authority
-    // for what this reading holds, and re-opening it would blank what it delivered.
+    // A refused snapshot is not a refused stream: the tail is still the authority for what this
+    // reading holds, and re-opening it would blank what it delivered.
     expect(lifecycle.isOpen).toBe(true);
   });
 });

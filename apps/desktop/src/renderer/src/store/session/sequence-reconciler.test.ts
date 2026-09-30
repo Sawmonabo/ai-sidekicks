@@ -1,11 +1,7 @@
-// The reconciler in isolation: what it admits, what it refuses, and what it records.
-//
-// `failure-modes.test.ts` drives these same rules through the whole store, which is
-// the right level for "the chokepoint survived a hostile batch". This file covers
-// the level that one cannot reach: the reconciler's own memory between calls — the
-// cursor it advances, the set it releases, and the ranges it accumulates — where a
-// wrong answer is a state the store will carry for the session's life rather than a
-// visible failure of the batch that caused it.
+// The reconciler in isolation: what it admits, refuses and records. The whole-store level is
+// `session-store.failure-modes.test.ts`; this covers the reconciler's own memory between calls
+// (cursor, released set, accumulated ranges), where a wrong answer persists for the session
+// instead of failing the batch that caused it.
 
 import { describe, expect, it } from "vitest";
 
@@ -49,9 +45,8 @@ describe("which sequences cursor arithmetic can survive", () => {
       eventOfKind("session-1", "run.starting", 1),
     ]);
 
-    // Under the obvious subtracting comparator this exact batch keeps its input
-    // order, which appends 3 before 1 and records a hole the same batch then fills
-    // without saying so.
+    // A subtracting comparator keeps this batch in input order, appending 3 before 1 and
+    // recording a hole the same batch then fills silently.
     expect(ordered).toHaveLength(3);
     expect(ordered[0]?.sequence).toBe(1);
     expect(ordered[1]?.sequence).toBe(3);
@@ -94,18 +89,14 @@ describe("the admitted run a reconciler carries", () => {
 
     reconciler.reconcile(9);
 
-    // A reconciler that answered its own list would have grown the array the store
-    // already committed — a value React has rendered, changing under it with no
-    // transition and no notification.
+    // A shared list would grow the array the store already committed and React has rendered.
     expect(committed).toStrictEqual([{ fromSequence: 1, toSequence: 2 }]);
     expect(reconciler.gaps()).toHaveLength(2);
   });
 
   it("refuses a sequence inside a hole it already recorded, as a duplicate", () => {
-    // The cursor is what refuses this, not the dedupe set: 3 was never admitted, so
-    // the set has never held it. A reconciler that tested against the cursor it had
-    // at the START of a batch rather than the one it has now would admit it and
-    // record a second, overlapping range for rows already counted missing.
+    // The cursor refuses this, not the dedupe set (3 was never admitted). Testing against the
+    // batch-start cursor would admit it and record an overlapping second range.
     const reconciler = reconcilerAt(0);
     reconciler.reconcile(5);
 
@@ -121,8 +112,7 @@ describe("the admitted run a reconciler carries", () => {
       outcome: "diverged",
     });
 
-    // Advancing here would put the cursor somewhere no authoritative read need ever
-    // answer at, and every real repair would then be refused as a rewind.
+    // Advancing would put the cursor where no authoritative read need answer.
     expect(reconciler.cursor).toBe(0);
     expect(reconciler.gaps()).toStrictEqual([]);
   });
@@ -145,9 +135,7 @@ describe("dedupe memory between batches", () => {
     const reconciler = reconcilerAt(0);
     reconciler.reconcile(1);
 
-    // Within the batch the set is the only thing that can refuse this, because the
-    // release has not run yet and the cursor test alone would let it through on a
-    // reconciler that advanced lazily.
+    // Within the batch only the set can refuse this; the release has not run yet.
     expect(reconciler.reconcile(1)).toStrictEqual({ outcome: "duplicate" });
     expect(reconciler.retainedSequenceCount).toBe(1);
 
@@ -167,8 +155,7 @@ describe("dedupe memory between batches", () => {
 
     expect(reconciler.cursor).toBe(7);
     expect(reconciler.gaps()).toStrictEqual([]);
-    // Both seeded sequences are at or below the new cursor, so the cursor refuses
-    // them on its own and the set holds nothing.
+    // Both seeded sequences are at or below the new cursor, so the set holds nothing.
     expect(reconciler.retainedSequenceCount).toBe(0);
     expect(reconciler.reconcile(8)).toStrictEqual({ outcome: "admitted", openedGap: undefined });
   });

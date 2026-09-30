@@ -1,12 +1,10 @@
-// Once per distinct sentence, in the polite lane, and never for a state that has not
-// settled.
+// Once per distinct sentence, in the polite lane, and never for a state that has not settled.
 //
-// The cases that matter are the two silences. A view that re-announced on every
-// render would fill the queue with one sentence and shed everything behind it; a
-// view that announced its `not-loaded` arm would tell a person a read had landed
-// before it had. Both are inaudible on screen, so both are asserted here against the
-// real announcer rather than against a spy — what a reader would hear is the region's
-// text, and that is what these cases read.
+// The cases that matter are the two silences. A view that re-announced on every render would
+// fill the queue with one sentence and shed everything behind it; a view that announced its
+// `not-loaded` arm would tell a person a read had landed before it had. Both are inaudible
+// on screen, so they are asserted against the real announcer rather than a spy: the region's
+// text is what a reader would hear.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -33,9 +31,8 @@ function SettlementSentenceProbe(props: {
 /**
  * Mount the probe over an announcer this test drives.
  *
- * The announcer is supplied rather than built by the provider so the hold window is
- * on frozen time: a message clears on a real timer otherwise, and "was it said again"
- * becomes a question about how fast the runner happened to be.
+ * The announcer is supplied rather than built by the provider so the hold window is on
+ * frozen time; on a real timer, "was it said again" would depend on how fast the runner is.
  */
 function mount(sentence: string | undefined): {
   readonly container: HTMLElement;
@@ -95,9 +92,9 @@ describe("settlement announcement — what is said", () => {
 
 describe("settlement announcement — what is not said twice", () => {
   it("negative control: a re-render carrying the same sentence says nothing again", () => {
-    // Without this, a hook that announced on every pass would satisfy every case
-    // above while filling the polite queue with one sentence — which sheds every
-    // other announcement in the window behind it.
+    // Without this, a hook that announced on every pass would satisfy every case above while
+    // filling the polite queue with one sentence, which sheds every other announcement behind
+    // it.
     const { container, clock, rerender } = mount("Four mounts were read.");
     act(() => {
       clock.advance(LIVE_ANNOUNCEMENT_HOLD_MS);
@@ -110,9 +107,9 @@ describe("settlement announcement — what is not said twice", () => {
   });
 
   it("negative control: a reading that returns to not-settled does not clear or repeat", () => {
-    // `undefined` means "nothing has settled", which is not the same as "say the
-    // empty string" — the announcer publishes an empty string to CLEAR a region, and
-    // a view that passed one through would silence whatever was standing.
+    // `undefined` means "nothing has settled", not "say the empty string": the announcer
+    // publishes an empty string to clear a region, so passing one through would silence
+    // whatever was standing.
     const { container, rerender } = mount("Four mounts were read.");
     rerender(undefined);
     expect(politeText(container)).toBe("Four mounts were read.");

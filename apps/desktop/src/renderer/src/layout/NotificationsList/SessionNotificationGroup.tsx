@@ -5,13 +5,9 @@ import { type AttentionSessionGroup } from "@renderer/store/attention/attention-
 import { NotificationEntryList } from "./NotificationEntryList.js";
 
 /**
- * One session's items, actionable above informational.
- *
- * The informational half folds under a count while ANY session has actionable
- * attention — the design's density rule — and the fold is a `<details>` rather
- * than a control this component tracks state for: the platform element is
- * keyboard-reachable, announces its own expanded state, and costs no render pass
- * to open.
+ * One session's items, actionable above informational. The informational half folds under a count
+ * while any session has actionable attention, in a native `<details>` that is keyboard-reachable
+ * and announces its own state.
  */
 export function SessionNotificationGroup(props: {
   readonly group: AttentionSessionGroup;

@@ -1,8 +1,5 @@
-// The renderer bundle measurer's refusals.
-//
-// Each case is a way a measurement could report green over bytes nobody bounded, so the
-// measurer must refuse rather than pass. They drive the real measurer over a planted
-// out-dir that is wrong in exactly one way.
+// Refusals of the bundle measurer. Each case is a way a measurement could report green over bytes
+// nobody bounded, driven over a planted out-dir that is wrong in exactly one way.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -44,8 +41,7 @@ describe("initial-graph measurement refusals", () => {
   });
 
   it("refuses an asset whose extension belongs to neither class", () => {
-    // The fail-closed half of the split: an unclassified asset sums into neither
-    // row, which is the same silent under-count as a file that is not there.
+    // Fail closed: an unclassified asset would sum into neither row, a silent under-count.
     expect(rendererBundleAssetClassOf("assets/logo.png")).toBeUndefined();
     const directory = plantRendererOutput(plantedFixtures, "unclassified", {
       "index.html": { file: "assets/logo.png", isEntry: true },

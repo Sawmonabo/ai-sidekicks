@@ -1,14 +1,7 @@
-// What one `applyBatch` call did, and the zero it counts up from.
-//
-// ITS OWN MODULE FOR THE REASON `session-state.ts` GIVES ABOUT THE STATE SHAPE: more
-// than the store reads this. `open-session-entry.ts` decides whether a batch opened a
-// hole worth an authoritative re-pull, and it decides that by reading these counters —
-// so a shape declared inside the class that writes it would force every reader to
-// import the writer, which is how a folder acquires an import cycle.
-//
-// COUNTS RATHER THAN A VERDICT. Every member is a number or a flag about what
-// happened, and none of them is "you should re-pull": what an outcome MEANS is the
-// caller's judgment, and this module deliberately does not make it.
+// What one `applyBatch` call did, and the zero it counts up from. Its own module because
+// `open-session-entry.ts` reads these counters to decide whether a batch opened a hole worth a
+// re-pull, and a shape inside the writing class would force an import cycle. Every member is a
+// count or flag; what an outcome means is the caller's judgment.
 
 /** What one `applyBatch` call did. Returned so callers can count rather than infer. */
 export interface ApplyOutcome {

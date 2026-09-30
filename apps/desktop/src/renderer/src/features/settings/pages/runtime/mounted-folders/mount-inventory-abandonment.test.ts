@@ -1,9 +1,8 @@
 // What stops the composed inventory read when the page that asked for it has left.
 //
-// A FILE OF ITS OWN, beside the suite that reads the inventory through its model.
-// That one drives `createMountInventoryRead` and asserts what the page is shown;
-// these cases call the composed read directly and assert what it never does, with
-// calls whose replies the case settles itself so a departure can land between them.
+// Beside the suite that drives `createMountInventoryRead` and asserts what the page is shown.
+// These cases call `readMountInventory` directly and assert what it never does, with replies
+// the case settles itself so a departure can land between the calls.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,14 +18,12 @@ import {
 } from "./mounted-folders.test-support.js";
 
 /**
- * The two boundaries INSIDE the composed read, and the departure that lands in one.
+ * The two boundaries inside the composed read, and the departure that lands in one: after
+ * the workspace list settles and before the fan-out, and after the fan-out lands and before
+ * the rows are folded.
  *
- * The gap after the workspace list settles and before the fan-out starts, and the gap
- * after the fan-out lands and before the rows are folded. Driven at the read's own
- * boundary rather than through the model above it: after the fan-out the two
- * behaviors are indistinguishable from outside the model, but called directly the
- * difference is the whole settlement — a stop, or an inventory composed for a page
- * that has left.
+ * Called directly, the difference is the whole settlement (a stop, or an inventory composed
+ * for a page that has left); through the model above them the two are indistinguishable.
  */
 describe("mount inventory read — the line is abandoned between its own calls", () => {
   /** The code the read raises when its owner has gone. */
@@ -47,12 +44,11 @@ describe("mount inventory read — the line is abandoned between its own calls",
   }
 
   /**
-   * Calls that HOLD both replies, and the record of what was asked and of the signal
-   * each call received.
+   * Calls that hold both replies, and record what was asked and the signal each received.
    *
-   * Each call abandons `line` after its reply settles and before the read resumes,
-   * which is exactly the gap a checkpoint exists for; `abandonAfter` names which
-   * reply the departure follows, and `undefined` leaves the line live.
+   * Each call aborts `line` after its reply settles and before the read resumes, which is
+   * the gap a checkpoint exists for; `abandonAfter` names which reply the departure follows,
+   * and `undefined` leaves the line live.
    */
   function callsHolding(
     workspaceList: Promise<ReturnType<typeof workspaceListWith>>,
@@ -88,8 +84,8 @@ describe("mount inventory read — the line is abandoned between its own calls",
   /**
    * The refusal a stopped read raised, or a failure saying it did not stop.
    *
-   * The negative control is built in: a read that composed an inventory settles here
-   * rather than rejecting, and this says so instead of passing quietly.
+   * A read that composed an inventory settles here instead of rejecting, and this says so
+   * rather than passing quietly.
    */
   async function abandonedRefusalOf(reading: Promise<unknown>): Promise<Refusal> {
     try {
@@ -118,8 +114,7 @@ describe("mount inventory read — the line is abandoned between its own calls",
     workspaceList.serve(workspaceListWith([MOUNT_A, MOUNT_B]));
 
     expect((await abandonedRefusalOf(reading)).code).toBe(READ_ABANDONED);
-    // The claim the record makes and the settlement alone cannot: the fan-out was
-    // never put. Two mounts were named and neither was asked for.
+    // The record shows what the settlement alone cannot: the fan-out was never put.
     expect(asked).toStrictEqual(["workspaceList"]);
   });
 
@@ -137,15 +132,14 @@ describe("mount inventory read — the line is abandoned between its own calls",
     const reading = readMountInventory(calls, SESSION_ID, line.signal);
     workspaceList.serve(workspaceListWith([MOUNT_A]));
     await crossMacrotaskBoundary();
-    // The first checkpoint passed with the line live, so this case is about the
-    // second one and cannot be satisfied by the first.
+    // The first checkpoint passed with the line live, so this case is about the second.
     expect(asked).toStrictEqual(["workspaceList", "mountRead"]);
 
     mountRead.serve(mountReadFor(MOUNT_A));
 
     expect((await abandonedRefusalOf(reading)).code).toBe(READ_ABANDONED);
-    // Both calls were handed the read's own signal, so the departure canceled them
-    // in flight rather than only being noticed after they settled.
+    // Both calls got the read's own signal, so the departure canceled them in flight rather
+    // than being noticed after they settled.
     expect(signals).toHaveLength(2);
     expect(signals[0]).toBe(line.signal);
     expect(signals[1]).toBe(line.signal);
@@ -153,8 +147,7 @@ describe("mount inventory read — the line is abandoned between its own calls",
   });
 
   it("negative control: the same interleaving on a live line composes the inventory", async () => {
-    // Without this both cases above would hold over a read that refused every pass,
-    // and the checkpoints would be indistinguishable from a broken fan-out.
+    // Without this both cases above would hold over a read that refused every pass.
     const line = new AbortController();
     const workspaceList = heldReply<ReturnType<typeof workspaceListWith>>();
     const mountRead = heldReply<ReturnType<typeof mountReadFor>>();

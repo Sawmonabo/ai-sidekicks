@@ -1,12 +1,8 @@
-// What the apply chokepoint reports to the perf meters, and what it does not.
-//
-// The chokepoint is the one place a session's state is written, which is what makes
-// it the one place the apply cost and the store's size can be read without a second
-// path disagreeing. Both readings are behind the fixture define, so this file runs
-// under `console-unit` — where the define is `true` — and asserts against the real
-// process registry rather than a constructed one, because the registry the producers
-// reach is that one and a test over its own instance would prove nothing about the
-// wiring.
+// What the apply chokepoint reports to the perf meters, and what it does not. The chokepoint is
+// the one place state is written, so it is the one place apply cost and store size can be read
+// without a second path disagreeing. Both readings sit behind the fixture define, so this runs
+// under `console-unit` (where it is `true`) against the real process registry, since a test over
+// its own instance would prove nothing about the wiring.
 
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -22,9 +18,7 @@ beforeEach(() => {
 
 describe("the apply chokepoint's perf-meter readings", () => {
   it("records a latency sample and a size gauge for every batch it admits", () => {
-    // The registry is `null` only in a release build, where every recording call
-    // folds away with it. A null here means this project lost the fixture define,
-    // and every assertion below would be vacuous.
+    // The registry is `null` only in a release build; null here means the define was lost.
     expect(
       developmentPerformanceMeters,
       "the console-unit project is not compiling the fixture define",
@@ -39,15 +33,13 @@ describe("the apply chokepoint's perf-meter readings", () => {
       latency,
       "the apply chokepoint recorded no latency for a batch it admitted",
     ).not.toBeNull();
-    // Two applies so far — the initialize drain and this batch — and every one of
-    // them is a fold this store performed.
+    // Every recorded apply is a fold this store performed.
     expect(Number(latency?.recordedCount)).toBeGreaterThan(0);
     expect(Number(latency?.latest)).toBeGreaterThanOrEqual(0);
 
     const size = developmentPerformanceMeters?.reading("store-size", SESSION_ID) ?? null;
     expect(size, "the apply chokepoint recorded no size after admitting a batch").not.toBeNull();
-    // A GAUGE: the latest reading is the reading, and it is the timeline the transcript
-    // mounts from rather than a count of what this batch happened to carry.
+    // A gauge: the latest reading is the timeline the transcript mounts from, not the batch size.
     expect(size?.latest).toBe(store.snapshot().timeline.length);
   });
 
@@ -59,8 +51,7 @@ describe("the apply chokepoint's perf-meter readings", () => {
     first.applyBatch([eventAt(1)]);
     second.applyBatch([{ ...eventAt(1), sessionId: "session-2" }]);
 
-    // Two stores, two series under each kind — what fails here is a producer keying
-    // by a constant, which would fold both sessions' costs into one reading.
+    // Fails if a producer keys by a constant, folding both sessions into one reading.
     expect(developmentPerformanceMeters?.reading("apply-latency", SESSION_ID)?.seriesKey).toBe(
       SESSION_ID,
     );
@@ -85,8 +76,7 @@ describe("the apply chokepoint's perf-meter readings", () => {
     // Addressed to another session: refused whole, no state written.
     store.applyBatch([eventAt(2, { sessionId: "session-elsewhere" })]);
 
-    // The latency still moved — the fold ran and cost something — while the gauge did
-    // not, because nothing it gauges changed.
+    // The latency still moved (the fold ran) while the gauge did not: nothing it gauges changed.
     expect(developmentPerformanceMeters?.reading("store-size", SESSION_ID)?.recordedCount).toBe(
       admittedSize,
     );

@@ -1,5 +1,5 @@
-// Where a beat sits: in the tick order the clock reaches it in, and in the log
-// position the store reads it at.
+// Where a beat sits: in the tick order the clock reaches it in, and in the log position the store
+// reads it at.
 
 import type { ScenarioContractDefect } from "./scenario-contract-defect.js";
 import { BASE_STATE_CURSOR } from "@renderer/store/session/session-state.js";
@@ -8,61 +8,28 @@ import type { Scenario } from "../../../fixtures/scenario.js";
 /**
  * The log position a scenario's first beat occupies.
  *
- * One past the position the fixture's own session read answers at — derived from
- * `BASE_STATE_CURSOR` rather than restated, because the store's reconciler counts the
- * rows between the cursor it was re-based to and the first delivery it admits, and a
- * walk that pinned its own number would go quietly wrong the day the snapshot's
- * cursor moved. A scenario opening anywhere else is not a scenario numbered
- * differently: it is one whose opening rows the store believes it lost.
+ * One past the position the fixture's session read answers at, derived from `BASE_STATE_CURSOR`:
+ * the store's reconciler counts the rows between its re-based cursor and the first delivery it
+ * admits, so a scenario opening anywhere else is one whose opening rows the store believes it lost.
  */
 const FIRST_LOG_POSITION = BASE_STATE_CURSOR + 1;
 
 /**
- * Beats scripted out of the order the clock reaches them in, or out of the log
- * position the store reads them at.
+ * Beats scripted out of the order the clock reaches them in, or out of the log position the store
+ * reads them at.
  *
- * TWO CLAIMS, ONE WALK, because both are about a beat and the beat in front of it
- * and neither is about anything else.
+ * The tick: `beats` is an ordered script, and the engine consumes the contiguous prefix that has
+ * fallen due, so an entry whose `atMs` is earlier than the one before it is delivered in a
+ * different order than written. Nondecreasing, not strictly increasing, since beats sharing a tick
+ * are ordinary and their array order is the order a subscriber receives them. The defect costs a
+ * late delivery, but the screenshot and endurance tiers pin frames at an exact tick.
  *
- * **The tick.** `beats` is an ORDERED script, not a set: the engine advances a
- * frozen clock and consumes the contiguous prefix that has fallen due, so an entry
- * whose `atMs` is earlier than the entry in front of it is a beat the author wrote
- * in one order and the clock delivers in another. Nondecreasing rather than strictly
- * increasing, because beats sharing a tick are ordinary — a session event and the
- * run transition it triggers land together, and their array order is the order they
- * reach a subscriber in. The engine no longer duplicates or drops a beat over this,
- * so the defect costs a late delivery rather than a corrupted stream; it is still
- * reported, because the screenshot and endurance tiers pin frames by advancing to an
- * exact tick.
- *
- * **The position.** `sequence` is the log position, and unlike `atMs` it is not a
- * scheduling convenience the store tolerates: `session.subscribe` represents the
- * whole log, the fixture's snapshot starts at cursor zero, and the store's own
- * reconciler reads a jump as a real GAP and a step backwards as a real DIVERGENCE.
- * Either one puts it into degradation and repair — where it can drop later rows —
- * over a script the author meant as an ordinary session, while every per-beat schema
- * parse passes and this suite stays green. So the rule here is strictly contiguous:
- * each beat's `sequence` is its predecessor's plus one. Two beats at one TICK still
- * take two positions, which is why this claim is not the tick claim relaxed by one.
- *
- * **And the position the FIRST beat takes**, which contiguity alone cannot reach:
- * a rule stated only over a beat and the one in front of it says nothing about the
- * beat that has none, so a script opening at 2 — and a single-beat script opening
- * anywhere at all — passed while the store read the position it never received as a
- * real gap and degraded on the first delivery. The missing half is the same fact the
- * paragraph above already rests on, applied one row earlier: the snapshot answers at
- * cursor zero, so the first row the reconciler admits has to be the one immediately
- * after it. That is a fact about the base state rather than a convention, which is
- * why the constant above carries the module that establishes it.
- *
- * NO INTENT MARKER IS DECLARED, and that is a finding rather than an omission: every
- * shipped scenario runs a contiguous range opening at the first position — which this
- * walk is what establishes, so the claim rests on the gate rather than on a census of
- * the scenarios that rots at the next feature merge — so nothing in the tree scripts a
- * gap, a regression, or a late opening on purpose and a marker minted here would be a
- * field ahead of its only reader. A feature branch whose repair or degradation scenario
- * needs one adds it in the swap that needs it, as a declared per-scenario field this
- * walk reads — never as a silent pass.
+ * The position: `session.subscribe` represents the whole log and the fixture's snapshot starts at
+ * cursor zero, so the store's reconciler reads a jump as a gap and a step backwards as a
+ * divergence. Either sends it into degradation and repair, where it can drop later rows, while
+ * every per-beat schema parse passes. Each `sequence` is therefore its predecessor's plus one,
+ * and two beats at one tick still take two positions. The first beat must take the position
+ * right after the snapshot's cursor, which contiguity between beats cannot check.
  */
 export function findBeatOrderDefects(scenario: Scenario): readonly ScenarioContractDefect[] {
   const defects: ScenarioContractDefect[] = [];

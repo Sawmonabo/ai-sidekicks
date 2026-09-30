@@ -1,31 +1,14 @@
 // Whether a pane fills the cell the pane layout gives it, in the arrangement the pane layout
 // actually uses.
 //
-// THE RULE, AND WHY IT HAD NO CASE. `PaneFrame.css`' `.meridian-pane` is a
-// column flex container with `min-height: 0` and no `flex` and no `height`, so its
-// used `flex` is the initial `0 1 auto`. Under a GRID parent that is harmless — a grid
-// item stretches to its area — and under a COLUMN FLEX parent it is decisive: `0` grow
-// means the section never takes its cell and is sized by its content instead. The pane layout
-// is a column flex chain (`pane-layout/components/pane-layout.css`), so every pane the pane layout mounts was
-// content-sized, while `terminal-pane-box.test.tsx` — the one case that measures a pane
-// against a cell — builds its harness as a grid and says so in its own comment. Both
-// paths ship; only the grid one was covered.
+// `.meridian-pane` (`PaneFrame.css`) takes `flex: 1 1 auto`. The pane layout is a column flex
+// chain (`pane-layout.css`), where the initial `0 1 auto` would size a pane by its content and
+// hand the transcript's scroll container a fraction of the layout's height. Under a grid parent
+// `flex` is inert, so both arrangements ship and both are covered here.
 //
-// WHAT IT COST, AND WHAT IT DID NOT. A pane sized by its content hands the transcript's
-// scroll container a box a fraction of the pane layout's height, and the virtualizer ranges
-// against that box — measured here at 200 px of a 600 px cell. It is deliberately NOT
-// the endurance tier's 149 px viewport: that reading survives this repair, because the
-// composer takes 463 px of that window and the transcript's share is what is left. Two
-// defects on one chain, and crediting this one with the other's symptom would have
-// retired the wrong one. At the limit — a first commit with no rows yet — the same
-// chain settles at zero and stays there, which is the fixed point
-// `viewport-first-commit.test.tsx` describes and cannot itself reach, because it mounts
-// a viewport rather than a pane.
-//
-// THE SUBJECT IS A PANE KIND, NOT THIS PANE KIND. `.meridian-pane` is one sheet for
-// every kind, so the rule is about the frame and the terminal pane is only the cheapest
-// body to hang it on — it is the kind that already publishes a context builder beside
-// it. A transcript pane would measure the same section under the same rule.
+// The subject is the frame, not the terminal pane: `.meridian-pane` is one sheet for every kind,
+// and the terminal pane is the cheapest body to hang it on because it already publishes a
+// context builder.
 
 import { describe, expect, it } from "vitest";
 
@@ -34,9 +17,8 @@ import { renderSettled } from "../helpers/app-harness.js";
 import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { TerminalPane } from "@renderer/features/terminal/pane/components/TerminalPane.js";
 import { terminalPaneContext } from "@renderer/features/terminal/pane/components/TerminalPane.test-support.js";
-// Imported for their stylesheets, because this tier is about what those sheets compute
-// to: the terminal's pane body carries the pane's own rules, and the session pane layout
-// carries `pane-layout.css`, the half of the arrangement under test that is not the pane's.
+// Imported for their stylesheets: the terminal's pane body carries the pane's rules, and the
+// session pane layout carries `pane-layout.css`, the other half of the arrangement under test.
 import "@renderer/features/terminal/pane/terminal-pane-body.js";
 import "@renderer/features/sessions/pane-layout/components/SessionPaneLayout.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
@@ -46,13 +28,9 @@ import { TERMINAL_LEASE_SCENARIO } from "../../fixtures/scenarios/terminal-lease
 const PANE_LAYOUT_HEIGHT_PX = 600;
 
 /**
- * How `react-resizable-panels` lays its group out.
- *
- * Written here rather than taken from the library because the library writes it
- * INLINE at runtime and this tier is measuring CSS: `pane-layout.css` records
- * that the group's `display`, `flex-direction` and `overflow` are the library's, and
- * the only property of that arrangement this case depends on is that the group is a
- * ROW — which is what makes the pane cell inside it stretch vertically.
+ * How `react-resizable-panels` lays its group out. The library writes it inline at runtime and
+ * this tier measures CSS; the case depends only on the group being a row, which makes the pane
+ * cell inside it stretch vertically.
  */
 const RESIZABLE_GROUP_LAYOUT = { display: "flex", flexDirection: "row" } as const;
 
@@ -110,11 +88,9 @@ describe("browser — a pane fills the cell the pane layout gives it", () => {
   });
 
   it("still fills a grid cell, which is the arrangement that already worked", async () => {
-    // The control that keeps the rule about GROWING rather than about a height: a
-    // pane handed `height: 100%` would satisfy the case above and would break here
-    // the moment a cell stopped being the full height of its own parent. It also
-    // pins that the flex path's repair leaves the grid path exactly where it was —
-    // `flex` is inert on a grid item, so this case must not move.
+    // Keeps the rule about growing rather than a height: a pane given `height: 100%` would pass
+    // the case above and break here once a cell stopped being its parent's full height. It also
+    // pins that the flex rule leaves the grid path alone, since `flex` is inert on a grid item.
     const { layoutCell, pane } = await mountPaneInGridCell();
 
     expect(layoutCell.getBoundingClientRect().height).toBe(PANE_LAYOUT_HEIGHT_PX);
@@ -122,11 +98,9 @@ describe("browser — a pane fills the cell the pane layout gives it", () => {
   });
 
   it("negative control: a pane in a column-flex box with no height hugs its content", async () => {
-    // Without this the two cases above would pass over a `.meridian-pane` that had
-    // simply been given a height, and the claim being made is the opposite one: the
-    // pane takes what its cell HAS, and a cell with nothing to give leaves it at its
-    // content. This is also the shape the defect wore — the pane layout's cell did have a
-    // height, and the pane was reading it as though it did not.
+    // Without this the two cases above would pass over a `.meridian-pane` simply given a height;
+    // the claim is that the pane takes what its cell has, and a cell with nothing to give leaves
+    // it at its content.
     installMeridianTokens(document);
     const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
     const { container } = await renderSettled(

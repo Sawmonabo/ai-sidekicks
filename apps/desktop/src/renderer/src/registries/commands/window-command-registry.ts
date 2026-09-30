@@ -11,18 +11,15 @@ import type { CommandDefinition, Keybinding } from "./command-types.js";
 /** This window's command registry. */
 export const commandRegistry: CommandRegistry = new CommandRegistry();
 
-/** Contribute several commands. Atomic: every id is validated before any is added. */
+/** Registers several commands atomically: every id is validated before any is added. */
 export function registerCommands(commands: readonly CommandDefinition[]): void {
   commandRegistry.registerAll(commands);
 }
 
 /**
- * The `when`-clause keys the window publishes, one per main-window route kind plus
- * `sessionActive`.
- *
- * The tuple is the declaration and every type below derives from it, so a key added
- * here is a compile error until every context builder supplies it; a typo at a call
- * site is a missing key (the command hides) rather than an invented one.
+ * The `when`-clause keys the window publishes: one per main-window route kind plus
+ * `sessionActive`. The types below derive from it, so a new key is a compile error until every
+ * context builder supplies it.
  */
 export const WHEN_CLAUSE_KEYS = [
   "sessionActive",
@@ -35,11 +32,7 @@ export const WHEN_CLAUSE_KEYS = [
 /** One key of the window's `when` vocabulary. */
 export type WhenClauseKey = (typeof WHEN_CLAUSE_KEYS)[number];
 
-/**
- * What the window evaluates a `when` clause against: every published key, none invented.
- *
- * Narrower than `WhenClauseContext`, which admits keys a feature publishes on its own.
- */
+/** What the window evaluates a `when` clause against; narrower than `WhenClauseContext`. */
 export type WindowWhenClauseContext = Readonly<Record<WhenClauseKey, boolean>>;
 
 /** A command the window itself contributes; its `when` is the window's vocabulary. */

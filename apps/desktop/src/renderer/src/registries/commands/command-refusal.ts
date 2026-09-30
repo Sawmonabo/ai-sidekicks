@@ -1,23 +1,16 @@
-// Where a command with no view of its own states its refusal.
-//
-// A feature's commands are contributed at composition time and a refusal happens at
-// press time, so the act cannot close over the banner of the window that is open when
-// it runs. The window publishes its banner sink here while it is mounted; one sink,
-// because the window's banner is the only rendering such an act has.
+// Where a command with no view of its own states a refusal. Commands are contributed at
+// composition time, so they cannot close over the window's banner; the mounted window
+// publishes its banner sink here.
 
 import { type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type Refusal } from "@renderer/lib/refusal.js";
 
-/** Publish this window's refusal rendering. The window calls it; nothing else does. */
+/** Publishes this window's refusal rendering; only the window calls it. */
 export function publishCommandRefusalSink(sink: (refusal: Refusal) => void): Unsubscribe {
   return commandRefusals.publish(sink);
 }
 
-/**
- * State a refusal from a command that has no view of its own.
- *
- * Answers whether anything rendered it, so a caller with its own view can fall back.
- */
+/** States a refusal from a command with no view of its own; returns whether a sink rendered it. */
 export function raiseCommandRefusal(refusal: Refusal): boolean {
   return commandRefusals.raise(refusal);
 }

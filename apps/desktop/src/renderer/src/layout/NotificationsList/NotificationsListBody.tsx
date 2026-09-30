@@ -5,6 +5,7 @@ import { uncheckedSessionsSentence } from "./attention-sentences.js";
 import { ReadCompleteness } from "./ReadCompleteness.js";
 import { SessionNotificationGroup } from "./SessionNotificationGroup.js";
 
+/** The list body: the reading state, the completeness notice, and one group per session. */
 export function NotificationsListBody(props: {
   readonly reading: AttentionReading;
   readonly onOpen: ((item: AttentionItem) => void) | undefined;
@@ -14,13 +15,10 @@ export function NotificationsListBody(props: {
   }
   const { summary, droppedCount, refusedSessions } = props.reading;
   if (summary.groups.length === 0) {
-    // Nothing survived the boundary. WHY nothing survived decides what is drawn: a
-    // read that answered for every session with an empty projection draws nothing
-    // under the heading, because nothing waiting is shown by absence; a read some
-    // session never answered is coverage this console does not have; and a read every
-    // member of which the boundary rejected is the console failing to recognize an
-    // answer it did receive. Drawing either of the last two as the first would tell a
-    // person they are free on the strength of a question that went unanswered.
+    // Why nothing survived decides what is drawn. A read every session answered with an empty
+    // projection draws nothing. A read some session never answered, or one whose every member the
+    // boundary rejected, must not look like that, or a person is told they are free on an
+    // unanswered question.
     if (refusedSessions.length > 0) {
       return (
         <>

@@ -7,23 +7,14 @@ import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import type { SignInFlowState } from "../sign-in-flow.js";
 
 /**
- * The card a brokered sign-in is watched from: where to finish it, the code to type,
- * and when it stops working.
+ * The card a brokered sign-in is watched from: where to finish it, the code to type, and when
+ * it stops working.
  *
- * IT APPEARS ONLY WHILE A FLOW IS LIVE. The idle arm renders nothing at all rather
- * than an empty frame — there is no sign-in to watch, and a persistent card would read
- * as a step somebody has to take.
- *
- * NOTHING HERE IS A VERDICT ABOUT THE ACCOUNT. The daemon runs the provider's own
- * unmodified sign-in binary and reads nothing it writes, so what this card reports is
- * the state of the FLOW: started, live, or canceled. Whether the account
- * ended up authenticated is a registry question, and the page says so in the same
- * breath rather than implying it.
- *
- * THE VERIFICATION URI IS RENDERED AND NEVER FOLLOWED. It is a wire string in mono,
- * exactly as it arrived — this console opens nothing and copies nothing on the
- * operator's behalf, because a URL a page navigates to on its own is a flow the
- * operator did not choose to start.
+ * It appears only while a flow is live; idle renders nothing. It is no verdict about the
+ * account: the daemon runs the provider's own unmodified sign-in binary and reads nothing it
+ * writes, so the card reports the flow's state, and whether the account ended up authenticated
+ * is a registry question. The verification URI is rendered and never followed, since a URL a
+ * page navigates to on its own is a flow the operator did not choose to start.
  */
 export function SignInCard(props: {
   readonly flow: SignInFlowState;

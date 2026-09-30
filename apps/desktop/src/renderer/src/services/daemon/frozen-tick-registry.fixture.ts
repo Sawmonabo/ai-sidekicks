@@ -1,56 +1,31 @@
 // The frozen-tick registry: which frame of each scenario the capture tiers pin.
 //
-// The manifest names every scenario, its frozen ticks (`concurrent-streaming@t=<tick>`), and,
-// per bridge method, its live status at HEAD. The manifest already carried the
-// scenarios and the live statuses and
-// named no tick, which left the middle claim unmade — and it is the claim that decides
-// whether a reference image means anything.
-//
-// WHY A TICK HAS TO BE NAMED AT ALL. The fixture clock is frozen and a driver advances
-// it, so what a capture photographs is decided entirely by how far the caller advanced.
-// Two suites that advance differently photograph two different frames of one scenario
-// and both are green; a suite that advances by a number written inline drifts from the
-// baseline the day someone re-times a beat, and the reference is regenerated rather than
-// questioned. A NAMED tick is the fixed point that makes "the money frame is
-// byte-identical" a checkable sentence instead of a hope.
-//
-// WHY THE TABLE IS HERE AND NOT ON THE SCENARIO. A frozen tick is a claim the CAPTURE
-// tiers make — this is the frame we pin — and not a fact about the session. A scenario
-// can exist perfectly well before anyone has decided which of its frames is worth
-// freezing, which is exactly why an unregistered scenario has to be a registry FAILURE
-// rather than a compiler error: the decision is owed, and the registry is what collects
-// the debt. Putting the member on `Scenario` would make forgetting impossible and
-// deciding thoughtlessly easy, which is the wrong trade for a table this small.
-//
-// WHAT A NAME MEANS. `settled` is the tick at which every beat the script carries has
-// been delivered — the longest the session gets, and the frame most views are worth
-// photographing at. `money-shot` is the concurrent-streaming scenario's own composed frame. A
-// scenario that wants a second frame adds a second row with its own name; the rules
-// below hold the pair to an ascending, uniquely-named sequence.
-//
-// NO LABEL IS MINTED HERE. The `<scenarioId>@t=<tick>` spelling the design quotes is
-// what a person writes in a document; no capture tier reads a reference file by it, and
-// a formatter with no caller is a handle nothing is held by.
+// The fixture clock is frozen and a driver advances it, so a capture's frame is decided by how far
+// the caller advanced; a named tick per scenario makes "the frame is byte-identical" checkable
+// and stops a suite drifting from the baseline when someone re-times a beat. The table lives here
+// and not on `Scenario`, because a frozen tick is a claim the capture tiers make, and an
+// unregistered scenario is a registry failure so the owed decision is collected. `settled` is the
+// tick at which every beat has been delivered; `money-shot` is the concurrent-streaming scenario's
+// composed frame. A second frame is a second, uniquely named, ascending row. No label is minted
+// here, since no capture tier reads a reference file by one.
 
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 
 /** One pinned frame of one scenario: what it is called, and the tick it is taken at. */
 export interface ScenarioFrozenTick {
-  /** Unique within its scenario. Names the FRAME, never the view it is captured for. */
+  /** Unique within its scenario. Names the frame, never the view it is captured for. */
   readonly name: string;
-  /** Milliseconds from scenario start — what a driver advances the frozen clock to. */
+  /** Milliseconds from scenario start: what a driver advances the frozen clock to. */
   readonly atMs: number;
 }
 
-/** The registry's own shape: scenario id to the frames pinned for it. */
+/** Scenario id to the frames pinned for it. */
 export type FrozenTickTable = Readonly<Record<string, readonly ScenarioFrozenTick[]>>;
 
 /**
- * Every scenario's pinned frames, keyed by scenario id.
- *
- * The values are written down rather than derived, and that is the whole point: a tick
- * computed from the script it pins would move whenever the script did, which is the
- * silent baseline drift this registry exists to stop.
+ * Every scenario's pinned frames, keyed by scenario id. The values are written down, not derived:
+ * a tick computed from the script it pins would move with the script, drifting the baseline
+ * silently.
  */
 export const SCENARIO_FROZEN_TICKS: FrozenTickTable = {
   "first-run": [{ name: "settled", atMs: 0 }],
@@ -69,19 +44,9 @@ export interface FrozenTickRegistryDefect {
 }
 
 /**
- * The frames pinned for one scenario, or an empty list where none are.
- *
- * Empty rather than `undefined`, because every caller's next act is to iterate: a
- * scenario with no registered frame has no frame to capture, which is the same answer
- * either way, and the registry's own defect walk is what reports it as a failure.
- *
- * The table is a parameter defaulting to the shipped one, so each rule below is
- * reachable with a planted table and has a negative control that does not require
- * editing the registry the console actually ships.
- *
- * `Object.hasOwn` rather than a bare index, because a scenario id is a free-form string
- * and a plain object answers `constructor` and `toString` with values that are not
- * frozen ticks.
+ * The frames pinned for one scenario, or an empty list where none are; the defect walk reports
+ * the absence. The table parameter defaults to the shipped one so rules can be tested with a
+ * planted table. `Object.hasOwn`, since a free-form id would otherwise hit `constructor`.
  */
 export function frozenTicksFor(
   scenarioId: string,
@@ -90,13 +55,7 @@ export function frozenTicksFor(
   return Object.hasOwn(frozenTicks, scenarioId) ? (frozenTicks[scenarioId] ?? []) : [];
 }
 
-/**
- * Scenarios on the board that the registry names no frame for.
- *
- * The failure the register row asks for, published on its own because it is the one a
- * person adding a scenario meets: the board grew, nobody said which frame to pin, and
- * the build says so.
- */
+/** Scenarios on the board that the registry names no frame for: what a new scenario meets. */
 export function findScenariosWithoutFrozenTick(
   scenarios: readonly Scenario[],
   frozenTicks: FrozenTickTable = SCENARIO_FROZEN_TICKS,
@@ -107,11 +66,9 @@ export function findScenariosWithoutFrozenTick(
 }
 
 /**
- * Every disagreement between the registry and the scenario board. Empty is passing.
- *
- * BOTH DIRECTIONS: an unregistered scenario is a frame nobody chose, and a registry row
- * for a scenario that has left the board is a pin on a session that no longer exists —
- * which reads exactly like a correct row until someone tries to capture it.
+ * Every disagreement between the registry and the scenario board. Empty is passing. Both
+ * directions: an unregistered scenario is a frame nobody chose, and a row for a scenario that has
+ * left the board pins a session that no longer exists.
  */
 export function findFrozenTickRegistryDefects(
   scenarios: readonly Scenario[],

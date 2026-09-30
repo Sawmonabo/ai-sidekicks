@@ -1,77 +1,38 @@
-// One keyed registry, and the three answers a registry can give to a duplicate.
+// One keyed registry, where the duplicate policy is a parameter because a second registration
+// means different things to different registries:
 //
-// The console had five of these: the screen registry (throw unless the same owner
-// re-claims), the command registry (throw on any repeat), the main process's route
-// registry (silently idempotent), and two array-plus-linear-find tables that are
-// byte-for-byte the same idea. Five implementations is not five requirements — it
-// is one requirement and four rediscoveries, and they had already diverged on the
-// question that actually matters: what a second registration MEANS.
+//   - `"throw"`: a repeat is a defect. Keeping the last would make behavior depend on import order.
+//   - `"idempotent"`: a repeat is expected and a no-op, such as registration that may run twice
+//     under a double-mount.
+//   - `"owner-scoped"`: a repeat by the same owner replaces; by a different owner it throws.
 //
-// So the policy is a parameter and not a coincidence of which file you landed in:
-//
-//   • `"throw"` — a repeat is a defect. Two features claiming one command id have a
-//     real conflict, and keeping the last would make behavior depend on module
-//     import order.
-//   • `"idempotent"` — a repeat is expected and a no-op. Registration that runs
-//     once per window but may run twice under a double-mount.
-//   • `"owner-scoped"` — a repeat by the SAME owner replaces; by a different owner
-//     it throws. The screen registry's rule, and the reason `ownerOf` exists.
-//
-// Insertion order is preserved (`Map` semantics) and several callers depend on it,
-// so nothing here sorts.
+// Insertion order is preserved (`Map` semantics) and several callers depend on it.
 
 import { RefusalError, refuse, type Refusal } from "./refusal.js";
 
 /** The subsystem every registry refusal names as its author. */
 const REGISTRY_ORIGIN = "keyed-registry";
 
-/**
- * The three answers a registry can give to a duplicate, as a tuple.
- *
- * The header above claims there are three, and a claim about a set's size is only
- * checkable once the set is countable at runtime — a union alone is a compile-time
- * shape nothing can walk. `DuplicatePolicy` is derived from this, so the policies a
- * test enumerates and the policies `register` switches over cannot come apart.
- */
+/** The three answers a registry can give to a duplicate; tests walk the tuple at runtime. */
 export const DUPLICATE_POLICIES = ["throw", "idempotent", "owner-scoped"] as const;
 
 /** What a second registration under one key means. Chosen per registry, never per call. */
 export type DuplicatePolicy = (typeof DUPLICATE_POLICIES)[number];
 
+/** What a {@link KeyedRegistry} is built from. */
 export interface KeyedRegistryOptions<Value> {
   readonly duplicatePolicy: DuplicatePolicy;
-  /**
-   * What the registry holds, in the words a failure message should use — "command",
-   * "screen", "pane kind". Appears in every error this class raises.
-   */
+  /** What the registry holds, in the words a failure message uses: "command", "pane kind". */
   readonly describeWhat: string;
-  /**
-   * Who owns a value. REQUIRED for `"owner-scoped"` and meaningless otherwise: the
-   * policy is a promise about owners, and a registry that could not name one could
-   * not keep it.
-   */
+  /** Who owns a value. Required for `"owner-scoped"` and meaningless otherwise. */
   readonly ownerOf?: (value: Value) => string;
-  /**
-   * One clause appended to a refusal, saying why the repeat is a defect HERE.
-   *
-   * "already registered" states what happened; a caller reading it wants to know
-   * what breaks, and the answer differs per registry. Optional, because a registry
-   * whose refusal needs no explanation should not invent one.
-   */
+  /** A clause appended to a refusal saying why a repeat is a defect in this registry. */
   readonly duplicateHint?: string;
 }
 
 /**
- * Raised when a registration is refused.
- *
- * A `RefusalError` rather than a bare `Error` carrying its own message vocabulary: a
- * registration conflict surfaces at a seam that already renders refusals — the screen
- * registry mounting a feature's screen, the palette registering a command — and `code`
- * / `detail` / `origin` is what those three renderings consume. A second shape here
- * would mean translating one at the catch site.
- *
- * `key` stays on the class beside the refusal because `detail` is prose a person
- * reads, and a caller reporting the conflict needs the value it collided on.
+ * Raised when a registration is refused. A `RefusalError` because the seams that register
+ * already render refusals; `key` is kept beside it because `detail` is prose.
  */
 export class DuplicateRegistrationError extends RefusalError {
   public readonly key: string;
@@ -83,6 +44,10 @@ export class DuplicateRegistrationError extends RefusalError {
   }
 }
 
+/**
+ * A map of keys to values that applies one {@link DuplicatePolicy} to repeat registrations.
+ * Refused registrations throw {@link DuplicateRegistrationError}.
+ */
 export class KeyedRegistry<Key, Value> {
   readonly #valuesByKey = new Map<Key, Value>();
   readonly #duplicatePolicy: DuplicatePolicy;
@@ -92,9 +57,7 @@ export class KeyedRegistry<Key, Value> {
 
   public constructor(options: KeyedRegistryOptions<Value>) {
     if (options.duplicatePolicy === "owner-scoped" && options.ownerOf === undefined) {
-      // Thrown at construction rather than at the first duplicate, because a
-      // registry that discovers it cannot honor its own policy only when a
-      // conflict arrives has already admitted the conflicting registration.
+      // Thrown at construction: discovering this at the first conflict would be too late.
       throw new RefusalError(
         refuse(
           REGISTRY_ORIGIN,
@@ -109,12 +72,7 @@ export class KeyedRegistry<Key, Value> {
     this.#duplicateHint = options.duplicateHint === undefined ? "" : `; ${options.duplicateHint}`;
   }
 
-  /**
-   * Register one value, applying the policy.
-   *
-   * Returns whether the registry changed, so an `"idempotent"` caller can tell a
-   * first registration from a repeat without reading the map twice.
-   */
+  /** Register one value, applying the policy. Returns whether the registry changed. */
   public register(key: Key, value: Value): boolean {
     const existing = this.#valuesByKey.get(key);
     if (existing === undefined) {
@@ -136,13 +94,7 @@ export class KeyedRegistry<Key, Value> {
     }
   }
 
-  /**
-   * Register several atomically.
-   *
-   * Every key is checked before anything is stored, so a duplicate half way
-   * through one feature's contributions leaves the registry exactly as it was rather
-   * than half-populated — a state no caller can reason about and none unwinds.
-   */
+  /** Register several atomically: every key is checked first, so a refusal stores nothing. */
   public registerAll(entries: readonly (readonly [Key, Value])[]): void {
     const seenInBatch = new Set<Key>();
     for (const [key, value] of entries) {
@@ -212,11 +164,8 @@ export class KeyedRegistry<Key, Value> {
     );
   }
 
-  /**
-   * The conflict an owner-scoped registry raises when a DIFFERENT owner claims a
-   * taken key. One builder rather than two identical literals, because `register`
-   * and `registerAll` raised the same conflict from two hand-copied messages.
-   */
+  // The conflict raised when a different owner claims a taken key.
+
   #ownerConflict(key: Key, existing: Value, incoming: Value): DuplicateRegistrationError {
     return new DuplicateRegistrationError(
       refuse(
@@ -228,28 +177,18 @@ export class KeyedRegistry<Key, Value> {
     );
   }
 
-  /**
-   * Who owns a value. `ownerOf` is present under `"owner-scoped"` — the constructor
-   * refuses that policy without one — so the empty fallback is unreachable there and
-   * exists only to keep the reader total.
-   */
+  // `ownerOf` is always present under `"owner-scoped"`; the empty fallback only keeps this total.
+
   #ownerName(value: Value): string {
     return this.#ownerOf === undefined ? "" : this.#ownerOf(value);
   }
 }
 
 /**
- * Read a key that must be present, or throw naming what was missing.
+ * Read a key that must be present, or throw a `RangeError` naming what was missing.
  *
- * The find-or-throw-`RangeError` body appeared four times in this tree, each with
- * its own message wording, so the same missing-key defect read differently
- * depending on which table you hit. One function, one wording.
- *
- * A `RangeError` and deliberately NOT a `Refusal`, unlike the duplicate
- * registrations above. A refusal is a value with three renderings and an author a
- * person can read; a key missing from a table the caller itself populated has
- * nowhere to render and nobody to name. It is a defect, and the platform error is
- * what a defect throws.
+ * Not a `Refusal`: a key missing from a table the caller itself populated is a defect with
+ * nowhere to render.
  */
 export function lookupOrThrow<Key, Value>(
   valuesByKey: ReadonlyMap<Key, Value>,

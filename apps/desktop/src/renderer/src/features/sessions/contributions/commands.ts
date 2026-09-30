@@ -1,36 +1,14 @@
-// What the pane layout contributes to the palette, and how a press reaches the pane layout that is
-// actually on screen.
+// The pane layout's palette rows. Each row is contributed once at composition time and
+// resolves the newest mounted pane layout (`MountedPaneLayouts`) when it is pressed; with
+// none mounted the press raises a refusal a person reads.
 //
-// The five acts are `pane-layout-acts.ts`'; this file ties them to the window's command
-// registry: a contribution made at composition time that reaches the newest mounted pane
-// layout through `MountedPaneLayouts` when a row is pressed.
-//
-// CONTRIBUTED AT COMPOSITION TIME, RESOLVED AT PRESS TIME. A command is built once per
-// window, before any pane layout exists; the pane layout comes and goes with the route. So each row
-// resolves the mounted pane layout when it runs, and no mounted pane layout is a REFUSAL a
-// person reads rather than a press that does nothing.
-//
-// WHY NO CHORD IS CLAIMED HERE, WHICH IS A DECISION AND NOT AN OMISSION.
-//
-// The pane layout already binds these five keystrokes on its own element — Alt+Arrow to
-// cycle, Alt+Shift+Arrow to move, Alt+Backspace to close — and it guards them with
-// `isEditableTarget`, the WIDE question: does the focused widget own its arrow keys?
-// A find field, a combobox and a listbox all do, and `primitives/editable-target.ts`
-// records that pairing as the fix for a measured defect, where typing in a pane's find
-// field rearranged or closed the pane it was typed in.
-//
-// The window's binding table asks the NARROW question (`isTextEntryTarget`) and installs in the
-// CAPTURE phase, and it consumes any press whose command RAN — `preventDefault` plus
-// `stopPropagation`, on the reasoning that a press which ran something is the console's. Binding
-// these same keystrokes there would therefore preempt the pane layout's handler and, inside a
-// listbox or a combobox, run the pane layout act and eat the widget's arrow key. Moving the wide
-// guard into the acts would not help: the act would decline and the table would consume the press
-// anyway, because a command that ran is what the table measures. The only place the guard could
-// live is a `when` clause, and the console's clause vocabulary is a closed set of route keys.
-//
-// So the keystrokes stay the pane layout's, where the wide guard is, and the palette rows are
-// what this file adds: the same five acts, discoverable by name, reachable from
-// anywhere in the session, and refusing out loud when there is no pane layout to act on.
+// No chord is claimed here on purpose. The pane layout binds Alt+Arrow, Alt+Shift+Arrow and
+// Alt+Backspace on its own element behind `isEditableTarget` (`lib/editable-target.ts`), so
+// typing in a find field, combobox or listbox never rearranges panes. The window's binding
+// table asks the narrower `isTextEntryTarget` in the capture phase and consumes any press
+// whose command ran, so binding these keys there would preempt that guard and eat a
+// listbox's arrow keys. A `when` clause cannot carry the guard: its vocabulary is a closed
+// set of route keys.
 
 import { raiseCommandRefusal } from "@renderer/registries/commands/command-refusal.js";
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
@@ -42,27 +20,20 @@ import {
 } from "../pane-layout/mounted-pane-layouts.js";
 
 /**
- * The palette group these rows sit under.
- *
- * One binding rather than a literal per command: the group is also a secondary match
- * field, so two spellings would split the palette's rows across two categories.
+ * The palette group these rows sit under. A single binding, because the group is also a
+ * secondary match field and two spellings would split the rows across two categories.
  */
 export const PANE_LAYOUT_COMMAND_GROUP = "Panes";
 
 /**
- * The `when` clause every command carries.
- *
- * Fail-closed by construction: the palette answers `false` for a key the context does
- * not carry, so a window with no session offers none of these rather than offering
- * acts with nothing to act on.
+ * The `when` clause every command carries. The palette answers `false` for a key the context
+ * lacks, so a window with no session offers none of these.
  */
 const WHEN_SESSION_ACTIVE = "sessionActive";
 
 /**
- * The owner string this contribution carries.
- *
- * The command registry is owner-scoped, so composing twice — a hot reload, a second
- * test — replaces these rows instead of raising on their ids.
+ * The owner string this contribution carries. The command registry is owner-scoped, so
+ * composing twice (a hot reload, a second test) replaces these rows instead of raising.
  */
 export const PANE_LAYOUT_COMMAND_OWNER = "pane-layout";
 
@@ -113,10 +84,8 @@ export function paneLayoutPaletteCommands(acts: PaneLayoutActs): readonly Comman
 }
 
 /**
- * Contribute the pane layout's commands to a window.
- *
- * Takes the registry rather than reaching for the module-scope one, so a test
- * contributes into a registry it owns.
+ * Contribute the pane layout's commands to a window. Takes the registry rather than the
+ * module-scope one, so a test contributes into one it owns.
  */
 export function registerPaneLayoutCommands(
   registry: CommandContributionRegistry,
@@ -130,11 +99,8 @@ export function registerPaneLayoutCommands(
 }
 
 /**
- * The act set every contributed command runs through.
- *
- * Written out rather than derived from a name list, so a SIXTH act added to `PaneLayoutActs`
- * fails to compile here instead of being contributed as a command that reaches the
- * mounted pane layout through nothing.
+ * The act set every contributed command runs through. Written out rather than derived from a
+ * name list, so an act added to `PaneLayoutActs` fails to compile here.
  */
 function actsOnTheMountedPaneLayout(mountedLayouts: MountedPaneLayouts): PaneLayoutActs {
   const perform = (act: PaneLayoutActName): void => {

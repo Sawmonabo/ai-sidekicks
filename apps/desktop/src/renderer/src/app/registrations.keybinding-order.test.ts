@@ -1,8 +1,6 @@
-// The window's chord table order: the rail's own chords first, then every feature's.
-//
-// The order is the claim. The table listens in the capture phase and the first match
-// wins, so a feature able to precede the rail could take `$mod+1` away from it without
-// anything reporting it.
+// The window's chord table order: the rail's own chords first, then every feature's. The table
+// listens in the capture phase and the first match wins, so a feature able to precede the rail
+// could take `$mod+1` from it silently.
 
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 
@@ -12,8 +10,8 @@ import {
 } from "@renderer/registries/commands/command-contributions.js";
 import { RAIL_KEYBINDINGS } from "@renderer/layout/NavigationRail/navigation-commands.js";
 
-// The setup imports the whole composition, which has taken longer than the default
-// ten-second hook budget with every package's suite running at once.
+// The setup imports the whole composition, which exceeds the default ten-second hook budget when
+// every package's suite runs at once.
 const WHOLE_COMPOSITION_IMPORT_TIMEOUT_MS = 30_000;
 
 const TEST_OWNER = "keybinding-order-test";
@@ -34,8 +32,8 @@ describe("registrations — the window's chord table order", () => {
   });
 
   it("negative control: a contribution made after composition lands after the rail's", () => {
-    // Without this the case above would pass over a reader that answered the rail's
-    // chords from somewhere other than the contributions.
+    // Without this the case above would pass for a reader that answered the rail's chords from
+    // somewhere other than the contributions.
     commandContributionRegistry.contribute({
       owner: TEST_OWNER,
       commands: [

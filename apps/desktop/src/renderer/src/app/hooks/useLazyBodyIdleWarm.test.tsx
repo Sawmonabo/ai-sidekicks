@@ -1,10 +1,6 @@
-// The window arms both walks after its first frame, and releases them with itself.
-//
-// The claim is the LIFETIME rather than the walking, which `components/LazyBody/lazy-body-warm.test.ts`
-// already holds. What can go wrong here is a walk that never starts (an effect that
-// closed over a stale board), a walk that starts twice (a frame that re-rendered and
-// rebuilt the pair), and — the one that leaves no trace until an auxiliary window closes
-// — a walk still re-arming against a board its window no longer reads.
+// The window arms both walks after its first frame and releases them with itself. The claim is
+// the lifetime, not the walking (`lazy-body-warm.test.ts` holds that): a walk that never starts,
+// starts twice, or keeps re-arming against a board its window no longer reads.
 
 import { act, render } from "@testing-library/react";
 import { StrictMode } from "react";
@@ -14,8 +10,6 @@ import { PaneRegistry } from "@renderer/registries/panes/pane-registry.js";
 import { ScreenRegistry } from "@renderer/registries/screens/screen-registry.js";
 import { type PaneContext } from "@renderer/registries/panes/pane-context.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
-// Deeply, as every consumer of a `.test-support` module does: a helper that exists for
-// suites belongs to the module beside it and not on the production index.
 import { ManualIdleWarmScheduler } from "@test/helpers/idle-warm.js";
 import { useLazyBodyIdleWarm } from "./useLazyBodyIdleWarm.js";
 
@@ -66,8 +60,7 @@ describe("the window's idle warm", () => {
     const scheduler = new ManualIdleWarmScheduler();
     render(<WarmingFrame {...boards} scheduler={scheduler} />);
 
-    // Two walks, one step armed each, and nothing fetched yet: the walk waits for an
-    // idle callback rather than doing its work in the effect that armed it.
+    // One step armed per walk, and nothing fetched until an idle callback runs.
     expect(scheduler.pendingCount).toBe(2);
     expect(loaded).toStrictEqual([]);
   });
@@ -86,10 +79,8 @@ describe("the window's idle warm", () => {
   });
 
   it("does not re-arm when the frame re-renders", () => {
-    // The walks are built inside the effect, whose dependencies are the two boards and
-    // a pinned scheduler — none of which a re-render changes. Naming the scheduler
-    // PARAMETER as the dependency instead would re-run the effect on every pass, because
-    // its default constructs one per render, and start a new walk each time.
+    // The effect depends on the boards and a pinned scheduler, which a re-render leaves alone;
+    // depending on the scheduler parameter would start a new walk each pass.
     const loaded: string[] = [];
     const boards = composeBoards(loaded);
     const scheduler = new ManualIdleWarmScheduler();
@@ -103,8 +94,7 @@ describe("the window's idle warm", () => {
   });
 
   it("releases both walks when the window goes away", () => {
-    // The leak this is for: an auxiliary window that closed while its walk was mid-board
-    // would go on re-arming an idle callback against a board nothing reads.
+    // A window closed mid-walk must not keep re-arming an idle callback against a dead board.
     const loaded: string[] = [];
     const boards = composeBoards(loaded);
     const scheduler = new ManualIdleWarmScheduler();
@@ -121,12 +111,9 @@ describe("the window's idle warm", () => {
   });
 
   it("warms both boards under a replayed effect", () => {
-    // `StrictMode` runs every effect setup, its cleanup, and the setup again. Holding
-    // the walks across that replay was silently fatal: the first setup started them, the
-    // synthetic cleanup CANCELED them, and the replayed setup found the same objects
-    // already started and already canceled and returned — so both boards stayed cold
-    // for the life of the window, with nothing failing and nothing logged. Building the
-    // pair inside each setup is what makes a replay a fresh pair.
+    // `StrictMode` replays each effect setup. Walks held across the replay would be started and
+    // then canceled, leaving both boards cold with nothing failing; building the pair inside
+    // each setup makes a replay a fresh pair.
     const loaded: string[] = [];
     const boards = composeBoards(loaded);
     const scheduler = new ManualIdleWarmScheduler();
@@ -136,8 +123,7 @@ describe("the window's idle warm", () => {
       </StrictMode>,
     );
 
-    // The replay's own cleanup canceled the first pair, so exactly one live pair is
-    // armed — a count that also fails if the fix had left BOTH pairs walking.
+    // The replay canceled the first pair, so exactly one live pair is armed.
     expect(scheduler.pendingCount).toBe(2);
 
     scheduler.runToQuiescence();
@@ -148,8 +134,7 @@ describe("the window's idle warm", () => {
   });
 
   it("releases the replayed pair when the window goes away", () => {
-    // The lifetime claim, re-asked over the replay: whichever pair is live at unmount is
-    // the pair that gets canceled, and nothing walks afterwards.
+    // Whichever pair is live at unmount is canceled, and nothing walks afterwards.
     const loaded: string[] = [];
     const boards = composeBoards(loaded);
     const scheduler = new ManualIdleWarmScheduler();
@@ -169,8 +154,8 @@ describe("the window's idle warm", () => {
   });
 
   it("negative control: boards nobody mounted a frame over are never warmed", () => {
-    // Without this, every case above would pass over a walk that began in the registry
-    // rather than in the window — and unmounting would then stop nothing.
+    // Without this, the cases above would pass over a walk that began in the registry rather
+    // than in the window.
     const loaded: string[] = [];
     const boards = composeBoards(loaded);
     const scheduler = new ManualIdleWarmScheduler();

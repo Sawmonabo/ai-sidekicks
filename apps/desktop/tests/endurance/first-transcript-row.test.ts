@@ -1,41 +1,25 @@
-// The time-to-first-transcript-row budget, measured.
+// The time-to-first-transcript-row budget, measured: 800 ms from window show, in fixture mode.
+// This file is the row's `measuredBy`, and it compares through the registry's own
+// `evaluateBudget`, so the gate and the budget row share one number in one file.
 //
-// Time to first transcript row on launch is bounded at 800 ms from window show, in
-// fixture mode. This file is the row's
-// `measuredBy`, and it compares through the registry's own `evaluateBudget`, so
-// the number this gate uses and the number the spec wrote are one number read from
-// one file.
-//
-// WHAT STANDS IN FOR "WINDOW SHOW", AND WHY IT IS NOT A CLOCK READ
-//
-// The instant a window is put on screen is a MAIN-process act, and in an automated
-// launch on macOS it is deliberately never performed at all: `src/main/window-reveal.ts`
-// leaves the window hidden with background throttling off, because a revealed one
-// steals the operator's focus and Space. So there is no `show` timestamp to read,
-// and reading a wall clock in either process to manufacture one would be comparing
-// two clocks across a process boundary to answer a question about one renderer.
-//
-// The renderer records the instant itself. `revealWindow` is called from
-// `ready-to-show`, which Electron emits once the web page has been rendered, so the
-// renderer's own `first-contentful-paint` entry IS the instant the window became
-// showable and was shown or deliberately left hidden. It sits on
-// `performance`'s monotonic timeline, which is also where the end of the interval
-// is read, so the whole measurement is one clock in one process.
-//
-// WHAT THE INTERVAL CONTAINS
+// The instant a window is shown is a main-process act, and in an automated launch on macOS it
+// is never performed: `src/main/windows/window-reveal.ts` leaves the window hidden with
+// background throttling off, because a revealed one steals the operator's focus and Space. So
+// there is no `show` timestamp, and a wall clock read in either process would compare two clocks
+// across a process boundary. The renderer records the instant itself: `revealWindow` runs from
+// `ready-to-show`, emitted once the page has rendered, so the renderer's own
+// `first-contentful-paint` entry is the instant the window became showable. It sits on
+// `performance`'s monotonic timeline, where the end of the interval is also read, so the whole
+// measurement is one clock in one process.
 //
 // The session route is opened, the frozen clock is walked over the concurrent-streaming script,
-// and the first painted transcript row ends the interval — all inside ONE page function,
-// so no driver round trip sits between the steps. The one round trip that IS inside
-// the interval is the gap between the launch handshake settling and this page
-// function starting; it is reported separately rather than subtracted, because a
-// figure with a correction in it is a figure nobody can check. Measured on this
-// machine that share is 15–23 ms of a 45–50 ms reading.
-//
-// The clock has to be walked at all because a fixture build's clock is frozen and
-// moves only when told to: the concurrent-streaming script's opening beats are what a live
-// daemon would deliver on its own at launch, and a run that never advanced would be
-// timing a session that had not arrived.
+// and the first painted transcript row ends the interval, all inside one page function so no
+// driver round trip sits between the steps. The one round trip inside the interval is the gap
+// between the launch handshake settling and this function starting; it is reported separately
+// rather than subtracted, and measured at 15-23 ms of a 45-50 ms reading on one machine. The
+// clock is walked because a fixture build's clock is frozen: the script's opening beats are what
+// a live daemon would deliver at launch, and a run that never advanced would time a session that
+// had not arrived.
 
 import process from "node:process";
 
@@ -64,36 +48,26 @@ const registry = BudgetRegistry.load();
 const budget = registry.requireBudget(FIRST_TRANSCRIPT_ROW_BUDGET_ID);
 
 /**
- * How long the page function waits for each paint before giving up on it.
- *
- * Far above the budget it is measuring — this bounds a console that never mounted
- * the transcript at all, which is a different failure from a slow one, and it has to
- * be loose enough that runner contention is never mistaken for it. Well under the
- * tier's own timeout, so the failure names the selector rather than the whole test.
+ * How long the page function waits for each paint before giving up. Far above the budget: it
+ * bounds a console that never mounted the transcript, not a slow one, and must be loose enough
+ * that runner contention is not mistaken for it. Well under the tier's timeout so the failure
+ * names the selector.
  */
 const PAINT_WAIT_BUDGET_MS = 30_000;
 
 /**
- * The stall the negative control plants, in milliseconds.
- *
- * Comfortably over the 800 ms ceiling on its own, so the control's verdict does not
- * depend on how fast the machine underneath it happens to be: a run where the
- * console's own work is free still crosses, and a run on a slow machine crosses by
- * more. Measured 931 ms against a 45–50 ms clean reading on an eight-core laptop.
+ * The stall the negative control plants, in milliseconds. It is over the 800 ms ceiling on its
+ * own, so the verdict does not depend on machine speed. Measured 931 ms against a 45-50 ms clean
+ * reading on an eight-core laptop.
  */
 const PLANTED_PAINT_STALL_MS = 900;
 
 /**
- * Why a launch produced no reading — one arm per place the page function gives up.
- *
- * Four arms rather than one `null`, because they are not one condition and they are
- * not even one KIND of condition. The first two say the instrument was not ready:
- * no start instant to measure from, or no scenario handle to deliver the script
- * through. The last two say the console did not paint — a body that never mounted,
- * or a body that mounted with no transcript row in it — which is precisely the
- * regression this budget row exists to catch. Reported as one sentence they are
- * indistinguishable, and the sentence a collapsed failure has to use is the harness
- * one, which is the message an operator retries rather than investigates.
+ * Why a launch produced no reading, one arm per place the page function gives up. The first two
+ * say the instrument was not ready (no start instant, or no scenario handle); the last two say
+ * the console did not paint (a body that never mounted, or one with no transcript row), which is
+ * the regression this row exists to catch. One collapsed sentence would read as a harness
+ * failure an operator retries rather than investigates.
  */
 type UnmeasuredLaunchCause =
   | "no-paint-entry"
@@ -155,17 +129,11 @@ async function measureFirstTranscriptRow(
       number,
       number,
     ]): Promise<FirstTranscriptRowOutcome> => {
-      // THE START INSTANT IS WAITED FOR, NOT READ ONCE. `first-contentful-paint`
-      // is recorded when the renderer first paints content, and this page
-      // function can begin before that has happened: the launch handshake
-      // settles on the window being READY, which is a different moment. Read
-      // once, the entry was therefore missing on whichever of this file's two
-      // launches won the race — which one it was varied run to run — and a
-      // console that was about to supply a start instant was reported as
-      // having none. Waiting costs the measurement nothing: the entry carries
-      // the instant it happened rather than the instant it was read, so the
-      // figure is the same one, and the row being timed cannot paint before
-      // the document that holds it does.
+      // The start instant is waited for, not read once: `first-contentful-paint` is recorded
+      // when the renderer first paints content, and this function can begin before that because
+      // the launch handshake settles on the window being ready. Waiting costs the measurement
+      // nothing, as the entry carries the instant it happened, and the row cannot paint before
+      // its document.
       const windowShownAtMs = await new Promise<number | null>((resolve) => {
         const recordedPaint = (): PerformanceEntry | undefined =>
           performance
@@ -189,8 +157,7 @@ async function measureFirstTranscriptRow(
           observer.disconnect();
           resolve(null);
         }, paintWaitBudgetMs);
-        // `buffered` so an entry recorded between the read above and this call
-        // is delivered rather than lost in the gap between the two.
+        // `buffered` so an entry recorded between the read above and this call is not lost.
         observer.observe({ type: "paint", buffered: true });
       });
       if (windowShownAtMs === null) {
@@ -207,9 +174,9 @@ async function measureFirstTranscriptRow(
       }
       const measurementStartedAtMs = performance.now();
 
-      // Resolved on the animation frame AFTER the element is in the layout, which
-      // is the frame it is painted in. `null` means it never arrived inside the
-      // budget, which the caller reports as a failure rather than as a slow figure.
+      // Resolved on the animation frame after the element is in the layout, the frame it is
+      // painted in. `null` means it never arrived inside the budget, reported as a failure and
+      // not a slow figure.
       const paintedAt = (selector: string): Promise<number | null> =>
         new Promise((resolve) => {
           const resolveOnNextFrame = (): void => {
@@ -217,17 +184,13 @@ async function measureFirstTranscriptRow(
               resolve(performance.now());
             });
           };
-          // Already there: nothing is armed at all, so there is nothing to leave
-          // running either.
+          // Already there: nothing is armed, so nothing is left running.
           if (document.querySelector(selector) !== null) {
             resolveOnNextFrame();
             return;
           }
-          // AND THE WAIT IS STOPPED ON THE PATH THAT SUCCEEDS, not only on the one
-          // that fires it. A resolved wait used to leave a 30 s timer armed for the
-          // rest of the launch — two of them per measured run, inside the very
-          // process whose steady-state heap and frame time the sibling endurance
-          // files read.
+          // The wait is stopped on the path that succeeds too, so no 30 s timer stays armed in
+          // the process whose steady-state heap and frame time the sibling files read.
           const observer = new MutationObserver(() => {
             if (document.querySelector(selector) === null) {
               return;
@@ -243,9 +206,8 @@ async function measureFirstTranscriptRow(
           observer.observe(document.documentElement, { childList: true, subtree: true });
         });
 
-      // Armed before the navigation, so a row that arrives in the same commit as
-      // the pane is still seen: an observer installed afterwards would miss it and
-      // then wait out the whole budget for a row already on the page.
+      // Armed before the navigation, so a row arriving in the same commit as the pane is seen
+      // rather than waited on for the whole budget.
       const firstRowPainted = paintedAt(rowSelector);
       globalThis.location.hash = sessionRouteHash;
       const panePainted = await paintedAt(paneSelector);
@@ -253,10 +215,8 @@ async function measureFirstTranscriptRow(
         return { unmeasured: "pane-never-painted" };
       }
 
-      // The planted slow paint. A synchronous busy-wait on the main thread between
-      // the window being shown and the first row being drawn — which is exactly the
-      // shape of the defect this budget exists to catch, rather than a synthetic
-      // delay bolted onto the measurement.
+      // The planted slow paint: a synchronous busy-wait on the main thread between window show
+      // and the first row, the shape of the defect this budget exists to catch.
       if (stallMilliseconds > 0) {
         const stallUntil = performance.now() + stallMilliseconds;
         while (performance.now() < stallUntil) {
@@ -299,12 +259,10 @@ function elapsedFromWindowShow(reading: FirstTranscriptRowReading): number {
 }
 
 /**
- * What each unmeasured launch means, and — the load-bearing half — whose fault it is.
- *
- * The first two sentences say the figure would have been the harness's. The last two
- * say the opposite in as many words: the instrument worked, the console did not
- * paint, and that is the defect this row measures rather than a reason to re-run.
- * Keyed by the cause so the set is closed here and a fifth arm is a compile error.
+ * What each unmeasured launch means and whose fault it is. The first two say the figure would
+ * have been the harness's; the last two say the instrument worked and the console did not paint,
+ * which is the defect this row measures, not a reason to re-run. Keyed by cause, so a fifth arm
+ * is a compile error.
  */
 const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string>> = {
   "no-paint-entry":
@@ -327,9 +285,7 @@ const UNMEASURED_LAUNCH_SENTENCES: Readonly<Record<UnmeasuredLaunchCause, string
 /** The reading, or a failure naming which of the four things did not happen. */
 function requireReading(outcome: FirstTranscriptRowOutcome): FirstTranscriptRowReading {
   if ("unmeasured" in outcome) {
-    // The arm is the asserted value, so the diff line names it and the message
-    // explains it — a collapsed sentence is what made a console that mounts no
-    // transcript read as a harness that was not ready.
+    // The arm is the asserted value, so the diff line names it and the message explains it.
     expect(outcome.unmeasured, UNMEASURED_LAUNCH_SENTENCES[outcome.unmeasured]).toBeUndefined();
     throw new Error("unreachable: the assertion above fails first");
   }
@@ -350,9 +306,8 @@ function reportReading(label: string, reading: FirstTranscriptRowReading): void 
 }
 
 describe("the time-to-first-transcript-row budget row", () => {
-  // The ceiling and the unit are the budget tier's to hold. What only THIS file can
-  // say is that it is the harness the row names — so a reading that moves away, or a
-  // row flipped back to ungated while this gate keeps running and passing, fails here.
+  // The ceiling and the unit are the budget tier's. Only this file can say it is the harness
+  // the row names, so a row that moves away or is flipped to ungated fails here.
   it("is the harness the row names as its measurer", () => {
     expect(budget.status).toBe("enforced");
     expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/first-transcript-row.test.ts");
@@ -365,8 +320,8 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after la
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(await measureFirstTranscriptRow(consoleApplication, 0));
 
-      // The run delivered a session rather than timing an empty one. Both halves
-      // are load-bearing: the whole script is in, and it reached the screen.
+      // The run delivered a session rather than timing an empty one: the whole script is in and
+      // it reached the screen.
       expect(reading.deliveredBeatCount).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
       expect(reading.rowCount).toBeGreaterThan(0);
       // The interval is a real one rather than two readings of the same instant.
@@ -383,12 +338,10 @@ describe.skipIf(!bundleIsBuilt)("endurance — the first transcript row after la
   });
 
   it("negative control: a planted slow paint crosses the same ceiling", async () => {
-    // Without this the case above would pass over an instrument that reported a
-    // constant, or one whose two instants came from the same frame. The stall is a
-    // real synchronous hold on the renderer's main thread, planted between the
-    // window being shown and the transcript's first row, and it is driven through the
-    // SAME measurement function — so what is shown is that this gate's own
-    // comparison fails on a console that boots slowly.
+    // Without this the case above would pass over an instrument that reported a constant, or
+    // whose two instants came from the same frame. The stall is a real synchronous hold on the
+    // renderer's main thread driven through the same measurement function, so this gate's own
+    // comparison is shown to fail on a slow boot.
     await withLaunchedApp(ENDURANCE_LAUNCH_OPTIONS, async (consoleApplication) => {
       const reading = requireReading(
         await measureFirstTranscriptRow(consoleApplication, PLANTED_PAINT_STALL_MS),

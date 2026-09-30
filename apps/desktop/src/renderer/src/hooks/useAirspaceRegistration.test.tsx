@@ -1,14 +1,13 @@
 // The one airspace registration site, driven through a real mount.
 //
-// Two claims. The hook registers what is attached and releases it on detach, and every
-// shared overlay primitive actually attaches it, so opening one puts its own rectangles
-// in the airspace and closing it takes exactly those back out. Only a mount can see the
-// ref reached the element.
+// The hook registers what is attached and releases it on detach, and every shared overlay
+// primitive attaches it, so opening one puts its own rectangles in the airspace and closing
+// it takes exactly those back out. Only a mount can see the ref reach the element.
 //
-// HOW MANY RECTANGLES IS PART OF THE CLAIM, per primitive. A modal registers two, the
-// popup and the backdrop that covers the window, and an anchored popup registers one;
-// `OverlayPopups.airspace.test.tsx` owns what each of the two rectangles is. What is asserted
-// here is the arithmetic every primitive shares: the count goes up on open by exactly
+// How many rectangles is part of the claim: a modal registers two (the popup and the
+// backdrop that covers the window), an anchored popup one. `OverlayPopups.airspace.test.tsx`
+// owns what each rectangle is; this file asserts the count rises on open by exactly what the
+// primitive puts up and returns to where it started on close.
 // what that primitive puts up, and it comes back down to where it started on close.
 
 import { render } from "@testing-library/react";
@@ -34,19 +33,19 @@ interface OverlayPrimitiveCase {
   /**
    * How many rectangles this primitive puts in the airspace while it is open.
    *
-   * Named per case rather than defaulted to one: a modal covers the window and says so
-   * with a second rectangle.
+   * Named per case rather than defaulted to one: a modal covers the window and says so with a
+   * second rectangle.
    */
   readonly registrations: number;
   readonly render: (open: boolean) => React.JSX.Element;
 }
 
 /**
- * Every shared overlay primitive, each in the smallest tree that opens it. The
- * combobox and select popups belong to features and carry their own airspace tests.
+ * Every shared overlay primitive, each in the smallest tree that opens it. The combobox and
+ * select popups belong to features and carry their own airspace tests.
  *
- * Written as a table so a primitive added without a case here is a diff a reviewer
- * sees beside the module.
+ * A table, so a primitive added without a case here is a diff a reviewer sees beside the
+ * module.
  */
 const OVERLAY_PRIMITIVE_CASES: readonly OverlayPrimitiveCase[] = [
   {
@@ -127,8 +126,8 @@ describe("useAirspaceRegistration", () => {
 
 describe("the overlay primitives", () => {
   it("covers every shared overlay primitive", () => {
-    // The vacuity floor. A table with a case removed would leave the loop below
-    // passing over the rest and saying nothing about the one it dropped.
+    // The vacuity floor: a table with a case removed would leave the loop below passing over
+    // the rest and saying nothing about the one it dropped.
     expect(OVERLAY_PRIMITIVE_CASES.map((probe) => probe.name)).toStrictEqual([
       "OverlayDialogPopup",
       "OverlayAlertDialogPopup",

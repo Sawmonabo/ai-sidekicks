@@ -1,14 +1,6 @@
-// What the HOST hands a pane: its close control, and the element a drag binds to.
-//
-// Its own file rather than two more suites beside the frame's, because it is a different
-// subject and the two together were past the package's ceiling. Everything here arrives
-// from outside the chrome — through `PaneControlsContext`, which the pane layout provides around
-// every pane body, or through an explicit prop, which is how a host that owns one pane's
-// lifetime outside a pane layout keeps its close button pointed at the right thing.
-//
-// The claims are about ABSENCE as much as presence: a control drawn disabled instead of
-// absent looks deliberate, and a context that silently loses to an explicit prop — or
-// wins over it — is a difference nobody sees until a pane is mounted outside a pane layout.
+// What the host hands a pane: its close control and the element a drag binds to, through
+// `PaneControlsContext` or an explicit prop. Absence matters as much as presence: a disabled
+// control looks deliberate, and context and prop must have a defined precedence.
 
 import { describe, expect, it } from "vitest";
 
@@ -102,8 +94,8 @@ describe("PaneFrame — the drag handle", () => {
   });
 
   it("negative control: a pane with no host registers nothing and is undraggable", () => {
-    // Without this the chrome could be registering unconditionally, which would make a
-    // pane mounted outside a pane layout draggable onto a pane layout it is not part of.
+    // Negative control: unconditional registration would make a pane outside a pane layout
+    // draggable.
     const registered: (HTMLElement | null)[] = [];
     renderPaneFrame(
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>

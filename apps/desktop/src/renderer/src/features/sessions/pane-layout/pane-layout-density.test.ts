@@ -1,10 +1,5 @@
-// The density presets: three values on one axis, and a floor that is a real number.
-//
-// A preset is one number, so the ways it can be wrong are few and each is checked:
-// the axis has to run loosest to tightest (a control whose order is arbitrary is a
-// control nobody can predict), the lookup has to be total, and the fit calculation
-// has to answer at least one — a pane layout that answered zero would have nowhere to put
-// the pane a person just opened.
+// The density presets: the axis runs loosest to tightest, the lookup is total, and the fit
+// calculation answers at least one.
 
 import { describe, expect, it } from "vitest";
 
@@ -23,8 +18,7 @@ describe("PANE_LAYOUT_DENSITIES — the axis", () => {
   });
 
   it("negative control: the widths are not all the same number", () => {
-    // Without this, a table whose three entries were identical would satisfy the
-    // ordering above and make the whole preset meaningless.
+    // Identical entries would satisfy the ordering above and make the preset meaningless.
     expect(new Set(Object.values(PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX)).size).toBe(
       PANE_LAYOUT_DENSITIES.length,
     );
@@ -52,15 +46,12 @@ describe("isPaneLayoutDensity — reading a preset off disk", () => {
 
 describe("panesThatFit", () => {
   it("answers at least one, even in a window narrower than one pane", () => {
-    // A pane layout that answered zero would have nowhere to put the pane a person just
-    // opened. An unreadably narrow pane is a problem they can fix by resizing the
-    // window; an invisible one is not.
+    // Zero would leave nowhere for a pane just opened; a narrow pane can be fixed by resizing.
     expect(panesThatFit("comfortable", 10)).toBe(1);
   });
 
   it("negative control: a wide pane layout fits more than one", () => {
-    // Without this the case above would pass over a function that returned 1 for
-    // every input, which is a different and permanently broken pane layout.
+    // The case above would also pass over a function that returned 1 for every input.
     expect(panesThatFit("compact", minimumPaneWidthPx("compact") * 4)).toBe(4);
   });
 });

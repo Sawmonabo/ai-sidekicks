@@ -1,18 +1,10 @@
 // An account-plane refusal, and the one place a person can do something about it.
 //
-// THE REFUSAL IS NEVER SUPPRESSED AND NEVER REWORDED. It renders first, through the
-// console's own inline shape, carrying the daemon's code verbatim and the daemon's
-// sentence as its author wrote it. Whatever this component adds is added AFTER it
-// and is about navigation.
-//
-// AND THE HANDOFF IS A NAVIGATION AND NOT AN ACT. The control opens the settings
-// section where the act lives. It runs no sign-in command, renders no credential-home
-// path, and re-derives no eligibility — the daemon decides whether a run is
-// admissible, and this window's job on a refusal is to stop being a dead end.
-//
-// It fires on a refusal that ALREADY HAPPENED, which is the trigger the design fixes:
-// nothing here runs ahead of a call, so a run that would have been admitted is never
-// interrupted by an offer to sign in.
+// The refusal is never suppressed or reworded: it renders first through the inline shape with
+// the daemon's code and sentence verbatim, and whatever this adds comes after it and is about
+// navigation. The handoff opens the settings section where the act lives; it runs no sign-in
+// command, renders no credential-home path and re-derives no eligibility. It fires on a refusal
+// that already happened, so a run that would have been admitted is never interrupted by an offer.
 
 import "./account-plane-handoff.css";
 
@@ -25,16 +17,13 @@ import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-
 import { accountPlaneHandoffFor } from "../account-plane-handoff.js";
 import { ACCOUNT_PLANE_HANDOFF_SENTENCES } from "../account-plane-sentences.js";
 
+/** A refusal line plus, where a console act answers it, a handoff to the settings section. */
 export function AccountPlaneRefusal(props: {
   readonly refusal: Refusal;
   readonly openPage: (section: SettingsPageId) => void;
   /**
-   * The section this refusal is being rendered ON, where it is on one at all.
-   *
-   * So the handoff never offers to open the page a person is already reading, which
-   * is a control that appears to do something and does nothing. The sentence still
-   * renders: what has to happen is worth saying even when the place to do it is the
-   * page it is said on.
+   * The section this refusal is rendered on, if any, so the handoff never offers to open the
+   * page a person is already reading. The sentence still renders.
    */
   readonly currentSection?: SettingsPageId | undefined;
 }): ReactNode {

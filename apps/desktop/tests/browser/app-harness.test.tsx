@@ -1,24 +1,15 @@
-// The shared browser mount waits for a body whose load has already been STARTED.
+// The shared browser mount waits for a body whose load has already started.
 //
-// THE DEFECT THIS PINS. `renderSettled` walked `unloadedKeys()`, which reports the keys
-// nothing has ASKED for yet — and every path that warms a body is an ask: the idle warm
-// after first paint, the palette highlighting an entry, an address about to open, and a
-// preceding case on the same process-wide board. Once any of them has started a load, the
-// key leaves that list while the module is still in flight, so the walk awaited nothing
-// and the mount returned onto the reserved region. Whether a tier then saw the body came
-// down to how many turns a dynamic import happened to take — axe audits the reserved
-// region and a capture photographs it, and both are stable, green, and pictures of the
-// wrong thing. `mount-app.tsx` records the identical finding for the
-// composed window; this is the mount every browser tier shares.
+// `unloadedKeys()` reports only the keys nothing has asked for yet, and every path that warms
+// a body is an ask (the idle warm, the palette highlighting an entry, an address about to
+// open, an earlier case on the same process-wide board). A mount that walked it would await
+// nothing for a load still in flight and return onto the reserved region, which axe would
+// audit and a capture would photograph. `renderSettled` therefore walks every registered key.
+// `mount-app.tsx` follows the same rule for the composed window.
 //
-// IT BELONGS TO THE BROWSER TIER BECAUSE THE HARNESS DOES. `app-harness.ts` imports
-// `vitest/browser` for the CDP and user-event seams the three browser tiers share, so it
-// cannot be driven from a happy-dom project at all — and the subject here is that file's
-// own settle rather than any view it mounts.
-//
-// THE PROCESS-WIDE REGISTRY, WITH ONE SYNTHETIC REGISTRATION IN IT. This file imports no
-// feature's registration, so the registries hold exactly what the case registers and the
-// walk under test is exercised without standing up an emulator or a hosted view to do it.
+// This file belongs to the browser tier because `app-harness.ts` imports `vitest/browser`, so
+// it cannot run in a happy-dom project. It imports no feature registration, so the registries
+// hold only the one synthetic registration the case makes.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -41,18 +32,14 @@ const SYNTHETIC_OWNER = "app-harness-settle-case";
 const LOADED_BODY_TEXT = "the body the loader carried";
 
 /**
- * How many platform turns the mount is given before its still-waiting is called a fact.
- *
- * Generous rather than tuned, and in the direction that cannot make this case pass
- * wrongly: every extra turn is another chance for a mount that does NOT wait to return
- * and fail the assertion, while a mount that waits for its registration's promise stays
- * pending however many are spent.
+ * How many platform turns the mount is given before its still waiting is called a fact.
+ * Generous in the safe direction: each extra turn is another chance for a mount that does not
+ * wait to return and fail, while one that waits stays pending however many are spent.
  */
 const MOUNT_SETTLE_TURNS = 6;
 
 afterEach(() => {
-  // The board is process-wide, so the registration has to be given back — a second case
-  // in this tier would otherwise inherit a settled loader and prove nothing.
+  // The board is process-wide; a second case would otherwise inherit a settled loader.
   paneRegistry.unregister(SYNTHETIC_KIND);
   document.body.replaceChildren();
 });
@@ -66,14 +53,12 @@ describe("the shared browser mount", () => {
       body: deferred.load,
     });
 
-    // THE WARM, WHICH IS WHAT EVERY REAL PATH DOES BEFORE A MOUNT. One `preload` — the
-    // same call the idle walk, the palette's highlighted entry and an opening address all
-    // make — starts the load and leaves the promise in flight.
+    // The warm every real path does before a mount: one `preload`, the call the idle walk, the
+    // palette and an opening address all make, starts the load and leaves the promise in flight.
     void paneRegistry.preload(SYNTHETIC_KIND);
 
-    // THE OLD WALK'S OWN PREDICATE, PLANTED RATHER THAN DESCRIBED: with the module still
-    // in flight the board already counts this kind as asked-for, so a walk over
-    // `unloadedKeys()` has nothing to await and returns at once.
+    // With the module still in flight the board counts this kind as asked for, so a walk over
+    // `unloadedKeys()` would have nothing to await and return at once.
     const unloadedKeysWhileInFlight: readonly PaneKind[] = paneRegistry.unloadedKeys();
     expect(unloadedKeysWhileInFlight).not.toContain(SYNTHETIC_KIND);
 
@@ -86,12 +71,9 @@ describe("the shared browser mount", () => {
       return mount;
     });
 
-    // THE CLAIM, ASSERTED AS A CLAIM ABOUT THE WAIT rather than about a render. Give the
-    // mount every turn it could want with the module still in flight: a mount that walks
-    // its registered keys is still inside its own `act` scope here, and one that walked
-    // only the never-started ones has long since returned onto the reserved region. The
-    // boundaries are how the losing implementation is given its chance, not how this case
-    // waits — the wait is the `await` on the mount itself, below.
+    // Give the mount every turn it could want with the module still in flight: a mount that
+    // walks its registered keys is still inside its `act` scope, while one that walked only
+    // the never-started keys has already returned onto the reserved region.
     for (let turn = 0; turn < MOUNT_SETTLE_TURNS; turn += 1) {
       await crossMacrotaskBoundary();
     }

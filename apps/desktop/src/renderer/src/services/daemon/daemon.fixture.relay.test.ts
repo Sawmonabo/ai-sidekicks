@@ -1,17 +1,7 @@
-// The relay subscription routes by SESSION, which is the one key the daemon
-// subscriptions do not have.
-//
-// Its own file rather than a case in `bridge.test.ts`, because the claim is
-// a different one with a different failure mode: those cases hold a subscription to
-// the EVENT it named, and these hold it to the SESSION it named. The fixture used to
-// ignore `subscribeRelay`'s session argument and forward every beat to every
-// handler, so a multi-session test could read a stranger
-// session's log and pass against behavior the live bridge does not exhibit —
-// `packages/contracts/src/desktop-bridge.ts` scopes the subscription to the session
-// it is opened for.
-//
-// Every case drives the REAL fixture bridge over a real scenario and the real
-// engine, so what is asserted is the seam a view actually calls.
+// The relay subscription routes by session, the one key the daemon subscriptions do not have.
+// Forwarding every beat to every handler would let a multi-session test read another session's
+// log; `subscribeRelay` in `apps/desktop/src/shared/preload-api.ts` takes the session it is
+// scoped to. Every case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
@@ -32,12 +22,8 @@ const PAST_EVERY_BEAT_MS = lastScriptedBeatMs(CONCURRENT_STREAMING_SCENARIO) + 1
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
 
 /**
- * What one relay handler received, in delivery order.
- *
- * The frame is a stub typed `unknown` on the contract, so the collector
- * keeps it at that type and reads only the envelope member the assertions name —
- * asserting through a shape the corpus has not registered would be this test
- * teaching the fixture a wire nobody ships.
+ * What one relay handler received, in delivery order. The frame is typed `unknown` on the
+ * contract, so the collector keeps it there and reads only the member the assertions name.
  */
 function subscribeToRelay(fixture: FixtureUnderTest, sessionId: string): readonly unknown[] {
   const received: unknown[] = [];
@@ -64,8 +50,7 @@ describe("fixture bridge — a relay subscription delivers only its own session"
   });
 
   it("negative control: the subscriber for the played session receives every beat", () => {
-    // Without this, an implementation that delivered to nobody would satisfy the
-    // case above — and the relay is a real delivery path, not one to silence.
+    // Without it, a fixture that delivered to nobody satisfies the case above.
     const fixture = createFixture();
     const played = subscribeToRelay(fixture, CONCURRENT_STREAMING_SCENARIO.sessionId);
 
@@ -76,9 +61,8 @@ describe("fixture bridge — a relay subscription delivers only its own session"
   });
 
   it("keeps two relay subscribers apart, so one session's log cannot reach the other", () => {
-    // Both halves in one case, because the defect was exactly that they were one:
-    // A's envelopes reached B's handler, and every assertion B made was about a log
-    // it is not entitled to.
+    // Both halves in one case: the defect was one session's envelopes reaching another's
+    // handler.
     const fixture = createFixture();
     const played = subscribeToRelay(fixture, CONCURRENT_STREAMING_SCENARIO.sessionId);
     const stranger = subscribeToRelay(fixture, STRANGER_SESSION_ID);
@@ -90,8 +74,8 @@ describe("fixture bridge — a relay subscription delivers only its own session"
   });
 
   it("hands the stranger a disposer that is safe to call, as the contract requires", () => {
-    // `Unsubscribe` is declared idempotent, and a caller cannot tell which arm it
-    // got — so the no-op disposer has to be callable twice like every other one.
+    // `Unsubscribe` is idempotent and a caller cannot tell which arm it got, so the no-op
+    // disposer must be callable twice.
     const fixture = createFixture();
     const unsubscribe = fixture.bridge.controlPlane.subscribeRelay(
       STRANGER_SESSION_ID as SessionId,
@@ -106,8 +90,8 @@ describe("fixture bridge — a relay subscription delivers only its own session"
   });
 
   it("attaches no sink at all for a stranger session, and one for the played session", () => {
-    // The mechanical half of the scoping claim: the stranger's subscription is not
-    // a sink that filters everything out, it is a sink the engine never holds.
+    // The stranger's subscription is not a sink that filters everything out; the engine never
+    // holds it.
     const fixture = createFixture();
 
     fixture.bridge.controlPlane.subscribeRelay(STRANGER_SESSION_ID as SessionId, () => undefined);

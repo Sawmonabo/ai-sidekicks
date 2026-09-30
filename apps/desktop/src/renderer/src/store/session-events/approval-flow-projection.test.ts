@@ -1,7 +1,5 @@
-// The fold itself: the kinds it claims, and what one event does to the board.
-//
-// Every payload here is one the contract's schema for its kind accepts, except where a
-// case's subject is a payload that schema refuses.
+// The fold itself: the kinds it claims and what one event does to the board. Payloads are ones
+// the kind's schema accepts, except where a case's subject is a refused payload.
 
 import { describe, expect, it } from "vitest";
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
@@ -108,8 +106,7 @@ describe("one event, folded", () => {
   });
 
   it("writes no state for a remembered rule, and carries the rule whole", () => {
-    // A remembered rule records what a resolution minted; it is not a second transition
-    // of the ask, and a state written here would erase the approval in the store's merge.
+    // A state written here would erase the approval in the store's merge.
     const [mutation] = fold("approval.remembered", {
       ...ASK,
       approver: USER_ID,
@@ -127,8 +124,7 @@ describe("one event, folded", () => {
   });
 
   it("folds nothing for a payload its kind's schema refuses", () => {
-    // `approver` belongs to an answer, and a request carrying it is not a request the
-    // contract registers: a half-read ask would draw a card for an action nobody can see.
+    // `approver` belongs to an answer, so a request carrying it is not one the contract registers.
     expect(fold("approval.requested", { ...REQUESTED_PAYLOAD, approver: USER_ID })).toStrictEqual(
       [],
     );
@@ -145,8 +141,7 @@ describe("one event, folded", () => {
   });
 
   it("folds nothing for a revocation that names no ask", () => {
-    // A project detached or a server's trust withdrawn ends a rule with no ask in flight,
-    // so there is no approval entity to key on.
+    // A detached project or withdrawn trust ends a rule with no ask, so no entity to key on.
     const {
       runId: _runId,
       approvalRequestId: _approvalRequestId,

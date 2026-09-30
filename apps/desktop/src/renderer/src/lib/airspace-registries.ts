@@ -1,28 +1,17 @@
-// Which airspace registry each window holds.
+// One airspace registry per renderer document: an auxiliary window has its own overlays and
+// native views, so two windows must not yield to each other's dialogs.
 //
-// One registry per renderer document, which is what "one per renderer process" means:
-// an auxiliary window is its own renderer with its own overlays and its own native
-// views, and two windows must not yield to each other's dialogs.
-//
-// KEYED ON THE DOCUMENT, not on the platform bridge: the overlay components that have
-// to reach the same instance sit below `services/` in the import layering and cannot
-// name a bridge. The document is what an overlay element and a pane host already share when
-// they are in one window, and it is what they do not share when they are not, so it
-// is the key both sides can name and the key that means what the rule means.
-//
-// A class with a private table and not a bare module-level `WeakMap`, on this
-// package's rule and on `lib/reads/generation-latch.ts`'s precedent for the identical
-// role: state a module owns in the open is state any later line in the module can
-// reach around the one accessor that keeps its mint-once discipline.
+// Keyed on the document rather than a platform bridge: the overlay components that must reach
+// the same registry sit below `services/` in the import layering and cannot name a bridge.
+// A class keeps the table private so the accessor is the only way to mint a registry.
 
 import { AirspaceRegistry } from "./airspace-registry.js";
 
 /**
  * The window an airspace belongs to, named by its own document.
  *
- * Opaque for `airspace-registry.ts`'s reason — `core/` compiles with no DOM lib, so
- * `Document` does not resolve here to the thing a caller passes. It is a WeakMap key
- * and nothing else: no property of it is ever read.
+ * Opaque because `lib/` is also compiled by programs with no DOM lib; it is a WeakMap key and
+ * no property of it is read.
  */
 export type AirspaceOwnerDocument = object;
 
@@ -46,8 +35,7 @@ const windowAirspaceRegistries = new WindowAirspaceRegistries();
 /**
  * The one airspace this document's overlays register into.
  *
- * Held weakly by the document, so a torn-down auxiliary window takes its registry
- * with it and a test that mints a document per case gets a registry per case.
+ * Held weakly, so a torn-down window takes its registry with it.
  */
 export function airspaceRegistryFor(ownerDocument: AirspaceOwnerDocument): AirspaceRegistry {
   return windowAirspaceRegistries.forDocument(ownerDocument);

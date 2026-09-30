@@ -1,44 +1,25 @@
-// WHEN a spawned tree's identity is taken, which is a different claim from what
-// it says.
+// When a spawned tree's identity is taken, which is a different claim from what it says.
 //
-// `process-tree-identity.test.ts` owns the reading — what `same`, `gone` and
-// `recycled` mean — and `process-tree-capture.test.ts` owns what a capture may
-// contain and when it may only shrink. Both answer over inputs handed straight
-// to `SpawnedTreeIdentity`, which is the right instrument for a rule and the
-// wrong one for an ORDER: a capture that is never taken and a capture that is
-// taken too late both read exactly like a tree with nothing under it.
+// `process-tree-identity.test.ts` owns the reading (`same`, `gone`, `recycled`) and
+// `process-tree-capture.test.ts` owns what a capture may contain. Both answer over inputs handed
+// straight to `SpawnedTreeIdentity`, the wrong instrument for an order: a capture never taken and
+// one taken too late both read like a tree with nothing under it. So this file drives the moments
+// through the real spawner:
 //
-// So this file drives the moments through the real spawner instead, and each
-// of them is a moment the design left to whoever happened to ask:
+//   • The set is recorded while the root is still held. A descendant set cannot be taken at the
+//     spawn, and `SpawnedTreeIdentity` otherwise refreshes it only on a verified reading, which on
+//     the shape this exists for is never taken: the launcher exits while a descendant keeps the
+//     inherited stdout. `captureTreeDescendants` is sound because the owner has not been told its
+//     child exited, so Node still holds the handle and the number is still this tree's.
+//   • The root's exit may only remove. By then the child is reaped and its number may be
+//     reissued, so a listing taken there can carry rows a new holder fathered; the exit
+//     intersects and never records.
+//   • The host query comes after ownership. Taking the identity spawns `ps` or PowerShell and
+//     blocks, so inside the constructor it sat between the spawn and the settle-time registration
+//     with a detached process running and nothing registered to kill it.
 //
-//   • THE SET IS RECORDED WHILE THE ROOT IS STILL HELD. A descendant set cannot
-//     be taken at the spawn — nothing has been started yet — and
-//     `SpawnedTreeIdentity` otherwise refreshes it only on a VERIFIED reading,
-//     which on the shape the mechanism exists for is never taken: the launcher
-//     exits while a descendant keeps the inherited stdout, and the first question
-//     anybody asks is the disposal's. `captureTreeDescendants` is the owner's own
-//     moment, and it is sound because the owner has not been told its child
-//     exited — Node still holds that process's handle, so the number is still
-//     this tree's for the whole of the blocking listing.
-//
-//   • THE ROOT'S EXIT MAY ONLY REMOVE. By that event the child has been reaped
-//     and its number is the operating system's to hand out again, so a listing
-//     taken there can carry rows a NEW holder fathered inside the window the
-//     listing itself takes — rows no filter can tell from this tree's. The exit
-//     therefore intersects and never records.
-//
-//   • THE HOST QUERY HAS TO COME AFTER OWNERSHIP. Taking the identity spawns
-//     `ps` or PowerShell and BLOCKS until it answers. Performed inside the
-//     constructor it sat between the spawn and the settle-time registration — a
-//     window in which a detached process is running and nothing anywhere has
-//     been registered to kill it.
-//
-// THE TABLE IS SCRIPTED AND THE OWNERSHIP IS REAL, and each for its own reason.
-// What a real listing holds cannot be asserted against this host: POSIX
-// reparents a descendant the instant its parent is reaped, so a table read at
-// `exit` is a race rather than a fixture. Who owns the child is not a reading at
-// all — it is which call happened first — so that case spawns for real and asks
-// the registrar.
+// The table is scripted because POSIX reparents a descendant the instant its parent is reaped, so
+// a real table read at `exit` is a race. Ownership is real because it is which call came first.
 
 import { once } from "node:events";
 import process from "node:process";
@@ -76,10 +57,8 @@ const PROBE_FAILURE_MESSAGE = "this host would not answer";
 /**
  * The listings one spawned tree's readings are answered from, in order.
  *
- * A class rather than a shifting array because the last table has to stand for
- * every reading after it: a case that asserts a reading was NOT taken must not
- * be the same case that runs out of scripted answers, or the two failures are
- * indistinguishable.
+ * A class rather than a shifting array because the last table stands for every later reading, so
+ * "not read" and "out of scripted answers" stay distinguishable.
  */
 class ScriptedListings {
   readonly #tables: readonly ReadonlyMap<number, ProcessTableRow>[];
@@ -109,10 +88,9 @@ describe("a spawned tree's identity — recorded while the root is still held", 
   it(
     "records the tree at the owner's own moment, so the rootless arm has a kill list",
     async () => {
-      // THE FIRST HALF, driven end to end through the real spawner. Nothing between
-      // the spawn and the disposal asks this identity anything, so without a
-      // moment the owner takes for itself the set the rootless arm is handed here
-      // is empty — every attempt refuses, and the descendant outlives the run.
+      // First half, end to end through the real spawner. Nothing between the spawn and the
+      // disposal asks this identity anything, so without a moment the owner takes itself the
+      // rootless arm's set is empty and the descendant outlives the run.
       const registrar = new RecordingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       let listings: ScriptedListings | undefined;
@@ -139,9 +117,8 @@ describe("a spawned tree's identity — recorded while the root is still held", 
         ).toStrictEqual([
           { processId: SCRIPTED_DESCENDANT_PID, startStamp: SCRIPTED_DESCENDANT_STAMP },
         ]);
-        // ONCE, and that bound is what `DESCENDANT_LISTINGS_PER_CHILD` reserves:
-        // this is a blocking host query, and an owner taking one per output
-        // chunk would spend its enclosing test's whole ceiling many times over.
+        // Once: this is a blocking host query, and one per output chunk would spend the enclosing
+        // test's whole ceiling many times over (`DESCENDANT_LISTINGS_PER_CHILD`).
         pair.managed.captureTreeDescendants();
         expect(listings?.reads, "a second live capture ran, so the reserve is a fiction").toBe(1);
       } finally {
@@ -155,12 +132,10 @@ describe("a spawned tree's identity — recorded while the root is still held", 
   it(
     "admits nothing at the root's exit that the live capture did not already name",
     async () => {
-      // THE SECOND HALF, AND THE DEFECT. The exit-time listing here is the one a
-      // reissued number produces: the descendant this tree really started, plus a
-      // row the number's new holder fathered after the root was reaped. Its
-      // parent pid matches and its stamp postdates the root, so the ancestry
-      // proof admits it and no filter over the rows separates them. Recorded, it
-      // is handed to `taskkill /t` as this tree's.
+      // Second half. The exit-time listing is what a reissued number produces: the real
+      // descendant plus a row the number's new holder fathered after the root was reaped. Its
+      // parent pid and stamp pass the ancestry proof, so if recorded it would be handed to
+      // `taskkill /t` as this tree's.
       const registrar = new RecordingSettleRegistrar();
       const terminator = new ObservedTreeTerminator();
       let listings: ScriptedListings | undefined;
@@ -191,9 +166,8 @@ describe("a spawned tree's identity — recorded while the root is still held", 
         ).toStrictEqual([SCRIPTED_DESCENDANT_PID]);
         expect(listings?.reads, "the exit narrowed against a reading it never took").toBe(2);
 
-        // And the gate is the owner's evidence rather than a hope: a capture
-        // asked for once the child has reported its exit is refused outright,
-        // because from that instant the number may be somebody else's.
+        // The owner's evidence is the gate: a capture asked for after the child reported its exit
+        // is refused, since the number may be somebody else's.
         pair.managed.captureTreeDescendants();
         expect(listings?.reads, "a capture ran after the root's exit had been delivered").toBe(2);
       } finally {
@@ -205,10 +179,9 @@ describe("a spawned tree's identity — recorded while the root is still held", 
   );
 
   it("owns the child before it asks this host anything", async () => {
-    // The ordering claim, and the only way to make a host query fail on demand.
-    // With the capture inside the constructor this threw before the registrar
-    // was ever reached: nothing was registered, the caller received no handle,
-    // and a detached child was left running with nothing that could name it.
+    // Ordering claim, and the only way to make a host query fail on demand. With the capture
+    // inside the constructor this threw before the registrar was reached: nothing registered, no
+    // handle returned, and a detached child left running.
     const registrar = new RecordingSettleRegistrar();
     const terminator = new ObservedTreeTerminator();
     let rootProcessId = 0;
@@ -228,8 +201,8 @@ describe("a spawned tree's identity — recorded while the root is still held", 
       }),
     ).toThrow(PROBE_FAILURE_MESSAGE);
 
-    // The query ran — so the spawn really did reach it — and the registration
-    // that ran BEFORE it is what the next line is about.
+    // The query ran, so the spawn reached it; the registration before it is what the next line
+    // checks.
     expect(rootProcessId).toBeGreaterThan(0);
     expect(
       registrar.registeredCount,

@@ -1,17 +1,8 @@
-// What keeps a two-way binding from oscillating.
-//
-// Every case here drives the REAL hook against a real `WindowStore` and the real
-// `window.location.hash`. Nothing is stubbed: the whole subject is how the browser's
-// own `hashchange` interleaves with a navigation, and a stand-in for the hash would
-// be a stand-in for the thing under test.
-//
-// Three claims:
-//   1. the binding adopts a hash it did not write;
-//   2. it does NOT re-adopt the one it did, even when the echo arrives after the
-//      person has navigated on — the case that used to flip the window between two
-//      destinations until React aborted the render with a depth error;
-//   3. a hash change that lands in the same commit as a navigation settles, rather
-//      than each direction undoing the other.
+// What keeps a two-way binding from oscillating. Every case drives the real hook against a real
+// `WindowStore` and the real `window.location.hash`, since the subject is how the browser's
+// `hashchange` interleaves with a navigation. The binding adopts a hash it did not write, does
+// not re-adopt its own write even when the echo arrives after the person navigated on, and
+// settles when a hash change lands in the same commit as a navigation.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -45,12 +36,8 @@ async function bind(): Promise<WindowStore> {
 /**
  * Let anything the browser queued land.
  *
- * A macrotask rather than a microtask: happy-dom raises `hashchange` on a task of
- * its own, so a promise flush returns before the echo the binding is waiting for.
- * That is why this one is not `tests/helpers/settle.ts`'s and is
- * named for what it waits on rather than for settling in general — the shared helper
- * settles a promise chain, and folding a task wait in behind a flag would let a caller
- * ask for "settled" and be given a wait whose reason it never stated.
+ * A macrotask rather than a microtask: happy-dom raises `hashchange` on a task of its own, so
+ * a promise flush (`tests/helpers/settle.ts`) returns before the echo the binding waits for.
  */
 async function settleQueuedBrowserTask(): Promise<void> {
   await act(async () => {
@@ -60,12 +47,9 @@ async function settleQueuedBrowserTask(): Promise<void> {
 
 afterEach(async () => {
   cleanup();
-  // Resetting the address queues a `hashchange` of its own, and happy-dom delivers
-  // every queued `hashchange` on ONE debounced timer. A reset still in flight when
-  // the next case starts is batched with that case's own change and delivered
-  // inside its flush — where the last case counts address changes and would count
-  // this one. So the reset lands here, with no binding mounted and no listener
-  // registered to hear it, before the next case begins.
+  // Resetting the address queues a `hashchange`, and happy-dom delivers queued ones on one
+  // debounced timer. A reset still in flight would be batched into the next case's flush, where
+  // the last case counts address changes; landing it here leaves no listener to hear it.
   window.location.hash = SESSIONS_HASH;
   await crossMacrotaskBoundary();
 });
@@ -106,15 +90,13 @@ describe("useHashRouteBinding", () => {
       await crossMacrotaskBoundary();
     });
 
-    // Leave the session screen. The binding writes `#/settings`; the browser has not
-    // delivered that `hashchange` back yet.
+    // The binding writes `#/settings`; the browser has not delivered that `hashchange` yet.
     await act(async () => {
       frameStore.navigate({ kind: "settings", page: undefined });
     });
     expect(window.location.hash).toBe(SETTINGS_HASH);
 
-    // Navigate again while the echo is still in flight. The echo names Settings and
-    // the person is asking for the session screen; the echo is not news and must not win.
+    // Navigate again while the echo is in flight: it names Settings and must not win.
     await act(async () => {
       frameStore.navigate({ kind: "session", sessionId: "session-alpha" });
     });
@@ -134,9 +116,8 @@ describe("useHashRouteBinding", () => {
     };
     window.addEventListener("hashchange", recordAddressChange);
 
-    // Two updates, one flush: the address moves and the rail navigates before React
-    // has re-rendered for either, so both directions run against one commit in which
-    // the hash and the route disagree.
+    // Two updates, one flush: both directions run against one commit in which the hash and the
+    // route disagree.
     await act(async () => {
       window.location.hash = SETTINGS_HASH;
       frameStore.navigate({ kind: "session", sessionId: "session-alpha" });
@@ -144,11 +125,8 @@ describe("useHashRouteBinding", () => {
     await settleQueuedBrowserTask();
     window.removeEventListener("hashchange", recordAddressChange);
 
-    // The hash and the route agree, and the binding got there in ONE address change
-    // — the one the test made. A writer publishing the route its render closed over
-    // would have put the session screen in the address, heard the adopt had already moved
-    // the store, and put Settings back: two more entries for the back button to walk
-    // through, and an address that briefly named somewhere the window is not going.
+    // One address change, the test's own. A writer publishing the route its render closed over
+    // would add two history entries and briefly show a destination the window is not going to.
     expect(window.location.hash).toBe(formatRoute(frameStore.getState().route));
     expect(addressChanges).toHaveLength(1);
   });

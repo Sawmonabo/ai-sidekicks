@@ -1,15 +1,8 @@
-// Where the rail says the window is.
-//
-// The rail names the three destinations and highlights where the window is. The
-// destination set is the routing folder's and the highlight is the rail's; only a
-// driven window shows them agreeing, and only a driven window shows a session
-// session screen sitting under the sessions destination rather than under an icon that is
-// not drawn.
-//
-// Every case drives the real `AppProviders` against the fixture bridge the
-// `console-unit` project compiles in. What the composition root wires beyond the
-// rail is `providers.test.ts`; the token sheet is
-// `AppBootstrap.tokens.test.ts`.
+// Where the rail says the window is. The destination set is the routing folder's and the
+// highlight is the rail's; only a driven window shows them agreeing, including a session screen
+// sitting under the sessions destination. Cases drive the real `AppProviders` against the
+// fixture bridge the `console-unit` project compiles in. Wiring beyond the rail is
+// `providers.test.ts`; the token sheet is `AppBootstrap.tokens.test.ts`.
 
 import { act, cleanup, fireEvent, type RenderResult } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -29,9 +22,7 @@ async function clickRailDestination(mounted: RenderResult, label: string): Promi
     fireEvent.click(button);
     await crossMacrotaskBoundary();
   });
-  // The press warms the destination it navigates to, and a destination whose feature
-  // registered a loader arrives a chunk later. Waited through the shared helper rather
-  // than a boundary count here, for the reason that helper gives.
+  // The press warms its destination, and a loader-backed one arrives a chunk later.
   await settleRegisteredBodies();
 }
 
@@ -52,9 +43,6 @@ describe("AppProviders — the rail's three destinations, and where the window i
   });
 
   it("offers sessions, workflows, and settings, and nothing else", async () => {
-    // The defect: the rail shipped a Workspace destination where the design's screen set names
-    // Workflows, so the destination that opens the workflow builder could not be reached at
-    // all and one that has no address of its own carried an icon.
     const mounted = await mountApp();
 
     const labels = [...mounted.container.querySelectorAll(".meridian-rail__button")].map((button) =>
@@ -64,10 +52,8 @@ describe("AppProviders — the rail's three destinations, and where the window i
   });
 
   it("puts a session screen under the sessions destination", async () => {
-    // A window opened straight into a session is INSIDE the sessions destination,
-    // which is where a person got there from. Highlighting nothing — the answer a
-    // rail gives when the route names a destination it does not draw — reads as
-    // the console losing track of where it is.
+    // A session is inside the sessions destination; highlighting nothing would read as the
+    // console losing track of where it is.
     const mounted = await mountApp();
 
     expect(currentRailDestination(mounted)).toBe("Sessions");
@@ -80,11 +66,8 @@ describe("AppProviders — the rail's three destinations, and where the window i
 
     expect(window.location.hash).toBe(WORKFLOWS_HASH);
     expect(currentRailDestination(mounted)).toBe("Workflows");
-    // The workflows feature claims this screen, so the destination mounts its own frame
-    // rather than the reserved-screen absence. Asserted on that frame, which only the
-    // workflows destination renders: the frame would happily render an absence here
-    // again if the feature stopped registering, and a check for "something is on
-    // screen" would not notice.
+    // Asserted on the workflows frame, since "something is on screen" would not notice the
+    // reserved-screen absence rendering if the feature stopped registering.
     expect(mounted.container.querySelectorAll(".meridian-workflows-destination")).toHaveLength(1);
     expect(mounted.container.querySelector(".meridian-screen-notice")).toBeNull();
   });

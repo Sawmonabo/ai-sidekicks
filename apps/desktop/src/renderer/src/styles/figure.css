@@ -1,62 +1,45 @@
 /*
  * Figures: the mono wire signature, and the derived form beside it.
  *
- * A global sheet, imported by `main.tsx`.
- *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
- *
- * The design-language rule that governs this sheet: mono is the signature that a
- * figure came from the wire.
+ * A global sheet, loaded through `global-sheets.ts`. Hand-authored composition: the generated
+ * token sheet (from `styles/palette.ts`) carries only values, while this sheet reads every value
+ * back as a custom property. Mono is the signature that a figure came from the wire.
  */
 
 /*
- * `tabular-nums` only, and no `slashed-zero`. The slash is a property of the MONO
- * FACE, declared as a descriptor inside its own `@font-face` rules in
- * `frame/bindings/typeface.ts`, so it arrives with the face on `--wire` below and
- * deliberately does not reach `--derived`, which is not the wire's number. What is
- * left here is for the platform fallback faces, whose digits are not tabular by
- * construction the way both Plex families' are.
+ * `tabular-nums` only, with no `slashed-zero`: the slash belongs to the mono face and is declared
+ * in its `@font-face` rules (`styles/typeface.ts`), so it reaches `--wire` and not `--derived`.
+ * This class serves the platform fallback faces, whose digits are not tabular by construction.
  */
 .meridian-figure {
   font-variant-numeric: tabular-nums;
 }
 
 /*
- * Mono IS the provenance signature. Both classes of wire figure wear it —
- * a byte-for-byte string and an `Intl`-formatted quantity — so a reader can tell at
- * a glance which numbers on a screen the daemon actually sent.
+ * Mono is the provenance signature: both classes of wire figure (a byte-for-byte string and an
+ * `Intl`-formatted quantity) wear it, so a reader can see which numbers the daemon sent.
  *
- * `user-select: text` is stated rather than inherited because a digest a person
- * cannot select is a digest they have to retype, and console chrome elsewhere is
- * routinely made unselectable.
+ * `user-select: text` is stated because a digest a person cannot select must be retyped, and
+ * console chrome is routinely unselectable.
  *
- * THE TWO CUSTOM PROPERTIES BELOW ARE THIS FIGURE'S PUBLIC API, and they exist so that a
- * component composing a wire figure never reaches back in and redeclares this class: a class
- * two sheets declare at equal specificity is resolved by which sheet the session
- * loaded first, so the same figure reads differently depending on which pane opened.
- * A container that wants the figure quieter or smaller inside it sets these on ITS
- * OWN class and the value inherits down. Proximity decides when two containers
- * nest, which is an answer, where source order was a coin toss.
+ * The two custom properties below are this class's public API: a container that wants the
+ * figure quieter or smaller sets them on its own class and the value inherits down. Nobody
+ * redeclares this class, so source order never decides which sheet wins.
  */
 .meridian-figure--wire {
   font-family: var(--meridian-font-mono);
   color: var(--meridian-figure-wire-color, inherit);
-  /* Mono faces run optically larger than the sans face at the same px; a hair under
-     one em keeps a figure and its label on the same visual weight. */
+  /* Mono runs optically larger than sans at the same size; a hair under 1em balances them. */
   font-size: var(--meridian-figure-wire-size, 0.93em);
   user-select: text;
   -webkit-user-select: text;
 }
 
 /*
- * Truncated at the MEASURE and never in the string: the element keeps the whole value
- * in its `title` and the copy control beside it carries the value out, so two figures
- * that differ only in their tail stay distinguishable. The flex sizing rides the
- * modifier because truncation inside a row is only reachable from a flex child that
- * is allowed to shrink; on a figure that is not a flex item both declarations are
- * inert, so the modifier costs the other callers nothing.
+ * Truncated at the measure, never in the string: the `title` keeps the whole value and the copy
+ * control carries it out, so figures that differ only in their tail stay distinguishable. The
+ * flex sizing rides this modifier because truncation in a row needs a shrinkable flex child; on
+ * a figure that is not a flex item both declarations are inert.
  */
 .meridian-figure--truncate {
   flex: 1 1 auto;
@@ -67,8 +50,8 @@
 }
 
 /*
- * The console's own reading, never the wire's. Proportional and muted precisely so
- * it cannot be mistaken for something the daemon said.
+ * The console's own reading, never the wire's: proportional and muted so it is not mistaken for
+ * something the daemon said.
  */
 .meridian-figure--derived {
   color: var(--meridian-text-muted);

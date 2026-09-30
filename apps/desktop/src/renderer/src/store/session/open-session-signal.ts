@@ -1,25 +1,14 @@
-// Every open session's projection, as one change signal.
-//
-// The attention read wakes on it: a session store that moved is the honest reason to
-// re-read a projection derived from canonical session state. It binds the registry,
-// binds every store the registry currently holds, rebinds as sessions open and close,
-// and releases everything on teardown — the rebinding is what keeps it from going
-// quiet for exactly the sessions a person just opened.
-//
-// It lives in `store/` because the registry and the stores it binds live there.
-//
-// NOTHING HERE POLLS AND NOTHING HERE READS A WIRE. The signal is a subscription over
-// values the window already holds.
+// Every open session's projection, as one change signal. The attention read wakes on it: a
+// session store that moved is the reason to re-read a projection derived from session state. It
+// binds the registry and every store it holds, rebinds as sessions open and close, and releases
+// everything on teardown. Nothing here polls or reads a wire.
 import type { Unsubscribe } from "@shared/preload-api.js";
 
 import type { SessionStoreRegistry } from "./session-store-registry.js";
 
 /**
- * Watch every open session's projection as one signal.
- *
- * Opened once, answered by calling back, released by the handle it returns. Nothing
- * about which store moved travels with the call, because the caller re-reads a whole
- * projection.
+ * Watch every open session's projection as one signal, released by the returned handle. Which
+ * store moved does not travel with the call, since the caller re-reads a whole projection.
  */
 export function subscribeToOpenSessions(
   registry: SessionStoreRegistry,
@@ -33,12 +22,9 @@ export function subscribeToOpenSessions(
 }
 
 /**
- * Every session projection this window holds, as one opaque change signal.
- *
- * A class rather than a closure over a `Map`, because it owns two kinds of
- * subscription with a rebinding rule between them: the registry's own open/close
- * emitter, and one subscription per open session store. A session opened after this
- * signal started has to be bound, and a session closed has to be released.
+ * Every session projection this window holds, as one opaque change signal. A class because it
+ * owns two kinds of subscription with a rebinding rule between them: the registry's open/close
+ * emitter, and one subscription per open store.
  */
 class OpenSessionSignal {
   readonly #registry: SessionStoreRegistry;

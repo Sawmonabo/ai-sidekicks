@@ -1,8 +1,7 @@
 // What the updates block's controls do: the download offered only by a found update, the
 // restart offered only by the finished arm, no confirmation between the press and the call,
-// and the automatic-check switch.
-// What the block READS is `UpdatesBlock.reading.test.ts`, over the doubles in
-// `updates-block.test-support.tsx`.
+// and the automatic-check switch. What the block reads is in `UpdatesBlock.reading.test.ts`,
+// over the doubles in `updates-block.test-support.tsx`.
 import { act } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -41,8 +40,8 @@ describe("the updates block — nothing restarts without a press", () => {
   });
 
   it("negative control: a download in progress offers no restart", async () => {
-    // Without this, the case above would pass over a page that always drew the
-    // control — which would let a person restart into an incomplete download.
+    // Guards against a page that always draws the control, letting a person restart into an
+    // incomplete download.
     const { block: downloading } = await renderSettled(
       updaterReporting({ status: "downloading", percent: 99 }),
     );

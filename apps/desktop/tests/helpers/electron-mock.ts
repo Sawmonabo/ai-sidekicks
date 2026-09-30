@@ -1,44 +1,24 @@
 // The one `electron` module mock.
 //
-// Three main-process suites need a fake `electron`, and before this module each
-// hand-rolled its own `vi.mock("electron", …)` factory with its own
-// `MockBrowserWindow` class. The three were near-identical and already
-// divergent: one recorded a call order and two did not, one modeled
-// `setWindowOpenHandler` and two did not, and each named the same operations
-// differently. That is the failure mode a shared harness exists to prevent —
-// two copies of one behavior drift, and the suite that is missing the arm goes
-// green on the regression the other one would have caught.
+// One factory, parameterized, so main-process suites do not each hand-roll a `vi.mock("electron")`
+// factory and drift apart. `recordOrder` turns on the ordered operation log (a suite asserting
+// sequence needs it; one asserting shape does not want the noise), and `packaged` sets the initial
+// `app.isPackaged`. Everything else (windows constructed, URLs loaded, externals opened, menu
+// templates installed) is always recorded.
 //
-// One factory, parameterized. `recordOrder` turns on the ordered operation log
-// (a suite asserting sequence needs it; one asserting shape does not want the
-// noise), and `packaged` sets the initial `app.isPackaged`. Everything else —
-// which windows were constructed, which URLs were loaded, which externals were
-// opened, which menu templates were installed — is always recorded, because
-// recording costs an array push and a suite that does not read a field pays
-// nothing for it.
-//
-// USAGE. The mock instance must exist before the `vi.mock` factory RUNS, not
-// before it is registered: `vi.mock` is hoisted above the module body, but its
-// factory is invoked lazily, when the module under test first imports
-// `electron`. So the working shape is a top-level `const` plus a dynamic import
-// of the module under test:
+// Usage: the mock instance must exist before the `vi.mock` factory runs, not before it is
+// registered. `vi.mock` is hoisted, but its factory runs lazily when the module under test first
+// imports `electron`, so the working shape is a top-level `const` plus a dynamic import:
 //
 //     const electronMock = createElectronMock({ recordOrder: true });
 //     vi.mock("electron", () => electronMock.moduleExports);
 //     // …then, inside a test: await import("./window.js")
 //
-// A suite that STATICALLY imports the module under test cannot use this shape —
-// the static import evaluates during the test file's own import phase, before
-// the `const` initializes, and the factory would read a binding still in its
-// temporal dead zone. Those suites keep a local factory (see
-// `src/main/protocol.test.ts` and `src/main/navigation.test.ts`, neither of
-// which constructs a window); the suites over the `electron`-free modules —
-// `src/main/renderer-assets.test.ts`, `src/main/load-failure-document.test.ts`,
-// `src/main/renderer-scheme.test.ts` — need no mock at all.
+// A suite that statically imports the module under test cannot use this shape: the static import
+// evaluates before the `const` initializes, so the factory would read a binding in its temporal
+// dead zone. Such a suite keeps a local factory (`src/main/services/renderer-protocol.test.ts`).
 //
-// The reading helpers the three window suites share (the `MockBrowserWindow`
-// cast, the listener accessors, the policy-operation prefix) live beside this
-// module in `./window-test-harness.ts`.
+// The reading helpers the window suites share live in `./window-test-harness.ts`.
 
 import { vi } from "vitest";
 
@@ -48,18 +28,15 @@ import {
   type MockBrowserWindowOptions,
 } from "./electron-mock-window.js";
 
-// Republished, because a suite that reads a constructed window needs its type and
-// should not have to know this module is two files. Only the window itself: the
-// options, the `webContents` object, and one sent message are reached THROUGH it
-// (`MockBrowserWindow["webContents"]`), so a re-export of each would be an export
-// with no reader — which is what the dead-code gate reports.
+// Republished so a suite that reads a constructed window need not know this module is two files.
+// Only the window itself: the options and `webContents` are reached through it, and a re-export of
+// each would be an unused export.
 export type { MockBrowserWindow } from "./electron-mock-window.js";
 
 /**
  * One entry of a `Menu.buildFromTemplate` template, as a test reads it.
  *
- * Declared here rather than in each suite so the two menu-shaped assertions in
- * the tree agree on the shape they are asserting.
+ * Declared here so menu assertions agree on the shape.
  */
 export interface MenuTemplateItem {
   readonly label?: string;
@@ -73,9 +50,8 @@ export interface MenuTemplateItem {
 /**
  * Where the mocked `app.getPath` says Electron's per-application directories are.
  *
- * A path that exists on no machine, deliberately: a module under test that took an
- * answered path to the real file system fails loudly on it rather than writing into
- * the developer's own tree.
+ * A path that exists on no machine, so a module that takes it to the real file system fails
+ * loudly instead of writing into a developer's tree.
  */
 const MOCK_APP_PATH_ROOT = "/sidekicks-electron-mock";
 
@@ -84,8 +60,7 @@ export interface ElectronMockOptions {
   /**
    * Record an ordered log of every mocked operation into `operations`.
    *
-   * Off by default: a suite that asserts SHAPE does not want an ordering it
-   * did not ask for, and an unread log is a field a reader has to rule out.
+   * Off by default: a suite asserting shape does not want an ordering it did not ask for.
    */
   readonly recordOrder?: boolean;
   /** The initial `app.isPackaged`. Defaults to `true` — the shipped posture. */
@@ -109,12 +84,9 @@ export interface ElectronMock {
   /**
    * Every `ipcMain.handle` registration, by channel.
    *
-   * The handlers themselves rather than a count, because a suite over an IPC module
-   * drives the REGISTERED function: calling the exported installer and then reaching
-   * for what production would have called is what makes the registration itself part
-   * of what is asserted. A second registration for one channel throws, as Electron's
-   * does — that collision is a startup defect a mock which silently replaced would
-   * hide.
+   * The handlers themselves, not a count, because a suite over an IPC module drives the registered
+   * function. A second registration for one channel throws, as Electron's does; a mock that
+   * silently replaced it would hide that startup defect.
    */
   readonly ipcHandlers: ReadonlyMap<string, (event: unknown, ...args: never[]) => unknown>;
 
@@ -123,31 +95,25 @@ export interface ElectronMock {
   /** Sets `app.isPackaged` for the next module load. */
   setPackaged(packaged: boolean): void;
   /**
-   * Makes every `loadURL` whose URL CONTAINS `substring` reject with `error`.
+   * Makes every `loadURL` whose URL contains `substring` reject with `error`.
    *
-   * Substring rather than equality so one call can fail the bundle load, the
-   * failure-document load, or both, without a test restating either URL.
+   * Substring so one call can fail the bundle load, the failure-document load, or both.
    */
   failLoadsContaining(substring: string, error: Error): void;
   /**
-   * Makes `app.getPath(pathName)` THROW `error` instead of answering.
+   * Makes `app.getPath(pathName)` throw `error` instead of answering.
    *
-   * Electron's `getPath` throws when a path cannot be resolved, and `logs` is the
-   * one a failed startup is least likely to reach: the conditions that break a
-   * startup — a read-only home, a revoked profile directory, a full disk — are the
-   * conditions that break the lookup for the directory the failure would be
-   * recorded in.
+   * Electron's `getPath` throws when a path cannot be resolved, and the conditions that break a
+   * startup (read-only home, revoked profile directory, full disk) break the lookup for the
+   * directory the failure would be recorded in.
    */
   failPathLookup(pathName: string, error: Error): void;
   /**
-   * Re-arms `app.whenReady()` with a fresh unresolved promise and clears the
-   * operation log.
+   * Re-arms `app.whenReady()` with a fresh unresolved promise and clears the operation log.
    *
-   * `whenReady` is a DEFERRED the test resolves by hand: awaiting a dynamic
-   * `import()` already drains several microtask ticks, so an already-resolved
-   * promise would run the ready continuation before a test could observe the
-   * module-evaluation-only prefix, and "registered before ready" would be
-   * untestable.
+   * `whenReady` is a deferred the test resolves by hand: awaiting a dynamic `import()` drains
+   * several microtask ticks, so a resolved promise would run the ready continuation before a test
+   * could observe the module-evaluation-only prefix.
    */
   armReady(): void;
   /** Resolves the promise `app.whenReady()` returned. */
@@ -240,9 +206,8 @@ class ElectronMockImpl implements ElectronMock {
   }
 
   #buildModuleExports(): Record<string, unknown> {
-    // Arrows rather than an aliased `this`: each closure reads the live field
-    // at call time, so `setPackaged` and `armReady` are observed by a module
-    // that captured `app` at import time.
+    // Arrows rather than an aliased `this`: each closure reads the live field at call time, so
+    // `setPackaged` and `armReady` are seen by a module that captured `app` at import time.
     const readPackaged = (): boolean => this.#packaged;
     const awaitReady = (): Promise<void> => {
       this.record("app.whenReady");
@@ -278,9 +243,8 @@ class ElectronMockImpl implements ElectronMock {
       },
       BrowserWindow: createBoundBrowserWindowClass(this),
       Menu: {
-        // Handed straight through: the assertions read the template the module
-        // built, which is the whole of what a menu module decides. What
-        // Electron then renders is Electron's.
+        // Handed straight through: assertions read the template the module built; what Electron
+        // renders is Electron's.
         buildFromTemplate: vi.fn((template: MenuTemplateItem[]) => template),
         setApplicationMenu: vi.fn((template: MenuTemplateItem[]) => {
           this.installedMenuTemplates.push(template);
@@ -304,9 +268,8 @@ class ElectronMockImpl implements ElectronMock {
       ipcMain: {
         handle: vi.fn((channel: string, handler: (event: unknown, ...args: never[]) => unknown) => {
           if (this.ipcHandlers.has(channel)) {
-            // Electron's own behavior, kept: a second registration for one channel
-            // is a startup defect, and a mock that replaced silently would let one
-            // land unnoticed.
+            // Electron's own behavior, kept: a second registration for one channel is a startup
+            // defect a silent replace would hide.
             throw new Error(`Attempted to register a second handler for '${channel}'`);
           }
           this.ipcHandlers.set(channel, handler);
@@ -321,10 +284,8 @@ class ElectronMockImpl implements ElectronMock {
 /**
  * Binds the window class to one mock instance.
  *
- * A factory rather than a class declared inside the method, so the binding is
- * an argument instead of an aliased `this` — the `electron` module hands
- * production code a CONSTRUCTOR, and a constructor cannot close over `this`
- * through an arrow the way every other member here does.
+ * A factory because the `electron` module hands production code a constructor, which cannot close
+ * over `this` through an arrow the way the other members do.
  */
 function createBoundBrowserWindowClass(
   mock: ElectronMockImpl,
@@ -339,9 +300,8 @@ function createBoundBrowserWindowClass(
 /**
  * Builds one `electron` module mock.
  *
- * Call at the top level of a suite and hand `moduleExports` to `vi.mock`; see
- * this module's header for why the instance must be a top-level `const` and why
- * the module under test must be imported dynamically.
+ * Call at the top level of a suite and hand `moduleExports` to `vi.mock`; the header says why the
+ * instance must be a top-level `const` and the module under test imported dynamically.
  */
 export function createElectronMock(options: ElectronMockOptions = {}): ElectronMock {
   return new ElectronMockImpl(options);

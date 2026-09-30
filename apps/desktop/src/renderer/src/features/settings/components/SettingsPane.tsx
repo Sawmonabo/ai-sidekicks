@@ -1,16 +1,14 @@
 // The pane: two absences, or the page the address names.
 //
-// The PAGE itself is `SettingsSectionPage.tsx` beside this file, and the split is the
-// package's one-component-per-module rule doing real work: that component holds hooks
-// and this one may not, because both arms below render before any section
-// is resolved and a hook run for them would be reaching for a heading that is not on
-// screen.
+// The page itself is `SettingsPageContent`, which holds hooks; this component may not, because
+// both absence arms render before any section is resolved.
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { SettingsPageContent } from "./SettingsPageContent.js";
 import type { SettingsPageRegistry } from "../settings-pages.js";
 import type { SettingsPageContext } from "../types.js";
 import type { SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 
+/** Props for {@link SettingsPane}. */
 export interface SettingsPaneProps {
   readonly section: SettingsPageId | undefined;
   /** The address's own page segment, so an unknown one can be named back. */
@@ -18,9 +16,8 @@ export interface SettingsPaneProps {
   readonly context: SettingsPageContext;
   readonly pages: SettingsPageRegistry;
   /**
-   * How many search hits this pane has opened. Moves on every hit, including a
-   * second hit on the section already open — which is the case a boolean could not
-   * express, and the one where a reader most needs to be told they did not move.
+   * How many search hits this pane has opened. It moves on every hit, including a second hit
+   * on the section already open.
    */
   readonly settleOrdinal: number;
 }
@@ -28,12 +25,9 @@ export interface SettingsPaneProps {
 /**
  * The right-hand pane: the selected section's page, or the reason there is none.
  *
- * Two distinct absences, kept apart because the next move differs:
- *
- *   • no section chosen — the address is `#/settings` with no page, so the pane
- *     invites a choice rather than picking one, which would make the rail's
- *     selection depend on tuple order.
- *   • a section the address named that does not exist — an error, named back.
+ * Two absences stay apart because the next move differs: no section chosen (`#/settings`
+ * invites a choice rather than picking one, which would tie the selection to tuple order),
+ * and an unknown section (an error, named back).
  */
 export function SettingsPane(props: SettingsPaneProps): React.JSX.Element {
   if (props.section === undefined) {

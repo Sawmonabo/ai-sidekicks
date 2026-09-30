@@ -1,23 +1,10 @@
-// What the pane layout's density presets MEAN, over the bounds that declare them.
+// What the density presets mean. Each preset is one number: the narrowest a pane may be squeezed
+// to before the layout takes no more width from it. It is a minimum width rather than a scale
+// factor because the choice is how many panes fit side by side, and a floor is what the layout
+// math consults.
 //
-// THIS PANE LAYOUT'S OWN RULE, because no committed document states it: three density presets
-// (comfortable, standard, compact) as minimum pane widths from the type scale, chosen
-// in Settings › Appearance. A preset is therefore NOT a spacing theme and not a
-// row-collapse state — it is one number per preset, the narrowest a pane may be
-// squeezed to before the pane layout refuses to take more width from it.
-//
-// WHY A MINIMUM WIDTH AND NOT A SCALE FACTOR. The thing a person is choosing is how
-// many panes fit side by side. A scale factor would express that indirectly and would
-// interact with the browser's own font-size setting in a way nobody can predict; a
-// floor is the property the layout math actually consults, so it is the property the
-// preset names.
-//
-// The presets, their widths, and the default live in `pane-layout-measures.ts`,
-// which is the pane layout's one home for a bound. What is here is the three readings of
-// them: whether a persisted string names a preset, what one preset's floor is, and how
-// many panes of it fit. This module is deliberately DOM-free and React-free — it is
-// read by the layout class, by the pane layout's separator maths, and by a test that asserts
-// the ordering, and none of those has a document.
+// The presets and their widths live in `pane-layout-measures.ts`. This module is free of DOM
+// and React, so the layout class, the separator math and tests can all read it.
 
 import {
   PANE_LAYOUT_DENSITIES,
@@ -26,28 +13,21 @@ import {
 } from "./pane-layout-measures.js";
 
 /**
- * Whether `value` names a preset.
- *
- * Takes `unknown` because the one caller that needs it is reading a persisted
- * layout snapshot, where the value came off disk and may predate or postdate this
- * build. A snapshot naming a preset this build does not have takes the default
- * rather than a hole.
+ * Whether `value` names a preset. Takes `unknown` because the caller reads a persisted
+ * snapshot, whose preset may not exist in this build.
  */
 export function isPaneLayoutDensity(value: unknown): value is PaneLayoutDensity {
   return typeof value === "string" && (PANE_LAYOUT_DENSITIES as readonly string[]).includes(value);
 }
 
-/** The floor for a preset. A lookup, so no caller indexes the record itself. */
+/** The narrowest a pane may be at this preset, in CSS pixels. */
 export function minimumPaneWidthPx(density: PaneLayoutDensity): number {
   return PANE_LAYOUT_MINIMUM_PANE_WIDTH_PX[density];
 }
 
 /**
- * How many panes of `density` fit in `availableWidthPx`, at least one.
- *
- * At least one because a pane layout that answered zero would have nowhere to put the pane
- * a person just opened, and a pane below its floor is a legibility problem the
- * person can fix by resizing the window — an invisible pane is not.
+ * How many panes of `density` fit in `availableWidthPx`, at least one: a pane just opened must
+ * have somewhere to go, and a too-narrow pane can be fixed by resizing the window.
  */
 export function panesThatFit(density: PaneLayoutDensity, availableWidthPx: number): number {
   return Math.max(1, Math.floor(availableWidthPx / minimumPaneWidthPx(density)));

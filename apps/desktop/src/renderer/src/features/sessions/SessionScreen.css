@@ -1,16 +1,8 @@
-/* The session screen: its own element, its banners and its composer region.
- *
- * Every color is a Meridian custom property and every space a step on the scale,
- * so the screen follows the scheme attribute with no conditional in JSX and its
- * rhythm is a decision made once in `tokens/palette.ts`.
- */
-
-/* --- The session screen's grid ------------------------------------------ */
+/* The session screen: its grid, banners and composer region. */
 
 /*
- * Three rows: the head, the pane layout, and the composer's region. The pane layout is
- * the only row that grows, and `minmax(0, 1fr)` is what lets the panes inside it be
- * the things that scroll rather than pushing the composer off the bottom.
+ * Head, pane layout, composer. `minmax(0, 1fr)` lets the panes scroll instead of pushing
+ * the composer off the bottom.
  */
 .meridian-session-screen {
   display: grid;
@@ -23,21 +15,15 @@
 }
 
 /*
- * Everything above the pane layout, in the order it is written: the session header, the
- * banners under it, and the catching-up line. One box, so the first row holds however many
- * are up and none of them pushes the pane layout out of the row that grows. A grid rather
- * than a block so each keeps the box it had as an item of the screen.
+ * The session header, its banners and the catching-up line in one box, so however many are
+ * up, none pushes the pane layout out of the growing row.
  */
 .meridian-session-screen__head {
   display: grid;
   min-width: 0;
 }
 
-/*
- * The one line that says the window is catching up, where the header's banners sit. A
- * plain band rather than a banner's red ground: nothing has been refused, and a failed
- * read offers the press that reads again.
- */
+/* The catching-up line: a plain band, since nothing has been refused. */
 .meridian-session-screen__catch-up {
   display: flex;
   gap: var(--meridian-space-2);
@@ -49,11 +35,7 @@
   font-size: var(--meridian-text-sm);
 }
 
-/*
- * A banner under the session header: a sunken strip of muted words, the ` · ` between
- * them in the faint ink, and the × at the right end. Small type and a tight band,
- * because it reports a condition beside the session rather than a refusal of an act.
- */
+/* A banner under the session header: small type and a tight band, since it reports a condition. */
 .meridian-session-screen__banner {
   display: flex;
   gap: var(--meridian-space-2);

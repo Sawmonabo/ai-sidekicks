@@ -1,44 +1,17 @@
-// The frame's refusal banners, said out loud once each.
+// Says each newly raised refusal banner once, assertively, using the daemon's message unchanged.
+// The code is left out of speech: it is a visual signature, and the banner still carries it in the
+// accessibility tree. Route changes and dismissals are not announced.
 //
-// The banner is the shape a refusal takes when what the WHOLE ROOM can do has changed —
-// the widest blast radius the grammar has. It is the frame's only event of that class,
-// which is why it is the announcer's first consumer: a route change is not announced (a
-// person who navigated knows where they went, and announcing it would talk over the
-// screen they arrived at), and a dismissal is not announced (nothing changed for
-// anyone but the person who pressed the button).
-//
-// THREE DECISIONS.
-//
-//   • **Assertive.** A banner says the room's capabilities moved under a person who
-//     may be halfway through acting on the old ones. That is the one case where
-//     interrupting the reader is the correct thing to do, and `live-announcer.ts`
-//     reserves the assertive lane for exactly it.
-//
-//   • **The daemon's message, verbatim, and not the code.** A refusal shows its
-//     code in mono because mono is a VISUAL provenance signature; spoken,
-//     `session.not_found` is a token nobody can act on, read letter by letter ahead
-//     of the sentence that matters. The banner itself stays in the accessibility
-//     tree carrying the code, so a reader navigating by structure still reaches it —
-//     nothing is hidden, the announcement is just not the place for it. The message
-//     text is passed through unchanged, which is the same rule the banner renders
-//     under: the console never paraphrases what the daemon said.
-//
-//   • **Raises only, diffed by id.** The banner list is re-supplied on every frame
-//     render, so announcing the list would repeat every standing refusal on every
-//     pass. The ids announced last pass are held and replaced — never accumulated —
-//     so the record is bounded by the banner list itself and a banner dismissed and
-//     raised again is a second, real announcement.
+// The banner list is re-supplied on every render, so the ids announced last pass are held (and
+// replaced, not accumulated) to announce only raises; a banner dismissed and raised again speaks
+// again.
 
 import { useEffect, useRef } from "react";
 
 import { useAnnounce } from "@renderer/hooks/useAnnounce.js";
 import type { WindowBanner } from "@renderer/store/window/window-store.js";
 
-/**
- * Announce each newly raised refusal banner, once, in the assertive region.
- *
- * @param banners The banners the frame is rendering right now, in raise order.
- */
+/** Announces each newly raised refusal banner once, in the assertive region. */
 export function useRefusalBannerAnnouncements(banners: readonly WindowBanner[]): void {
   const announce = useAnnounce();
   const announcedBannerIdsRef = useRef<ReadonlySet<string>>(undefined);

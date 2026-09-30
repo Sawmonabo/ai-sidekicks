@@ -1,24 +1,11 @@
-// Failure modes of the durable tier.
-//
-// The class splits in two, and both halves are about a write that must not happen
-// quietly. The first is the store the console cannot OPEN — a renderer scheme the
-// browser refuses to give storage to, a database a newer build already wrote, a
-// runtime with no IndexedDB at all, a quota that is already full. The second is the
-// store the console must not WRITE INTO — a value class outside the closed set,
-// user-authored prose inside an allowed class, prose smuggled through an
-// object key.
-//
-// Both live in `persistence/` because both are about the same chokepoint. Opening
-// decides whether `UiStateStore` has a durable adapter behind it and what it
-// DISCLOSES when it does not; the value-class guard decides what may cross it at
-// all. A caller that could reach an adapter directly would bypass both, which is
-// why persistence has one entry, `UiStateStore`, and why these cases belong behind it.
-//
-// Where a mode has a "the code should have refused" shape, the assertion is on the
-// REFUSAL — its code, its detail, the tripwire it fired — rather than merely on the
-// absence of a crash. Falling back to memory without saying so, and storing prose
-// because nothing looked at it, are both silent-corruption bugs that a
-// does-not-throw assertion passes over.
+// Failure modes of the durable tier, each about a write that must not happen quietly. One half
+// is the store the console cannot open (a scheme the browser refuses storage to, a database a
+// newer build wrote, no IndexedDB at all, a full quota); the other is the store it must not
+// write into (a class outside the closed set, prose inside an allowed class or an object key).
+// Opening decides whether `UiStateStore` has a durable adapter and what it discloses when it
+// does not, and the value-class guard decides what may cross it, so both sit behind the one
+// entry point. Assertions are on the refusal (code, detail, tripwire), since a does-not-throw
+// check passes over silent fallback to memory and silently stored prose.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -27,17 +14,15 @@ import { classifyOpenFailure, openUiStateDatabase } from "./indexeddb-persistenc
 import { MemoryPersistenceAdapter } from "./memory-persistence-adapter.js";
 import { UiStateStore } from "./ui-state-store.js";
 
-// Tripwires throw in development so a breach is impossible to ignore. Under test
-// they are RECORDED instead, because the point of these cases is to assert that the
-// breach was detected and described — a throw would only prove it was noticed.
+// Tripwires throw in development; under test they are recorded, because these cases assert the
+// breach was detected and described.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
 });
 
 describe("failure matrix — the durable store cannot be opened", () => {
-  // Every case that installs one removes it again, so a file that runs after this
-  // one sees the host it actually has rather than this file's stand-in.
+  // Every case that installs one removes it again, so later files see the real host.
   afterEach(() => {
     Reflect.deleteProperty(globalThis, "indexedDB");
   });
@@ -49,26 +34,23 @@ describe("failure matrix — the durable store cannot be opened", () => {
   });
 
   it("classifies a version mismatch separately, so nothing is deleted to recover", () => {
-    // A newer build already wrote this database. Falling back to memory keeps its
-    // bytes intact; treating it as a generic failure and clearing the store would
-    // destroy a future version's state.
+    // A newer build already wrote this database. Falling back to memory keeps its bytes intact;
+    // clearing the store would destroy a future version's state.
     expect(classifyOpenFailure(named("VersionError"))).toBe("version-mismatch");
   });
 
   it("reports the missing global rather than throwing when the host has no IndexedDB", async () => {
-    // The production shape: nothing is injected, and this host genuinely has no
-    // factory (happy-dom defines none, own or inherited).
+    // The production shape: nothing is injected, and this host has no factory (happy-dom
+    // defines none).
     const outcome = await openUiStateDatabase({});
     expect(outcome).toStrictEqual({ outcome: "unavailable", reason: "no-indexeddb-global" });
   });
 
   it("honors an EXPLICITLY absent factory on a host that has an ambient one", async () => {
-    // The arm a `??` coalesce cannot reach. On a host that HAS a global — every
-    // browser, and this case — `options.indexedDbFactory ?? indexedDB` substitutes
-    // the ambient factory for the caller's explicit `undefined` and opens durable
-    // storage instead of reporting that there is none. The recorder is what makes
-    // that observable: the claim is not merely which reason came back, it is that
-    // the ambient factory was never touched.
+    // The arm a `??` coalesce cannot reach: on a host with a global,
+    // `options.indexedDbFactory ?? indexedDB` would substitute the ambient factory for an
+    // explicit `undefined` and open durable storage. The recorder asserts the ambient factory
+    // was never touched.
     const ambientFactory = new RecordingIndexedDbFactory();
     installAmbientIndexedDb(ambientFactory);
 
@@ -79,9 +61,8 @@ describe("failure matrix — the durable store cannot be opened", () => {
   });
 
   it("negative control: an OMITTED factory still opens the ambient one", async () => {
-    // The gate is the property's presence, not its value, so the other half has to
-    // hold too — otherwise "explicitly absent" would just be "never open anything"
-    // and the case above would pass against an adapter that no longer persists.
+    // The gate is the property's presence, not its value, so the other half must hold too, or
+    // "explicitly absent" would just mean "never open anything".
     const ambientFactory = new RecordingIndexedDbFactory();
     installAmbientIndexedDb(ambientFactory);
 
@@ -92,11 +73,9 @@ describe("failure matrix — the durable store cannot be opened", () => {
   });
 
   it("falls back to memory and SAYS SO when the open is refused", async () => {
-    // The refusing factory is installed as the AMBIENT global as well as passed,
-    // because `idb`'s `openDB` reads the global rather than a parameter — a
-    // factory handed only to the option would never have its `open` called, and
-    // the refusal reaching the classifier would be a `ReferenceError` from a
-    // missing global rather than the `SecurityError` this case is named for.
+    // The refusing factory is installed as the ambient global as well, because `idb`'s
+    // `openDB` reads the global; otherwise the refusal would be a `ReferenceError` rather than
+    // the `SecurityError` this case is named for.
     const refusingFactory = new RecordingIndexedDbFactory();
     installAmbientIndexedDb(refusingFactory);
 
@@ -115,17 +94,14 @@ describe("failure matrix — the durable store cannot be opened", () => {
     const health = await store.health();
     expect(health.durable).toBe(false);
     expect(health.description).toContain("not survive a restart");
-    // The disclosure names the cause. "Storage unavailable" alone would leave an
-    // operator with nothing to check.
+    // The disclosure names the cause; "Storage unavailable" alone gives an operator nothing.
     expect(health.description).toContain("renderer scheme");
   });
 
   it("trims once and then surfaces the refusal when the quota is exhausted", async () => {
-    // The ceiling admits the first record (43 bytes by the adapter's estimator:
-    // partition + key + value class + serialized value) and cannot admit the
-    // second (88) even with the first evicted. That is the case worth pinning:
-    // the trim runs, frees a whole partition, and the write STILL fails — so the
-    // refusal reaches the caller instead of being retried forever.
+    // The ceiling admits the first record (43 bytes by the adapter's estimator) and cannot admit
+    // the second (88) even with the first evicted. The trim frees a whole partition and the
+    // write still fails, so the refusal reaches the caller instead of being retried forever.
     const store = new UiStateStore({
       adapter: new MemoryPersistenceAdapter({ capacityBytes: 50 }),
       sessionPartitionCap: 1,
@@ -154,9 +130,7 @@ describe("failure matrix — the persistence chokepoint is handed something it m
   it("refuses an unknown value class and names the closed set", async () => {
     const store = new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 
-    // Deliberately cast: the compiler already refuses this, and the runtime guard
-    // has to hold anyway for anything that arrives across a boundary the compiler
-    // does not see.
+    // Deliberately cast: the runtime guard must hold for input the compiler cannot see.
     const result = await store.write("session-1", "k", "composer-draft" as never, "hello");
 
     expect(result.outcome).toBe("refused");
@@ -215,14 +189,9 @@ function named(name: string): Error {
 }
 
 /**
- * An ambient `indexedDB` that RECORDS being reached, and refuses if it is.
- *
- * Without one, the missing-global arm is unfalsifiable: on a host with no factory
- * at all — which happy-dom is — coalescing the option's value and checking the
- * property's presence agree, because the fallback is `undefined` either way. So
- * the cases install a factory the adapter must not touch, and assert on whether it
- * did. Refusing rather than returning a request is deliberate: a case that reached
- * this by mistake fails on its own assertion instead of on a half-built database.
+ * An ambient `indexedDB` that records being reached, and refuses if it is. On a host with no
+ * factory (happy-dom), coalescing the option's value and checking its presence agree, so the
+ * missing-global arm needs a factory the adapter must not touch to be falsifiable.
  */
 class RecordingIndexedDbFactory {
   #openCallCount = 0;
@@ -238,11 +207,8 @@ class RecordingIndexedDbFactory {
   }
 
   /**
-   * The same object, typed as what `openUiStateDatabase` gates on.
-   *
-   * A cast rather than a full `IDBFactory`: `open` is the only member either the
-   * gate or `idb` reaches, and stubbing `cmp` / `databases` / `deleteDatabase`
-   * would be three members no case drives and a reader would have to check.
+   * The same object, typed as what `openUiStateDatabase` gates on. A cast, since `open` is the
+   * only member the gate or `idb` reaches.
    */
   public get asIndexedDbFactory(): IDBFactory {
     return this as unknown as IDBFactory;
@@ -250,8 +216,8 @@ class RecordingIndexedDbFactory {
 }
 
 /**
- * Give this host an ambient factory, as a browser has and this environment does
- * not. `configurable` so the `afterEach` can take it away again.
+ * Give this host an ambient factory, as a browser has and this environment does not.
+ * `configurable` so the `afterEach` can remove it.
  */
 function installAmbientIndexedDb(factory: RecordingIndexedDbFactory): void {
   Object.defineProperty(globalThis, "indexedDB", {

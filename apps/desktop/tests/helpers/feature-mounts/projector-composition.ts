@@ -1,38 +1,18 @@
 // The fold every feature mount opens its stores with: the one a window composes.
 //
-// ONE COMPOSITION BECAUSE THE PARTITION SET IS ONE CLAIM. A mount that names the
-// registrars it wants is choosing which partitions its view can read, and that
-// choice is not a mount's to make — the window makes it, once, in
-// `app/registrations.ts`. A mount that folds the `approval` partition and not the `run`
-// one leaves a view that reads the run a pending decision names with nothing to find,
-// and both tiers pass on it — the accessibility tier because an absence is as auditable
-// as a chip, the screenshot tier because a picture of the wrong composition is as stable
-// as one of the right one.
+// The partition set is one claim, and it is the window's to make, once, in `app/registrations.ts`.
+// A mount that named its own registrars would choose which partitions its view can read: one that
+// folds `approval` but not `run` leaves a view that reads the run a decision names with nothing to
+// find, and both tiers pass on it. A store opened with no projectors folds nothing, which looks
+// exactly like a session with no runs. So mounts take the production composition (the snapshot
+// `registerFeatureContributions` produces), and a feature that claims a new event kind is folded
+// by every capture and audit the day it lands. No module under this directory reaches a projector
+// registrar directly.
 //
-// AND A SUBSET IS NOT THE ONLY WRONG ANSWER; an omitted argument is the same defect
-// with a smaller number. A store opened with no projectors at all folds nothing, so a
-// scenario whose beats reach `run.running` still leaves every run-shaped view
-// reading an empty partition — which looks exactly like a session that has no runs.
-//
-// SO THE MOUNTS TAKE THE PRODUCTION COMPOSITION RATHER THAN A LIST. What is exported
-// is the snapshot `registerFeatureContributions` produces, so a feature that claims a new
-// event kind is folded by every capture and every audit on the day it lands, with no
-// feature-mounts file edited and none forgotten. Review is what keeps it that way: no module
-// under this directory may reach a projector registrar directly, and every store either
-// mount opens names this constant.
-//
-// COMPOSED INTO BOARDS THIS MODULE OWNS, which is what makes it safe to do at module
-// scope. `registerFeatureContributions` writes only into the registries it is handed —
-// `app/registrations.test.ts` asserts exactly that against the window's — so the ones
-// built here and dropped are the price of reading the projectors, and no tier's window
-// is touched by importing this file.
-//
-// A CONSTANT RATHER THAN A FACTORY, on `frame/run-projection/run-lifecycle-projector.ts`'s precedent
-// for the table it exports: the snapshot is frozen at the registry's own edge, so
-// every mount in a tier folds with one table and no mount can be handed a different
-// one. Composing per call would also re-run every feature's registrar once per mount,
-// which is work whose only observable effect would be to make that impossible to rely
-// on.
+// It is composed into registries this module owns, which is what makes module scope safe:
+// `registerFeatureContributions` writes only into the registries it is handed
+// (`app/registrations.test.ts` asserts it). A constant rather than a factory, since the snapshot
+// is frozen at the registry's edge and every mount in a tier then folds with one table.
 
 import { registerFeatureContributions } from "@renderer/app/registrations.js";
 import { CommandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
@@ -46,20 +26,18 @@ import { type EntityProjectorTable } from "@renderer/store/session/entities/enti
 /**
  * The event-kind fold the console's own composition claims, frozen.
  *
- * Handed to every `SessionStore` and `SessionStoreRegistry` a feature mount opens, so
- * a tier reads the partitions a person's window would have.
+ * Handed to every `SessionStore` and `SessionStoreRegistry` a feature mount opens, so a tier reads
+ * the partitions a person's window would have.
  */
 export const COMPOSED_ENTITY_PROJECTORS: EntityProjectorTable = composeEntityProjectors();
 
 /**
- * Run the window's composition into registries this module owns, and keep the fold.
+ * Runs the window's composition into registries this module owns, and keeps the fold.
  *
- * The other registries are built here and never read: they are what the composition
- * writes its commands, screens, panes and inline cards into, and a mount resolves
- * each of those through its own feature-scoped registry (`pane-body-resolution.ts`)
- * because a mount composes exactly the body it captures. The fold is the one registry
- * that cannot work that way — a partition is read by whichever view names it, so
- * the table a store opens with has to be the whole one.
+ * The other registries are built and never read: a mount resolves commands, screens, panes and
+ * cards through its own feature-scoped registry (`pane-body-resolution.ts`). The fold cannot work
+ * that way, since a partition is read by whichever view names it, so the table a store opens with
+ * has to be the whole one.
  */
 function composeEntityProjectors(): EntityProjectorTable {
   const projectors = new EntityProjectorRegistry();

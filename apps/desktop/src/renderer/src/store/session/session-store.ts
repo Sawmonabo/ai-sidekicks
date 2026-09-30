@@ -1,57 +1,26 @@
-// The per-session store and its single apply chokepoint.
+// The per-session store and its single apply chokepoint. One store per open session, and one
+// way in: `applyBatch`, which validates, reconciles the sequence, runs the projectors and commits
+// one immutable transition. The zustand setter is private, so the chokepoint is structural.
+// Events drain into `ApplyQueue` and arrive as a batch, so N events in one frame are one
+// notification and `snapshot()` never disagrees with what React last rendered.
 //
-// One store per OPEN session, and exactly one way into it: `applyBatch`. Every wire
-// event and every read response enters through that function, which validates,
-// reconciles the sequence, runs the registered projectors, and commits one immutable
-// state transition. No component subscribes to the bridge and no component calls
-// `setState`; the zustand store's setter is private to this class, so "the chokepoint"
-// is a structural property rather than a convention a reviewer has to police.
+// Collaborators own their rules: `sequence-reconciler.ts` (ordering, dedupe, holes, divergence),
+// `pre-initialization-buffer.ts`, `entities/entity-projection-runner.ts`,
+// `entities/entity-partitions.ts`, `../session-degradation.ts` and `session-state.ts`.
 //
-// Why coalescing lives at the SOURCE rather than in the notifier: a store that
-// updated its state synchronously but notified on a frame boundary would let
-// `snapshot()` and what React last rendered disagree for a frame, and the first bug
-// that costs is a control acting on a value the operator cannot see. Instead the
-// bridge subscription drains into `ApplyQueue` and hands this class a BATCH, so N
-// events in one frame are one transition and one notification, and state and
-// notification never diverge.
-//
-// This module is the ORCHESTRATION and owns none of the rules it applies. Each
-// collaborator owns one, and states it where it lives:
-//
-//   • `sequence-reconciler.ts` — ordering, dedupe, the recorded holes, and the
-//     divergence bound past which a sequence is refused rather than admitted.
-//   • `pre-initialization-buffer.ts` — the bounded hold for events that arrive
-//     before a base state, and the counted drop at its cap.
-//   • `store/entities/entity-projection.ts` — running one event's projector all-or-nothing.
-//   • `store/entities/entity-partitions.ts` — the immutable partition merges a mutation performs.
-//   • `store/degradation.ts` — which cause survives when more than one is standing.
-//   • `session-state.ts` / `selectors.ts` — the committed state and its narrow reads.
-//
-// What is left here, and is genuinely this class's own:
-//
-//   • **A gap, a drop, or a projection failure sets a sticky degraded flag.** It
-//     clears only when a re-pull completes, never on the next well-ordered event,
-//     because a later event proves nothing about the one that never arrived. Which
-//     re-pulls count is `admitsSnapshotAt`, in `session-state.ts`.
-//   • **A foreign `sessionId` is refused.** Two sessions never share a store.
-//   • **A re-entrant apply is queued, drained, and reported.** A subscriber that
-//     writes during notification is a defect; losing its event would be a second
-//     one, so the event is kept and the tripwire fires.
-//   • **The log grows at the head through one method, and only backwards.** A session's
-//     stream replays from the position this user was last acknowledged at, so
-//     the rows below `windowHeadCursor` exist and were never delivered here.
-//     `prependEarlierEvents` is where a read of them lands, and it is not a second
-//     apply chokepoint: it admits no row at or above the log's head, moves no cursor,
-//     runs no projector, and clears no degraded flag. `earlier-window.ts` owns the
-//     fold and says why each of those is a property rather than an omission. A read
-//     of those rows is addressed from a head this store can move underneath it, so
-//     `windowGeneration` publishes which window a page was asked under and the merge
-//     is settled through it.
-//   • **What is outstanding outlives the window.** The `timeline` above is one window
-//     and it is capped, so a fold over it loses an approval the moment the row that
-//     opened it is pruned or thrown away by the next read. `outstanding-asks/outstanding-ask-journal.ts`
-//     holds those lifecycles instead — seeded from each base state, advanced by every
-//     admitted row and every recovered one, and cleared by nothing this class does.
+// This class owns:
+//   - A sticky degraded flag set by a gap, a drop or a projection failure and cleared only by a
+//     completed re-pull (`admitsSnapshotAt`), since a later event proves nothing about the one
+//     that never arrived.
+//   - Refusal of a foreign `sessionId`.
+//   - A re-entrant apply is queued, drained and reported, never lost.
+//   - `prependEarlierEvents`, the only way the log grows at its head: rows below
+//     `windowHeadCursor` exist but were never delivered here. It admits nothing at or above the
+//     head, moves no cursor, runs no projector and clears no flag (`earlier-window.ts`).
+//     `windowGeneration` says which window a page was asked under.
+//   - What is outstanding outlives the capped timeline: `waiting-on-person/
+//     waiting-on-person-register.ts` holds it, seeded by each base state and advanced by every
+//     admitted or recovered row.
 
 import { createStore } from "zustand/vanilla";
 import type { StoreApi } from "zustand/vanilla";
@@ -88,11 +57,8 @@ import {
 import type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 import { NOTHING_APPLIED, type ApplyOutcome } from "./apply-outcome.js";
 
-// The store's own vocabulary, re-exported from the module callers import the store
-// from, so a caller names these types without knowing which collaborator declares
-// them. `SequenceGap` is the one name that does not come back through here — no
-// module outside its owner imports it, so a second name for it would be an export
-// with no reader, which the dead-code gate rejects. It is reached at its owner.
+// The store's vocabulary, re-exported so callers need not know which collaborator declares it.
+// `SequenceGap` is not: nothing outside its owner imports it.
 export type { SessionDegradedCause } from "../session-degradation.js";
 export type { SessionSnapshot, SessionStoreState } from "./session-state.js";
 export { selectEntity, selectPartition } from "./session-selectors.js";
@@ -112,6 +78,10 @@ const SITE = "console/store/session/session-store.ts";
 /** The one key the window generation is claimed under. A store has one window. */
 const WINDOW_GENERATION_KEY = "window";
 
+/**
+ * The per-session store: state, the sequence reconciler and the projectors behind the single
+ * `applyBatch` chokepoint. `initialize` establishes the base state; nothing else writes.
+ */
 export class SessionStore {
   readonly #sessionId: string;
   readonly #timelineCap: number | undefined;
@@ -122,33 +92,23 @@ export class SessionStore {
   readonly #projectionRunner: EntityProjectionRunner;
   /**
    * What is still waiting on a person, held apart from the window it was learned from.
-   *
-   * Constructed here rather than handed in, because its lifetime is this store's and its
-   * inputs are this store's: it is advanced by exactly the rows the apply chokepoint
-   * admits and the rows the backward walk recovers, and a caller able to supply a second
-   * register could publish a count over a session whose rows it never saw.
+   * Constructed here so its inputs are exactly the rows this store admits or recovers; a
+   * supplied register could publish a count over rows it never saw.
    */
   readonly #outstandingAsks = new WaitingOnPersonRegister();
   readonly #reentrantQueue: ProjectedSessionEvent[] = [];
   #applying = false;
   /**
-   * Rows this store holds that arrived from behind its window's head.
-   *
-   * Private, and read by exactly one thing: `#retainedEnd`, which is the whole of what
-   * the count is for — a log that has grown at its head is capped from the other end.
-   * A count rather than a flag because zero is the same fact as "no backward page has
-   * landed", and it resets on `initialize`, which is the one act that re-establishes
-   * where the window starts.
+   * Rows this store holds that arrived from behind its window's head. Read only by
+   * `#retainedEnd`, since a log that grew at its head is capped from the other end. A count
+   * because zero means no backward page has landed; `initialize` resets it.
    */
   #earlierEventCount = 0;
   readonly #windowGenerations = new GenerationLatch();
   /**
-   * Which window this store's log is currently a view of.
-   *
-   * Re-taken by `initialize` and by nothing else, so it goes stale on exactly the act
-   * that re-establishes where the window starts — including the read that answered at
-   * the SAME position and still threw the old log away, which no comparison of head
-   * cursors can see.
+   * Which window this store's log is currently a view of. Re-taken by `initialize` only, so it
+   * goes stale even when a read answers at the same position yet replaces the log, which head
+   * cursors cannot show.
    */
   #windowGeneration: CurrentGenerationClaim = this.#windowGenerations.supersedeAndClaim(
     this,
@@ -200,12 +160,9 @@ export class SessionStore {
   }
 
   /**
-   * What this session still has open, as of every row this store has ever been given.
-   *
-   * A GETTER RATHER THAN A STATE MEMBER, on `paging-binding.ts`' precedent: the ledger
-   * only ever moves on an act that also bumps `revision`, so a reader subscribed to that
-   * re-asks exactly when it could have changed — and a mirror on the committed state
-   * would be a second copy of a value whose whole point is that it is the register's.
+   * What this session still has open, as of every row this store has ever been given. A getter,
+   * not a state member: the ledger moves only on an act that also bumps `revision`, so a
+   * reader subscribed to that re-asks when it could have changed.
    */
   public get outstandingAskLedger(): WaitingOnPersonRecords {
     return this.#outstandingAsks.ledger;
@@ -214,27 +171,17 @@ export class SessionStore {
   /**
    * A handle on the window this log is a view of, for a caller settling against it.
    *
-   * FOR THE READER THAT ASKS FOR ROWS THIS WINDOW DOES NOT HOLD. Such a read is
-   * addressed FROM a window head, and it can answer after a completed read has moved
-   * that head — at which point its page names rows before a window this store has
-   * left. Taking this claim at issue and settling through it is what lets that page be
-   * discarded, and it is a handle rather than a number so the caller cannot re-derive
-   * the comparison and get it wrong.
-   *
-   * The NARROW half of a claim: a reader may ask whether its round is still live and
-   * may settle against it, and may not give the key back — the window is the store's
-   * and ends when the next read re-establishes it.
+   * A read for rows before the window head can answer after a completed read moved that head.
+   * Taking this claim at issue and settling through it lets that page be discarded. The handle
+   * is narrow: a reader may check it and settle, but cannot give the key back.
    */
   public get windowGeneration(): CurrentGenerationClaim {
     return this.#windowGeneration;
   }
 
   /**
-   * Establish the base state from a read response and drain anything that arrived
-   * first.
-   *
-   * Idempotent against a rewind, and admitting the equal-cursor repair: the whole
-   * rule is `admitsSnapshotAt`, which reads the state this store commits.
+   * Establish the base state from a read response and drain anything that arrived first.
+   * Idempotent against a rewind and admits the equal-cursor repair (`admitsSnapshotAt`).
    */
   public initialize(snapshot: SessionSnapshot): void {
     const current = this.#store.getState();
@@ -242,21 +189,14 @@ export class SessionStore {
       return;
     }
 
-    // A completed read re-establishes where the window STARTS, so whatever a backward
-    // walk had re-admitted below the previous head is no longer a fact about this
-    // window: the rows are re-delivered by the read itself or they are once again
-    // outside it, and either way the count that decides the retained end is stale.
+    // A completed read re-establishes where the window starts, so the count that decides the
+    // retained end is stale.
     this.#earlierEventCount = 0;
-    // And the window itself is a NEW one, which is the same fact stated where a caller
-    // can act on it: a backward read still in flight was addressed from the head this
-    // act just replaced, so the claim it took at issue stops being current here and
-    // its page settles nowhere.
+    // A backward read still in flight was addressed from the replaced head, so its claim stops
+    // being current and its page settles nowhere.
     this.#windowGeneration = this.#windowGenerations.supersedeAndClaim(this, WINDOW_GENERATION_KEY);
-    // AND THE OUTSTANDING LEDGER TAKES WHAT THIS READ ESTABLISHED WITHOUT LOSING WHAT IT
-    // ALREADY HELD. The read re-establishes the WINDOW and says nothing about a request
-    // it did not carry, so a register cleared here would throw away exactly the older
-    // asks it exists to hold — which is the defect this whole seam answers. What the
-    // seed does move is the window-head fact, because that is a property of this read.
+    // The register keeps the older asks this read did not carry; the seed moves only the
+    // window-head fact, which is a property of this read.
     this.#outstandingAsks.seedFrom({
       entities: snapshot.entities,
       cursor: snapshot.cursor,
@@ -269,8 +209,7 @@ export class SessionStore {
       timeline.map((event) => event.sequence),
     );
 
-    // A re-pull is exactly what clears the sticky flag, and the builder is where that
-    // happens: every other path merges the cause upward and never drops it.
+    // A re-pull clears the sticky flag here; every other path merges the cause upward.
     this.#store.setState(
       establishedState({
         sessionId: this.#sessionId,
@@ -288,14 +227,9 @@ export class SessionStore {
   }
 
   /**
-   * Mark the store degraded without a re-pull — a closed subscription, a failed
-   * read.
-   *
-   * MERGED through the same ladder an apply uses rather than assigned. An
-   * assignment would downgrade a `stream-diverged` store to `read-failed` the
-   * moment its repair read rejected, and overwrite a recorded sequence gap with a
-   * later subscription closure — in both cases reporting a repair that never
-   * happened, on a flag only a completed re-pull clears.
+   * Mark the store degraded without a re-pull (a closed subscription, a failed read). The cause
+   * is merged through the ladder, not assigned: an assignment would downgrade `stream-diverged`
+   * to `read-failed` when its repair read rejects.
    */
   public markDegraded(cause: SessionDegradedCause): void {
     const current = this.#store.getState();
@@ -307,9 +241,9 @@ export class SessionStore {
   }
 
   /**
-   * Record that a read of this session failed: `read-failed` merged through the ladder
-   * like any cause, and the failure itself kept beside it, so a store already behind for
-   * a worse cause still says its repair read failed. The next read that lands clears both.
+   * Record that a read of this session failed: `read-failed` merged through the ladder, and the
+   * failure kept beside it so a store already behind for a worse cause still says its repair
+   * read failed. The next read that lands clears both.
    */
   public markReadFailed(): void {
     const current = this.#store.getState();
@@ -326,10 +260,8 @@ export class SessionStore {
   }
 
   /**
-   * The apply chokepoint. The only writer of this store's state.
-   *
-   * Takes a BATCH so a frame's worth of events is one transition; `apply` below is
-   * sugar for a one-event batch and adds no second write path.
+   * The apply chokepoint and the only writer of this store's state. A batch makes a frame's
+   * worth of events one transition; `apply` adds no second write path.
    */
   public applyBatch(events: readonly ProjectedSessionEvent[]): ApplyOutcome {
     if (this.#applying) {
@@ -343,8 +275,7 @@ export class SessionStore {
     }
 
     this.#applying = true;
-    // The meters are development-only and fold away in a built bundle, where this
-    // reads `0` and the recordings below record nothing.
+    // The meters are development-only: in a built bundle this reads `0` and records nothing.
     const startedAt = readPerformanceMeterTime();
     try {
       const current = this.#store.getState();
@@ -361,15 +292,9 @@ export class SessionStore {
       if (nextState !== undefined) {
         this.#store.setState(nextState);
       }
-      // Both readings under one key, this store's session: the latency is what the
-      // fold cost and the size is what it left behind, and reading them under two
-      // keys would make the pair impossible to line up.
-      //
-      // The size is taken from the state that was just SET rather than re-read from
-      // the store, and it is the timeline rather than the partitions because the
-      // timeline is what the cap bounds and what the transcript mounts from. A batch
-      // that admitted nothing leaves `nextState` undefined and the gauge holds its
-      // last reading, which is correct: nothing changed.
+      // Both readings go under this session's key so the pair lines up. The size is the timeline
+      // (what the cap bounds) of the state just set; a batch that admitted nothing leaves the
+      // gauge at its last reading.
       recordApplyLatency(this.#sessionId, readPerformanceMeterTime() - startedAt);
       if (nextState !== undefined) {
         recordStoreSize(this.#sessionId, nextState.timeline.length);
@@ -393,15 +318,11 @@ export class SessionStore {
    * Grow the log at its head with a page read from behind
    * {@link SessionStoreState.windowHeadCursor}.
    *
-   * NOT A SECOND APPLY CHOKEPOINT, and `earlier-window.ts` states every difference
-   * from `applyBatch` as a property rather than a shortcut — no sequence reconciled,
-   * no projector run, no cursor moved, no gap recorded, and the degraded flag neither
-   * set nor cleared. What it DOES advance is the outstanding-ask register, because a
-   * recovered row is the one thing a backward page is worth to it.
-   *
-   * Answers what the merge did, so a caller can tell an exhausted walk (nothing
-   * admitted, nothing overlapping) from a page asked for at the wrong position
-   * (nothing admitted, every row refused as not-earlier).
+   * Not a second apply chokepoint (`earlier-window.ts`): no sequence reconciled, no projector
+   * run, no cursor moved, no gap recorded, and the degraded flag neither set nor cleared. It
+   * does advance the outstanding-ask register, since a recovered row is what a backward page
+   * is worth to it. The merge result tells an exhausted walk (nothing admitted, nothing
+   * overlapping) from a page asked at the wrong position (every row refused as not-earlier).
    */
   public prependEarlierEvents(events: readonly ProjectedSessionEvent[]): EarlierWindowMerge {
     const current = this.#store.getState();
@@ -420,12 +341,8 @@ export class SessionStore {
   }
 
   /**
-   * Which end of an over-cap log survives, right now.
-   *
-   * A backward page moves it, and that is the whole of the rule: a reader who asked
-   * for the rows before the window's head has moved to the head, so the cap cuts the
-   * end they left rather than the end they went to. Cutting the other way would
-   * discard the page as it landed, and every press after it.
+   * Which end of an over-cap log survives. A backward page moves the reader to the head, so the
+   * cap cuts the end they left; cutting the other way would discard the page as it landed.
    */
   get #retainedEnd(): TimelineRetainedEnd {
     return this.#earlierEventCount > 0 ? "oldest" : "newest";

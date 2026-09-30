@@ -1,15 +1,11 @@
 // A disposal minted per render is not a lifetime.
 //
-// Split from `useSubjectScopedResource.test.tsx` on the seam the hook itself draws:
-// that file is about WHAT IS OPEN — which render opened a resource and which close
-// retires it — and this one is about the identity of the `close` a caller hands in.
-// The two are separate because the defect was: `close` sat in the resource lifetime's
-// dependency list, so an unrelated rerender ran that effect's cleanup, closed the
-// still-current resource, and then recommitted the closed value.
-//
-// The claim is paired with a NEGATIVE CONTROL driving the dependency list this
-// replaced over the identical script. Without it, "closed nothing" would be a
-// sentence about a test: a hook that never closed anything would satisfy it too.
+// `useSubjectScopedResource.test.tsx` is about what is open; this file is about the identity
+// of the `close` a caller hands in. If `close` sat in the lifetime effect's dependency list,
+// an unrelated rerender would run that effect's cleanup, close the still-current resource,
+// and recommit the closed value. The negative control drives that dependency list over the
+// identical script, since a hook that never closed anything would also satisfy "closed
+// nothing".
 
 import { render, type RenderResult } from "@testing-library/react";
 import { useEffect, type ReactElement } from "react";
@@ -34,11 +30,10 @@ interface FreshCloseProbeProps {
 }
 
 /**
- * A caller whose disposal is minted per render — the shape the hook documents.
+ * A caller whose disposal is minted per render.
  *
- * The identity handed in changes on every pass, and none of those passes is about
- * the resource. What the disposal RECORDS is the pass that minted it, so the ledger
- * says which one ran rather than only that something did.
+ * The identity changes on every pass and none of those passes is about the resource. The
+ * disposal records the pass that minted it, so the ledger says which one ran.
  */
 function FreshCloseProbe(props: FreshCloseProbeProps): ReactElement {
   const { ledger, pass } = props;
@@ -57,12 +52,10 @@ function FreshCloseProbe(props: FreshCloseProbeProps): ReactElement {
 }
 
 /**
- * The dependency list this replaced: the resource's lifetime keyed on the disposal.
+ * Negative control: the resource lifetime keyed on the disposal.
  *
- * Not a stand-in for the hook — it drives the real holder through the effect the
- * resource lifetime used to run, which is the one thing these cases are about. With
- * a disposal minted per render, every rerender runs that effect's cleanup and closes
- * the resource the frame on screen is still reading through.
+ * Drives the real holder through an effect that depends on `close`, so with a disposal
+ * minted per render every rerender closes the resource the frame on screen still reads.
  */
 function CloseKeyedLifetimeProbe(props: FreshCloseProbeProps): ReactElement {
   const { ledger, pass } = props;
@@ -104,9 +97,7 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
   }
 
   it("closes nothing on a rerender that only minted a fresh disposal", () => {
-    // The defect: `close` sat in the resource lifetime's dependency list, so an
-    // unrelated rerender ran that effect's cleanup — closing the still-current
-    // resource and then recommitting the closed value.
+    // A fresh disposal alone must not run the lifetime effect's cleanup.
     const ledger = new ResourceOpenCloseLog();
     const passes = renderPasses(ledger, FreshCloseProbe, [
       DISCARDED_SUBJECT,
@@ -116,14 +107,14 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
 
     expect(ledger.opened).toStrictEqual(["discarded"]);
     expect(ledger.closed).toStrictEqual([]);
-    // And the component is still reading through the resource it opened, rather than
-    // through a replacement minted to cover for one that was closed underneath it.
+    // The component still reads through the resource it opened, not a replacement minted to
+    // cover for one closed underneath it.
     expect(new Set(passes.resources).size).toBe(1);
   });
 
   it("closes the retired resource once, through the newest disposal", () => {
-    // The move that IS a lifetime, driven over the same script: two passes at one
-    // subject and a third at another. One close, and by the pass that retired it.
+    // The move that is a lifetime, over the same script: two passes at one subject and a
+    // third at another. One close, by the pass that retired it.
     const ledger = new ResourceOpenCloseLog();
     const passes = renderPasses(ledger, FreshCloseProbe, [
       DISCARDED_SUBJECT,
@@ -139,10 +130,9 @@ describe("useSubjectScopedResource — a disposal minted per render is not a lif
   });
 
   it("negative control: the disposal-keyed lifetime closes the resource on screen", () => {
-    // The identical script against the dependency list this replaced. Nothing was
-    // opened to replace what it closed, so the component goes on rendering a resource
-    // that has been disposed twice — which is the defect, and the reason the claim
-    // above is about the dependency list rather than about the script.
+    // The same script against the disposal-keyed lifetime. Nothing opens to replace what it
+    // closes, so the component renders a resource that has been disposed twice; this is what
+    // makes the claim above about the dependency list and not the script.
     const ledger = new ResourceOpenCloseLog();
     const passes = renderPasses(ledger, CloseKeyedLifetimeProbe, [
       DISCARDED_SUBJECT,

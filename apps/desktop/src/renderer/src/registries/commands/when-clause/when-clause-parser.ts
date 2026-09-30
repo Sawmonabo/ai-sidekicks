@@ -1,6 +1,6 @@
-// The `when` grammar — text in, a `WhenClauseNode` or a reason out.
+// The `when` grammar: text in, a `WhenClauseNode` or a parse error out.
 //
-// THE GRAMMAR, in full:
+// The grammar, in full:
 //
 //   expression  := disjunction
 //   disjunction := conjunction ( "||" conjunction )*
@@ -9,27 +9,17 @@
 //   primary     := identifier | "(" expression ")"
 //   identifier  := [A-Za-z_] [A-Za-z0-9_.]*
 //
-// What the grammar deliberately leaves out, and why, is stated in
-// `when-clause.ts` beside the node type it produces.
+// A clause that does not parse hides its command: it does not throw (one malformed clause must
+// not take the palette down) and does not default to visible. The error is returned as a value.
 //
-// THE FAIL-CLOSED RULE THIS MODULE OWNS: A CLAUSE THAT DOES NOT PARSE HIDES ITS
-// COMMAND. It does not throw (one malformed rebinding must not take the palette
-// down with it) and it does not fall back to "always visible" (that turns a typo
-// into an unguarded control). It hides, and the parse error is returned as a
-// value so the registry can surface it as the `error` kind of nothing rather than
-// as silence.
-//
-// BOUNDED DEPTH. `WHEN_CLAUSE_MAX_DEPTH` bounds NESTING, not length: `a && b &&
-// c && …` parses iteratively and is unbounded, while `((((…))))` and `!!!!…`
-// recurse and are refused past the bound. Recursion is where a hostile or
-// generated clause could exhaust the stack, and a stack overflow inside a
-// visibility check would fail OPEN in the worst way — by crashing the view
-// that was deciding what to hide.
+// `WHEN_CLAUSE_MAX_DEPTH` bounds nesting, not length: `a && b && c` parses iteratively, while
+// `((((` and `!!!!` recurse and are refused past the bound so a hostile clause cannot overflow
+// the stack inside a visibility check.
 
 import { WHEN_CLAUSE_MAX_DEPTH } from "@renderer/styles/palette.js";
 import type { WhenClauseNode } from "./when-clause.js";
 
-/** Why a clause did not parse. Closed — every arm renders its own copy. */
+/** Why a clause did not parse. */
 export type WhenClauseParseErrorKind =
   | "empty-clause"
   | "unexpected-character"
@@ -40,19 +30,19 @@ export type WhenClauseParseErrorKind =
 /** A parse failure, as a value. Never thrown: the caller decides what to render. */
 export interface WhenClauseParseError {
   readonly kind: WhenClauseParseErrorKind;
-  /** Operator-facing, sentence case, no trailing period — console copy rules. */
+  /** User-facing, sentence case, no trailing period. */
   readonly message: string;
   /** Zero-based index into `source` where the failure was detected. */
   readonly position: number;
   readonly source: string;
 }
 
-/** Either a clause or the reason there is not one. */
+/** Either a parsed clause or the reason there is none. */
 export type WhenClauseParseResult =
   | { readonly ok: true; readonly ast: WhenClauseNode }
   | { readonly ok: false; readonly error: WhenClauseParseError };
 
-/** Parse a clause. Never throws; a failure is the `ok: false` arm. */
+/** Parses a clause. Never throws; a failure is the `ok: false` arm. */
 export function parseWhenClause(source: string): WhenClauseParseResult {
   const tokenized = tokenizeWhenClause(source);
   if (!tokenized.ok) {
@@ -137,9 +127,7 @@ function tokenizeWhenClause(source: string): TokenizeResult {
     }
 
     if (character === "&" || character === "|") {
-      // Single `&` and `|` are refused rather than accepted as aliases: a person
-      // who typed one meant the doubled operator, and silently accepting the
-      // typo would make the two spellings drift apart in every later reader.
+      // A single `&` or `|` is refused rather than accepted as an alias of the doubled operator.
       if (source.charAt(cursor + 1) !== character) {
         return {
           ok: false,
@@ -184,13 +172,7 @@ function tokenizeWhenClause(source: string): TokenizeResult {
   return { ok: true, tokens };
 }
 
-/**
- * Recursive-descent parser state.
- *
- * A class rather than a closure over a mutable cursor: the cursor and the depth
- * counter are the parse, and putting them behind `#` makes it structurally
- * impossible for one production to rewind another's position by accident.
- */
+/** Recursive-descent parser state; the cursor and depth are private to the parse. */
 class WhenClauseParser {
   readonly #source: string;
   readonly #tokens: readonly WhenClauseToken[];

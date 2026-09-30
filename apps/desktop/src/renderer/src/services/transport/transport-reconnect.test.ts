@@ -43,7 +43,7 @@ describe("TransportReconnectSignal", () => {
   });
 
   it("costs nothing when the same state is reported repeatedly", () => {
-    // One transport, four bound sessions: the binder reports `reachable` per bind.
+    // One transport, four bound sessions: the subscriber reports `reachable` per bind.
     const signal = new TransportReconnectSignal();
     const onReconnect = vi.fn();
     signal.subscribe(onReconnect);

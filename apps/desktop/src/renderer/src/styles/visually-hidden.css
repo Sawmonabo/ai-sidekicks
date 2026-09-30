@@ -1,10 +1,6 @@
 /*
- * What every primitive shares: the hidden region.
- *
- * A global sheet, imported by `main.tsx`.
- *
- * Hand-authored composition: the token values are generated at mount from
- * `styles/palette.ts`, and this sheet reads every one back out as a custom property.
+ * Hides an element visually while keeping it in the accessibility tree. A global sheet, loaded
+ * through `global-sheets.ts`.
  */
 
 .meridian-visually-hidden {

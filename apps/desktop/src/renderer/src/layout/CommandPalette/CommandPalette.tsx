@@ -1,38 +1,17 @@
-// The command palette.
+// The command palette: `Combobox.Root` in `inline` mode wrapping a `Dialog.Root`, with their
+// `open` / `onOpenChange` bound together so the combobox resets its transient state on close.
+// Combobox owns the roles, active descendant and keyboard navigation; Dialog owns the focus trap,
+// Escape, outside press and portal.
 //
-// COMPOSITION. The console adopts `@base-ui/react` 1.7.0 as its one widget library,
-// combobox and autocomplete included, so the palette is `Combobox.Root` in `inline`
-// mode wrapping a `Dialog.Root` — the composition that package's own `ComboboxRoot`
-// documentation names: bind the combobox's `open` / `onOpenChange` to the dialog's,
-// and it resets its transient state (filter query, highlight, input value) when the
-// dialog closes. Combobox owns the `combobox` / `listbox` / `option` roles,
-// `aria-activedescendant`, arrow and Home/End navigation, and Enter-on-highlighted;
-// Dialog owns the focus trap, Escape, outside press, and the portal. None of that
-// is re-implemented here, which is the whole reason the library was adopted.
+// Two deviations from the library defaults:
+//   - `modal="trap-focus"`: focus is trapped but the document scroll is not locked. The `inert`
+//     that hides the rest of the app is the frame's, since a dialog cannot know what that is.
+//   - `filter={null}`: the registry already filtered and ranked, and a second matcher would
+//     diverge from the one shared with settings search.
 //
-// Two deviations from the library defaults, both required:
-//
-//   • `modal="trap-focus"` rather than `modal` (the default `true`). Focus is
-//     trapped, but the document's scroll is NOT locked — no body scroll lock is
-//     part of the same rule that adopts this library. Trapping focus is not the
-//     same guarantee as leaving the app root: a reader navigating by structure
-//     still reaches the rail and the screen underneath. The `inert` that closes
-//     that gap is the app chrome's rather than the palette's — this component cannot
-//     know what "the rest of the app" is, and a dialog that inerted its own
-//     container would leave nothing reachable at all — so the frame carries it on
-//     the background wrapper it renders around everything but its overlay region,
-//     for exactly as long as the same `open` this component is controlled by.
-//   • `filter={null}`. The registry has already filtered and RANKED; letting the
-//     combobox filter again would put a second matcher in the console, and
-//     "one matcher shared with settings search" is a claim about the whole app.
-//
-// WHAT IS NOT HERE. The rows are `PaletteResultList.tsx` and the five kinds of nothing
-// are `PaletteEmptyState.tsx`. Every decision this component makes — the scope captured
-// at the open transition, the dormancy that makes a closed palette walk nothing, the
-// clear that runs after the commit, the one chord it listens for — is
-// `hooks/useCommandPalette.ts` beside this file, because the state-and-views rule in
-// `apps/desktop/AGENTS.md` puts effects and derivations in a hook and never in a render
-// body. This module is the composition and the markup.
+// Rows are `PaletteResultList.tsx`, the empty states are `PaletteEmptyState.tsx`, and every
+// decision (scope capture, dormancy, the post-commit clear, the open chord) is in
+// `hooks/useCommandPalette.ts`.
 
 import { Combobox } from "@base-ui/react/combobox";
 import { Dialog } from "@base-ui/react/dialog";
@@ -47,13 +26,9 @@ import { PaletteResultList } from "./PaletteResultList.js";
 import { useCommandPalette, type CommandPaletteProps } from "./hooks/useCommandPalette.js";
 
 /**
- * The palette.
- *
- * Controlled on `open`: the frame decides whether it is showing, and the palette
- * asks for a change. The open chord installs ONE listener of its own rather than
- * riding `KeybindingTable`, because it is app chrome and not a contributed
- * command — it has to work before any feature has registered anything, and it has
- * to work while a person is typing in the composer.
+ * The command palette, controlled on `open`: the frame decides whether it shows and the palette
+ * asks for a change. The open chord has its own listener rather than riding `KeybindingTable`, so
+ * it works before any feature registers a command and while a person types in the composer.
  */
 export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
   const {
@@ -93,12 +68,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
       onItemHighlighted={warmHighlighted}
     >
       <Dialog.Root open={open} onOpenChange={handleOpenChange} modal="trap-focus">
-        {/* THE AIRSPACE REGISTRATION IS THE PRIMITIVE'S, and the whole of this
-            component's part in it is the kind it names. An open palette is one of the
-            seven overlay kinds a native browser-pane view has to yield to, and a view
-            painted over it is the one thing the airspace rule forbids outright — so
-            the primitive that mounts the popup is also what registers its live
-            rectangle, and no component can mount one without. */}
+        {/* The popup primitive registers the palette's rectangle in the window's airspace. */}
         <OverlayDialogPopup
           airspaceKind="command-palette"
           container={overlayContainer}
@@ -121,11 +91,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
             aria-label="Search commands"
           />
 
-          {/*
-            The CAPTURED context: the chord printed beside a row is the chord that
-            would run that row, and one resolved against the live route beside a row
-            resolved against the capture is two answers to one question.
-          */}
+          {/* The captured context, so a printed chord is the one that would run that row. */}
           <PaletteResultList
             context={capturedContext}
             platform={platform}
@@ -133,12 +99,8 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
             onRunResult={runResult}
           />
 
-          {/*
-              Must stay mounted: it announces by mutating its own text, and it is
-              already a `role="status"` / `aria-live="polite"` region — which is
-              why `Combobox.Status` below falls silent when the list is empty.
-              Two live regions describing one absence would announce it twice.
-            */}
+          {/* Must stay mounted: it is already a polite live region, and `Combobox.Status` below
+              stays silent when the list is empty so one absence is not announced twice. */}
           <Combobox.Empty className="command-palette__empty">
             <PaletteEmptyState
               readiness={readiness}
@@ -153,7 +115,7 @@ export function CommandPalette(props: CommandPaletteProps): React.JSX.Element {
           </Combobox.Status>
 
           {invocationRefusal === undefined ? null : (
-            // Below the rows: the answer to the press a person just made.
+            // Below the rows: the answer to the press just made.
             <div className="command-palette__refusal">
               <InlineRefusal code={invocationRefusal.code} detail={invocationRefusal.detail} />
             </div>

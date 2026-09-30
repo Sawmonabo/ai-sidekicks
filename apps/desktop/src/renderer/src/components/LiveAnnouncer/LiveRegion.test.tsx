@@ -1,14 +1,5 @@
-// What a region does with an announcement.
-//
-// `live-announcer.test.ts` owns the queue, the coalescing, and the clock, and
-// `LiveAnnouncerProvider.test.tsx` owns who builds an announcer and who disposes
-// it. What is left here is the pair of claims only the region can be wrong about:
-// it is SUBSCRIBED rather than replaced when the announcement changes, and a
-// message reaches the region its politeness names and no other.
-//
-// Driven against the region directly rather than through the provider, because the
-// provider is not what these are about: a region rebuilt on every announcement
-// would still pass a test that only counted the regions afterwards.
+// What a region does with an announcement: it is subscribed rather than replaced, and a message
+// reaches only the region its politeness names. Driven directly, not through the provider.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -34,8 +25,8 @@ describe("LiveRegion — the pair speaks without being replaced", () => {
 
     const after = regionsOf(container);
     expect(after).toHaveLength(2);
-    // Identity, not just count: a region replaced between announcements is a region
-    // inserted carrying its text, which most readers do not announce at all.
+    // Identity, not count: a replaced region is inserted carrying its text, which most readers
+    // skip.
     expect(after[0]).toBe(before[0]);
     expect(after[1]).toBe(before[1]);
   });

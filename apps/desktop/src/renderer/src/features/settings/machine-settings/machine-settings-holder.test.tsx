@@ -1,13 +1,6 @@
-// Who holds the store, and when the binding acquires one.
-//
-// The store beside this module is proved against its own methods; what is proved here is WHOSE
-// store a page is on and WHEN the holder mints or disposes one. Acquiring disposes, so
-// a render React replays or abandons must never dispose the store the committed tree
-// is subscribed to.
-//
-// The last case is about a render that never commits, which is why these cases are in
-// a `.tsx` file: an abandoned render has to be a real React render, produced by a
-// sibling that throws after the probe has already rendered.
+// Whose store a page is on, and when the holder mints or disposes one. Acquiring disposes, so
+// a render React replays or abandons must never dispose the store the committed tree is
+// subscribed to. The abandoned-render case needs a real React render, hence `.tsx`.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -96,9 +89,8 @@ describe("machine settings binding — acquisition happens after the commit", ()
     );
     await settle();
 
-    // Strict mode invokes the acquiring effect twice; the second invocation finds
-    // the store the first one minted rather than superseding it, which is the
-    // property that lets the effect carry no teardown.
+    // Strict mode runs the acquiring effect twice; the second finds the store the first minted,
+    // which is why the effect needs no teardown.
     const acquired = machineSettingsHolder.storeIfCurrent(bridge);
     expect(acquired).toBeDefined();
     expect(acquired?.isDisposed).toBe(false);
@@ -123,9 +115,8 @@ describe("machine settings binding — acquisition happens after the commit", ()
   });
 
   it("leaves the committed store live when a render is abandoned", async () => {
-    // The negative control on the `useMemo` form. Under it the probe's render-time
-    // lookup disposed `firstStore` and installed a successor for a pass that never
-    // committed, so this case fails on the old code and passes on the new one.
+    // Negative control on the `useMemo` form: a render-time lookup would dispose
+    // `firstStore` for a pass that never committed.
     const firstBridge = freshBridge();
     const { rerender } = render(<PreferenceProbe bridge={firstBridge} />, windowOf(firstBridge));
     await settle();
@@ -133,10 +124,9 @@ describe("machine settings binding — acquisition happens after the commit", ()
     expect(firstStore).toBeDefined();
 
     const abandonedBridge = freshBridge();
-    // The failure is left UNCAUGHT rather than wrapped in an error boundary: the
-    // boundary's record of a render failure is a tripwire, and this tier throws on
-    // one, so catching the throw here would replace the case's subject with the
-    // boundary's. React reports the pass it discarded through `console.error`.
+    // Left uncaught rather than wrapped in an error boundary: the boundary records a render
+    // failure as a tripwire and this tier throws on one. React reports the discarded pass
+    // through `console.error`.
     const consoleErrors = vi.spyOn(console, "error").mockImplementation(() => undefined);
     expect(() => {
       rerender(
@@ -156,10 +146,7 @@ describe("machine settings binding — acquisition happens after the commit", ()
 
 describe("machine settings — the store belongs to the window, not to a page", () => {
   it("hands one bridge the same store however many pages ask", async () => {
-    // The defect this is the negative control for: a store built per calling
-    // component died with the page, so a choice made on the updates section was
-    // gone by the time the notifications section asked for it — while the row said
-    // it was held for the window.
+    // Guards against a store per calling component, which died with its page.
     const bridge = freshBridge();
     const firstPagesStore = machineSettingsHolder.acquire(bridge);
 
@@ -169,16 +156,13 @@ describe("machine settings — the store belongs to the window, not to a page", 
   });
 
   it("gives two bridges two stores, and disposes the one it superseded exactly once", () => {
-    // The fixture's scenario swap replaces the bridge. A store built against the old
-    // one would keep answering with the old one's reading, so it is superseded
-    // rather than reused — and it is dropped, so asking again mints a live store
-    // rather than returning a terminal one whose replies write nothing.
+    // A scenario swap replaces the bridge; the old store is superseded and dropped, so asking
+    // again mints a live store instead of returning a terminal one.
     const first = freshBridge();
     const second = freshBridge();
     const firstStore = machineSettingsHolder.acquire(first);
-    // Counted rather than read off the flag: `dispose` is idempotent, so a holder
-    // that disposed the same store on every ask would leave `isDisposed` looking
-    // exactly as it does here.
+    // Counted, since `dispose` is idempotent and `isDisposed` would look the same after
+    // repeated disposal.
     const disposals = vi.spyOn(firstStore, "dispose");
 
     const secondStore = machineSettingsHolder.acquire(second);
@@ -197,8 +181,8 @@ describe("machine settings — the store belongs to the window, not to a page", 
 
 describe("machine settings — a superseded store", () => {
   it("negative control: a superseded store's own reply writes nothing", async () => {
-    // Without this, the disposal above would be a flag nobody reads: a reply landing after
-    // the swap would publish the old bridge's answer over the new bridge's store.
+    // Guards against a disposal flag nobody reads: a late reply would publish the old bridge's
+    // answer over the new store.
     const first = freshBridge(ACCEPTING_SERVICE);
     const second = freshBridge(ACCEPTING_SERVICE);
     const firstStore = machineSettingsHolder.acquire(first);
@@ -222,10 +206,8 @@ describe("machine settings — the lookup a render body performs", () => {
   });
 
   it("answers nothing for a bridge the holder is not on, and disposes nothing", () => {
-    // The purity claim, which is the whole of the fix: this is the call a render
-    // body makes, and a render body may run for a pass React replays or abandons.
-    // The acquiring form disposed the committed store and installed a successor
-    // right here, so an abandoned render left the mounted pages on a disposed store.
+    // Purity: a render body calls this for passes React may replay or abandon, and an acquiring
+    // form would dispose the committed store.
     const committedBridge = freshBridge();
     const committed = machineSettingsHolder.acquire(committedBridge);
     const replacementBridge = freshBridge();
@@ -236,8 +218,7 @@ describe("machine settings — the lookup a render body performs", () => {
   });
 
   it("negative control: acquiring the replacement is what disposes, so the two differ", () => {
-    // Without this, the case above would pass over a holder that never disposed
-    // anything at all — and the lookup would be pure because nothing was.
+    // Guards against a holder that never disposes, which would make the lookup trivially pure.
     const committedBridge = freshBridge();
     const committed = machineSettingsHolder.acquire(committedBridge);
 

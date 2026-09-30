@@ -1,7 +1,5 @@
-// The smoke harness's pure parts, driven without a launch: the breadcrumb scanner's
-// line buffering, the derived timing budgets, and the diagnosis of a missing probe
-// line. None of them spawns Electron or needs a built bundle, so they run in
-// `main-unit`, the project a person runs before pushing.
+// Tests the smoke harness's pure parts without a launch: the breadcrumb scanner's buffering, the
+// derived timing budgets and the missing-probe diagnosis. None needs Electron or a built bundle.
 
 import { describe, expect, it } from "vitest";
 
@@ -25,22 +23,15 @@ import {
   type SpawnResult,
 } from "./smoke-probe-harness.js";
 
-// Unit coverage for the breadcrumb scanner's line buffering.
-//
-// This is the failure the buffer exists to stop: a breadcrumb straddling a
-// chunk boundary was previously split into two fragments, NEITHER of which
-// matched the tag, so the breadcrumb vanished. That is the worst possible
-// outcome for a diagnostic trail — it goes missing precisely when the process
-// is under enough load to fragment its own writes, which is the load that
-// produces the stalls it is there to explain.
+// A breadcrumb split across a chunk boundary must not vanish, or the trail goes missing exactly
+// when load fragments the process's writes.
 describe("ReadinessLineScanner", () => {
   const emit = (event: string, offsetMs: number): string =>
     `${READINESS_BREADCRUMB_TAG} ${event} +${String(offsetMs)}ms\n`;
 
   it("recovers a breadcrumb split across two chunks", () => {
     const line = emit("dom-ready", 133);
-    // Split inside the TAG itself, which is the case a naive per-chunk
-    // `split("\n")` cannot recover from at all.
+    // Splits inside the tag itself, which a per-chunk `split("\n")` cannot recover.
     const splitAt = READINESS_BREADCRUMB_TAG.length - 3;
     const scanner = new ReadinessLineScanner();
     expect(scanner.push(line.slice(0, splitAt))).toEqual([]);
@@ -58,8 +49,7 @@ describe("ReadinessLineScanner", () => {
 
   it("holds an unterminated line until its newline arrives", () => {
     const scanner = new ReadinessLineScanner();
-    // No trailing newline: the breadcrumb is not complete and must NOT be
-    // reported yet, or a truncated offset would be recorded as fact.
+    // No newline yet: reporting now would record a truncated offset as fact.
     expect(scanner.push(`${READINESS_BREADCRUMB_TAG} did-finish-load +12`)).toEqual([]);
     expect(scanner.push("34ms\n")).toEqual(["did-finish-load +1234ms"]);
   });
@@ -78,8 +68,7 @@ describe("ReadinessLineScanner", () => {
   });
 
   it("keeps two streams' partial lines apart", () => {
-    // The reason each stream gets its own instance: a shared one would splice
-    // stdout's tail onto stderr's head and synthesize a line neither emitted.
+    // A shared instance would splice stdout's tail onto stderr's head and invent a line.
     const stdoutScanner = new ReadinessLineScanner();
     const stderrScanner = new ReadinessLineScanner();
     expect(stdoutScanner.push(`${READINESS_BREADCRUMB_TAG} dom-`)).toEqual([]);
@@ -90,32 +79,15 @@ describe("ReadinessLineScanner", () => {
   });
 });
 
-// The budget arithmetic, asserted rather than trusted to a comment.
-//
-// Every timing constant the smoke harness holds is derived from another one so that
-// raising a phase raises everything that must contain it. That property is
-// only worth having if it is checked: the defect that produced this block was
-// exactly a derivation that read plausibly and did not hold — the diagnostic
-// collection was MEASURED from one instant and BOUNDED from a later one, so a
-// collection whose probes each ran to their cap exceeded the budget it was
-// asserted to honor, and the control meant to produce the dump failed instead.
-// A comment cannot catch that returning; these can.
+// Asserts the budget arithmetic. Each timing constant derives from another so that raising a
+// phase raises every enclosure. A collection measured from one instant but bounded from a later
+// one exceeds its own budget, and only an assertion catches that.
 describe("derived timing budgets", () => {
   it("leaves the close-event reserve intact above the largest legal collection", () => {
-    // The hole this closes, and the reason it is stated as "slack ON TOP of the
-    // ceiling" rather than "contains the ceiling": the superseded derivation
-    // (`spawn + DIAGNOSTIC_BUDGET_MS + grace + slack`) does contain the ceiling
-    // — but only by spending the slack to do it, leaving nothing for the
-    // unbounded terms that slack exists for (the spawn itself, the `close`
-    // event after SIGTERM, temp-profile cleanup). A legal-but-slow collection
-    // would then fail on the runner's generic test timeout, losing the dump in
-    // precisely the case the dump exists for.
-    //
-    // Written in the weaker "contains the ceiling" form, this test would pass
-    // against the very derivation it exists to reject — which is worth saying
-    // out loud, because an arithmetic guard over constants in its own file is
-    // worth its line count only if it fails on the state it replaced. This one
-    // was run against that state and does.
+    // The slack sits on top of the ceiling. An enclosure that spends the slack to contain the
+    // ceiling leaves nothing for the spawn, the `close` event and profile cleanup, so a slow legal
+    // collection would lose its dump to vitest's timeout. The weaker "contains the ceiling" form
+    // would pass against a derivation that spends the slack.
     expect(BOOT_TEST_TIMEOUT_MS).toBeGreaterThanOrEqual(
       DISPLAY_READY_TIMEOUT_MS +
         SPAWN_TIMEOUT_MS +
@@ -133,13 +105,8 @@ describe("derived timing budgets", () => {
   });
 
   it("counts every bounded phase a spawn can spend, not only the ones after it starts", () => {
-    // The display-readiness gate is the phase this guard was added for: it runs
-    // inside `spawnElectron` BEFORE the spawn deadline timer is armed, so it is
-    // invisible to the spawn budget and was for a while invisible to both
-    // enclosures too. Every separately-bounded phase belongs in the enclosure
-    // of any test that can reach it, and the negative control's own budget
-    // already names its (overridden) display term, which is what made the
-    // omission in the other two legible.
+    // The display gate runs before the spawn deadline is armed, so the spawn budget does not
+    // contain it; every enclosure must.
     for (const enclosure of [BOOT_TEST_TIMEOUT_MS, FORCED_STALL_TEST_TIMEOUT_MS]) {
       expect(enclosure).toBeGreaterThan(
         DISPLAY_READY_TIMEOUT_MS + DIAGNOSTIC_COLLECTION_CEILING_MS,
@@ -148,10 +115,7 @@ describe("derived timing budgets", () => {
   });
 
   it("keeps the shared wall budget binding rather than decorative", () => {
-    // The collection's worst case is `min(wall budget, sum of the per-probe
-    // caps)`. If the wall exceeded that sum it could never bind, and the
-    // collection's worst case would once again be a sum of independent
-    // timeouts — the shape that started this. There are two probes.
+    // Two probes: a wall budget above the sum of their caps could never bind.
     const boundedProbeCount = 2;
     expect(DIAGNOSTIC_BUDGET_MS).toBeLessThanOrEqual(
       DIAGNOSTIC_PROBE_TIMEOUT_MS * boundedProbeCount,
@@ -159,27 +123,17 @@ describe("derived timing budgets", () => {
   });
 
   it("keeps the collection ceiling tight enough to catch the shape it replaced", () => {
-    // The superseded collection carried two independent 5 s `spawnSync`
-    // timeouts. The ceiling must stay below that sum, or the assertion stops
-    // being a regression guard and becomes a formality.
+    // Two independent 5 s `spawnSync` timeouts would sum to 10 s; the ceiling must stay below it.
     const supersededIndependentProbeTimeoutMs = 5_000;
     expect(DIAGNOSTIC_COLLECTION_CEILING_MS).toBeLessThan(supersededIndependentProbeTimeoutMs * 2);
-    // And loose enough to hold the budget plus a real reserve, so the control
-    // is not itself a wall-clock flake.
+    // And above the budget, so the reserve keeps the control from being a wall-clock flake.
     expect(DIAGNOSTIC_COLLECTION_CEILING_MS).toBeGreaterThan(DIAGNOSTIC_BUDGET_MS);
   });
 });
 
-// `diagnoseMissingProbe` turns "no probe line arrived" into a named cause, and
-// it is the one part of the harness a real spawn cannot exercise: reaching an
-// arm needs a boot that failed in that specific way, and a green run reaches
-// none of them. These cases drive it directly over synthetic output.
-//
-// The ORDER of the arms is the substance, not decoration. Several failure
-// shapes leave overlapping evidence — a timed-out process with a
-// `did-finish-load` breadcrumb matches both the round-trip arm and the generic
-// deadline arm — so each ordering-sensitive pair below is asserted with the
-// evidence of BOTH arms present, which is the only arrangement that can catch a
+// Drives the diagnosis over synthetic output, since a real spawn reaches an arm only by failing
+// that way. Arm order matters: overlapping evidence (a timed-out process with `did-finish-load`
+// matches two arms) is asserted with both arms' evidence present, the only setup that catches a
 // reordering.
 describe("diagnoseMissingProbe", () => {
   /** A spawn that produced no probe line, with only the evidence a case names. */
@@ -253,14 +207,12 @@ describe("diagnoseMissingProbe", () => {
     );
 
     expect(diagnosis).toContain("hung probe");
-    // The negative control for the ordering: the generic deadline arm would
-    // report the opposite of what happened.
+    // Negative control for the ordering: the generic deadline arm would say the opposite.
     expect(diagnosis).not.toContain("`did-finish-load` never fired");
   });
 
-  // Both arms' evidence is present at once — a completed load AND a failed
-  // main-process readback — which is exactly the shape that made the ordering
-  // load-bearing. The specific arm must win.
+  // Evidence for both arms at once (a completed load and a failed readback); the specific arm
+  // wins.
   it("prefers the index-fetch arm over the hung-round-trip arm", () => {
     const diagnosis = diagnoseMissingProbe(
       failedSpawn({
@@ -274,8 +226,8 @@ describe("diagnoseMissingProbe", () => {
     expect(diagnosis).not.toContain("hung probe");
   });
 
-  // The other direction of the same overlap: a bundle that never loaded also
-  // times out, and the marker is the more specific reading.
+  // The reverse overlap: a bundle that never loaded also times out, and the marker is the more
+  // specific reading.
   it("prefers the renderer-scheme arm over the deadline arm", () => {
     const diagnosis = diagnoseMissingProbe(
       failedSpawn({
@@ -310,9 +262,8 @@ describe("diagnoseMissingProbe", () => {
       expect(diagnosis).toContain("Readiness reached: dom-ready +120ms.");
     });
 
-    // The shim disposition. A `signal !== null` test would have handed this to
-    // the `exitCode === 1` arm and reported a startup failure that never
-    // happened — see `SpawnResult.timedOut`.
+    // A `signal !== null` test would send this to the `exitCode === 1` arm and report a startup
+    // failure that did not happen.
     it("reads a shim-forwarded SIGTERM as a deadline kill, not a startup failure", () => {
       const diagnosis = diagnoseMissingProbe(
         failedSpawn({ timedOut: true, signal: null, exitCode: 1 }),

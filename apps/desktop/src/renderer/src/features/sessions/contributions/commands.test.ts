@@ -50,16 +50,15 @@ describe("the pane layout's palette rows", () => {
   });
 
   it("claims no chord, because the pane layout binds these five on its own element", () => {
-    // The module's own reasoning, pinned: a window-table binding installs in the
-    // capture phase and consumes any press whose command ran, so it would preempt the
-    // pane layout's wide editable-target guard and eat a listbox's arrow keys.
+    // A window-table binding installs in the capture phase and consumes any press whose
+    // command ran, which would preempt the pane layout's editable-target guard and eat a
+    // listbox's arrow keys.
     const commands = new CommandRegistry();
     const contributions = new CommandContributionRegistry(commands);
     registerPaneLayoutCommands(contributions, new MountedPaneLayouts());
     expect(commands.has("paneLayout.focusNextPane")).toBe(true);
     expect(contributions.keyBindings()).toStrictEqual([] as readonly Keybinding[]);
-    // Contributed under the pane layout's owner: that owner's empty contribution takes
-    // every row back out.
+    // The pane layout's owner contributing nothing takes every row back out.
     contributions.contribute({ owner: PANE_LAYOUT_COMMAND_OWNER, commands: [], keyBindings: [] });
     expect(commands.all()).toStrictEqual([]);
   });

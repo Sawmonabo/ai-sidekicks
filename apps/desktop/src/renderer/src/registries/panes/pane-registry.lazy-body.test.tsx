@@ -1,19 +1,7 @@
-// The loader form on the PANE LAYOUT's board: what registers, what mounts, and what is fetched
-// once.
-//
-// The claims here are the ones the whole boundary rests on, and every one of them is a
-// claim about the REGISTRY rather than about a feature: a body registered as a loader
-// produces the same resolved descriptor a component-form body does, the pane reserves its
-// own chrome while the module is in flight, and the module is fetched exactly once however
-// many callers ask for it. A feature moving to a loader that got any of these wrong would
-// show up as a blank pane or a double fetch, both of which are invisible in a screenshot of a
-// warm window.
-//
-// SYNTHETIC BODIES, DELIBERATELY. Loading a real feature's body here would make the case
-// depend on that feature's bridge reads and its scenario, and would say nothing more
-// about the registry than a two-line module does. What the loaders below stand in for is
-// the `import()` a feature writes; what matters is that the board treats the promise the
-// same way whatever is behind it.
+// The loader form on the pane registry: a loader registration resolves to the same descriptor as
+// the component form, the pane reserves its own chrome while the module is in flight, and the
+// module is fetched once however many callers ask. Bodies are synthetic; the loaders stand in for
+// a feature's `import()`.
 
 import { render } from "@testing-library/react";
 import { createElement } from "react";
@@ -28,7 +16,7 @@ import { type PaneContext } from "./pane-context.js";
 import { PaneRegistry } from "./pane-registry.js";
 import { listPendingBodyNames } from "@renderer/components/LazyBody/pending-body-marker.js";
 
-/** A pane body of the shape every feature ships: its own chrome around its content. */
+/** A pane body of the shape features ship: its own chrome around its content. */
 function chromedBody(
   kind: PaneContext["kind"],
   text: string,
@@ -50,8 +38,8 @@ describe("the pane layout's board — a loader-form registration", () => {
       body: countingLoader(() => null).load,
     });
     registry.register({ kind: "transcript", owner: "transcript", render: () => null });
-    // Nothing downstream of `descriptorFor` branches on how the body was registered, so
-    // the two forms have to be indistinguishable HERE or every mount site learns to ask.
+    // Nothing downstream of `descriptorFor` branches on the form, so they must be indistinguishable
+    // here.
     expect(registry.registeredPaneKinds()).toStrictEqual(["transcript", "diff"]);
     expect(registry.descriptorFor("diff")?.owner).toBe("repos");
     expect(typeof registry.descriptorFor("diff")?.render).toBe("function");
@@ -67,16 +55,14 @@ describe("the pane layout's board — a loader-form registration", () => {
     const context = syntheticPaneContextAt("diff");
     const { container } = render(<>{registry.descriptorFor("diff")?.render(context)}</>);
 
-    // Before: the chrome is painted and the body is not, and the pane says which body it
-    // is waiting for.
+    // Before: the chrome is painted, the body is not, and the pane names the body it awaits.
     expect(listPendingBodyNames(container)).toStrictEqual(["diff"]);
     expect(container.textContent).not.toContain("the diff body");
     expect(container.querySelectorAll(".meridian-pane")).toHaveLength(1);
 
     await settle();
 
-    // After: the body is there and the marker is gone, so a capture taken now is a
-    // picture of the pane rather than of its reserved region.
+    // After: the body is there and the marker is gone.
     expect(container.textContent).toContain("the diff body");
     expect(listPendingBodyNames(container)).toStrictEqual([]);
   });
@@ -102,8 +88,7 @@ describe("the pane layout's board — a loader-form registration", () => {
     expect(pendingSection?.className).toBe(
       "meridian-pane meridian-pane--workflow-builder meridian-focus-inset",
     );
-    // The reserved body is EMPTY rather than a spinner or a skeleton: the marker rides a
-    // `hidden` element, which contributes no box, so nothing moves when the body lands.
+    // The reserved body is empty: the marker rides a `hidden` element that adds no box.
     expect(pendingBodyText).toBe("");
 
     await settle();
@@ -116,9 +101,7 @@ describe("the pane layout's board — a loader-form registration", () => {
   });
 
   it("negative control: a body that never arrives never replaces the reserved region", async () => {
-    // Without this, "renders the fallback then the body" would also be satisfied by a
-    // board that rendered the body immediately and the fallback never — and the marker
-    // the screenshot tier refuses on would then never appear at all.
+    // Without this, a board that never rendered the fallback would pass.
     const registry = new PaneRegistry();
     registry.register({
       kind: "browser",
@@ -135,8 +118,7 @@ describe("the pane layout's board — a loader-form registration", () => {
 
 describe("the pane layout's board — one fetch per registration", () => {
   it("mounts a preloaded body without ever committing the pending marker", async () => {
-    // The pane board's half of the same claim, and the one the screenshot tier depends
-    // on: a mount that begins after a completed preload must not photograph the marker.
+    // A mount after a completed preload must never commit the pending marker.
     const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
@@ -154,11 +136,8 @@ describe("the pane layout's board — one fetch per registration", () => {
   });
 
   it("keeps the loader when a different owner's claim is refused", async () => {
-    // The refusal path, from the side nothing was watching. `register` used to drop the
-    // loader entry BEFORE the keyed registry got a chance to refuse, so a rejected
-    // component-form claim by a second owner threw with the first owner's descriptor
-    // still admitted and its loader gone: the pane stayed mounted and stopped being
-    // warmable, with no error naming why.
+    // A refused component-form claim must not drop the loader of the descriptor that stays
+    // admitted.
     const registry = new PaneRegistry();
     const loader = countingLoader(chromedBody("diff", "the diff body"));
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
@@ -179,8 +158,7 @@ describe("the pane layout's board — one fetch per registration", () => {
     const loader = countingLoader<PaneContext>(() => null);
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
 
-    // The palette highlighting an entry, an address about to open, and the idle warm all
-    // reach the same registration, and two of them race by construction.
+    // Several callers reach the same registration and race.
     await Promise.all([
       registry.preload("diff"),
       registry.preload("diff"),
@@ -205,9 +183,8 @@ describe("the pane layout's board — one fetch per registration", () => {
   });
 
   it("keeps one component identity across renders, so a mounted body is not rebuilt", () => {
-    // A `lazy()` minted per render is a new component TYPE, and React unmounts and
-    // remounts a body whose type changed — which would throw away the pane's scroll
-    // position and every piece of state inside it on any parent re-render.
+    // A `lazy()` minted per render is a new component type, so a parent re-render would remount the
+    // body.
     const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
@@ -225,8 +202,7 @@ describe("the pane layout's board — one fetch per registration", () => {
   });
 
   it("settles with nothing to do for a component form and for an unclaimed kind", async () => {
-    // A caller preloading an address it has not opened must not have to ask first
-    // whether the kind is loader-backed, or every call site carries that question.
+    // Callers must not have to ask whether a kind is loader-backed.
     const registry = new PaneRegistry();
     registry.register({ kind: "transcript", owner: "transcript", render: () => null });
     await expect(registry.preload("transcript")).resolves.toBeUndefined();
@@ -237,9 +213,8 @@ describe("the pane layout's board — one fetch per registration", () => {
 describe("the pane layout's board — what the warm walk is offered", () => {
   it("reports unloaded loader-backed kinds in declaration order", () => {
     const registry = new PaneRegistry();
-    // Registered back to front, and with a component form among them, so an
-    // implementation reporting insertion order or reporting every registered kind would
-    // answer differently.
+    // Registered back to front with a component form among them, so insertion order or every kind
+    // would differ.
     registry.register({
       kind: "agents",
       owner: "agents",
@@ -262,8 +237,7 @@ describe("the pane layout's board — what the warm walk is offered", () => {
       body: countingLoader<PaneContext>(() => null).load,
     });
     await registry.preload("diff");
-    // Read the memo rather than the settled value: a walk that re-entered a resolved
-    // registration would loop over a board it had already warmed.
+    // Reads the memo, not the settled value, so a warmed board is not walked again.
     expect(registry.unloadedKeys()).toStrictEqual([]);
   });
 
@@ -285,17 +259,15 @@ describe("the pane layout's board — a loader survives the duplicate policy", (
       registry.register({ kind: "diff", owner: "another-owner", body: refused.load });
     }).toThrow(DuplicateRegistrationError);
 
-    // The refusal throws before the loader table is written, so the kind still loads the
-    // body whose descriptor is mounted — a stray loader here would fetch one module and
-    // render another.
+    // The refusal throws before the loader table is written; a stray loader would fetch one module
+    // and render another.
     await registry.preload("diff");
     expect(admitted.callCount()).toBe(1);
     expect(refused.callCount()).toBe(0);
   });
 
   it("replaces the loader when the same owner re-claims", async () => {
-    // A hot reload re-runs a feature's module. Keeping the first loader would leave the
-    // pane layout fetching the pre-edit chunk, which reads as an edit that did nothing.
+    // A hot reload re-runs a feature's module; the first loader would fetch the stale chunk.
     const registry = new PaneRegistry();
     const beforeEdit = countingLoader<PaneContext>(() => null);
     const afterEdit = countingLoader<PaneContext>(() => null);
@@ -307,16 +279,10 @@ describe("the pane layout's board — a loader survives the duplicate policy", (
   });
 
   it("mounts the re-claimed body, not the one the parent was already rendering", async () => {
-    // THE HALF THE REGISTRY CLAIM ABOVE CANNOT MAKE. The board really does replace the
-    // loader — and the parent went on rendering the first body anyway. `LazyBody` pins its
-    // arm in a `useState` initializer, the element type and its position do not change
-    // across a re-registration, so React keeps the instance and the initializer never
-    // runs again: the pin held a `lazy()` over a loader nothing would call. A hot reload
-    // then read as an edit that did nothing, which is exactly the failure the registry's
-    // replacement was written to prevent.
-    //
-    // Driven through ONE parent re-rendered, rather than two renders, because rendering
-    // twice would mount a fresh `LazyBody` each time and pass over a stale pin.
+    // `LazyBody` pins its arm in a `useState` initializer, and the element type and position do not
+    // change across a re-registration, so React keeps the instance and the pin holds a stale
+    // `lazy()`. One parent is re-rendered, since two renders would mount a fresh `LazyBody` each
+    // time and hide a stale pin.
     const registry = new PaneRegistry();
     registry.register({
       kind: "diff",
@@ -361,9 +327,7 @@ describe("the pane layout's board — a loader survives the duplicate policy", (
     registry.register({ kind: "diff", owner: "repos", body: loader.load });
     expect(registry.unloadedKeys()).toStrictEqual(["diff"]);
     registry.register({ kind: "diff", owner: "repos", render: () => null });
-    // The loader is dropped rather than left resolvable beside a descriptor that no
-    // longer mounts it: a `preload` answering from a stale table would fetch a chunk
-    // nothing renders.
+    // The loader is dropped; a stale table would let `preload` fetch a chunk nothing renders.
     expect(registry.unloadedKeys()).toStrictEqual([]);
     await registry.preload("diff");
     expect(loader.callCount()).toBe(0);

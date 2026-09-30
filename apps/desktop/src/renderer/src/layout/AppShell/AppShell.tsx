@@ -1,11 +1,7 @@
-// The window's persistent chrome: the drawn frame, the rail's navigation, the banners
-// and the command palette, around whatever screen `app/` hands it.
+// The window's persistent chrome (rail, banners, command palette) around the routed screen.
 //
-// The frame's background is inert for exactly a modal overlay's lifetime. The widget
-// library's dialog traps focus and leaves inerting the app root to the app's chrome, so this
-// is where the flag is folded from its two producers: the palette, whose open state the
-// window owns, and the window store's `isModalDialogOpen`, which is how a card a
-// feature renders says it is up. Neither is a copy of the other.
+// The frame's background is inert while a modal overlay is up. This is where the flag is folded
+// from its two producers: the palette's open state and the window store's `isModalDialogOpen`.
 
 import { useWindowStore } from "@renderer/store/window/hooks/useWindowStore.js";
 import { HOST_CHORD_PLATFORM } from "@renderer/lib/chord-format.js";

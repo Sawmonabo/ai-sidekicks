@@ -1,9 +1,8 @@
 // Whether this machine's operating system will let the main process raise a notification.
 //
-// Lives at the bridge because the notification center and the notifications page both
-// ask it, and one feature may not import another. Every window trigger re-reads
-// it, since the person grants the permission outside this application; the scheduler
-// serializes probes and the latch drops a reply from a superseded round.
+// Every window trigger re-reads it, since the person grants the permission outside this
+// application; the scheduler serializes probes and the latch drops a reply from a superseded
+// round.
 import type { NotificationPermission } from "@shared/preload-api.js";
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -37,6 +36,7 @@ const UNREAD: OsNotificationPermissionReading = Object.freeze({ kind: "unread" }
 /** The one key every probe of this machine's permission is taken under. */
 const OS_PERMISSION_READ_KEY = "os-notification-permission-read";
 
+/** Options for {@link OsNotificationPermissionRead}. */
 export interface OsNotificationPermissionReadOptions {
   readonly probe: OsNotificationPermissionProbe;
   /** The clock the scheduler arms on. The fixture's frozen one under a scenario. */

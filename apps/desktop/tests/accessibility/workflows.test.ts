@@ -1,28 +1,15 @@
-// The accessibility tier over every view the workflows feature registers.
+// The accessibility tier over every view the workflows feature registers, each scoped to
+// itself so a violation names the view that owns it, in both schemes for `app-frame.test.tsx`'s
+// reason. `registerWorkflowScreens` claims one rail destination and `registerWorkflowPanes`
+// two pane kinds, so the table below has a row for each.
 //
-// `frame-axe.test.tsx` runs the frame; this file runs what the feature mounts INTO
-// it, and it runs each view scoped to itself rather than scanning the document,
-// so a violation names the view that owns it.
+// The run's phase graph is audited as a piece from a hand-built parked run. It is a
+// lazily-loaded chunk, so every row is settled through the shared readiness helper before axe
+// runs; the helper tells "no graph here" from "the graph has not arrived", so no row needs an
+// exception.
 //
-// EVERY REGISTERED VIEW, WHICH IS THE WHOLE CLAIM. `registerWorkflowScreens`
-// claims one rail destination and `registerWorkflowPanes` claims TWO pane kinds, so
-// the table below carries a row for each: a feature-wide tier that skipped one could not
-// fail on a regression unique to it.
-//
-// Both schemes, for `frame-axe.test.tsx`'s reason: contrast is the rule most likely
-// to pass in one and fail in the other.
-//
-// AND THE RUN'S PHASE GRAPH, WHICH NO VIEW MOUNTS YET. It is audited as a piece, from
-// a hand-built parked run, because its canvas, its focusable nodes and the library's
-// attribution link are drawn by nothing a registered view reaches until the run read
-// is built. It is a lazily-loaded chunk, so every row is settled through the shared
-// readiness helper before axe runs — every row, not the one known to draw a graph,
-// because the helper answers "no graph here" and "the graph has not arrived"
-// differently and a per-row exception would be a second rule to keep true.
-//
-// AND ONE COMPOSITION NO REGISTERED VIEW CAN REACH. A human phase's form draws a
-// repeated control per list entry, and an entry exists only after a person adds one. It
-// is audited as a component under one scheme, because it carries no view of its own.
+// A human phase's form draws a repeated control per list entry, which exists only after a
+// person adds one, so it is audited as a component under one scheme.
 
 import { fireEvent, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -35,12 +22,9 @@ import {
   mountWorkflowRunPhaseGraph,
   mountWorkflowsDestination,
 } from "../helpers/feature-mounts/workflows.js";
-// The schema form mount, which resolves BOTH chunks a form needs and returns only once
-// the verdict has landed. The kit is not on the initial graph — its two composed
-// components and its own sheet arrive together when a form first mounts — so mounting it
-// is also what puts that sheet on the page. The workflows sheet the entry's controls
-// draw against is already there: the workflows mount above imports the feature's
-// registrars.
+// The schema form mount resolves both chunks a form needs and returns once the verdict has
+// landed. The form kit's sheet arrives with its chunk, so mounting it also puts that sheet on
+// the page.
 import {
   isSchemaFormSettled,
   mountSettledSchemaForm,
@@ -56,11 +40,9 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The views this feature ships, each named as a reader would name it, and the graph.
- *
- * One row per registered view, and the count is the feature's rather than this
- * file's: a pane kind claimed by `registerWorkflowPanes` with no row here is a
- * view this tier reports clean on without ever having mounted it.
+ * The views this feature ships, each named as a reader would name it, and the graph. One row
+ * per registered view: a pane kind with no row here would be reported clean without ever
+ * being mounted.
  */
 const AUDITED_VIEWS: readonly {
   readonly label: string;
@@ -94,10 +76,9 @@ describe("accessibility — the workflows views", () => {
         await emulateSystemScheme(scheme);
         const mounted = await view.mount();
         await awaitRunGraphSettled(mounted);
-        // The subject, stated before it is read, so the wait above cannot be dropped
-        // in silence: the fit has not landed at the mount's return whether the lazy
-        // chunk is cold or already cached. For the rows that draw no graph the reading
-        // is true by construction, which is what lets one line cover the table.
+        // The subject, stated before it is read, so the wait above cannot be dropped silently:
+        // the fit has not landed at the mount's return whether the lazy chunk is cold or cached.
+        // For rows that draw no graph the reading is true by construction.
         expect(isRunGraphSettled(mounted)).toBe(true);
 
         expect(describeViolations(await runTierAxe(mounted))).toStrictEqual([]);
@@ -114,62 +95,56 @@ describe("accessibility — the workflows views", () => {
           reviewers: {
             type: "array",
             title: "Reviewers",
-            // A constraint on the ENTRY rather than on the collection, so the added
-            // entries carry findings of their own: the composition audited here is a
-            // repeated control with a name, a verdict, and the relationship between
-            // them, and a form with nothing wrong with it would audit none of that.
+            // A constraint on the entry rather than the collection, so added entries carry
+            // findings of their own: the audited composition is a repeated control with a name,
+            // a verdict and the relationship between them.
             items: { type: "string", minLength: 3 },
           },
         },
         required: ["reviewers"],
       },
     });
-    // The subject, stated before it is read, on the run-graph line's reasoning above:
-    // a form still waiting for its compiler draws no finding at all, so an audit taken
-    // there covers a repeated control without the verdict this case is about.
+    // Stated before it is read: a form still waiting for its compiler draws no finding, so an
+    // audit taken there would cover a repeated control without the verdict this case is about.
     expect(isSchemaFormSettled(container)).toBe(true);
     const addEntry = screen.getByRole("button", { name: "Add an entry to Reviewers" });
     fireEvent.click(addEntry);
     fireEvent.click(addEntry);
-    // Stated before it is measured: an audit of a list with no entries audits none of
-    // the repeated control this case is about.
+    // An audit of a list with no entries audits none of the repeated control.
     expect(container.querySelectorAll(".meridian-schema-list__item")).toHaveLength(2);
 
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("has no axe violation on the raw editor while the schema refuses the document", async () => {
-    // THE OTHER ARM, AND THE ONE WHERE EVERYTHING IS IN ONE CONTROL. A schema outside the
-    // drawn set is answered as JSON, so the verdict on the whole answer has a single
-    // textarea to attach to — and until this landed it attached to nothing, leaving a
-    // reader who never moves focus out of the editor with no indication of the invalid
-    // state and no route to the sentences. The mount is a component's for the reason the
-    // list-entry case above is: no registered view opens this arm.
+    // The other arm, where everything is in one control: a schema outside the drawn set is
+    // answered as JSON, so the verdict on the whole answer has a single textarea to attach to,
+    // and a reader who never leaves the editor must still get the invalid state and a route to
+    // the sentences. It is mounted as a component, like the list-entry case, because no
+    // registered view opens this arm.
     const container = await mountSettledSchemaForm({
       prompt: "Describe the rows this phase should publish.",
       inputSchema: {
         type: "object",
-        // An array of objects is outside the drawn render set, so the mapper answers
-        // with the editor — and the schema still compiles, so there is a verdict.
+        // An array of objects is outside the drawn render set, so the mapper answers with the
+        // editor, and the schema still compiles, so there is a verdict.
         properties: { rows: { type: "array", items: { type: "object", properties: {} } } },
         required: ["rows"],
       },
     });
-    // The subject, stated before it is read: the invalid state below is the schema's
-    // verdict on the empty document, and a form still compiling carries neither.
+    // Stated before it is read: the invalid state below is the schema's verdict on the empty
+    // document, and a form still compiling carries neither.
     expect(isSchemaFormSettled(container)).toBe(true);
     const editor = container.querySelector(".meridian-schema-raw__editor");
 
-    // Stated before it is measured: an audit of a valid document is an audit of a form
-    // carrying neither the invalid state nor the findings this case exists for.
+    // An audit of a valid document carries neither the invalid state nor the findings.
     expect(editor?.getAttribute("aria-invalid")).toBe("true");
 
     expect(describeViolations(await runTierAxe(container))).toStrictEqual([]);
   });
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // Negative control for this file's own runs: every case above expects an empty
-    // list, and a misconfigured run returns exactly the same empty list.
+    // Negative control: a misconfigured run returns the same empty list the cases above expect.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

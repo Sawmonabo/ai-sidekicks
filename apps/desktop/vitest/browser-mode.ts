@@ -1,18 +1,11 @@
-// The browser-mode options every console browser tier shares.
-//
-// Lifted out of `vitest.config.ts` when that file passed the package's ceiling, and
-// the seam is the one the file already had: these are values SEVERAL projects read,
-// while everything left behind is one project's own declaration. Four projects
-// run in a browser and they must render under
-// the same conditions, which is a property that survives only while the conditions
-// have one home.
+// Browser-mode options shared by the three browser tiers (browser, screenshot, accessibility), so
+// they render under the same conditions from one home.
 
 import { playwright, type PlaywrightProviderOptions } from "@vitest/browser-playwright";
 
 /**
- * Conditions that resolve workspace *value* imports to TS source rather than a
- * stale `dist/`. Shared by every DOM-environment project, because each of them
- * imports `@ai-sidekicks/contracts` for value as well as type.
+ * Conditions that resolve workspace value imports to TS source rather than a stale `dist/`. Every
+ * DOM-environment project uses them, because each imports `@ai-sidekicks/contracts` for value.
  */
 export const WORKSPACE_SOURCE_CONDITIONS: string[] = ["@ai-sidekicks/source", "import", "default"];
 
@@ -26,11 +19,9 @@ export const BROWSER_MODE_SETUP_FILES: string[] = ["src/renderer/src/styles/glob
 const BASE_UI_PACKAGE = "@base-ui/react";
 
 /**
- * Every Base UI entry point the console imports, root included.
- *
- * Declared rather than derived, because the optimizer must know the set before any
- * test file is loaded. Keeping it current is a reviewer's job: a console module that
- * imports a Base UI subpath adds its line here in the same change.
+ * Every Base UI entry point the console imports, root included. Declared rather than derived
+ * because the optimizer needs the set before any test file loads; a console module that imports a
+ * new subpath adds its line here.
  */
 const BASE_UI_ENTRY_POINTS: readonly string[] = [
   BASE_UI_PACKAGE,
@@ -49,17 +40,11 @@ const BASE_UI_ENTRY_POINTS: readonly string[] = [
 ];
 
 /**
- * Everything a browser-mode tier renders through, pre-bundled in ONE optimizer
- * pass and deduplicated.
- *
- * Vite's optimizer keys its pre-bundle on the exact specifier, so listing
- * `@base-ui/react` covers the package root and NOTHING else: a subpath the list
- * does not name is discovered lazily — the first time a test renders through it —
- * which starts a second optimizer pass. That second pass emits its own `react`
- * chunk under a new `?v=` hash, two React module instances share no context, and
- * the first Base UI component to call `useContext` reads `null`. The failure
- * appears only on a cold optimizer cache, which is every CI run and no developer
- * machine that has run the tier once.
+ * Everything a browser-mode tier renders through, pre-bundled in one optimizer pass. Vite keys its
+ * pre-bundle on the exact specifier, so a Base UI subpath the list does not name is discovered
+ * lazily and starts a second pass. That pass emits a second `react` chunk under a new `?v=` hash,
+ * two React instances share no context, and the first Base UI component to call `useContext`
+ * reads `null`. This shows only on a cold optimizer cache, which is every CI run.
  */
 export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
   include: [
@@ -77,34 +62,22 @@ export const BROWSER_MODE_OPTIMIZE_DEPS: { include: string[] } = {
 export const BROWSER_MODE_DEDUPE: string[] = ["react", "react-dom"];
 
 /**
- * The window the console is measured in.
- *
- * Vitest browser mode defaults to a 414×896 phone viewport. The console is a
- * desktop application whose frame is a 52 px rail beside a surface, so at 414 px
- * the surface is 362 px wide — every geometry assertion measures a layout no
- * person will ever see, "does not scroll horizontally" passes because nothing has
- * room to overflow, and a screenshot baseline is a phone-shaped thumbnail. 1440×900
- * is the smallest common laptop, which is the honest floor to hold the budgets at:
- * a baseline captured at the widest window would hide exactly the crowding that
- * shows up first at the narrowest one.
+ * The window the console is measured in. Browser mode defaults to a 414×896 phone viewport, where
+ * the 52 px rail leaves a 362 px surface, so geometry assertions would measure a layout no person
+ * sees and "does not scroll horizontally" would pass because nothing has room to overflow.
+ * 1440×900 is the smallest common laptop, the honest floor to hold the budgets at.
  */
 export const BROWSER_MODE_VIEWPORT = { width: 1440, height: 900 };
 
 /**
- * Browser-mode settings shared by every console tier that renders.
+ * Browser-mode settings shared by every tier that renders. It is a factory because Vitest writes a
+ * derived name back onto the instance descriptor it is handed: projects spread from one literal
+ * share one `instances` array, so the second finds the first's name stamped and the run aborts
+ * with "the project name ... was already defined".
  *
- * A FACTORY, not a shared constant, and that is not a style choice. Vitest resolves
- * each browser project by writing a derived name back onto the instance descriptor
- * it was handed; three projects spread from one object literal share one `instances`
- * array, so the second project finds the first one's name already stamped on it and
- * the whole run aborts with "the project name `console-browser (chromium)` was
- * already defined". A fresh object per project is what keeps them independent.
- *
- * `screenshotFailures` is OFF deliberately. Vitest writes a failure capture into
- * `__screenshots__` beside the test file — the same directory the screenshot tier
- * writes its own capture aids into — so leaving it on makes that directory mean two
- * different things and puts throwaway PNGs of red tests next to the pictures a
- * person opened the directory to look at.
+ * `screenshotFailures` is off because Vitest would write failure captures into `__screenshots__`,
+ * the directory the screenshot tier writes its capture aids into, mixing throwaway PNGs of red
+ * tests with the pictures a person came to look at.
  */
 export function browserModeOptions(providerOptions?: PlaywrightProviderOptions): {
   enabled: true;

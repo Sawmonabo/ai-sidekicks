@@ -1,31 +1,12 @@
-// The two-way binding between the window's location hash and the frame's route.
+// The two-way binding between the window's location hash and the frame's route. The hash
+// drives the route when a window is opened by URL or the address is edited; the route drives the
+// hash when the rail or palette navigates.
 //
-// Both directions are real. The Window menu opens auxiliary windows BY URL and a
-// person can edit or go back in the address, so the hash drives the route; the rail
-// and the palette navigate in-window, so the route drives the hash. Two directions
-// over one value is a loop by construction, and the two rules below are what make it
-// terminate — each for its own reason, neither standing in for the other.
-//
-// **A write is not news.** Writing the hash raises `hashchange`, so the binding hears
-// its own write come back. Re-adopting that echo is not idempotent the way it looks:
-// by the time the echo arrives the person may have navigated again, and the browser
-// may deliver the echo in the SAME commit as that navigation — a hash the binding
-// itself put there then reverts a route the person just chose, whereupon the writer
-// puts the old hash back, and the window flips between two destinations until React
-// gives up with a depth error. So the binding remembers the one hash it wrote and
-// ignores exactly that echo, once. Anything else — a back button, an edited address,
-// a second window's link — is news and is adopted.
-//
-// **The hash is a projection of the route the store holds NOW.** The writer reads the
-// store rather than the route its render closed over. Effects in one commit run in
-// order, so an adopt that lands first has already moved the store on; a writer using
-// the render's route would publish a destination the store has left, which is the
-// same flip from the other side. Reading live cannot loop: every write publishes the
-// current route, so the next echo always matches.
-//
-// Both directions live here rather than beside each other in the frame's render body
-// because they are one mechanism with one piece of state, and a rule that lives in
-// two effects in two places is a rule with two chances to be wrong.
+// Two rules make the loop terminate. A write is not news: writing the hash raises `hashchange`,
+// and adopting that echo can revert a route the person chose in the same commit and flip the
+// window between two destinations, so the binding ignores exactly the one hash it wrote, once.
+// And the hash projects the route the store holds now, not the one a render closed over: an
+// adopt earlier in the same commit has already moved the store on.
 
 import { useEffect, useRef } from "react";
 
@@ -36,21 +17,15 @@ import { type WindowStore } from "@renderer/store/window/window-store.js";
 /**
  * Bind this window's location hash to its route, in both directions.
  *
- * @param frameStore This window's frame store — the route's one owner.
- * @param hash The caller's live hash subscription. Passed in rather than read again
- *   here so the window holds ONE `hashchange` subscription: the same value seeds the
- *   store at construction and drives this binding afterwards, and two subscriptions
- *   to one browser value are two answers to the same question.
+ * @param hash The caller's live hash subscription, passed in so the window holds one
+ *   `hashchange` subscription: the same value seeds the store and drives this binding.
  */
 export function useHashRouteBinding(frameStore: WindowStore, hash: string): void {
-  // The hash this binding wrote and has not yet heard back. A ref rather than state:
-  // nothing renders from it, and re-rendering the window to record what it just did
-  // would be a pass that changes no pixel.
+  // The hash this binding wrote and has not yet heard back; a ref, since nothing renders from it.
   const unheardWrite = useRef<string | undefined>(undefined);
 
   const route = useWindowStore(frameStore, (state) => state.route);
 
-  // Hash → route.
   useEffect(() => {
     const echo = unheardWrite.current;
     unheardWrite.current = undefined;
@@ -60,12 +35,8 @@ export function useHashRouteBinding(frameStore: WindowStore, hash: string): void
     frameStore.adoptHash(hash);
   }, [frameStore, hash]);
 
-  // Route → hash.
-  //
-  // `route` is the dependency — it is what changed — but the value published is the
-  // store's, for the reason at the top of this file. A `not-found` route is left
-  // unpublished: it is what an unparseable hash BECAME, and formatting it back over
-  // the address would destroy the text the person typed before they could fix it.
+  // Route → hash. A `not-found` route is left unpublished: formatting it back would destroy
+  // the text the person typed before they could fix it.
   useEffect(() => {
     const current = frameStore.getState().route;
     if (current.kind === "not-found") {

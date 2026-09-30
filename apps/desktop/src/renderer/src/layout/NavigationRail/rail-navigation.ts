@@ -1,23 +1,7 @@
-// What the rail shows, and where each of its destinations goes.
-//
-// Both halves are the FRAME's decisions rather than the rail's. `NavigationRail` renders
-// the entries it is handed and knows nothing about sessions; `routing/` knows
-// nothing about a rail. This module is the one place the two meet.
-//
-// THE DESTINATIONS ARE UNCONDITIONAL. The main window has three destinations —
-// sessions, workflows, settings — and every one of them is reachable from every
-// main-window route, so the entries are a constant rather than a function of window
-// state. They used to be neither: a fourth entry, Workspace, was shown or hidden on
-// whether this window had a session in hand. The session screen is reached from the
-// sessions destination instead, which is why `railDestinationFor` maps a session screen
-// route onto `sessions` and why the palette's "Go to Workspace" — an act, not a
-// destination — lives beside these rather than among them.
-//
-// RENDER ORDER COMES FROM THE TUPLE. `RAIL_DESTINATIONS` declares the destinations
-// in rail order and `RAIL_ENTRY_TEMPLATES` says what each one shows; walking the
-// tuple to build the entries keeps the two claims separate — the set is the table's
-// (total, compiler-checked), the sequence is the tuple's — and means a destination
-// can never be shown in an order nobody declared.
+// What the rail shows and where each destination goes: the one place `NavigationRail` (which
+// knows no routes) and `routing/` (which knows no rail) meet. The three destinations are reachable
+// from every main-window route, so the entries are a constant. A session screen route maps onto
+// `sessions`. Render order comes from the `RAIL_DESTINATIONS` tuple, the set from the entry table.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import { type AppRoute } from "@renderer/routing/routes.js";
@@ -28,11 +12,8 @@ import {
 import { RAIL_ENTRY_TEMPLATES, type RailEntry } from "./NavigationRail.js";
 
 /**
- * The rail's contents, built once.
- * A module constant rather than a builder called per render: nothing about it varies
- * with the window, so a function would hand `AppFrame` a new array on every pass and
- * re-render the rail, the console's most-seen component, for a value that never
- * changed.
+ * The rail's contents, built once. A module constant, not a per-render builder, so `AppFrame` is
+ * not handed a new array on every pass.
  */
 export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destination) => ({
   destination,
@@ -40,12 +21,8 @@ export const RAIL_ENTRIES: readonly RailEntry[] = RAIL_DESTINATIONS.map((destina
 }));
 
 /**
- * Where a rail click goes.
- *
- * Total and argument-free by construction: each destination is a top-level context
- * that needs nothing of the window to be entered. `railDestinationFor` is the
- * inverse on every arm — a click lands on a route the rail reports as that same
- * destination — and `rail-navigation.test.ts` holds the pair to it.
+ * Where a rail click goes. Total and argument-free; `railDestinationFor` is its inverse on every
+ * arm, which `rail-navigation.test.ts` checks.
  */
 export function routeForDestination(destination: RailDestination): AppRoute {
   switch (destination) {
@@ -59,46 +36,24 @@ export function routeForDestination(destination: RailDestination): AppRoute {
 }
 
 /**
- * Start loading the screen a destination would mount, without navigating to it.
- *
- * BEFORE THE ROUTE COMMITS, which is the whole of what this is for. Both of the
- * console's ways into a destination call it at the moment the intent is legible and the
- * act has not happened — the rail's press, just before it navigates, and the palette's
- * highlighted row, while a person is still reading it. By the time the route resolves,
- * the chunk is either in flight or already there, so the reserved frame the screen
- * would otherwise show is one a person never sees.
- *
- * ONE FUNCTION AND NOT TWO CALL SITES' WORTH, because the destination-to-screen step is
- * the thing that could go wrong twice: `findScreenNameForRoute` is the map, and a second
- * open-coded reading of it would drift the first time a destination changed screens.
- *
- * A destination whose screen is component-form, or not registered at all, settles
- * immediately with nothing done — so no caller has to ask first whether the thing it is
- * about to open is loader-backed.
+ * Starts loading the screen a destination would mount, without navigating to it. The rail press and
+ * the palette's highlighted row call it before the route commits, so the chunk is in flight or
+ * loaded by the time the screen mounts. It does nothing for a component-form or unregistered
+ * screen, and a failed load is dropped.
  */
 export function warmDestination(
   screenRegistry: ScreenRegistry,
   destination: RailDestination,
 ): void {
-  // Fire-and-forget, and the rejection is dropped on the idle warm's own reasoning: a
-  // speculative fetch has nobody waiting on it, and a chunk that will not load is a
-  // damaged install whose honest place to show it is the mount, where the console's
-  // error boundary can say so. A rail press has a painted screen under it already, so
-  // waiting here would be a stall where the reserved frame is the honest thing to show.
+  // Fire-and-forget: a speculative fetch has nobody waiting, and a chunk that will not load is
+  // reported at the mount, where the error boundary can say so.
   void warmRouteScreen(screenRegistry, routeForDestination(destination));
 }
 
 /**
- * Start loading the screen a ROUTE would mount, and settle when it has landed.
- *
- * NEVER REJECTS, so a caller may await it without a `catch` of its own and a caller that
- * does not may drop it. What a chunk that will not load means is a damaged install, and
- * the honest place to say so is the mount, inside the console's own screen error
- * boundary — not at a warm nobody is watching.
- *
- * A route whose screen is component-form, or not registered at all, settles immediately
- * with nothing done, so no caller has to ask first whether the thing it is about to open
- * is loader-backed.
+ * Starts loading the screen a route would mount and settles when it has landed. Never rejects: a
+ * chunk that will not load is a damaged install, reported at the mount and not at a warm nobody
+ * watches. A component-form or unregistered screen settles immediately.
  */
 async function warmRouteScreen(screenRegistry: ScreenRegistry, route: AppRoute): Promise<void> {
   const screenName = findScreenNameForRoute(route);

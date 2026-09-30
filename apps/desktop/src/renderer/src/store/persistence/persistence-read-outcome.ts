@@ -1,19 +1,10 @@
 // What a read answered: the record, its absence, or the failure to find out.
 //
-// THREE OUTCOMES, BECAUSE TWO OF THEM DECIDE DIFFERENT THINGS. `UiStateStore.read`
-// resolves `undefined` for a record that was never written AND for a read the adapter
-// could not perform, and a caller handed the second reads it as the first: a store
-// that does not know has told it nothing was ever saved. The pane layout's restore is
-// the case that made it matter — it read `undefined`, opened its fallback transcript pane,
-// counted zero restored panes, and wrote that fallback, so one transient read failure
-// replaced a saved arrangement the adapter was still holding.
-//
-// A CLOSED UNION RATHER THAN A RECORD BESIDE A FLAG, so no caller can read one half
-// and forget the other: every arm is named, the discriminant is total, and a fourth
-// answer would have to be decided here before any view could render it.
-//
-// THE STORE STILL NEVER THROWS. `failed` is a VALUE, so `UiStateStore`'s promise that a
-// read never throws is widened by this module, not withdrawn by it.
+// `UiStateStore.read` resolves `undefined` both for a record never written and for a read the
+// adapter could not perform, and a caller handed the second reads it as the first. A caller that
+// writes a value derived from the absence back over the record would then destroy what the
+// adapter still holds, so the outcomes are a closed union: no caller can read one half and
+// forget the other. `failed` is a value, so the store's reads still never throw.
 
 import { type StoredRecord } from "./persistence-adapter.js";
 
@@ -24,22 +15,20 @@ export type PersistenceReadOutcome =
   | { readonly outcome: "failed" };
 
 /**
- * The two answers that carry nothing, minted once each.
- *
- * A fresh object per read would be a new identity for a value with no fields, which
- * is a re-render for callers that memoize on the outcome and tells nobody anything.
+ * The two answers that carry nothing, minted once each so callers that memoize on the outcome
+ * do not see a new identity per read.
  */
 export const PERSISTENCE_READ_ABSENT: PersistenceReadOutcome = Object.freeze({ outcome: "absent" });
 
+/** The read outcome for a record that could not be read. */
 export const PERSISTENCE_READ_FAILED: PersistenceReadOutcome = Object.freeze({ outcome: "failed" });
 
 /**
  * The record a read found, or `undefined` for either kind of nothing.
  *
- * The lossy projection written ONCE, so `read` and `readGlobal` are derived from the
- * outcome rather than being a second read path that could answer differently. A caller
- * for which absent and failed decide the same thing takes those two rather than
- * flattening the union itself.
+ * The one lossy projection, so `read` and `readGlobal` cannot become a second read path that
+ * answers differently. A caller for which absent and failed decide differently takes the
+ * outcome instead.
  */
 export function recordFromReadOutcome(outcome: PersistenceReadOutcome): StoredRecord | undefined {
   return outcome.outcome === "present" ? outcome.record : undefined;

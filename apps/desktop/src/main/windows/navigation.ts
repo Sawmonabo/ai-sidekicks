@@ -1,49 +1,31 @@
-// Navigation policy for every window this process constructs.
+// Navigation policy for every window this process constructs. The locked `webPreferences`
+// block (kept locked by `apps/desktop/build/assert-webprefs.ts`) governs what the renderer can
+// do, not where it may go: a link, a redirect or a compromised dependency can navigate the
+// top-level frame to a remote origin, which would then run with the same preload, bridge and
+// storage partition. Electron's security checklist names both halves (limit navigation, limit
+// new windows) and neither is on by default.
 //
-// The hardening baseline locks the `webPreferences` block, and
-// `assert-webprefs.ts` keeps it locked. That block governs what the renderer CAN
-// do; it says nothing about where the renderer may GO. A hardened window is
-// still a window: a link, a redirect, or a compromised dependency can navigate
-// the top-level frame at a remote origin, and from that moment the locked block
-// is protecting attacker-served content instead of ours — same preload, same
-// bridge, same `sidekicks-renderer://`-partitioned IndexedDB. Electron's own
-// security checklist names both halves (limit navigation; limit creation of new
-// windows), and neither is on by default.
+// One closed classification is applied at three seams:
 //
-// The policy is one closed classification, applied at three seams:
+//   `will-navigate`          top-level navigation the page initiated.
+//   `will-redirect`          a server 3xx steering an admitted navigation elsewhere. Its own
+//                            seam because `will-navigate` fires on the original target, so
+//                            without it an admitted origin could answer `302 Location:
+//                            https://evil.test` and the document would swap origins while
+//                            keeping the preload and bridge. Same classification, same
+//                            `preventDefault`.
+//   `setWindowOpenHandler`   a popup, `window.open` or `target="_blank"`.
 //
-//   `will-navigate`          — top-level navigation the page initiated.
-//   `will-redirect`          — a server 3xx steering an admitted navigation
-//                              somewhere else. Its own seam because
-//                              `will-navigate` fires on the ORIGINAL target: a
-//                              request to an admitted origin that answers `302
-//                              Location: https://evil.test` was already admitted
-//                              by the time the redirect is known, so without
-//                              this the document swaps to an unadmitted origin
-//                              while keeping the preload, the bridge, and the
-//                              partition. It is the same classification and the
-//                              same `preventDefault`, deliberately — a redirect
-//                              that reaches somewhere a link could not reach
-//                              would be a hole shaped exactly like the one the
-//                              first seam closes.
-//   `setWindowOpenHandler`   — a popup / `window.open` / `target="_blank"`.
+// Popups are denied unconditionally, same origin included: Chromium would create the window
+// with options this process never reviewed, and nothing the renderer draws needs one.
 //
-// Popups are denied UNCONDITIONALLY, same origin included. A renderer-opened
-// window would be created by Chromium with options this process never reviewed,
-// and nothing the renderer draws needs one.
+// External `http(s)` targets go to the OS browser through a main-owned `shell.openExternal`
+// call behind a scheme allowlist. Everything else (`file:`, `javascript:`, `data:`, `blob:`, a
+// custom scheme another app registered) is refused with no side effect, because
+// `shell.openExternal` hands a string to the OS handler registry and an unfiltered call is a
+// local-code-execution primitive.
 //
-// External `http(s)` targets are not simply dropped: a dropped link is a dead
-// link, and the console has legitimate ones (docs, a provider's sign-in page,
-// a release note). They go to the OS browser through a MAIN-owned
-// `shell.openExternal` call behind a scheme allowlist. Everything else —
-// `file:`, `javascript:`, `data:`, `blob:`, a custom scheme some installed app
-// registered — is refused with no side effect at all. That closed allowlist is
-// the point: `shell.openExternal` hands a string to the operating system's
-// handler registry, so an unfiltered call is a local-code-execution primitive,
-// not a link.
-//
-// Pure classification lives in `classifyNavigation`, which touches no Electron
-// API, so every arm of the matrix is unit-testable without a window.
+// `classifyNavigation` is pure and touches no Electron API, so every arm is unit-testable.
 
 import { webAddressFault } from "@ai-sidekicks/contracts/web-address";
 import { app, shell, type BrowserWindow } from "electron";
@@ -51,14 +33,10 @@ import { app, shell, type BrowserWindow } from "electron";
 import { RENDERER_HOST, RENDERER_SCHEME } from "../services/renderer-scheme.js";
 
 /**
- * One in-window origin: a scheme and an authority.
- *
- * A pair rather than an origin string because `URL.origin` is `"null"` for every
- * non-special scheme, and `sidekicks-renderer:` is non-special in Node's WHATWG
- * parser (Chromium gives it an origin because the scheme is registered
- * `standard: true` there, but this classification runs in the main process). A
- * comparison on `.origin` would therefore compare `"null"` to `"null"` and admit
- * every non-special scheme in existence.
+ * One in-window origin: a scheme and an authority. A pair rather than an origin string because
+ * `URL.origin` is `"null"` for every non-special scheme, and `sidekicks-renderer:` is
+ * non-special in Node's WHATWG parser, so comparing `.origin` would admit every non-special
+ * scheme.
  */
 export interface InWindowOrigin {
   readonly protocol: string;
@@ -75,16 +53,11 @@ const IN_WINDOW: NavigationVerdict = { kind: "in-window" };
 const EXTERNAL: NavigationVerdict = { kind: "external" };
 
 /**
- * Classifies one navigation target against the origins a window may navigate
- * within.
- *
- * Fail-closed at every step: an unparseable target, a credentialed authority, or
- * any scheme that is neither an in-window origin nor a web address is `refused`.
- * The two web-address rules (`http:` or `https:` only, never a username or a
- * password) are the ones every web address the app opens is held to; the
- * in-window arm is this process's own. Nothing here echoes the target back into
- * the verdict: a refusal reason names the CLASS, so a diagnostic cannot become the
- * log line that carries an attacker's string.
+ * Classifies one navigation target against the origins a window may navigate within.
+ * Fail-closed: an unparseable target, a credentialed authority, or a scheme that is neither an
+ * in-window origin nor a web address is `refused`. Web addresses are `http:` or `https:` only,
+ * never with a username or password. A refusal reason names the class, never the target, so a
+ * log line cannot carry an attacker's string.
  */
 export function classifyNavigation(
   targetUrl: string,
@@ -98,8 +71,7 @@ export function classifyNavigation(
   }
 
   const fault = webAddressFault(parsedUrl);
-  // Credentials in the authority are a phishing shape (`https://app@evil.test`)
-  // and no legitimate console target carries them, in the window or outside it.
+  // Credentials in the authority are a phishing shape (`https://app@evil.test`).
   if (fault === "credentials") {
     return { kind: "refused", reason: "navigation target carries credentials" };
   }
@@ -121,18 +93,12 @@ export function classifyNavigation(
 }
 
 /**
- * Hands a web address to the OS browser, and rejects when it may not be handed.
- *
- * Deferred by one turn: `setWindowOpenHandler` runs synchronously inside
- * Chromium's window-open path, and Electron's own security guidance opens
- * externally from a deferred callback rather than re-entering the browser
- * process from inside that call. `setImmediate` is a one-shot callback, not a
- * repeating timer: nothing here keeps the event loop alive past the open.
- *
- * The target is classified here rather than trusted from the caller's verdict.
- * This function is the single place a URL reaches `shell.openExternal`, and a
- * guard that only holds when the caller remembered to classify first is not a
- * guard. The rejection names the refusal's class, never the target.
+ * Hands a web address to the OS browser, and rejects when it may not be handed. Deferred by one
+ * turn because `setWindowOpenHandler` runs inside Chromium's window-open path, and Electron's
+ * security guidance opens externally from a deferred callback. The target is re-classified
+ * here because this is the single place a URL reaches `shell.openExternal`; a guard that
+ * depends on the caller classifying first is not a guard. The rejection names the class, not
+ * the target.
  */
 export async function openExternalUrl(targetUrl: string): Promise<void> {
   const verdict = classifyNavigation(targetUrl, []);
@@ -150,8 +116,8 @@ export async function openExternalUrl(targetUrl: string): Promise<void> {
 }
 
 /**
- * Opens a link the window itself asked for, from a seam that has no caller to hand a
- * failure to: the refusal or the OS's failure is logged, and that log is the record.
+ * Opens a link the window itself asked for, from a seam with no caller to hand a failure to:
+ * the refusal or the OS failure is logged, and that log is the record.
  */
 function openExternalFromWindow(targetUrl: string): void {
   openExternalUrl(targetUrl).catch((error: unknown) => {
@@ -160,14 +126,10 @@ function openExternalFromWindow(targetUrl: string): void {
 }
 
 /**
- * The origins a window may navigate within, evaluated per navigation.
- *
- * Per navigation and not once at construction, because the dev branch reads the
- * environment and a window outlives the moment it was built. The renderer scheme
- * is always in the set; the dev-server origin joins it only under the same
- * two-condition branch that decides what gets LOADED (see
- * `./window.ts`'s `resolveRendererDocumentUrl`), so the allowed set and the
- * loaded document can never disagree.
+ * The origins a window may navigate within, evaluated per navigation because the dev branch
+ * reads the environment and a window outlives its construction. The renderer scheme is always
+ * in the set; the dev-server origin joins only under the same condition that decides what
+ * `./window.ts` loads, so the allowed set and the loaded document cannot disagree.
  */
 export function inWindowOrigins(): readonly InWindowOrigin[] {
   const origins: InWindowOrigin[] = [{ protocol: `${RENDERER_SCHEME}:`, host: RENDERER_HOST }];
@@ -177,22 +139,17 @@ export function inWindowOrigins(): readonly InWindowOrigin[] {
       const parsedDevServerUrl = new URL(devServerUrl);
       origins.push({ protocol: parsedDevServerUrl.protocol, host: parsedDevServerUrl.host });
     } catch {
-      // A malformed dev-server URL is not loaded either — the load path builds
-      // its document from the same string and Chromium refuses it there. Adding
-      // nothing here keeps the allowed set narrower than the loaded one, never
-      // wider.
+      // A malformed dev-server URL is not loaded either; adding nothing keeps the allowed set
+      // narrower than the loaded one, never wider.
     }
   }
   return origins;
 }
 
 /**
- * Applies the classification to one navigation attempt.
- *
- * Shared verbatim by `will-navigate` and `will-redirect` so the two seams cannot
- * drift: a redirect target that a link could not reach must not be reachable by
- * being redirected to. `seam` names which one fired, so a refusal log says
- * whether the page asked or a server steered.
+ * Applies the classification to one navigation attempt, shared by `will-navigate` and
+ * `will-redirect` so a redirect cannot reach what a link could not. `seam` says whether the
+ * page asked or a server steered.
  */
 function decideNavigation(event: Electron.Event, targetUrl: string, seam: string): void {
   const verdict = classifyNavigation(targetUrl, inWindowOrigins());
@@ -200,8 +157,7 @@ function decideNavigation(event: Electron.Event, targetUrl: string, seam: string
     return;
   }
 
-  // Deliberately first: the navigation is stopped before anything else is
-  // decided, so an exception in the external path cannot leave it running.
+  // First, so an exception in the external path cannot leave the navigation running.
   event.preventDefault();
 
   if (verdict.kind === "external") {
@@ -212,12 +168,8 @@ function decideNavigation(event: Electron.Event, targetUrl: string, seam: string
 }
 
 /**
- * Installs the navigation policy on one window.
- *
- * Called from the locked window factory rather than from each caller, so a
- * future factory cannot construct a locked window that is nevertheless free to
- * navigate anywhere — the locked `webPreferences` block and this policy are
- * installed by the same private function or by neither.
+ * Installs the navigation policy on one window. Called from the locked window factory, so the
+ * locked `webPreferences` block and this policy are installed together or not at all.
  */
 export function installNavigationPolicy(browserWindow: BrowserWindow): void {
   browserWindow.webContents.on("will-navigate", (event: Electron.Event, targetUrl: string) => {
@@ -229,8 +181,7 @@ export function installNavigationPolicy(browserWindow: BrowserWindow): void {
   });
 
   browserWindow.webContents.setWindowOpenHandler(({ url }: { url: string }) => {
-    // Every popup is denied: a Chromium-created window would carry options
-    // nothing here reviewed.
+    // Every popup is denied: a Chromium-created window would carry unreviewed options.
     const verdict = classifyNavigation(url, inWindowOrigins());
     if (verdict.kind === "external") {
       openExternalFromWindow(url);

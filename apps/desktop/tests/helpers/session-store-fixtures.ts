@@ -1,19 +1,9 @@
-// The collaborators every session-store-registry suite constructs a registry with.
+// The collaborators every session-store-registry suite constructs a registry with: the reader,
+// the projector, the event and snapshot builders, the microtask settle, and an initialized store.
 //
-// IN `tests/helpers/` AND NOT BESIDE THE SESSION STORE: suites in several features build
-// their initialized store through it, and the read scheduler suites settle microtasks
-// through it, so it is shared scaffolding rather than one module's.
-//
-// One home for the reader, the projector, the event and snapshot builders, the
-// microtask settle, and the initialized store the sibling suites share. Nothing here
-// is a stand-in for the registry: it is the surrounding cast, and a second copy of the
-// projector would let two suites disagree about what an applied event looks like.
-//
-// AND IT IS THE HOME FOR THE STORE ITSELF, which is what `initializedStore` is doing
-// at the bottom of this file. One builder, because
-// copies in several suites agree only until `SessionStore.initialize` grows a required
-// member: it would have to move in every copy, and the one left behind would go green
-// over a store the others no longer build.
+// Shared because suites in several features build their initialized store through it. It is the
+// surrounding cast and not a stand-in for the registry, and one builder for the store keeps every
+// suite in step when `SessionStore.initialize` grows a required member.
 
 import type {
   ProjectedSessionEvent,
@@ -23,7 +13,7 @@ import type { SessionSnapshotReader } from "@renderer/store/session/open-session
 import { eventOfKind } from "./session-events.js";
 import { SessionStore, type SessionSnapshot } from "@renderer/store/session/session-store.js";
 
-/** A reader that establishes nothing. The honest "no wire is registered" answer. */
+/** A reader that establishes nothing: the honest "no wire is registered" answer. */
 export const readsNothing: SessionSnapshotReader = () => Promise.resolve(undefined);
 
 function runIdOf(event: ProjectedSessionEvent): string {
@@ -61,8 +51,7 @@ export async function settleMicrotasks(): Promise<void> {
 /**
  * An initialized store, so an appended event is admitted rather than buffered.
  *
- * Built from {@link emptySnapshot} rather than from a second base-state literal, so
- * the shape a store is opened with is written once in this file too.
+ * Built from {@link emptySnapshot} so the shape a store is opened with is written once.
  */
 export function initializedStore(sessionId: string): SessionStore {
   const sessionStore = new SessionStore({ sessionId });

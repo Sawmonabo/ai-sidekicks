@@ -1,38 +1,21 @@
 // React bindings for a session store.
 //
-// Three of the console's own rules shape every hook here:
+// - No component subscribes to the bridge; components subscribe to a store, and only the apply
+//   chokepoint subscribes to the bridge.
+// - No component constructs a store. `SessionStoreRegistry` opens stores and
+//   `useOpenSessionStore` only resolves one: it never opens a session while rendering, since a
+//   discarded render would leave a store open that nothing closes.
+// - Subscriptions are partitioned per entity. `useSessionPartition` selects one kind's map,
+//   which changes identity only when that kind does, and `useSessionEntity` narrows to one row.
 //
-//   • **No component subscribes to the bridge.** Components subscribe to a STORE,
-//     and exactly one thing subscribes to the bridge — the apply chokepoint. That is
-//     why there is no `useBridgeEvent` hook and why adding one is a review rejection.
-//   • **No component constructs a store.** A store is opened by
-//     `SessionStoreRegistry` and RESOLVED here. `useOpenSessionStore` is the only
-//     way a component gets one, and it is a read: it never opens a session as a
-//     side effect of rendering, because a render pass React discards would leave a
-//     store open that nothing will ever close.
-//   • **Subscriptions are partitioned per entity.** `useSessionPartition` selects
-//     one kind's map, whose identity only changes when that kind changes, so a
-//     `run.*` burst re-renders the runs list and nothing else. `useSessionEntity`
-//     narrows further to one row, so a row re-renders when its own entity changes
-//     and not when its neighbor does.
+// zustand v5's `useStore` compares with `Object.is` and does no shallow pass. The store merges
+// immutably, so an untouched partition keeps its identity. A selector that built a value (a
+// `.map`, a `.filter`, an object literal) would re-render every frame, so selectors return
+// stored references (`selectPartition`, `selectEntity`) and components derive under `useMemo`.
 //
-// zustand v5's `useStore` compares with `Object.is` and does no shallow-equality
-// pass, which is exactly what these selectors want: the store merges immutably, so
-// an untouched partition keeps its identity and the comparison is a pointer check.
-// A selector that BUILT a value (a `.map`, a `.filter`, an object literal) would
-// defeat that and re-render every frame — so selectors here return stored
-// references (`selectPartition` / `selectEntity`, which this sub-module owns and
-// these hooks are the callers of), and derivation happens in the component under
-// `useMemo`.
-//
-// WHAT IS NOT HERE. `useSessionInitialized.ts` holds the readings that answer a
-// question ABOUT a session's projection rather than out of it — whether a base state
-// landed, whether the projection moved, whether it is known incomplete, and what the
-// newest read said about resuming the stream. This file resolves stores and selects
-// content; that one reports on the read behind the content, and it is the half whose
-// inputs stop being "a store and a selector".
-//
-// WHAT IS DELIBERATELY NOT HERE. The window store's hooks sit beside the window store.
+// `useSessionInitialized.ts` holds the readings about a session's projection (whether a base
+// state landed, whether it moved, whether it is incomplete, what the newest read said about
+// resuming) rather than out of it.
 
 import { useCallback, useSyncExternalStore } from "react";
 import { useStore } from "zustand";
@@ -48,13 +31,9 @@ import {
 } from "../session-store.js";
 
 /**
- * The store for one session, or `undefined` while that session is not open.
- *
- * Subscribed rather than read once: a session opened or closed after this
- * component mounted has to reach it, and the registry's own change emitter is the
- * event that says so — there is no poll and no interval anywhere in this path.
- * `undefined` is a real answer a caller renders as "no session", never a reason to
- * open one from inside a render.
+ * The store for one session, or `undefined` while that session is not open. Subscribed through
+ * the registry's change emitter, so a session opened or closed after mount reaches the
+ * component with no poll. `undefined` is a real answer, never a reason to open a session.
  */
 export function useOpenSessionStore(
   registry: SessionStoreRegistry,
@@ -72,14 +51,9 @@ export function useOpenSessionStore(
 }
 
 /**
- * The sessions this window has open, in open order.
- *
- * The console has no session-DIRECTORY read — no `PlatformBridge` member lists the
- * sessions on a node — so this registry is the only session set the renderer can name,
- * and a view that needs one reads it here rather than inventing a source.
- *
- * Subscribed through the registry's own change emitter, so it costs no timer and no
- * poll, and the read returns the registry's stable array rather than building one.
+ * The sessions this window has open, in open order; the node's own list is
+ * `useSessionDirectory`. Subscribed through the registry's change emitter, and the read returns
+ * the registry's stable array rather than building one.
  *
  * @consumedBy a view that lists the sessions this window has open
  */
@@ -110,11 +84,8 @@ export function useSessionPartition(
 }
 
 /**
- * One entity, or `undefined`. The narrowest subscription the console offers.
- *
- * Keyed on the ref's FIELDS rather than on the ref object, so a caller writing the
- * ordinary `useSessionEntity(store, { kind: "run", id })` — a fresh literal every
- * render — does not rebuild the selector on every pass.
+ * One entity, or `undefined`; the narrowest subscription the console offers. Keyed on the ref's
+ * fields, so a fresh `{ kind, id }` literal each render does not rebuild the selector.
  */
 export function useSessionEntity(store: SessionStore, ref: EntityRef): StoredEntity | undefined {
   const { kind, id } = ref;

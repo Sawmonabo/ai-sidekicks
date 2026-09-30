@@ -1,14 +1,10 @@
-// Drives a subject-scoped holder through one committed render without React, in the
-// order React would: address during the render, confirm on commit.
+// Drives a subject-scoped holder through one committed render without React.
 
 import type { SubjectKey, SubjectScopedHolder } from "./subject-scoped-holder.js";
 
 /**
- * Address a holder and confirm it, which is what one committed render does.
- *
- * The React-free call. A suite that called `address` alone would be driving a pass
- * that never reached the screen, and every claim about the visit on screen would be
- * about a proposal instead.
+ * Addresses a holder and confirms it, as one committed render does. `address` alone would drive a
+ * pass that never reached the screen.
  */
 export function visit<TValue>(
   holder: SubjectScopedHolder<TValue>,

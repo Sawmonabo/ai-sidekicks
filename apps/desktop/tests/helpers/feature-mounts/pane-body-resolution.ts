@@ -1,20 +1,13 @@
 // How every tier that mounts a pane body gets one: preload, then resolve.
 //
-// ONE HOME BECAUSE THE WAIT IS ONE CLAIM. Four feature mount modules resolved a body out
-// of a registry with the same four lines, and when pane bodies became loader-backed all
-// four needed the same new line in front of them — which is the shape the
-// shared-code rule in `apps/desktop/AGENTS.md` names: a helper used by two modules is hoisted
-// on the second use. A per-module copy is also how a tier ends up with three mounts that
-// await the body and a fourth that races it, and a screenshot taken against a body that
-// had not arrived is stable, green, and a picture of the wrong thing.
+// One home because the wait is one claim: pane bodies are loader-backed, and a per-module copy is
+// how a tier ends up with mounts that await the body and one that races it, and a screenshot of a
+// body that had not arrived is stable, green, and a picture of the wrong thing.
 //
-// PRELOAD RATHER THAN A WIDER SETTLE. A loader-backed registration hands back a
-// component that renders the pending fallback until its module lands, and the module
-// lands on a dynamic import — which under Vitest needs more than the one macrotask a
-// render settle crosses. `preload` is the registration's OWN loader, memoized, so
-// awaiting it is exact rather than generous: a statically registered kind has nothing to
-// load and settles immediately, and a loader-backed one is resolved before the first
-// render rather than one frame into it.
+// Preload rather than a wider settle. A loader-backed registration renders the pending fallback
+// until its module lands on a dynamic import, which under Vitest takes more than the one
+// macrotask a render settle crosses. `preload` is the registration's own memoized loader, so
+// awaiting it is exact: a statically registered kind settles immediately.
 
 import type { ReactNode } from "react";
 
@@ -32,18 +25,11 @@ import { type PaneKind } from "@renderer/routing/panes/pane-kinds.js";
 /**
  * The body the pane layout holds for a kind, with its module already loaded.
  *
- * TAKES THE FEATURE'S OWN REGISTRAR AND BUILDS THE REGISTRY HERE, for the reason each
- * caller used to state separately: the registry is owner-scoped state, so two tiers
- * sharing one instance would make the second tier's mount depend on whether the first
- * had run. One registrar rather than every feature's, so a mount composes exactly the
- * body it captures.
- *
- * A throw rather than an optional return, so a feature that stopped registering its kind
- * fails here — where the message names the kind — instead of rendering nothing and
- * letting a tier compare an empty box against a reference.
- *
- * The descriptor's `render` is handed back for React to MOUNT rather than called: bodies
- * hold hooks, and a plain call outside a render would run them against no dispatcher.
+ * Takes the feature's own registrar and builds the registry here: the registry is owner-scoped
+ * state, so two tiers sharing one would make the second's mount depend on whether the first had
+ * run, and a mount composes exactly the body it captures. Throws if the kind is unregistered, so
+ * a tier never compares an empty box against a reference. `render` is returned for React to mount
+ * rather than called, since bodies hold hooks.
  */
 export async function resolvedPaneBody(
   kind: PaneKind,
@@ -62,15 +48,10 @@ export async function resolvedPaneBody(
 /**
  * The body the frame holds for a screen name, with its module already loaded.
  *
- * The pane helper's shape on the other board, and it earns its own function rather than
- * a generic over both: the two boards key on different unions, and a signature abstract
- * enough to take either would take a screen name for a kind. What is shared is the RULE — build
- * a scoped registry, preload, resolve, throw by name — and the rule is what a reader
- * needs to see in both places.
- *
- * The preload matters here for a reason the pane path does not have: a route commits
- * before anything is mounted, so a deferred screen's reserved region is the WHOLE
- * window rather than one pane inside a settled frame.
+ * The pane helper's shape on the other board; the two key on different unions, and a signature
+ * abstract enough to take either would take a screen name for a kind. Preload matters more here:
+ * a route commits before anything is mounted, so a deferred screen's reserved region is the whole
+ * window.
  */
 export async function resolvedScreenBody(
   screenName: ScreenName,
@@ -89,8 +70,8 @@ export async function resolvedScreenBody(
 /**
  * What a pane is bound to, minus the address that says which pane it is.
  *
- * The address is a kind-scoped union, so it stays at each mount, where the body being
- * mounted is also named; this supplies the binding every arm of the union shares.
+ * The address is a kind-scoped union, so it stays at each mount; this supplies the binding every
+ * arm shares.
  */
 export function paneBinding(
   overrides: Pick<PaneContext, "paneId" | "bridge" | "sessionStore">,

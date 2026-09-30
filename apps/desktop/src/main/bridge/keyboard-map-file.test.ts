@@ -1,5 +1,4 @@
-// The keyboard map's file: what a read answers for a missing, a stored and a broken file,
-// and that a write leaves a whole file only the person can open.
+// A read of a missing, stored or broken file, and a write that leaves one owner-only file.
 
 import { mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -82,7 +81,7 @@ describe("writing the keyboard map", () => {
       await keyboardMapFile().write({ "frame.goToSessions": "$mod+9" });
 
       expect((await stat(filePath)).mode & 0o777).toBe(0o600);
-      // The temporary file the write went through was renamed over the real one.
+      // No temporary file is left behind.
       await expect(readdir(userData)).resolves.toStrictEqual([KEYBOARD_MAP_FILE_NAME]);
     },
   );

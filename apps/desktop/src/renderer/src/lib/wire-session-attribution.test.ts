@@ -1,12 +1,7 @@
-// The two arms of one rule: whether a payload's own session may speak for the
-// envelope that delivered it.
-//
-// The cases worth having are the ones where the two arms ANSWER DIFFERENTLY, because
-// that difference is the whole reason there are two — a fold whose contract requires
-// the member and a fold whose contract forbids it cannot share one predicate, and a
-// caller that picked the wrong arm either refuses every real frame or admits a foreign
-// one. The rest is the reading of a raw member: absence, a wrong type, and a value
-// that merely looks equal.
+// The two arms of one rule: whether a payload's own session may speak for its envelope. The cases
+// that matter are where the arms answer differently, since a caller picking the wrong arm either
+// refuses every real frame or admits a foreign one; the rest is the raw member: absent, wrongly
+// typed, or merely looking equal.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,10 +25,9 @@ describe("the required arm — a payload whose contract carries a session", () =
   });
 
   it("refuses a non-string session rather than reading it as absence", () => {
-    // The comparison is against the RAW member. Read through a string predicate first,
-    // each of these would arrive as `undefined` — and a rule whose absence arm is
-    // "refuse" would still refuse them, which is why the reading only shows up on the
-    // contradiction arm below, where absence is admitted.
+    // The comparison is against the raw member. Through a string predicate each of these would be
+    // `undefined`; this arm refuses absence anyway, so the difference shows on the contradiction
+    // arm below, where absence is admitted.
     expect(payloadNamesSession({ sessionId: 42 }, SESSION_ID)).toBe(false);
     expect(payloadNamesSession({ sessionId: null }, SESSION_ID)).toBe(false);
     expect(payloadNamesSession({ sessionId: [SESSION_ID] }, SESSION_ID)).toBe(false);
@@ -42,9 +36,8 @@ describe("the required arm — a payload whose contract carries a session", () =
 
 describe("the contradiction arm — a payload whose contract carries none", () => {
   it("admits a payload naming no session at all", () => {
-    // The arm's whole point, and the case that separates it from the other one: a
-    // kind whose registered payload is strict and carries no `sessionId` at all would
-    // be refused on every real frame by a fold on the required arm.
+    // What separates this arm from the other: a strict payload with no `sessionId` would be refused
+    // on every real frame by the required arm.
     expect(payloadContradictsSession({ userId: "user-priya" }, SESSION_ID)).toBe(false);
     expect(payloadContradictsSession(undefined, SESSION_ID)).toBe(false);
   });
@@ -58,17 +51,15 @@ describe("the contradiction arm — a payload whose contract carries none", () =
   });
 
   it("refuses a present member of the wrong type", () => {
-    // Where the raw comparison earns its keep. Read through a string predicate, a
-    // numeric `sessionId` would be absence — and absence is ADMITTED on this arm, so a
-    // frame carrying one would be waved through into a partition it may not name.
+    // Through a string predicate a numeric `sessionId` would be absence, which this arm admits, so
+    // the frame would land in a partition it may not name.
     expect(payloadContradictsSession({ sessionId: 42 }, SESSION_ID)).toBe(true);
     expect(payloadContradictsSession({ sessionId: null }, SESSION_ID)).toBe(true);
   });
 
   it("negative control: the two arms disagree exactly on the absent member", () => {
-    // Without this the pair could both be the required rule under two names, and every
-    // case above would still pass — the admission fold would then refuse every real
-    // frame and the roster would be empty in a console that is working.
+    // Without this the two arms could be the same rule under two names and every case above
+    // would still pass.
     const withoutSession = { userId: "user-priya" };
     expect(payloadNamesSession(withoutSession, SESSION_ID)).toBe(false);
     expect(payloadContradictsSession(withoutSession, SESSION_ID)).toBe(false);

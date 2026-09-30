@@ -1,20 +1,8 @@
-// A scripted latency is spent on the fixture clock, and by nobody else.
-//
-// The second of the three places a fixture that matched `PlatformBridge`'s SHAPE
-// still answered something the live bridge never would: a reply carrying `afterMs`
-// advanced the clock itself and resolved immediately, so the loading state it
-// exists to make reachable was never reachable, and merely issuing a request
-// delivered scenario beats that had nothing to do with it.
-//
-// What replaced it parks the reply on the engine, which means two failures that a
-// resolving assertion alone would not see are cases here in their own right: a
-// reply pending when the engine is torn down is a promise nobody can ever settle,
-// and a backlog with no bound is a fixture that grows one entry per unanswered
-// call for the life of the window. Both refuse, and the refusal is the claim.
-//
-// Every case drives the REAL fixture bridge over a real scenario and the real
-// engine. A hand-written stand-in for either would pass over exactly the seam
-// these cases exist to hold.
+// A scripted latency is spent on the fixture clock and by nobody else. A reply parked on the
+// engine leaves the loading state reachable and delivers no unrelated beats. Two failures a
+// resolving assertion would not see are cases of their own: a reply pending at teardown is a
+// promise nobody can settle, and an unbounded backlog grows without limit. Both refuse. Every case
+// drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,7 +29,7 @@ function scenarioWithDelayedReply(afterMs: number): Scenario {
   };
 }
 
-/** The same script with the same reply and no latency at all. The control. */
+/** The same script and reply with no latency: the control. */
 function scenarioWithImmediateReply(): Scenario {
   return {
     ...CONCURRENT_STREAMING_SCENARIO,
@@ -60,8 +48,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
     });
 
     await crossMacrotaskBoundary();
-    // The whole point of a scripted latency: there is a window in which the
-    // view is loading. A reply that resolved on the calling turn has none.
+    // A reply that resolved on the calling turn would leave no loading window.
     expect(settled).toBe(false);
     expect(fixture.engine.pendingReplyCount).toBe(1);
 
@@ -78,17 +65,14 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
     void callThroughBridge(fixture, DELAYED_CALL);
     await crossMacrotaskBoundary();
 
-    // A request is not a tick. A fixture that advanced its own clock to serve a
-    // latency delivered every beat that fell inside the latency as a side effect
-    // of a read, which no wire does.
+    // A request is not a tick; no wire delivers beats as a side effect of a read.
     expect(received.frames).toStrictEqual([]);
     expect(fixture.engine.progress.elapsedMs).toBe(0);
     expect(fixture.engine.progress.deliveredBeatCount).toBe(0);
   });
 
   it("negative control: an undelayed reply resolves with no advance at all", async () => {
-    // Without this, an implementation that never resolved anything would pass
-    // every pending assertion above.
+    // Without it, a fixture that never resolved anything passes every pending assertion above.
     const fixture = createFixture(scenarioWithImmediateReply());
 
     await expect(callThroughBridge(fixture, DELAYED_CALL)).resolves.toStrictEqual(DELAYED_RESULT);
@@ -102,8 +86,7 @@ describe("fixture bridge — a scripted latency is spent on the fixture clock", 
 
     fixture.engine.dispose();
 
-    // Settled rather than left hanging: a promise nobody can ever resolve is a
-    // view stuck on its loading state for the life of the window.
+    // Settled rather than left hanging, or a view stays loading for the life of the window.
     await expect(pending).rejects.toBeInstanceOf(FixtureBridgeError);
     await expect(pending).rejects.toMatchObject({
       refusal: { code: "reply-abandoned", origin: "fixture-bridge" },

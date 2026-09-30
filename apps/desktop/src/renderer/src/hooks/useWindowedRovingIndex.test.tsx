@@ -1,16 +1,12 @@
-// The shrinking-set defect, driven — plus the two halves of a move.
+// The shrinking-set defect, driven, plus the two halves of a move.
 //
-// The defect this file exists for is the one that is invisible until it happens: a
-// person arrows down a long list, a filter narrows it, and the remembered index now
-// matches no mounted row, so nothing in the list is tabbable and the whole list
-// leaves the page's tab order. The negative control is the unclamped expression that
-// shipped: it answers an index past the end, which is exactly what makes the list
-// unreachable.
+// A person arrows down a long list and a filter narrows it: the remembered index matches no
+// mounted row, so nothing is tabbable and the list leaves the page's tab order. The negative
+// control is the unclamped expression, which answers an index past the end.
 //
-// A `.tsx` file because the hook half needs a tree to move focus inside. The pure
-// half is driven directly, without one. The fixture and the two Tab scans live in
-// `RovingList.test-support.tsx` / `windowed-row-index.test-support.ts`, which the claim-expiry and anchor suites
-// beside this one drive the same list through.
+// A `.tsx` file because the hook half needs a tree to move focus inside; the pure half is
+// driven directly. The list and the two Tab scans are `RovingList.test-support.tsx` and
+// `useWindowedRovingIndex.test-support.ts`, shared with the claim-expiry and anchor suites.
 
 import { act, render } from "@testing-library/react";
 import { useState } from "react";
@@ -39,8 +35,8 @@ describe("windowed-row-index — where a move lands", () => {
   });
 
   it("negative control: a wrapping implementation answers differently at each end", () => {
-    // Without this the clamps above would also be satisfied by an implementation
-    // that wrapped, since wrapping and clamping agree everywhere except the ends.
+    // Without this the clamps above would also be satisfied by an implementation that
+    // wrapped; wrapping and clamping agree everywhere except the ends.
     expect(movedRowIndex("next", 4, 5)).not.toBe(0);
     expect(movedRowIndex("previous", 0, 5)).not.toBe(4);
   });
@@ -60,8 +56,8 @@ describe("windowed-row-index — a position in the set that exists now", () => {
   });
 
   it("negative control: the unclamped expression leaves the list unreachable", () => {
-    // The shipped defect, stated as arithmetic: a remembered 39 over five rows
-    // matches no row, so no row is tabbable. The clamp is what makes the two differ.
+    // A remembered 39 over five rows matches no row, so no row is tabbable; the clamp is what
+    // makes the two differ.
     const rememberedIndex = 39;
     const rowCount = 5;
     expect(rememberedIndex).toBeGreaterThan(rowCount - 1);
@@ -119,7 +115,7 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
           windowStart={windowStart}
           windowLength={4}
           onReveal={(rowIndex) => {
-            // The window answers a beat later, exactly as a virtualizer's does.
+            // The window answers a beat later, as a virtualizer's does.
             queueMicrotask(() => {
               setWindowStart(Math.max(rowIndex - 3, 0));
             });
@@ -135,9 +131,9 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
     await act(async () => {
       list.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
     });
-    // Row 39 was not mounted when the key landed; focus waited for the window. The
-    // tag is asserted beside the text because the `<li>` and the button it wraps read
-    // the same textContent — which is how focus landing on the wrapper passed here.
+    // Row 39 was not mounted when the key landed; focus waited for the window. The tag is
+    // asserted beside the text because the `<li>` and the button it wraps read the same
+    // textContent.
     expect(document.activeElement?.textContent).toBe("row 39");
     expect(document.activeElement?.tagName).toBe("BUTTON");
   });
@@ -176,9 +172,9 @@ describe("useWindowedRovingIndex — one tab stop that survives a shrinking set"
 });
 describe("useWindowedRovingIndex — the roving index controls the real target", () => {
   it("puts one tab stop in the whole list, whatever the window mounted", () => {
-    // The defect in terms: the roving index went on the `<li>` and every row's button
-    // kept its native stop, so a window of four rows put five stops in the page's tab
-    // order and the number moved with the scroll position.
+    // The roving index went on the `<li>` while each row's button kept its native stop, so a
+    // window of four rows put five stops in the tab order and the number moved with the scroll
+    // position.
     const { container } = render(
       <RovingList rowCount={40} windowStart={0} windowLength={4} onReveal={() => undefined} />,
     );
@@ -223,9 +219,9 @@ describe("useWindowedRovingIndex — the roving index controls the real target",
   });
 
   it("negative control: the scan counts a stop that is not the row's declared target", () => {
-    // Without this the single-stop claims above would also be satisfied by a scan that
-    // matched nothing. A row rendered the old way — content as markup, so the wrapper
-    // takes the index and the button keeps its own — is counted as the two stops it is.
+    // Without this the single-stop claims above would also be satisfied by a scan that matched
+    // nothing. A row rendered with content as markup, so the wrapper takes the index and the
+    // button keeps its own, is counted as the two stops it is.
     const { container } = render(
       <ul>
         <WindowedListRow as="li" rowIndex={0} totalRowCount={1} isTabbable>

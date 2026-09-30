@@ -1,16 +1,11 @@
-// The provider stack every window mounts through, and the composition that has to happen
-// before any window renders.
+// The provider stack every window mounts through, and the composition that runs before any
+// window renders.
 //
-// Composition runs at module scope, here, so "a window exists" and "its features are
-// composed" are one fact: a screen resolves the registry during render, and an effect
-// would run after the first paint had already said the screen does not exist. The
-// registries are named here, so a test or another window composes into registries of its own.
-// The projector registry is filled before the window opens its first session store, so
-// a store folds with every claimed event kind from its first event.
-//
-// The tripwire route is armed first: a registrar can report during composition (a
-// second owner on one name, a colliding projector claim), and a route armed below
-// would record none of those breaches.
+// Composition runs at module scope so "a window exists" and "its features are composed" are one
+// fact: a screen resolves the registry during render, and an effect would run after first paint.
+// The registries are named here so a test or another window composes into registries of its own.
+// The tripwire route is armed first because a registrar can report during composition (a second
+// owner on one name, a colliding projector claim).
 
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import type { BridgeComposition } from "@renderer/services/platform/bridge-context.js";
@@ -28,11 +23,9 @@ import { registerFeatureContributions } from "./registrations.js";
 /**
  * The clock the tripwire route stamps its records off.
  *
- * One identity, rebound: the route is armed before any bridge resolves, and the
- * provider below rebinds it to the window's clock, so under a fixture a tripwire
- * record carries the scenario's frozen time like every other timestamp in the window.
- * Nothing restores wall time on unmount: a breach during teardown belongs to that
- * window's timeline.
+ * The route is armed before any bridge resolves and the provider rebinds this clock to the
+ * window's, so under a fixture a tripwire record carries the scenario's frozen time. Wall time
+ * is not restored on unmount: a breach during teardown belongs to that window's timeline.
  */
 const consoleTripwireRouteClock = new ForwardingClock(new RealClock());
 
@@ -53,7 +46,7 @@ export interface AppProvidersProps {
   readonly composition?: BridgeComposition;
 }
 
-/** The provider stack: the platform bridge, then the window. `App.tsx` renders exactly this. */
+/** The provider stack: the platform bridge, then the window. */
 export function AppProviders(props: AppProvidersProps): React.JSX.Element {
   return (
     <PlatformBridgeProvider

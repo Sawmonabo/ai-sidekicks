@@ -1,40 +1,30 @@
 // The waiting-for-input scenario: a session addressed to something, with a message pending.
 //
-// It exists so the composer's zones have a session to be addressed WITHIN. One
-// person and two agents, so a target is a real choice rather than the only one, and
-// the newest run is `waiting_for_input` — the state in which a person's next
-// sentence is the thing the session is blocked on, which is the moment the composer
-// matters most.
+// One person and two agents, so the composer's target is a real choice, and the newest run is
+// `waiting_for_input`: the state where the person's next sentence is what the session is
+// blocked on.
 //
-// EVERY BEAT IS A REGISTERED EVENT, CARRYING THE REGISTERED PAYLOAD, and every identifier is the
-// UUID its branded id type declares. `tests/helpers/scenario-contract-check/contract-check.ts`
-// holds this file to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
-// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`. Three consequences a reader
-// will notice first:
+// Every beat is a registered event with its registered payload, and every id is the UUID its
+// branded type declares. `tests/helpers/scenario-contract-check/contract-check.ts` holds the
+// beats to the census (`SESSION_EVENT_CATEGORY_BY_TYPE`) and the strict payload layer
+// (`SessionEventSchema`) in `packages/contracts/src/event.ts`. So:
 //
-//   • **`session.created` carries the lead.** The lead is born with the session, named
-//     as the live agent list names it, so the `agents` projection rebuilds from the
-//     log alone. The reviewer takes part only when a run names it.
-//   • **A `run.*` beat is a STATE TRANSITION.** Its payload is
-//     `{sessionId, runId, runVersion, previousState, newState, …}` and not a bare
-//     `{runId}` — `previousState` is absent only on `run.queued`, where the run is
-//     being born and no document names the state it came from.
-//   • **Nothing scripts `session.list`.** No method registry in the corpus carries
-//     that name, so a scripted reply would be an answer to a question nothing asks.
+//   - `session.created` carries the lead, so the `agents` projection rebuilds from the log
+//     alone. The reviewer takes part only when a run names it.
+//   - A `run.*` beat is a state transition, `{sessionId, runId, runVersion, previousState,
+//     newState, ...}`, with `previousState` absent only on `run.queued`.
+//   - Nothing scripts `session.list`, which is a subscription and not a call a view makes.
 //
-// WHICH CALLS ARE SCRIPTED, AND WHY ONLY THOSE. `services/daemon/scripted-reply.fixture.ts` refuses
-// an unscripted call as `reply-unscripted`, which is the fixture's authoring error and a state some
-// views are built to render. So a reply is scripted here exactly when a composer control issues
-// that call to a real daemon method: `driver.compactContext` from the compaction control,
-// `driver.listProviderCommands` from the command zone's discovery popover for the addressed agent,
-// and `driver.listModels` and `driver.listCapabilities`, the driver catalog. The approval reads are
-// deliberately NOT scripted: this scenario is what makes a refused approval read reachable.
+// A reply is scripted only when a composer control issues that call to a real daemon method,
+// because `services/daemon/scripted-reply.fixture.ts` refuses an unscripted call as
+// `reply-unscripted`: `driver.compactContext` from the compaction control,
+// `driver.listProviderCommands` from the command zone's discovery popover, and
+// `driver.listModels` and `driver.listCapabilities`, the driver catalog. The approval reads are
+// deliberately not scripted, so this scenario makes a refused approval read reachable.
 //
-// ONE REPLY PER CALL NAME, so the refusing-target half of the enumeration is not
-// reachable from here: `replyFor` matches on the method name alone and the fixture
-// serves the first entry, so a second `driver.listProviderCommands` scripting a
-// refusal would be unreachable rather than conditional. That arm is driven in the
-// command zone's own unit, over a bridge whose scenario refuses this call.
+// There is one reply per call name: `replyFor` matches on the method name alone and serves the
+// first entry, so a second `driver.listProviderCommands` refusal would be unreachable. That arm
+// is tested in `features/composer/command-list/`, over a bridge whose scenario refuses the call.
 
 import {
   AgentIdSchema,
@@ -52,16 +42,9 @@ import { type ScenarioAgent, composeSessionCreatedPayload } from "../data/openin
 import type { Scenario } from "../scenario.js";
 import type { ScenarioReply } from "@renderer/services/daemon/scenario-reply.fixture.js";
 
-// The identifiers the beats and the scripted replies both name.
-
-// UUID v7 values whose leading bytes are this scenario's own start instant, so a
-// reader scanning a rendered id can still tell one fixture apart from another.
-//
-// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST. A scenario constant is
-// where a fixture chooses the bytes, and a cast asserts a brand without checking it —
-// so a malformed id surfaced at the first `.strict()` reply that carried it, which
-// takes the whole reply down and names the reply rather than the value. Parsing at
-// declaration fails the module instead, naming the constant.
+// The ids the beats and the scripted replies both name: UUID v7 values whose leading bytes are
+// this scenario's start instant. Parsed through the registered schemas, not cast, so a
+// malformed id fails the module and names the constant instead of failing a later reply.
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a11-1100-75e5-8510-ada11a5a33a5");
 const USER_YOU: UserId = UserIdSchema.parse("019b7a11-1100-79a4-8110-cca0117a0310");
 const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a11-1100-7a6e-8110-d1a4c1150301");
@@ -76,21 +59,13 @@ const COMPOSER_LEAD: ScenarioAgent = {
   modelId: "claude-sonnet-5",
 };
 
-// What the scenario ANSWERS, as opposed to what it plays.
-//
-// A reply is a read and a beat is a stream frame, and the fixture serves them through
-// different seams: a call is looked up by method and answered once, while a beat is
-// routed to a subscription by kind and arrives on the frozen clock. These replies carry
-// their own scripted latencies, which is a property of a call and meaningless for a frame.
+// What the scenario answers, as opposed to what it plays. A call is looked up by method and
+// answered once, with its own scripted latency; a beat is a stream frame routed by kind on the
+// frozen clock.
 
-/**
- * One driver's capability declaration, with every registered flag stated.
- *
- * Built from `DRIVER_CAPABILITY_FLAGS` rather than hand-listed, because
- * `DriverCapabilities.flags` is a TOTAL record over that tuple: a partial literal
- * would read as "the driver did not declare this" for every flag it forgot, which is
- * a different answer from `false`.
- */
+// One driver's capability declaration with every registered flag stated:
+// `DriverCapabilities.flags` is a total record, and a forgotten flag would read as undeclared
+// rather than `false`.
 function declaredFlags(
   enabled: readonly DriverCapabilityFlag[],
 ): Record<DriverCapabilityFlag, boolean> {
@@ -101,7 +76,7 @@ function declaredFlags(
   return flags;
 }
 
-/** What the pinned Claude build declares. */
+// What the pinned Claude build declares.
 const CLAUDE_FLAGS: readonly DriverCapabilityFlag[] = [
   "resume",
   "steer",
@@ -119,13 +94,8 @@ const CLAUDE_FLAGS: readonly DriverCapabilityFlag[] = [
   "output_speed",
 ];
 
-/**
- * What the pinned Codex build declares.
- *
- * `output_speed` is absent, and its absence is the case a speed control exists to
- * handle: the control is ABSENT rather than disabled for this driver, because a
- * disabled control asserts a capability exists and is momentarily unavailable.
- */
+// What the pinned Codex build declares. `output_speed` is absent, so the speed control is
+// absent for this driver rather than disabled, which would claim the capability exists.
 const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
   "resume",
   "steer",
@@ -143,26 +113,18 @@ const CODEX_FLAGS: readonly DriverCapabilityFlag[] = [
   "provider_commands",
 ];
 
-/** Every call the composer scenario answers, and what it answers with. */
+// Every call the scenario answers, and what it answers with.
 const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   {
-    // The discovery popover's dispatch, agent-addressed within the session. The
-    // reply is the GROUP LIST the wire declares and never a flat entry array: the
-    // group is what carries the `(driverName, providerAccountId)` the entries were
-    // read under, and the invariant this popover renders is that an entry is
-    // offered only under the binding it came from.
+    // The discovery popover's dispatch. The reply is the group list the wire declares, not a
+    // flat entry array: each group carries the `(driverName, providerAccountId)` its entries
+    // were read under, so an entry is offered only under its own binding.
     //
-    // `runId` is the run this scenario plays, which is the one live run on this
-    // binding — the arm the contract says answers with THAT run rather than with
-    // `null`. `providerAccountId` is `null`, the positive statement that this
-    // fixture binds no provider account: the composer scenario registers no
-    // account, and a synthesized placeholder would make the routing
-    // pair compare equal where it must not.
+    // `runId` is the one live run on this binding, the arm the contract answers with that run
+    // rather than `null`. `providerAccountId` is `null` because this scenario binds no account.
     //
-    // The two entries differ in what the provider published, deliberately: the
-    // command carries a description and the skill carries a scope and an `enabled`
-    // flag, so the row that renders a provider-supplied description and the row
-    // that renders its absence are both reachable.
+    // The command carries a description and the skill a scope and an `enabled` flag, so rows
+    // with and without a provider description are both reachable.
     call: "driver.listProviderCommands",
     result: {
       bindings: [
@@ -190,29 +152,17 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     },
   },
   {
-    // The compaction control's dispatch. `DriverCompactionResult` is a
-    // discriminated union whose `applied` arm REQUIRES `boundaryPosition`, typed
-    // `number | null` — null being the positive statement that the provider's
-    // frame carried no position, which is a different fact from a driver that
-    // forgot to report one. This scenario reports a position, so the boundary the
-    // compaction landed on is renderable.
+    // The compaction control's dispatch. The `applied` arm of `DriverCompactionResult` requires
+    // `boundaryPosition` (`number | null`); this scenario reports a position so the boundary is
+    // renderable.
     call: "driver.compactContext",
-    // A scripted latency, so the in-flight half of the control is reachable: a
-    // compaction that settled instantly would let a control ship without ever
-    // rendering the state a person actually watches.
+    // A scripted latency, so the control's in-flight state is reachable.
     afterMs: 200,
     result: { status: "applied", boundaryPosition: 8 },
   },
   {
-    // The first half of the driver catalog the target chip's axis popover renders.
-    // Scripted whether or not anybody opens the popover: an unscripted call is the
-    // fixture's authoring error, and a refusal pinned into every composer reference
-    // would be a statement about a read this scenario never meant to refuse.
-    //
-    // TWO DRIVERS, BECAUSE THE NODE RUNS TWO. The lead runs on `claude` and the
-    // reviewer on `codex`, so the chip has a real target choice, and a catalog
-    // carrying only one of them would hold the popover's actions back on the agent
-    // whose own driver the catalog could not vouch for.
+    // The first half of the driver catalog the target chip's axis popover renders. Two drivers:
+    // the lead runs on `claude` and the reviewer on `codex`, so the target choice is real.
     call: "driver.listModels",
     result: {
       drivers: [
@@ -251,11 +201,8 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
     },
   },
   {
-    // The catalog's other half, declared from the two pinned-build flag sets above.
-    //
-    // `outputSpeedLevels` rides the CLAUDE row only, because it is present exactly
-    // where the flag is true — the daemon's own composition rule, which a fixture
-    // publishing a level list beside a false flag would quietly break.
+    // The catalog's other half, from the two flag sets above. `outputSpeedLevels` rides the
+    // claude row only, because it is present exactly where the flag is true.
     call: "driver.listCapabilities",
     result: {
       drivers: [
@@ -285,19 +232,17 @@ const COMPOSER_REPLIES: readonly ScenarioReply[] = [
   },
 ];
 
+/** A session whose newest run is blocked on the person's next message. */
 export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
   id: "waiting-for-input",
   label: "Awaiting a reply",
   purpose:
     "A session whose newest run is blocked on a person's next message — the state the composer's target, posture, and send resolution are read against.",
   sessionId: SESSION_ID,
-  // Join order IS hue order: the person who joined, then the agents in the order they
-  // joined.
+  // The person who joined, then the agents in join order.
   userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
-  // Which of the three this window is. Stated rather than read off the head of the
-  // join order — that entry is whoever opened the session, on whichever machine, and
-  // a view handed a fabricated identity renders a role gate as though it had been
-  // checked. The fixture answers `callerUserRead` from this field alone.
+  // Which of the three this window is; the head of the join order is whoever opened the
+  // session, which need not be this window.
   callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T11:05:00.000Z",
   beats: [
@@ -310,9 +255,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
         kind: "session.created",
         occurredAt: "2026-01-01T11:05:00.000Z",
         actorId: USER_YOU,
-        // The registered shape: the session's shape and the lead born with it. A
-        // session's name reaches the console from the sessions list; the creation
-        // event carries no title, and its `.strict()` payload rejects one.
+        // The creation event carries no title; its `.strict()` payload rejects one.
         payload: composeSessionCreatedPayload({
           sessionId: SESSION_ID,
           shape: "project",
@@ -349,8 +292,7 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
         sequence: 3,
         kind: "run.starting",
         occurredAt: "2026-01-01T11:05:00.320Z",
-        // No actor: the daemon moves a run out of `queued`, and a user id
-        // here would attribute a system transition to a person.
+        // No actor: the daemon moves a run out of `queued`.
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -383,8 +325,8 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
         id: "019b7a11-1100-7e00-8110-e5e0c1150006",
         sessionId: SESSION_ID,
         sequence: 5,
-        // Waiting is not pausing: this run is blocked on someone, and the composer
-        // is where that someone answers.
+        // Waiting is not pausing: this run is blocked on someone, and the composer is where
+        // they answer.
         kind: "run.waiting_for_input",
         occurredAt: "2026-01-01T11:05:00.480Z",
         payload: {
@@ -402,8 +344,8 @@ export const WAITING_FOR_INPUT_SCENARIO: Scenario = {
         id: "019b7a11-1100-7e00-8110-e5e0c1150007",
         sessionId: SESSION_ID,
         sequence: 6,
-        // The implementer's goal, as the log carries it — there is no goal store, so
-        // this event IS the goal. A person set it, so the beat carries an actor.
+        // The implementer's goal lives only in the log: this event is the goal. A person set
+        // it, so the beat carries an actor.
         kind: "session.goal_updated",
         occurredAt: "2026-01-01T11:05:00.540Z",
         actorId: USER_YOU,

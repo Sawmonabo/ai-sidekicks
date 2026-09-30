@@ -1,18 +1,5 @@
-// The command line the two launching tiers actually get.
-//
-// One claim, about the array `composeLaunchArgs` builds: a GPU-less host is handed
-// a software GL stack and a host with its own is not, which is a property no launch
-// has to run to check.
-//
-// That the launcher spells no switch of its own, and feeds the composer the host it
-// launches on rather than a platform written down, is a structure rule rather than a
-// behavior: it lives in `apps/desktop/AGENTS.md` and reviewers hold code to it. The
-// history behind it is worth keeping: `composeLaunchArgs` and its whole refusal
-// machinery landed once with a passing test and NO caller, and were deleted for it
-// two commits later, while the tier that motivated them went on launching with a
-// hard-coded pair. A composer whose correctness is asserted and whose use is assumed
-// is the exact shape that left the `terminal-instance-memory` row unreadable on
-// every Linux runner.
+// The command line the two launching tiers get: a GPU-less host is handed a software GL stack and
+// a host with its own GL is not, a property no launch has to run to check.
 
 import { describe, expect, it } from "vitest";
 
@@ -39,9 +26,8 @@ function argsFor(platform: LaunchPlatform, isPreciseHeapReadingRequired = false)
 
 describe("launch arguments — the software GL a GPU-less host is given", () => {
   it("hands a Linux launch the whole software graphics stack, in order", () => {
-    // The pre-fix shape passed nothing here, so the ubuntu runner reached the
-    // `terminal-instance-memory` row with no WebGL2 and the pane fell back to the
-    // DOM renderer — a subject the row does not bound.
+    // Without the switches the runner reached the `terminal-instance-memory` row with no WebGL2
+    // and the pane fell back to the DOM renderer, a subject that row does not bound.
     expect(argsFor("linux")).toStrictEqual([
       `--user-data-dir=${PROFILE_DIRECTORY}`,
       ...SOFTWARE_GRAPHICS_SWITCHES,
@@ -50,9 +36,8 @@ describe("launch arguments — the software GL a GPU-less host is given", () => 
   });
 
   it("names the three switches SwANGLE needs and no others", () => {
-    // Pinned as a set rather than left to the composition case: two of them select
-    // the driver and the third is the opt-in that lets WebGL be served from it, and
-    // a launch missing any one of the three reaches a renderer with no WebGL2.
+    // Pinned as a set: two select the driver and the third lets WebGL be served from it, and a
+    // launch missing any one has no WebGL2.
     expect([...SOFTWARE_GRAPHICS_SWITCHES]).toStrictEqual([
       "--use-gl=angle",
       "--use-angle=swiftshader",
@@ -61,11 +46,9 @@ describe("launch arguments — the software GL a GPU-less host is given", () => 
   });
 
   it("gives a host that has its own GL none of them", () => {
-    // The negative control, and it is not tidiness. Measured on this Electron's
-    // darwin-arm64 build: with these switches the GPU process dies with
-    // `eglInitialize SwANGLE failed` and the renderer reports no WebGL2 at all,
-    // where the unswitched launch reports the ANGLE Metal renderer. Forcing them
-    // everywhere would take the context away on exactly the platform that has one.
+    // Negative control. Measured on this Electron's darwin-arm64 build: with these switches the
+    // GPU process dies with `eglInitialize SwANGLE failed` and the renderer reports no WebGL2,
+    // where the unswitched launch reports the ANGLE Metal renderer.
     for (const platform of ["darwin", "win32"] as const) {
       expect(argsFor(platform)).toStrictEqual([
         `--user-data-dir=${PROFILE_DIRECTORY}`,

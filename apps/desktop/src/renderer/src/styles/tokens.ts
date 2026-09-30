@@ -1,16 +1,12 @@
-// The typed TS mirror of the Meridian token set.
+// The typed TS mirror of the Meridian token set. `palette.ts` authors the values; this module
+// resolves them (gamut fit, then rounding to the precision the CSS carries) and names them.
+// `generate-css.ts` emits the stylesheet from exactly these records and `contrast.test.ts`
+// measures exactly these records, so a token that passes the contrast test is the token the
+// browser paints.
 //
-// `palette.ts` authors the values; this module resolves them (gamut fit, then rounding
-// to the precision the CSS carries) and names them. Two consumers: `generate-css.ts`,
-// which emits `meridian.css` from exactly these records, and `contrast.test.ts`, which
-// measures exactly these records against the WCAG 2.2 AA floors the design language
-// states. Because both read the same resolved values, a token that passes the contrast
-// test is the token the browser paints — there is no second table to drift.
-//
-// Component code never reaches into these records for a color. It writes
-// `var(--meridian-text-muted)` and lets the cascade resolve the scheme; the
-// records exist so a TEST can measure what the cascade will resolve to, and so
-// the actor-hue allocator can hand a caller a wheel step by number.
+// Component code writes `var(--meridian-text-muted)` and lets the cascade resolve the scheme. The
+// records exist so a test can measure what the cascade resolves to, and so the actor-hue
+// allocator can hand out a wheel step by number.
 
 import {
   COLOR_SCHEMES,
@@ -33,8 +29,8 @@ import {
   computeHueWheelAngle,
 } from "./palette.js";
 
-// The scheme vocabulary is the appearance record's, which main and the renderer both read,
-// so it is declared in `@shared/appearance.ts` and every console reader takes it from here.
+// The scheme vocabulary is declared in `@shared/appearance.ts`, which main and the renderer both
+// read, and every console reader takes it from here.
 export {
   COLOR_SCHEMES,
   SYSTEM_SCHEME_PREFERENCE,
@@ -43,12 +39,9 @@ export {
 } from "@shared/appearance.js";
 
 /**
- * Every preference value, DERIVED from the scheme list rather than re-listed.
- *
- * This vocabulary had three hand-written copies — one in the store, one in the
- * persistence value classes, one here — and the way that fails is silent: a third
- * scheme would be renderable, refused on write, and accepted on read, each by a
- * different list. Deriving it means adding a scheme widens all three at once.
+ * Every preference value, derived from the scheme list. Hand-written copies in the store,
+ * persistence and here would drift silently (renderable, refused on write, accepted on read);
+ * deriving widens all of them at once.
  */
 export const SCHEME_PREFERENCES: readonly SchemePreference[] = [
   ...COLOR_SCHEMES,
@@ -56,11 +49,8 @@ export const SCHEME_PREFERENCES: readonly SchemePreference[] = [
 ];
 
 /**
- * True when an untrusted value is still a scheme preference.
- *
- * The single guard, used by the persistence chokepoint on the way in and by the
- * frame's hydration on the way back. Two guards is how a record written by an
- * older build gets accepted on read after being refused on write.
+ * True when an untrusted value is a scheme preference. The single guard for persistence and the
+ * frame's hydration, so no record is accepted by one list that another refused.
  */
 export function isSchemePreference(value: unknown): value is SchemePreference {
   return typeof value === "string" && (SCHEME_PREFERENCES as readonly string[]).includes(value);
@@ -107,18 +97,12 @@ function resolvePairs(source: Readonly<Record<string, SchemePair>>): Map<string,
 }
 
 /**
- * Every scheme-varying color token, resolved, as ENTRIES. Order is grounds, then
- * text, then attention, then the code and terminal vocabularies — the order `meridian.css`
- * emits, so the generated file reads top-down from ground to signal and finishes with
- * the sets only code blocks and command output spend.
+ * Every scheme-varying color token, resolved, as entries: grounds, then text, then attention,
+ * then the code and terminal vocabularies, the order the stylesheet emits.
  *
- * DATA AND NOT A `Map`, which is the state-and-views rule in `apps/desktop/AGENTS.md`
- * and is enforced as syntax in `eslint.console-syntax-bans.mjs`: an exported `Map` is
- * one object every importer in the window shares, `ReadonlyMap` hides `set` and
- * `delete` from a reader and from nothing at runtime, and `Object.freeze` does not
- * close a `Map`. A single importer writing into this one would have repainted the whole
- * console for every later reader. Every consumer iterates it or reads the names off it;
- * the one lookup by name is this module's own, below.
+ * Data and not an exported `Map` (banned in `eslint.restricted-syntax.mjs`): a shared `Map` is
+ * one object every importer can write into, and `ReadonlyMap` hides the mutators from nothing at
+ * runtime.
  */
 export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
   ...resolvePairs(GROUND_TOKENS),
@@ -129,11 +113,8 @@ export const SCHEME_COLOR_TOKENS: readonly (readonly [string, SchemePair])[] = [
 ];
 
 /**
- * The same entries, keyed, for the one lookup this module performs.
- *
- * MODULE-PRIVATE, WHICH IS THE WHOLE DIFFERENCE. A collection nothing outside this
- * file can reach is a lookup table rather than shared state: `schemeColor` is the only
- * reader, no importer holds it, and no other module can grow it.
+ * The same entries, keyed, for `schemeColor`'s lookup. Module-private, so it is a lookup table
+ * and not shared state.
  */
 const SCHEME_PAIR_BY_TOKEN_NAME = new Map<string, SchemePair>(SCHEME_COLOR_TOKENS);
 
@@ -143,9 +124,8 @@ export function formatHueWheelTokenName(step: number): string {
 }
 
 /**
- * The twelve user hues, resolved and scheme-independent. Index is the
- * wheel step; `AgentHueAllocator` is the only thing that decides WHICH
- * step a user gets.
+ * The twelve user hues, resolved and scheme-independent. Index is the wheel step;
+ * `AgentHueAllocator` alone decides which step a user gets.
  */
 export const HUE_WHEEL: readonly OklchColor[] = Array.from(
   { length: HUE_WHEEL_STEPS },
@@ -202,9 +182,8 @@ export const NON_TEXT_FLOOR_TOKEN_NAMES: readonly string[] = [
 ];
 
 /**
- * Tinted grounds paired with the text token that must remain legible on them —
- * an amber banner's copy sits on `amber-ground`, not on `surface`, so the pair
- * needs its own floor.
+ * Tinted grounds paired with the text token that must stay legible on them: an amber banner's
+ * copy sits on `amber-ground`, not `surface`, so the pair needs its own floor.
  */
 export const TINTED_GROUND_PAIRS: readonly (readonly [string, string])[] = [
   ["amber-text", "amber-ground"],
@@ -212,26 +191,12 @@ export const TINTED_GROUND_PAIRS: readonly (readonly [string, string])[] = [
 ];
 
 /**
- * Ink paired with the FILL it is painted on — a control whose whole face is the
- * accent, not a tinted ground with text on it.
- *
- * Its own list on `TINTED_GROUND_PAIRS`' shape rather than a third entry in that
- * one, because the two describe different things and the difference is what
- * decides the value: a tinted ground is a wash a banner can also carry other text
- * on, while an accent fill is a control's face and admits exactly one ink. Folding
- * them together would put `accent-ink` in a list named for grounds and invite the
- * next reader to paint it on `amber-ground`.
- *
- * EVERY FACE THE CONTROL WEARS IS A ROW. A pressed control still carries a label,
- * so `accent-pressed` is paired here exactly as the resting face is — the pressed
- * state used to be a `filter` over the resting pair, which is precisely the shape
- * this list cannot measure and the reason the floor was missed in it.
- *
- * `accent-ink` is deliberately absent from `TEXT_FLOOR_TOKEN_NAMES`: that list is
- * measured against the four neutral grounds, and this ink is never painted on one.
- * A token measured where it is never used would be held to a floor that has
- * nothing to do with it — and would fail, since a dark ink on a dark ground is
- * exactly what it should be.
+ * Ink paired with the fill it is painted on: a control whose whole face is the accent. Its own
+ * list, not a third entry of `TINTED_GROUND_PAIRS`, because a tinted ground is a wash that can
+ * carry other text while an accent fill admits exactly one ink. Every face the control wears is a
+ * row, so `accent-pressed` is paired as the resting face is. `accent-ink` is absent from
+ * `TEXT_FLOOR_TOKEN_NAMES` because that list is measured on the four neutral grounds, where a
+ * dark ink would rightly fail.
  */
 export const ACCENT_FILL_PAIRS: readonly (readonly [string, string])[] = [
   ["accent-ink", "accent"],
@@ -239,22 +204,15 @@ export const ACCENT_FILL_PAIRS: readonly (readonly [string, string])[] = [
 ];
 
 /**
- * The one ground a code block or a command-output body is ever painted on.
- *
- * Named rather than folded into `GROUND_TOKEN_NAMES`: that list is the four neutral
- * grounds every foreground in the console may sit on, and measuring these two
- * vocabularies against all four would hold them to a floor on three grounds no rule
- * in the console ever paints them over.
+ * The one ground a code block or command-output body is painted on. Named rather than folded
+ * into `GROUND_TOKEN_NAMES`, since measuring these vocabularies on the four neutral grounds
+ * would hold them to a floor on grounds they are never painted over.
  */
 export const SUNKEN_WELL_GROUND_TOKEN_NAME = "surface-sunken";
 
 /**
- * The foregrounds painted on that well — the code-token kinds and the ANSI names that
- * carry a color of their own.
- *
- * DERIVED from the two palette records rather than listed, so a token added there
- * is measured here on the same commit. A hand-written list would leave the next
- * token held to no floor and fitted into no gamut.
+ * The foregrounds painted on that well: the code-token kinds and the ANSI names. Derived from
+ * the two palette records so a token added there is measured on the same commit.
  */
 export const SUNKEN_WELL_TEXT_TOKEN_NAMES: readonly string[] = [
   ...Object.keys(CODE_TOKENS),

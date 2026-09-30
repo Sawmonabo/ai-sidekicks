@@ -1,7 +1,6 @@
-// What the dev perf meters promise: bounded retention, an honest percentile, a
-// counted refusal rather than an unbounded map, a series bound that counts LIVE
-// producers rather than every producer that ever existed, and recording entry points
-// that reach the process registry only under the fixture define.
+// Bounded retention, an honest percentile, a counted refusal instead of an unbounded map, a
+// series bound that counts live producers, and recording entry points that reach the process
+// registry only under the fixture define.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,8 +27,7 @@ describe("perf meter series", () => {
     expect(reading).not.toBeNull();
     expect(reading?.sampleCount).toBe(10);
     expect(reading?.median).toBe(5);
-    // Nearest rank at 95 over ten samples is the tenth, so the reading is the worst
-    // frame the console actually produced rather than an interpolation between two.
+    // Nearest rank at 95 over ten samples is the tenth: the worst frame actually produced.
     expect(reading?.upperPercentile).toBe(100);
     expect(reading?.worst).toBe(100);
     expect(reading?.latest).toBe(100);
@@ -58,8 +56,7 @@ describe("perf meter series", () => {
     }
     expect(registry.seriesCount).toBe(PERFORMANCE_METER_BOUNDS.seriesCount);
     expect(registry.refusedSeriesCount).toBe(3);
-    // The refusal is a refusal and not a silent overwrite: the first series still
-    // holds its own reading.
+    // A refusal, not a silent overwrite: the first series still holds its own reading.
     expect(registry.reading("store-size", "lane-0")?.latest).toBe(0);
   });
 
@@ -70,15 +67,14 @@ describe("perf meter series", () => {
     }
     expect(registry.seriesCount).toBe(PERFORMANCE_METER_BOUNDS.seriesCount);
 
-    // The registry is full, so the next key is refused — the state a producer whose
-    // key names an instance reaches by mounting and unmounting, over and over.
+    // The registry is full, so the next key is refused, as when instance-keyed producers mount and
+    // unmount repeatedly.
     registry.record("frame-time", "feed-arriving", 1);
     expect(registry.refusedSeriesCount).toBe(1);
 
     expect(registry.retire("frame-time", "feed-0")).toBe(true);
     expect(registry.seriesCount).toBe(PERFORMANCE_METER_BOUNDS.seriesCount - 1);
-    // The retired series is gone rather than emptied: a reading it could still answer
-    // would be a closed feed's p95 presented as a live one's.
+    // The retired series is gone, not emptied; otherwise a closed feed's p95 would read as live.
     expect(registry.reading("frame-time", "feed-0")).toBeNull();
 
     registry.record("frame-time", "feed-arriving", 7);
@@ -87,9 +83,8 @@ describe("perf meter series", () => {
   });
 
   it("negative control: retiring a key it never opened answers false and moves nothing", () => {
-    // The underflow this guards: a decrement on a miss makes the open count drift
-    // below the truth, and the bound then admits series past its own figure — which
-    // reads as a working registry until the map is the size the bound exists to cap.
+    // A decrement on a miss would let the open count drift below the truth and admit series past
+    // the bound.
     const registry = new PerformanceMeterRegistry();
     registry.record("frame-time", "feed-1", 3);
 
@@ -105,8 +100,7 @@ describe("perf meter series", () => {
   });
 
   it("retires under the same truncation it opened under", () => {
-    // A key past the character bound opens a truncated series, so a retirement that
-    // did not truncate would close nothing and leave a series no producer can reach.
+    // A key past the character bound opens a truncated series, so retirement must truncate too.
     const registry = new PerformanceMeterRegistry();
     const overlongKey = `${"x".repeat(PERFORMANCE_METER_BOUNDS.seriesKeyCharacterCount)}-tail`;
     registry.record("reveal-drain", overlongKey, 12);
@@ -178,9 +172,8 @@ describe("the recording and retiring entry points", () => {
   });
 
   it("each reaches the process registry under the fixture define", () => {
-    // The unit project compiles with the fixture define true, so the registry exists
-    // here. A release build folds the ternary to null and every call below to nothing,
-    // which is what the release-absence sweep reads.
+    // The unit project compiles with the fixture define true, so the registry exists here; a
+    // release build folds the ternary to null.
     expect(developmentPerformanceMeters).not.toBeNull();
     developmentPerformanceMeters?.reset();
     recordFrameTime("run-group", 9);

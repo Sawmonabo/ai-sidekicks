@@ -1,13 +1,6 @@
-// How the provider-account reading says an account-plane read could not be taken.
-//
-// Composing a refusal and holding a registry are two jobs, and the sentence here is a
-// pure function of what failed, so it is testable without a bridge and readable
-// without the fold. The ORIGIN lives here beside that sentence, and the tail
-// (`provider-account-deliveries.ts`) imports both.
-//
-// WHAT IS HERE IS THIS STREAM'S WORDS. The refusal itself is composed in
-// `wire-reads/unreadable-deliveries.ts`;
-// this file supplies only the origin and the sentence.
+// How the provider-account reading says an account-plane read could not be taken. The sentence is a
+// pure function of what failed, kept apart from the fold so it is testable without a bridge; the
+// refusal itself is composed in `wire-reads/unreadable-deliveries.ts`.
 
 import {
   unreadableDeliveryRefusalComposerFor,

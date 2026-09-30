@@ -1,9 +1,6 @@
-// The hold's own rules, driven without a bridge.
-//
-// The cap is the reason this is its own module: proving that a full hold degrades to
-// a re-read rather than a drop means pushing more frames than the cap admits, and
-// doing that through a React hook asserts the arithmetic through three layers that
-// have nothing to do with it.
+// The hold's own rules, driven without a bridge. Proving that a full hold degrades to a
+// re-read rather than a drop means pushing more frames than the cap admits, which a React hook
+// would assert through three unrelated layers.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -28,9 +25,8 @@ describe("ProviderAccountNotificationHold", () => {
   });
 
   it("hands frames back in arrival order and stops holding", () => {
-    // Order is the whole claim: a removal followed by a re-registration and the
-    // reverse pair are the same two frames, and only the sequence says which state
-    // the registry ended in.
+    // Order is the claim: a removal then a re-registration and the reverse are the same two
+    // frames, and only the sequence says which state the registry ended in.
     const hold = new ProviderAccountNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
@@ -53,14 +49,13 @@ describe("ProviderAccountNotificationHold", () => {
     }
 
     expect(hold.hold(removalOf("acct-overflowing"))).toBe("overflowed");
-    // The overflowing frame is NOT kept: the caller applies it live, and a copy held
-    // here would be applied a second time on the replay.
+    // The overflowing frame is not kept: the caller applies it live, and a held copy would be
+    // applied twice on the replay.
     expect(hold.release()).toHaveLength(PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP);
   });
 
   it("a read begun after a release starts empty rather than replaying the last one's", () => {
-    // The overflow path's sequence, and the double-apply the release above rules out:
-    // frames handed to the caller once must not be handed over a second time.
+    // Frames handed to the caller once must not be handed over again.
     const hold = new ProviderAccountNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
@@ -73,10 +68,9 @@ describe("ProviderAccountNotificationHold", () => {
   });
 
   it("a read begun while another is still holding inherits its frames", () => {
-    // The superseded-attempt sequence, which nothing releases: a `window-focus`
-    // trigger begins a second read while the opening one is still traveling, and the
-    // opening one's reply is then discarded by its ordinal. Clearing here dropped
-    // every frame it held — silently, by the method whose purpose is that none is.
+    // A `window-focus` trigger begins a second read while the opening one is still traveling,
+    // and the opening one's reply is discarded by its ordinal. Clearing on `begin` dropped
+    // every frame it held.
     const hold = new ProviderAccountNotificationHold();
     hold.begin();
     hold.hold(removalOf("acct-one"));
@@ -92,9 +86,8 @@ describe("ProviderAccountNotificationHold", () => {
   });
 
   it("counts an inherited frame against the cap rather than past it", () => {
-    // The cap bounds the BUFFER and not one attempt's share of it, so an inherited
-    // hold that fills degrades to the same re-read as any other. A cap re-based per
-    // attempt would let a run of superseded reads grow the buffer without bound.
+    // The cap bounds the buffer, not one attempt's share, so an inherited hold that fills
+    // degrades to a re-read; a per-attempt cap would let superseded reads grow it without bound.
     const hold = new ProviderAccountNotificationHold();
     hold.begin();
     for (let held = 0; held < PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP; held += 1) {

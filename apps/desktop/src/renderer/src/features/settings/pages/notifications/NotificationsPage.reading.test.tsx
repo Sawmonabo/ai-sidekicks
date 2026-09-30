@@ -1,5 +1,5 @@
-// What the operating system allows, said by the permission notice from each reading it
-// can be handed, and the page's rail entry.
+// What the operating system allows, said by the permission notice from each reading it can be
+// handed, and the page's rail entry.
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { NotificationPermissionNotice } from "./components/NotificationPermissionNotice.js";

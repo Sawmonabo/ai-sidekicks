@@ -1,10 +1,7 @@
-// A shell's control move, decoded at the bridge.
-//
-// A contracts schema is a parser, and every parse of a wire value happens in
-// `services/`, so the terminal lease reads what this returns and never the schema.
-// The schema's refinements are the point: a take that names no holder, or a release
-// that names one, has no trustworthy holder, and the lease line has to treat it as a
-// move it could not read rather than guess who holds the shell.
+// A shell's control move, decoded at the bridge. Every parse of a wire value happens in
+// `services/`, so the terminal lease reads what this returns and never the schema. The schema's
+// refinements matter: a take that names no holder, or a release that names one, has no
+// trustworthy holder, so the lease treats it as a move it could not read.
 
 import {
   PtyControlChangedPayloadSchema,

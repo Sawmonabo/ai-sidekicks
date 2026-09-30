@@ -1,15 +1,8 @@
-// The renderer scheme's identity and its Content-Security-Policy, on BOTH
-// documents that can carry it.
-//
-// The hardening baseline binds every renderer document, not merely the
-// packaged one. Two of them exist: the built bundle over
-// `sidekicks-renderer://` (headers from `./protocol.ts`) and, under
-// `electron-vite dev`, an HTTP document from the Vite dev server, which never
-// passes through that handler and would otherwise carry no policy at all. Both
-// policies are composed from ONE directive list in `./renderer-scheme.ts`, and
-// the parity assertion below is what keeps that true — a directive added to the
-// production policy alone would fail here rather than ship a dev renderer that
-// is quietly more permissive than the thing it stands in for.
+// The scheme's identity and its Content-Security-Policy on both documents that carry it: the
+// built bundle over `sidekicks-renderer://` (headers from `./renderer-protocol.ts`) and, under
+// `electron-vite dev`, the Vite dev server's HTTP document, which never passes through that
+// handler. Both policies come from one directive list, and the parity assertion fails if a
+// directive is added to the production policy alone.
 
 import { describe, expect, it } from "vitest";
 
@@ -60,17 +53,14 @@ describe("the production Content-Security-Policy", () => {
     ]) {
       expect(RENDERER_CONTENT_SECURITY_POLICY).toContain(directive);
     }
-    // No `unsafe-eval` and no inline script anywhere: both are the reason the
-    // bundle is served over a custom scheme at all.
+    // No `unsafe-eval` and no inline script anywhere.
     expect(RENDERER_CONTENT_SECURITY_POLICY).not.toContain("unsafe-eval");
     expect(RENDERER_CONTENT_SECURITY_POLICY).not.toContain("script-src 'self' 'unsafe-inline'");
   });
 });
 
 describe("the dev-server Content-Security-Policy", () => {
-  // The whole claim, asserted structurally rather than by string comparison:
-  // the dev policy is the production policy plus the HMR socket, and nothing
-  // else. A directive relaxed for development convenience fails here.
+  // Asserted structurally: the dev policy is the production policy plus the HMR socket.
   it("differs from the production policy in connect-src and nothing else", () => {
     const productionDirectives = parsePolicy(RENDERER_CONTENT_SECURITY_POLICY);
     const developmentDirectives = parsePolicy(RENDERER_DEV_CONTENT_SECURITY_POLICY);
@@ -112,9 +102,8 @@ describe("the dev server the renderer is loaded from", () => {
 
     const rendererServer = resolvedConfig.renderer?.server;
     expect(rendererServer?.port).toBe(RENDERER_DEV_SERVER_PORT);
-    // `strictPort` is load-bearing rather than tidy: the policy names the port
-    // literally, so a silent fallback to the next free one would leave HMR
-    // blocked by a policy that no longer matches the server it protects.
+    // `strictPort` is load-bearing: the policy names the port, so a silent fallback would leave
+    // HMR blocked by a policy that no longer matches the server.
     expect(rendererServer?.strictPort).toBe(true);
     expect(rendererServer?.headers).toMatchObject({
       "Content-Security-Policy": RENDERER_DEV_CONTENT_SECURITY_POLICY,

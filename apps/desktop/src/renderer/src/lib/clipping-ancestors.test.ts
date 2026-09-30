@@ -1,11 +1,4 @@
-// Which ancestors clip, the shape the answer is declared in, and which reading decides.
-//
-// Carried here from `browser/geometry/geometry-publisher.clipping.test.ts` when the walk
-// was hoisted out of that module: the vocabulary claims belong beside the vocabulary, and
-// the publisher's own suite keeps only the claim that it subtracts what the walk finds.
-// Two claims are new, and they are the ones the two copies disagreed about — an ancestor
-// declared with the `overflow` shorthand alone is found, and a readable axis is never
-// overruled by the shorthand.
+// Which ancestors clip, and which reading decides: the axes, with the shorthand as a fallback.
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -29,11 +22,8 @@ function attach(...elements: readonly HTMLElement[]): void {
 }
 
 /**
- * Report `declaration` for ONE element and `visible` on both axes for every other.
- *
- * Scoped rather than blanket, because the walk runs to the document root: a blanket
- * answer makes `body` and the document element clippers too, so every case would report
- * three ancestors whichever value it named, which is no test at all.
+ * Report `declaration` for one element and `visible` on both axes for every other. Scoped
+ * because the walk reaches the document root, and a blanket answer would make `body` clip too.
  */
 function withComputedStyle(subject: Element, declaration: Partial<CSSStyleDeclaration>): void {
   vi.spyOn(window, "getComputedStyle").mockImplementation(
@@ -66,9 +56,7 @@ describe("clippingAncestorsOf — the ancestors that clip", () => {
   it.each(["visible", "", "revert-layer", "hiddenish"])(
     "walks past an ancestor whose overflow is %o",
     (value) => {
-      // The empty string is the case the positive set exists for: a stylesheet-free
-      // document reports it for every box, and a `!== "visible"` reading would clip every
-      // pane to nothing and look exactly like a pane that never attached.
+      // The empty string is what a stylesheet-free document reports for every box.
       expect(ancestorsAbovePaneUnder({ overflowX: value, overflowY: value })).toStrictEqual([]);
     },
   );
@@ -78,11 +66,8 @@ describe("clippingAncestorsOf — the ancestors that clip", () => {
   });
 
   it("negative control: the union is closed over exactly the tuple", () => {
-    // A type-level foil, and it is the control on the declaration rather than on the
-    // behavior: adding a sixth value to the tuple without adding it here fails to
-    // compile, and so does naming one here that the tuple does not hold. Without it the
-    // cases above would pass over a tuple that had quietly grown a member no reader knew
-    // about.
+    // A type-level control: a value added to the tuple but not here, or here but not in the
+    // tuple, fails to compile.
     const everyClippingValue = {
       hidden: true,
       clip: true,
@@ -109,11 +94,8 @@ describe("clippingAncestorsOf — which reading decides", () => {
   });
 
   it("finds an ancestor declared with the overflow shorthand alone", () => {
-    // The pane layout's shape, driven through the tier's REAL document rather than a fake,
-    // because the reading being pinned is that document's: `happy-dom` reports the empty
-    // string for both axes of an element whose only declaration is the shorthand, so a
-    // walk that read the axes alone found nothing here — which is what the browser copy
-    // did, under the very tier both copies are tested in.
+    // Uses the tier's real document: `happy-dom` reports the empty string for both axes of an
+    // element styled with the shorthand alone, so a walk reading only the axes finds nothing.
     const scroller = document.createElement("div");
     scroller.style.overflow = "auto";
     const pane = document.createElement("div");
@@ -127,9 +109,7 @@ describe("clippingAncestorsOf — which reading decides", () => {
   });
 
   it("negative control: a readable axis is not overruled by the shorthand", () => {
-    // What makes the shorthand a FALLBACK rather than a third co-equal test. On a
-    // conformant engine the shorthand is serialized FROM the axes and cannot disagree
-    // with them, so a reading that let it win would be answering from the derived value.
+    // The shorthand is a fallback: a conformant engine derives it from the axes.
     const candidate = document.createElement("div");
     const pane = document.createElement("div");
     attach(candidate, pane);
@@ -163,9 +143,7 @@ describe("clippingAncestorsOf — the walk is lazy", () => {
   });
 
   it("reads no style above the ancestor a caller stopped at", () => {
-    // The property the pane layout's early exit rests on. An eager walk would take one
-    // `getComputedStyle` per ancestor to the document root on every pass, and a pass is
-    // armed on capture-phase document scroll.
+    // The pane layout's early exit relies on this; an eager walk reads every ancestor per pass.
     const outerClipper = document.createElement("div");
     const passThrough = document.createElement("div");
     const innerClipper = document.createElement("div");

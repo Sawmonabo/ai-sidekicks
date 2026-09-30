@@ -1,27 +1,14 @@
-// The pixels of a capture this tier took, decoded inside the page that took it.
+// The pixels of a capture this tier took, decoded inside the page that took it. Not a test file.
+// The tier compares nothing, so nothing it writes says whether the capture mechanism works: an
+// image can be stable, self-consistent and blank below the window's edge, because a Playwright
+// element screenshot is a clip in page coordinates and nothing composites an iframe's overflow. A
+// claim about what is in an image has to read the image.
 //
-// WHY A CAPTURE AID NEEDS ONE. The tier compares nothing, so nothing it writes can
-// say whether the capture mechanism works. The tall-capture defect made that concrete:
-// every image the tier held was stable, self-consistent, and blank below the window's
-// edge, because a Playwright element screenshot is a clip in page coordinates and
-// nothing composites an iframe's overflow. A claim about what is in an image has to
-// read the image.
-//
-// AND WHY THIS IS NOT A DECODER. The tier runs in Chromium. `createImageBitmap` is that
-// browser's own PNG decoder, and a canvas is its own pixel buffer, so a hand-written
-// inflate-and-unfilter here would be a second implementation of something the runtime
-// already has — which the shared-code rule in `apps/desktop/AGENTS.md` rejects in terms ("check the
-// `node:` standard library"; in a page the platform is the library). What is written
-// here is the one thing the platform does not give: the color-management pins that
-// keep a decode byte-exact.
-//
-// COLOR CONVERSION IS TURNED OFF, ON PURPOSE. A 2D canvas will happily convert a
-// decoded image into its own color space, and a capture read back through a conversion
-// is a capture nobody can assert an exact color against. `colorSpaceConversion: "none"`
-// and `premultiplyAlpha: "none"` on the decode, and an explicit `srgb` context, are what
-// make `rowColors` report the bytes the capture holds rather than a rendering of them.
-//
-// Not a test file — no `include` glob reaches it.
+// It is not a decoder: `createImageBitmap` is the browser's own PNG decoder and a canvas its own
+// pixel buffer. This adds only the color-management pins that keep a decode byte-exact; a 2D
+// canvas would otherwise convert into its own color space. `colorSpaceConversion: "none"`,
+// `premultiplyAlpha: "none"` and an explicit `srgb` context make `rowColors` report the bytes the
+// capture holds.
 
 /** One decoded capture, addressable by row. */
 export class CapturedPng {
@@ -36,11 +23,8 @@ export class CapturedPng {
   }
 
   /**
-   * Decode one PNG this page just captured.
-   *
-   * The bytes come from the capture itself rather than from a file read back off a
-   * path, which is what lets a probe assert on exactly the image it took: a path
-   * rebuilt from configuration could name a file some earlier run left behind.
+   * Decodes one PNG this page just captured. The bytes come from the capture itself, not a path
+   * rebuilt from configuration, which could name a file an earlier run left behind.
    */
   public static async decode(base64: string): Promise<CapturedPng> {
     const binary = atob(base64);
@@ -77,13 +61,9 @@ export class CapturedPng {
   }
 
   /**
-   * Every distinct color on one row, as `#rrggbb`, sorted.
-   *
-   * A SET rather than a sample, because the claims worth making about a capture are
-   * about a whole band: "this row is one color and it is this one" fails loudly on a
-   * row that is half right, which a spot check at one x does not. Hex rather than a
-   * tuple so a failure prints something a reader recognizes, and alpha is dropped
-   * because a capture of an opaque element has none to report.
+   * Every distinct color on one row, as `#rrggbb`, sorted. A set rather than a sample, because
+   * the claims worth making are about a whole band and fail loudly on a row that is half right.
+   * Alpha is dropped since a capture of an opaque element has none to report.
    */
   public rowColors(row: number): readonly string[] {
     if (row < 0 || row >= this.#height) {

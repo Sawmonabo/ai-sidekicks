@@ -1,32 +1,14 @@
-// Diff models the diff views are built and measured against, until a wire makes one.
+// Diff models the diff views are built and measured against, until a wire produces one.
 //
-// THE FIXTURE STAND-IN FOR AN ABSENT OWNER. Nothing in the running console produces a
-// `DiffModel`, because no daemon method returns patch bytes. This module is the
-// fixture that stands in the producer's place — DELETED, not filled, the day a wire hands
-// the console patch bytes, along with `diff-fixture-shapes.test-support.ts`,
-// `diff-fixture-patch.test-support.ts`, and every import of the three. What survives that
-// deletion is `patch-parse.ts`, which is the producer itself.
+// Nothing in the running console produces a `DiffModel` (no daemon method returns patch bytes), so
+// this fixture stands in for the producer. It is deleted when a wire supplies patch bytes, along
+// with `diff-fixture-shapes.ts`, `diff-fixture-patch.test-support.ts` and their imports;
+// `patch-parse.ts` is the real producer and stays. Only tests import it, so it cannot ship.
 //
-// IT IS NOT IMPORTED BY ANY RENDERING PATH. The pane and the card take their
-// model as a prop and render an honest absence without one; only tests reach for
-// this file. That is deliberate: a fixture the application could reach is a
-// fixture that can ship, and the console's one legitimate fixture seam is the
-// fixture composition, gated by `__FIXTURE_BUILD__`.
-//
-// IT GENERATES A PATCH AND PARSES IT, rather than assembling the model directly. `diff`
-// 9.0.0 is adopted for parse and intraline compute, and a fixture that hand-built hunk
-// headers, line numbers, and word-level
-// segments would be a second implementation of exactly that — one the tiers would
-// then be measuring INSTEAD of the parser a wire will call. Two things this buys
-// beyond the deletion: the line numbers are the ones the format produces (a base
-// number and a head number advance on different sides, which a hand-built lockstep
-// gets wrong), and the intraline segments are jsdiff's, so a renderer case that
-// passes here passes against real word-diff output.
-//
-// WHAT THIS MODULE ITSELF DOES is the part a patch cannot: the hidden context above
-// each hunk, which the unified format has no representation for at all. The shapes are
-// `diff-fixture-shapes.test-support.ts`'s and the patch text is
-// `diff-fixture-patch.test-support.ts`'s.
+// It generates a patch and parses it rather than building the model by hand, so the tiers measure
+// the parser a wire will call: line numbers advance on the base and head sides as the format says,
+// and intraline segments are jsdiff's word diff. This module adds only the hidden context above
+// each hunk, which the unified format cannot represent.
 
 import { buildPatchText } from "./diff-fixture-patch.test-support.js";
 import type { DiffFixtureShape } from "./diff-fixture-shapes.js";
@@ -37,20 +19,17 @@ import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js"
 const FIXTURE_COMPARED_STATES = { baseRef: "main", headRef: "feat/rate-limit-wiring" } as const;
 
 /**
- * Build a diff of a named shape.
+ * Builds a diff of a named shape.
  *
- * The patch is generated, parsed, and then given the one thing a patch cannot
- * carry: the hidden context above each hunk (`patch-parse.ts` explains why a parsed
- * hunk has none).
+ * The patch is generated and parsed, then given the hidden context above each hunk, which a parsed
+ * hunk lacks.
  */
 export function buildDiffFixture(shape: DiffFixtureShape): DiffModel {
   const parsed = parseUnifiedPatch(buildPatchText(shape), FIXTURE_COMPARED_STATES);
   return {
     ...parsed,
     files: parsed.files.map((file) => ({
-      // SPREAD, so what the parser read off the extended headers survives. Rebuilding
-      // the file from `path` and `hunks` alone is exactly the drop this fixture would
-      // otherwise reintroduce below the parser that stopped making it.
+      // Spread so what the parser read off the extended headers survives.
       ...file,
       hunks: file.hunks.map((hunk, hunkOrdinal) => ({
         header: hunk.header,
@@ -62,10 +41,9 @@ export function buildDiffFixture(shape: DiffFixtureShape): DiffModel {
 }
 
 /**
- * How many lines a shape's hunks hold. The endurance tier's headline figure.
+ * How many changed lines a shape's hunks hold: the endurance tier's headline figure.
  *
- * The terminator file's pair is counted because it IS a pair of changed lines; the
- * four header files add none, which is why they need no term here.
+ * The terminator file's deleted and inserted pair counts; the header files add none.
  */
 export function fixtureChangedLineCount(shape: DiffFixtureShape): number {
   return (
@@ -80,9 +58,8 @@ const TERMINAL_NEWLINE_CHANGED_LINE_COUNT = 2;
 /**
  * The hidden context above one hunk.
  *
- * Context by construction — every line is a context line, because that is what a
- * gap between two hunks holds — and built rather than parsed, for `patch-parse.ts`'s
- * reason: a unified patch has no representation for it at all.
+ * Every line is context, as a gap between two hunks holds, and it is built rather than parsed
+ * because a unified patch cannot represent it.
  */
 function buildPrecedingContext(
   shape: DiffFixtureShape,

@@ -1,8 +1,5 @@
-// What both halves of the capability suite build their cases out of.
-//
-// A driver's report, the counting bridge that answers it, and the probe that consumes the
-// hook, written once so the read's cases and the pure readers' cases cannot drift into
-// disagreeing about what a report looks like.
+// What both halves of the capability suite build their cases from: a driver's report, the counting
+// bridge that answers it, and the probe that consumes the hook.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 import { bridgeAnswering, type RecordedDaemonCall } from "@test/helpers/fixture-bridge.js";
@@ -11,6 +8,7 @@ import type { PlatformBridge } from "../platform/platform-bridge.js";
 import { useDriverCapabilities } from "./useDriverCapabilities.js";
 import { type DriverCapabilityReadout } from "@renderer/store/driver-capabilities/driver-capability-readout.js";
 
+/** A bridge that answers capability reads and records every call. */
 export interface CountingBridge {
   readonly bridge: PlatformBridge;
   /** The clock the bridge's window runs on: the scenario's frozen one. */
@@ -33,17 +31,10 @@ export function reportFor(driverName: string, declared: readonly DriverCapabilit
 }
 
 /**
- * The shipped fixture answering the capability read, and the record of every call.
- *
- * `answers` is walked in order, so a case about a node whose drivers changed between
- * two reads says so by supplying two replies; the last one stands for every read
- * after it, which is what a node that stopped changing does.
- *
- * Built on the shared `bridgeAnswering` rather than a private bridge cast to
- * `PlatformBridge`: the fixture bridge answers every other member honestly and
- * carries the scenario engine whose clock the scheduler runs on, which is why
- * `settleScheduledRead` settles these reads with the same call every other suite
- * makes.
+ * The shipped fixture answering the capability read, and the record of every call. `answers` is
+ * walked in order and the last one stands for every read after it. It uses the shared
+ * `bridgeAnswering` so the engine's clock drives the scheduler, and `settleScheduledRead` works as
+ * in every other suite.
  */
 export function answeringCapabilityReads(...answers: readonly unknown[]): CountingBridge {
   let answered = 0;

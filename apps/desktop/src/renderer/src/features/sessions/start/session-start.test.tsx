@@ -1,8 +1,5 @@
-// What the destination's acts do once they are handed a session.
-//
-// Driven through `sessionDestinationActs` against a recording context: the acts are
-// what a composed send and an attention item reach, and every step is a call on a
-// store or a route, so a case reads what was called and nothing is mounted.
+// What the destination's acts do once they are handed a session, driven through
+// `sessionDestinationActs` against a recording context so nothing is mounted.
 
 import { describe, expect, it } from "vitest";
 
@@ -27,9 +24,7 @@ describe("a settled composed send", () => {
   });
 
   it("does not open a store through a registry this window has already left", () => {
-    // `open` is the one registry call that raises rather than returning a refusal, so
-    // a settlement landing after a bridge replacement would otherwise take the rest of
-    // the act, the navigation included, with it.
+    // `open` raises on a disposed registry, which would otherwise take the navigation with it.
     const navigations: unknown[] = [];
 
     sessionDestinationActs(
@@ -43,8 +38,7 @@ describe("a settled composed send", () => {
 
 describe("an attention item", () => {
   it("opens the session it belongs to and not the route's", () => {
-    // The destination's address names no session, so a navigation composed from the
-    // route would open nothing at all.
+    // The destination's address names no session, so navigating from the route would open none.
     const navigations: unknown[] = [];
 
     sessionDestinationActs(contextWith({ navigations }), () => undefined).openAttentionItem({

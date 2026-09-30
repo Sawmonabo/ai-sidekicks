@@ -8,24 +8,16 @@ import { mcpLiveLegKeyOf } from "../live-leg-key.js";
 import type { McpMutationOutcome } from "../mcp-mutation.js";
 
 /**
- * What the last mutation on one binding did — where it took effect, and what happened
- * on each live leg.
+ * What the last mutation on one binding did: where it took effect, and what happened on each
+ * live leg.
  *
- * A PARTIAL OUTCOME IS RENDERED AS A PARTIAL OUTCOME. A mutation can commit durably
- * and still fail on one session's leg, and the reply carries both facts. A line
- * that showed one aggregate verdict would report that as a success and leave a session
- * running against a binding the operator believes is off — which is the failure this
- * whole per-leg shape exists to prevent.
- *
- * `applied` IS RENDERED VERBATIM AND NEVER TRANSLATED INTO "DONE". Where a change took
- * effect is the operator's question: `live_reconcile` reached running sessions,
- * `user_config_write` reached a file, `next_run` reaches nothing until one starts, and
- * `daemon_enforced` binds at the daemon and touches no provider configuration at all.
- * Four different facts, and one word for all of them would be the wrong word for three.
- *
- * NO LIVE RESULTS AND AN EMPTY LIST ARE DIFFERENT FACTS. The member is absent where
- * the mutation touched no live binding; it is an empty array only if the daemon says
- * so. Both are rendered, and they do not share a sentence.
+ * A partial outcome renders as one: a mutation can commit durably and fail on one session's
+ * leg, and one aggregate verdict would leave a session running against a binding the operator
+ * believes is off. `applied` renders verbatim, never as "done": `live_reconcile` reached
+ * running sessions, `user_config_write` reached a file, `next_run` reaches nothing until a run
+ * starts, and `daemon_enforced` binds at the daemon and touches no provider configuration. Absent
+ * live results (the mutation touched no live binding) and an empty list (the daemon looked and
+ * found none) are different facts with different sentences.
  */
 export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcome }): ReactNode {
   const { outcome } = props;
@@ -60,16 +52,8 @@ export function MutationOutcomeLine(props: { readonly outcome: McpMutationOutcom
 }
 
 /**
- * The per-leg outcomes, one row each.
- *
- * A camelCase helper rather than a second component, on the `primitives/absence/Nothing.tsx`
- * precedent: a `.tsx` module declares one component, and this list body has no
- * identity outside its one caller.
- *
- * KEYED BY THE SAME PAIR THE LEG LIST USES, through the same encoder. A live result
- * names the session and the binding for the same reason a leg status does — one
- * mutation can reach several sessions holding one binding open — so the two lists that
- * render a leg key it one way rather than two.
+ * The per-leg outcomes, one row each, keyed by the same pair and encoder as the leg list.
+ * A helper rather than a second component: one component per file.
  */
 function renderLiveResults(results: readonly McpLiveApplicationResult[]): ReactNode {
   if (results.length === 0) {

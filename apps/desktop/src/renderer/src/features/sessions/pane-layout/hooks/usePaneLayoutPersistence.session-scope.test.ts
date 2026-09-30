@@ -1,17 +1,10 @@
-// What a route from one session to another leaves on the pane layout.
-//
-// The session screen stays MOUNTED across a navigation between two open sessions — the
-// session store registry keeps every store it opened until the window goes away — so
-// anything this hook holds for the life of the mount is held across sessions too. The
-// restore refusals were exactly that: a session whose saved arrangement could not be
-// read set them, and a session that restored cleanly never replaced them, so the pane
-// layout went on showing the first session's restore errors under the second
-// session's panes.
-//
-// Every case drives the real hook against a real `PaneLayoutStore` and a real store through
-// `layout-persistence.test-support.tsx`, which is where the mount and the route live.
-// The ordering claims are `layout-persistence.restore-order.test.tsx`' and the failed
-// read is `layout-persistence.read-failure.test.tsx`'.
+// What a route from one session to another leaves on the pane layout. The session screen stays
+// mounted across a navigation between two open sessions, so anything the hook holds for the
+// life of the mount is held across sessions: the restore refusals once outlived the session
+// that raised them and showed under the next session's panes. Every case drives the real hook
+// through `usePaneLayoutPersistence.test-support.tsx`. Ordering is in
+// `usePaneLayoutPersistence.restore-order.test.ts` and the failed read in
+// `usePaneLayoutPersistence.read-failure.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -30,10 +23,8 @@ const SECOND_SESSION = "session-restore-second";
 
 describe("usePaneLayoutPersistence — restore refusals belong to the session that raised them", () => {
   it("stops showing one session's restore refusals once another session has restored", async () => {
-    // The defect: the refusals were mount state. A person who opened a session whose
-    // saved layout could not be read, then navigated to a session that restored
-    // cleanly, was shown the first session's errors over the second session's pane layout —
-    // with nothing on screen tying them to a session they had left.
+    // The refusals were mount state, so a session whose layout could not be read left its
+    // errors over the next session's panes with nothing tying them to a session already left.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
     const mounted = mountPersistence(createPaneLayoutStore(), store);
@@ -43,14 +34,14 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
     mounted.routeTo(SECOND_SESSION);
     await drain();
 
-    // The second session has no record at all, which is a settled restore with nothing
-    // to refuse — and a settled restore replaces, empty report included.
+    // The second session has no record, which is a settled restore with nothing to refuse, and
+    // a settled restore replaces the reading.
     expect(mounted.restoreRefusalCodes()).toStrictEqual([]);
   });
 
   it("shows nothing for a session whose restore has not settled yet", async () => {
-    // The other half of "replace on every settled restore": before one settles there is
-    // no reading to show, and the previous session's is not a stand-in for it.
+    // The other half of "replace on every settled restore": before one settles there is no
+    // reading, and the previous session's is not a stand-in.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
     const mounted = mountPersistence(createPaneLayoutStore(), store);
@@ -58,15 +49,13 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
 
     mounted.routeTo(SECOND_SESSION);
 
-    // Routed, and the second session's read has not landed: the refusals are already
-    // gone rather than lingering until something replaces them.
+    // The refusals are gone at once, not lingering until something replaces them.
     expect(mounted.restoreRefusalCodes()).toStrictEqual([]);
     await drain();
   });
 
   it("shows the second session's own refusals where it has them", async () => {
-    // Replacement rather than clearing: a session that cannot read its own arrangement
-    // says so, whatever the session before it said.
+    // Replacement rather than clearing: a session that cannot read its arrangement says so.
     const store = memoryStore();
     await savePaneLayout(store, ["transcript"], RESTORE_SESSION_ID);
     await savePaneLayoutInUnknownVersion(store, SECOND_SESSION);
@@ -81,8 +70,7 @@ describe("usePaneLayoutPersistence — restore refusals belong to the session th
   });
 
   it("negative control: a session that refuses its restore renders that refusal at all", async () => {
-    // Without this, a hook that returned an empty list for every session would pass the
-    // two cases above — and no restore would ever report anything.
+    // Without this, a hook that returned an empty list would pass the two cases above.
     const store = memoryStore();
     await savePaneLayoutInUnknownVersion(store, RESTORE_SESSION_ID);
     const mounted = mountPersistence(createPaneLayoutStore(), store);

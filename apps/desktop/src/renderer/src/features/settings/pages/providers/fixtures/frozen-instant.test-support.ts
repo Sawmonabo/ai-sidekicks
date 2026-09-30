@@ -1,21 +1,11 @@
-// The one instant every frozen-clock suite in this console starts at.
+// The instant the frozen-clock suites of these fixtures start at.
 //
-// One reader for one stamp. Four homes held this literal — a feature's
-// `.test-support.ts` two other features cannot import, a copy inside one suite, and
-// two `test/console/` tiers that spelled it `Date.parse("…")` — which the console
-// bans outright and for a reason that bites test data as hard as wire data:
-// `Date.parse` reads a timezone-less stamp in the HOST's zone, reads a date-only
-// string in UTC, and NORMALIZES a day that does not exist into the next one,
-// answering a number in every case. A frozen start that silently moved by a day, or
-// by the runner's offset, is a case that turns on where it ran.
-//
-// So the stamp goes through `parseInstant`, which refuses rather than normalizes,
-// and the refusal is raised here rather than defaulted: a start instant nobody could
-// read is a broken fixture, and standing one up at epoch zero would run every case
-// against a clock forty years from the data it drives.
-//
-// IT LIVES IN `core/` because `core/` is the bottom of the import order and every
-// feature plus every `test/console/` tier may reach it.
+// The stamp goes through `parseInstant`, which refuses rather than normalizes. `Date.parse`
+// reads a timezone-less stamp in the host's zone, reads a date-only string in UTC, and
+// normalizes a day that does not exist into the next, so a frozen start could silently move by
+// a day or the runner's offset. The refusal is raised here rather than defaulted: a start
+// instant nobody could read is a broken fixture, and epoch zero would run every case against a
+// clock decades from its data.
 
 import { parseInstant } from "@renderer/lib/instant.js";
 
@@ -25,17 +15,9 @@ export const FROZEN_START_ISO = "2026-01-01T10:00:00.000Z";
 /**
  * Any wire stamp a case names, as epoch milliseconds, through the console's reader.
  *
- * HERE RATHER THAN IN EACH SUITE THAT WANTS ONE. The stamp above is the frozen START
- * and several suites need a DIFFERENT moment — a read taken two weeks after an
- * observation, a clock read at the top of a stall case — and each of them reached for
- * `Date.parse` to get it, which is the reading this module exists to keep out of test
- * data. The general form is the same three lines as the specific one and belongs in
- * the same file, so a suite naming its own moment has somewhere to go that is not the
- * banned call.
- *
- * It RAISES rather than defaulting, for the reason the frozen start does: a stamp a
- * case wrote and nobody can read is a broken fixture, and standing one up at epoch
- * zero would run the case against a clock decades from its own data.
+ * Here so a suite naming its own moment (a read two weeks after an observation, a clock read
+ * in a stall case) has somewhere to go other than `Date.parse`. It raises rather than
+ * defaulting, like the frozen start.
  */
 export function instantMilliseconds(iso: string): number {
   const reading = parseInstant(iso);

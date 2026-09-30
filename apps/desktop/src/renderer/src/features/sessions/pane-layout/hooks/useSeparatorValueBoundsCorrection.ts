@@ -3,12 +3,11 @@ import { useLayoutEffect } from "react";
 import { correctSeparatorValueBounds } from "../separator-value-bounds.js";
 
 /**
- * Run the correction after every commit that could have re-rendered a separator.
+ * Corrects separator value bounds after every commit that could have re-rendered a separator.
  *
- * `layoutRevision` is the dependency rather than an empty list: the library
- * recomputes the range whenever the panel set or the widths change, and each
- * recompute reintroduces the swap. A `MutationObserver` would catch the same
- * changes and would also fire on its own writes, which is a loop this does not have.
+ * Keyed on `layoutRevision` because the library recomputes the range, and reintroduces the
+ * swap, whenever the panel set or widths change. A `MutationObserver` would also fire on
+ * this correction's own writes.
  */
 export function useSeparatorValueBoundsCorrection(
   container: React.RefObject<HTMLElement | null>,

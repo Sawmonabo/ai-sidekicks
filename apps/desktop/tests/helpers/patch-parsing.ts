@@ -1,12 +1,9 @@
-// What every patch-parse case is driven against: one plain patch, and the two
-// accessors that read one out of it.
+// What every patch-parse case is driven against: one plain patch and the two accessors that read
+// one out of it.
 //
-// A SUPPORT MODULE BECAUSE TWO SUITES PARSE THE SAME WAY. `patch-parse.test.ts` owns
-// the hunk header, the line kinds, and the intraline segments a changed pair produces;
-// `patch-parse.file-shapes.test.ts` owns the files whose whole change is in their
-// extended headers. Both parse through the same fixed compared-states pair, and a second
-// copy of it in either suite would be a second definition of what a patch is being
-// parsed FOR.
+// Shared by `patch-parse.test.ts` (hunk header, line kinds, intraline segments) and
+// `patch-parse.file-shapes.test.ts` (files whose change is in their extended headers), which
+// parse through the same fixed compared-states pair.
 
 import { parseUnifiedPatch } from "@renderer/features/repos/diff/patch-parse.js";
 import type { DiffLine } from "@renderer/features/repos/diff/diff-model.js";

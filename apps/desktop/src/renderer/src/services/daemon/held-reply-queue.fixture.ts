@@ -1,49 +1,21 @@
-// The replies a scenario has parked on its frozen clock, and the bound on how many.
-//
-// A `ScenarioReply` carrying `afterMs` is a request that has not been answered yet,
-// and on a frozen clock the only thing that can answer it is the caller moving that
-// clock. Holding them beside the engine rather than in the bridge is what keeps the
-// frozen clock the single source of scenario time — a bridge that spent the delay
-// itself would be a second clock, and the one property the engine exists for is that
-// there is only one.
-//
-// SPLIT OUT OF `scenario-engine.ts` BECAUSE IT IS THE OTHER JOB THAT FILE WAS DOING.
-// The engine owns scenario TIME — one clock, one tick, one delivered-beat cursor, and
-// the replay a late subscriber gets. This module owns SCHEDULING against that time:
-// which parked replies are due, in what order they settle, and what happens to the
-// ones that are still parked when the engine goes away. The two meet at exactly two
-// calls, `releaseThrough` on every advance and `abandonAll` on teardown, which is what
-// makes the seam a seam rather than a cut through the middle of one thing.
-//
-// NOTHING HERE READS A CLOCK. Every method takes the elapsed instant it is judging
-// against, because the engine holds the only clock in fixture mode and a second reader
-// of it here would be a second opinion about what time it is — the property the engine
-// exists to keep. This module knows about ordering and about a cap; it does not know
-// when now is.
+// The replies a scenario has parked on its frozen clock, and the bound on how many. A
+// `ScenarioReply` carrying `afterMs` is unanswered until the caller moves the clock, and holding
+// it beside the engine keeps that clock the single source of scenario time. The engine owns time;
+// this module owns scheduling against it: which parked replies are due, in what order they settle,
+// and what happens to those still parked at teardown. It reads no clock; every method takes the
+// elapsed instant it judges against.
 
 /**
- * How a held reply ended.
- *
- * Three outcomes rather than a promise that resolves or hangs, because two of
- * them are refusals the caller has to render: an engine torn down under a request
- * and a backlog that is already full both leave the caller with nothing to show,
- * and a promise that never settles leaves a view loading for the life of the
- * window. The engine reports which; naming the refusal belongs to the bridge.
+ * How a held reply ended. Three outcomes rather than a promise that hangs: an abandoned reply
+ * or a full backlog leaves the caller nothing to show, and a promise that never settles leaves a
+ * view loading for the life of the window. The bridge names the refusal.
  */
 export type ScenarioReplyOutcome = "due" | "abandoned" | "backlog-full";
 
 /**
- * The replies a scenario is holding, and the bound on how many.
- *
- * Its own class rather than an array field on the engine because it owns a rule
- * the engine does not otherwise have: entries leave in DUE order, not in call
- * order, so two calls made together with different scripted latencies settle in
- * the order a real transport would settle them. Keeping that in one place is what
- * stops `advance` from growing a second sort.
- *
- * USED BY THE ENGINE ALONE. The engine is its only reader, and exporting a class one
- * sibling constructs for wider use would publish an edge into the engine's own
- * internals to every reader of the engine.
+ * The replies a scenario is holding, and the bound on how many. Entries leave in due order, not
+ * call order, so calls with different scripted latencies settle as a real transport would. Used
+ * by the engine alone.
  */
 export class HeldReplyQueue {
   readonly #held: HeldScenarioReply[] = [];
@@ -67,17 +39,13 @@ export class HeldReplyQueue {
   }
 
   /**
-   * Settle every reply due at or before `elapsedMs`, earliest first.
-   *
-   * The entries are removed BEFORE any of them is settled, so a continuation that
-   * issues another delayed call cannot be released by the same pass that released
-   * the call it came from. `sort` is stable, so replies sharing a due tick settle
-   * in the order they were made.
+   * Settle every reply due at or before `elapsedMs`, earliest first. Entries are removed before
+   * any is settled, so a continuation that issues another delayed call is not released by the
+   * same pass. The sort is stable, so replies sharing a tick settle in call order.
    */
   public releaseThrough(elapsedMs: number): void {
     if (this.#held.length === 0) {
-      // The common case by far — every advance of a scenario that scripts no
-      // latency reaches here — and it allocates nothing.
+      // The common case (a scenario with no latency); allocates nothing.
       return;
     }
     const due: HeldScenarioReply[] = [];

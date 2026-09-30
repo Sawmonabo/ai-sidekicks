@@ -1,18 +1,11 @@
-// What the four acts this destination offers actually DO, bound to one context.
+// What the destination's acts do, bound to one screen context. Kept apart from
+// `SessionsFlyout.tsx`, which says what is drawn: nothing here renders, so a suite can drive an
+// act without mounting a screen.
 //
-// APART FROM `SessionsFlyout.tsx`, the destination's frame: that file says what is
-// drawn and where, and these are what a press performs. The seam is clean because
-// nothing here renders — every act below is a call on a store, a registry or a route,
-// and a suite can drive one without mounting a screen.
-//
-// FOUR ACTS AND ONE NAVIGATION, and the navigation is shared on purpose. Opening a
-// session from a row, from an attention item, and after a start are the same act —
-// "open the session this thing belongs to" — so they are declared together and no two
-// views can drift into a second answer for where a press goes.
-//
-// AN ATTENTION ITEM RESOLVES NOTHING BY BEING OPENED. Resolution lives in the daemon,
-// and the notification center offers no dismiss precisely because a client-side one
-// would be a heuristic standing in for it.
+// Opening a session from a row, from an attention item, and after a start are the same
+// navigation, declared once so views cannot drift on where a press goes. Opening an attention
+// item resolves nothing: resolution lives in the daemon, and a client-side dismiss would be a
+// heuristic standing in for it.
 
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 import type { AttentionItem } from "@ai-sidekicks/contracts";
@@ -22,26 +15,15 @@ import { settleSessionStart } from "./start/session-start.js";
 export interface SessionDestinationActs {
   readonly openSession: (sessionId: string) => void;
   readonly openAttentionItem: (item: AttentionItem) => void;
-  /** What a session started HERE settles into, for both ways of starting one. */
+  /** What a session started here settles into, for both ways of starting one. */
   readonly settleStartedSession: (sessionId: string) => void;
-  /** Declare the node's directory stale, so this destination's list re-reads it. */
+  /** Declares the node's directory stale, so this destination's list re-reads it. */
   readonly recheckSessionDirectory: () => void;
 }
 
 /**
- * Bind the destination's acts to one screen context.
- *
- * NOT A HOOK AND NOT MEMOIZED, on the rule `ScreenContext` itself states: the
- * context is composed fresh on every frame render, so a dependency array naming it
- * memoizes nothing. Nothing here needs a stable identity either — every consumer is
- * rendered by the screen on every pass regardless, and the one callback that IS read
- * outside a render is read through the commit-time ref its own control holds.
- *
- * A mount-lifetime cell naming a session is the shape the console holds through its
- * one subject-keyed holder, so a callback capturing a session id would be a shape a
- * reviewer has to stop and check.
- * These capture the CONTEXT and take the session as an argument, which is why they do
- * not.
+ * Binds the destination's acts to one screen context. A plain function, not a hook: the acts
+ * capture the context and take the session as an argument, so none holds a session id.
  */
 export function sessionDestinationActs(
   context: ScreenContext,
@@ -55,8 +37,7 @@ export function sessionDestinationActs(
     openAttentionItem: (item) => {
       openSession(item.sessionId);
     },
-    // ONE SITE, because there is one act: `session-start.ts` is the three things that
-    // follow a session this window started.
+    // `session-start.ts` holds the three steps that follow a session this window started.
     settleStartedSession: (sessionId) => {
       settleSessionStart({
         sessionStoreRegistry: context.sessionStoreRegistry,
@@ -65,9 +46,8 @@ export function sessionDestinationActs(
         sessionId,
       });
     },
-    // The composed draft's only remaining move after a create whose reply could not be
-    // read: a session may exist under a name nothing in this window holds, and the
-    // directory is the read that would answer.
+    // After a create whose reply could not be read, the session may exist under an id nothing
+    // in this window holds; the directory read is what would name it.
     recheckSessionDirectory: recheckDirectory,
   };
 }

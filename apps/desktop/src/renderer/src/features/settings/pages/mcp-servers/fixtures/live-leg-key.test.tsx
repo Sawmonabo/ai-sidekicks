@@ -1,15 +1,9 @@
 // Two legs of one binding, in two sessions, under one `bindingId`.
 //
-// THE DEFECT THIS PINS. Both lists that render a leg keyed it by `bindingId` alone,
-// while the registered live-leg identity is `(sessionId, bindingId)`. Two sessions
-// holding one configuration open can report the same handle, so the two rows shared a
-// React identity — and React reuses the wrong row when a leg is added, removed, or
-// reordered, putting one session's status beside the other session's id.
-//
-// THE READING IS REACT'S OWN REPORT, and it is proved non-vacuous rather than trusted:
-// the last case renders the same data through a list keyed the old way and asserts the
-// warning IS raised, so a clean result above means the keys are distinct and not that
-// nothing was ever watching.
+// Keying a leg by `bindingId` alone, while the live-leg identity is `(sessionId, bindingId)`,
+// gives two sessions holding one configuration one React identity. The reading is React's own
+// report, proved non-vacuous by the last case, which renders a single-field keying and asserts
+// the warning is raised.
 
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -32,7 +26,7 @@ afterEach(() => {
 
 const FIRST_SESSION = "019b7892-1a00-7c31-8110-cca0117a0500" as SessionId;
 const SECOND_SESSION = "019b7892-1a00-7c31-8110-cca0117a0501" as SessionId;
-/** One handle, reported by both sessions — which is what the pair key has to survive. */
+/** One handle reported by both sessions, which the pair key has to survive. */
 const SHARED_BINDING_ID = "leg-filesystem";
 
 const LEGS_SHARING_A_HANDLE: readonly McpServerLegStatus[] = [
@@ -86,8 +80,8 @@ describe("mcpLiveLegKeyOf", () => {
     );
   });
 
-  // The negative control on the JOIN, not on the pair: both members are wire strings
-  // this console does not author, so a separator either may contain is not one.
+  // Negative control on the join: both members are wire strings, so a separator either may
+  // contain is not one.
   it("keeps two pairs apart that a separator join would fold together", () => {
     expect(mcpLiveLegKeyOf({ sessionId: "session one", bindingId: "leg" })).not.toBe(
       mcpLiveLegKeyOf({ sessionId: "session", bindingId: "one leg" }),
@@ -122,9 +116,8 @@ describe("the two lists that render a live leg", () => {
     expect(rows[1]).toContain("failed");
   });
 
-  // The negative control for the two clean results above: the same data through the
-  // single-field keying DOES raise React's report, so a clean reading means the keys
-  // are distinct rather than that nothing was watching.
+  // Negative control for the two clean results above: the single-field keying raises React's
+  // report, so a clean reading means the keys are distinct.
   it("negative control: the single-field keying raises React's duplicate-key report", async () => {
     const { reported } = await reportsWhileReactRan(() =>
       render(

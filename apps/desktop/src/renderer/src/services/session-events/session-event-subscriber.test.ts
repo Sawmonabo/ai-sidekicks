@@ -1,15 +1,9 @@
-// The wire reaches the store, and only through the one subscriber.
-//
-// Everything here runs against the REAL fixture bridge playing the REAL concurrent-streaming
-// scenario on the REAL frozen clock the engine builds. That is not ceremony: the
-// gap this class closes was that `SessionStoreRegistry.enqueue` had no caller and
-// nothing subscribed to `daemon.subscribe`, and a test driving a hand-written
-// stand-in for either end would have passed over exactly that gap.
-//
-// Each case has a control that fails the way the regression would. The sharpest
-// one is the first: without the binder, the same scenario advanced the same way
-// reaches the registry not at all — so "the count grew" is a claim about this
-// class rather than about the fixture being noisy.
+// The wire reaches the store, and only through the one subscriber. Everything runs against the real
+// fixture bridge playing the real concurrent-streaming scenario on the engine's frozen clock, since
+// hand-written stand-ins for either end would pass over the gap this class closes (nothing called
+// `SessionStoreRegistry.enqueue` or `daemon.subscribe`). Each case has a control that fails the way
+// the regression would; the sharpest is the first, where without the subscriber the same advance
+// reaches the registry not at all.
 
 import { beforeEach, describe, expect, it } from "vitest";
 import { withDaemonSubscribe } from "@test/helpers/fixture-bridge.js";
@@ -31,9 +25,8 @@ const BEATS_THROUGH_THIRD_BEAT = CONCURRENT_STREAMING_SCENARIO.beats.filter(
   (beat) => beat.atMs <= THROUGH_THIRD_BEAT_MS,
 ).length;
 
-// Tripwires throw in development so a breach is impossible to ignore. Under test
-// they are RECORDED instead, because these cases assert that a breach was detected
-// and described — a throw would only prove it was noticed.
+// Tripwires throw in development; under test they are recorded, because these cases assert that a
+// breach was detected and described.
 beforeEach(() => {
   windowTripwires.setThrowOnReport(false);
   windowTripwires.reset();
@@ -54,9 +47,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     expect(binder.droppedAfterCloseCount).toBe(0);
     expect(binder.unreadableDeliveryCount).toBe(0);
 
-    // The count above is an ADMISSION count, so it moves before the queue drains.
-    // Draining is the half that proves the events actually reached the store's
-    // chokepoint rather than sitting in a queue nothing ever empties.
+    // The count above is an admission count and moves before the queue drains; draining proves the
+    // events reached the store's chokepoint.
     engine.advance(APPLY_COALESCE_MS + 1);
     expect(registry.applyDrainCountFor(SESSION_ID)).toBeGreaterThan(0);
 
@@ -64,8 +56,7 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
   });
 
   it("negative control: the same scenario reaches a registry with no binder not at all", () => {
-    // The control that makes the case above non-vacuous. Same registry, same
-    // bridge, same advance — and the only difference is that nothing subscribes.
+    // The control for the case above: same registry, bridge and advance, but nothing subscribes.
     const { registry, engine } = createHarness();
     registry.open(SESSION_ID);
 
@@ -77,9 +68,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
   });
 
   it("binds a session that was already open before it attached", () => {
-    // The lost-open race, driven in the order that loses it: the session is open
-    // before the binder ever subscribes to the registry, so a binder that only
-    // listened for CHANGES would never hear about this one.
+    // The lost-open race in the order that loses it: the session is open before the subscriber
+    // subscribes to the registry, so one listening only for changes would never hear of it.
     const { registry, binder, engine } = createHarness();
     registry.open(SESSION_ID);
     binder.attach();
@@ -107,21 +97,18 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     expect(countAtClose).toBe(BEATS_THROUGH_THIRD_BEAT);
     expect(binder.appliedEventCountFor(SESSION_ID)).toBe(countAtClose);
     expect(binder.boundSessionIds).toEqual([]);
-    // The subscription is released rather than merely ignored: a binder that kept
-    // filtering after the close would leave the wire delivering into this window
-    // for the rest of its life.
+    // The subscription is released, not merely ignored, or the wire would keep delivering into this
+    // window.
     expect(engine.sinkCount).toBe(0);
-    // Nothing raced, so nothing was dropped — which is what distinguishes this
-    // case from the one below rather than the two sharing an outcome.
+    // Nothing raced, so nothing was dropped, which distinguishes this from the case below.
     expect(binder.droppedAfterCloseCount).toBe(0);
 
     binder.dispose();
   });
 
   it("drops a delivery that races a close, counts it, and reports it", () => {
-    // The race is real: emission iterates a SNAPSHOT of the subscribers, so a
-    // listener that closes the session part-way through a delivery leaves this
-    // binder's handler in the batch still being delivered.
+    // Emission iterates a snapshot of the subscribers, so a listener that closes the session
+    // mid-delivery leaves this handler in the batch still being delivered.
     const { registry, binder, engine } = createHarness();
     engine.subscribe(() => {
       registry.close(SESSION_ID);
@@ -140,8 +127,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
   });
 
   it("negative control: a delivery to a session that is open reports nothing", () => {
-    // Without this, the case above would pass on any tripwire firing at all — the
-    // scenario engine reports on the same kind when a tick arrives after teardown.
+    // Without this, the case above would pass on any tripwire firing, and the scenario engine
+    // reports the same kind when a tick arrives after teardown.
     const { registry, binder, engine } = createHarness();
     binder.attach();
     registry.open(SESSION_ID);
@@ -161,8 +148,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     registry.open(SESSION_ID);
     engine.advance(THROUGH_THIRD_BEAT_MS);
     const countAtDispose = binder.appliedEventCountFor(SESSION_ID);
-    // Non-zero before the teardown, or "the count froze" below would hold over a
-    // binder that had never delivered anything in the first place.
+    // Non-zero before the teardown, or "the count froze" would hold for a subscriber that never
+    // delivered.
     expect(countAtDispose).toBe(BEATS_THROUGH_THIRD_BEAT);
     expect(engine.sinkCount).toBeGreaterThan(0);
     expect(registry.listenerCount).toBeGreaterThan(0);
@@ -174,19 +161,17 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     expect(binder.isDisposed).toBe(true);
     expect(binder.boundSessionIds).toEqual([]);
     expect(binder.appliedEventCountFor(SESSION_ID)).toBe(countAtDispose);
-    // Both subscriptions are gone: the wire's, and the registry's own change feed.
+    // Both subscriptions are gone: the wire's, and the registry's change feed.
     expect(engine.sinkCount).toBe(0);
     expect(registry.listenerCount).toBe(0);
-    // A disposed binder cannot start again from a late effect — otherwise a
-    // remounting frame would leave the previous window's binder subscribed.
+    // A disposed subscriber cannot start again from a late effect.
     binder.attach();
     expect(registry.listenerCount).toBe(0);
   });
 
   it("hands out diagnostics that read its live state and keep the counts after dispose", () => {
     const { registry, binder, engine } = createHarness();
-    // Taken before anything is bound, so a reading frozen at construction would fail
-    // every assertion below.
+    // Taken before anything is bound, so a reading frozen at construction would fail below.
     const diagnostics = binder.diagnostics;
     expect(diagnostics.boundSessionIds()).toEqual([]);
 
@@ -209,11 +194,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
   });
 
   it("asks for the base-state read in the same act as taking the subscription", async () => {
-    // The gap this closes: nothing in the console called `requestRefresh` on an
-    // open, so even a registry with a working read never performed one — every
-    // bound session buffered its stream against a store that was never
-    // initialized. The control is the count itself: it is zero without the
-    // request, and the timeline stays empty however many beats arrive.
+    // Nothing else called `requestRefresh` on an open, so even a registry with a working read never
+    // performed one. The control is the count: zero without the request, with an empty timeline.
     const { bridge, scenarioEngine: engine } = createFixtureBridge({
       scenario: CONCURRENT_STREAMING_SCENARIO,
     });
@@ -230,8 +212,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
     binder.attach();
     registry.open(SESSION_ID);
 
-    // The scheduler debounces on the frozen clock, so the read lands on an advance
-    // rather than on a turn of the microtask queue.
+    // The scheduler debounces on the frozen clock, so the read lands on an advance, not a
+    // microtask turn.
     engine.advance(1);
     await Promise.resolve();
 
@@ -249,9 +231,8 @@ describe("SessionEventSubscriber — the console's one subscription to the wire"
   });
 
   it("harness integrity: the fixture engine drives the real frozen clock", () => {
-    // The cases above measure coalescing windows in frozen milliseconds, which
-    // only means anything if the clock underneath is the manual one. A real clock
-    // here would make every advance a no-op that the assertions would not notice.
+    // The cases above measure coalescing windows in frozen milliseconds, which only means anything
+    // on the manual clock; a real clock would make every advance a silent no-op.
     const { engine } = createHarness();
     expect(engine.clock).toBeInstanceOf(ManualClock);
   });
@@ -291,9 +272,8 @@ describe("SessionEventSubscriber — the request each stream is opened with", ()
   });
 
   it("opens no stream for an id the daemon does not admit, and marks the session", () => {
-    // A route address typed by hand reaches the registry as it was typed. The daemon
-    // would refuse the request, so nothing is opened, nothing is retried, and the
-    // session shows the stream it does not have.
+    // A hand-typed route address reaches the registry as typed. The daemon would refuse it, so
+    // nothing is opened or retried and the session shows the stream it does not have.
     const { registry, binder, requests } = recordingRequests();
     binder.attach();
     registry.open("not-a-session-id");

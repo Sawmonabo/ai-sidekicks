@@ -22,8 +22,7 @@ describe("useOpenSessionStore — components resolve a store, never construct on
     }
 
     const view = render(<StoreProbe />);
-    // A session that is not open is a real answer the view renders, and NOT a
-    // reason to open one from inside a render pass React may discard.
+    // A session that is not open is a real answer, not a reason to open one while rendering.
     expect(view.getByTestId("probe").textContent).toBe("none");
     expect(registry.openCount).toBe(0);
 
@@ -44,8 +43,7 @@ describe("useOpenSessionStore — components resolve a store, never construct on
   });
 
   it("resolves nothing for a session id the caller does not have yet", () => {
-    // The negative control for the case above: an undefined id must not resolve to
-    // whichever session happens to be open.
+    // Negative control: an undefined id must not resolve to whichever session happens to be open.
     const registry = new SessionStoreRegistry({ read: readsNothing, clock: new ManualClock(0) });
     registry.open("session-1");
 

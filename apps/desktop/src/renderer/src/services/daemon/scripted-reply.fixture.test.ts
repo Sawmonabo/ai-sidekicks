@@ -1,13 +1,7 @@
-// The scripted-reply seam: a call that the scenario answers, or refuses by name.
-//
-// The claim this file holds is that the fixture bridge never turns a reply that failed
-// to arrive into an absent value. An absent value renders as "there is none", which is
-// a claim about the session that nothing checked.
-//
-// Every case drives the REAL scenario engine through the REAL bridge. A stand-in for
-// either would pass over exactly the seam these cases hold: `abandoned` is a state only
-// the engine's own teardown produces, and a hand-written double would be asserting its
-// own arithmetic.
+// The scripted-reply seam: a call that the scenario answers, or refuses by name. The fixture
+// bridge never turns a reply that failed to arrive into an absent value, which would render as
+// "there is none", a claim nothing checked. Every case drives the real scenario engine through the
+// real bridge, since `abandoned` is a state only the engine's own teardown produces.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,13 +13,7 @@ import type { ScenarioReply } from "./scenario-reply.fixture.js";
 import type { Scenario } from "../../../../../fixtures/scenario.js";
 import { FIXTURE_SCENARIO_SESSION_ID, scenarioNamed } from "./vocabulary.test-support.js";
 
-/**
- * The scenario every case below varies one member of.
- *
- * A stand-in rather than a corpus entry: `runtime/` imports no scenario from the corpus
- * above it, and what these cases need from a scenario is that it scripts NO reply — which
- * is the shape a stand-in states outright and a corpus entry only happens to have.
- */
+/** The scenario every case below varies one member of: a stand-in that scripts no reply. */
 const SEAM_BASE_SCENARIO: Scenario = scenarioNamed("scripted-reply-seam");
 
 /** A scripted read whose reply these cases vary. */
@@ -34,12 +22,7 @@ const BRANCH_CONTEXT_CALL = "gitflow.branchContextRead";
 /** Longer than one tick, so a reply parked on it is observably pending. */
 const SCRIPTED_LATENCY_MS = 120;
 
-/**
- * The branch context a scripted reply states, asserted verbatim so a stub cannot pass.
- *
- * FLAT, exactly as `BranchContextReadResponse` returns it — the context's fields ARE
- * the reply and there is no envelope member to wrap them in.
- */
+/** The branch context a scripted reply states, flat as `BranchContextReadResponse` returns it. */
 const SCRIPTED_BRANCH_CONTEXT = {
   branchContextId: "branch-context-1",
   workspaceId: "workspace-1",
@@ -54,14 +37,9 @@ const UNREACHABLE_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000002" as RepoMount
 const UNSCRIPTED_MOUNT_ID = "9f2c4a10-1111-4000-8000-000000000003" as RepoMountId;
 
 /**
- * What each mount answers. Distinct values, so one cannot pass for the other.
- *
- * WHOLE `RepoMountReadResponse`s and not two-member stand-ins. `repo.mountRead` is
- * a method the corpus registers, so the fixture holds a scripted reply for it to
- * that shape (`daemon.fixture.wire-contract.test.ts`) — and a scenario that could
- * answer it with `{id, health}` would be teaching every view that reads a mount a frame the
- * daemon cannot send. Only `id` and `health.status` vary between the two, which is
- * what these cases read.
+ * What each mount answers: whole `RepoMountReadResponse`s, since the fixture holds a registered
+ * method's reply to its shape (`daemon.fixture.wire-contract.test.ts`). Only `id` and
+ * `health.status` vary.
  */
 const MOUNT_ANSWERS: Readonly<Record<string, unknown>> = {
   [HEALTHY_MOUNT_ID]: mountReadResponse(HEALTHY_MOUNT_ID, "healthy"),
@@ -97,9 +75,8 @@ function scenarioComputingMountRead(): Scenario {
     replies: [
       {
         call: MOUNT_READ_CALL,
-        // Reads the request rather than destructuring it: the request arrives as
-        // `unknown`, and a computation that throws on a shape it did not expect is a
-        // scenario bug that reaches the caller as one, past every refusal arm.
+        // Read, not destructured: the request is `unknown`, and a throw here would bypass every
+        // refusal arm.
         resultFor: (request) => {
           if (typeof request !== "object" || request === null) {
             return undefined;
@@ -121,16 +98,10 @@ function scenarioConstantMountRead(): Scenario {
   };
 }
 
-/**
- * A scenario whose branch-context read is scripted, optionally behind a latency.
- *
- * Built from the base above so the beats, the join order and the start instant are the
- * same for every case in this file — the only thing it varies is the reply.
- */
+/** A scenario whose branch-context read is scripted, optionally behind a latency. */
 function scenarioScriptingBranchContext(afterMs?: number): Scenario {
-  // The latency member is added only when there is one. `exactOptionalPropertyTypes`
-  // is on, and a present-but-`undefined` `afterMs` is a different value from an absent
-  // one — which is exactly the distinction the seam branches on.
+  // Added only when there is one: under `exactOptionalPropertyTypes` a present-but-`undefined`
+  // `afterMs` differs from an absent one, which the seam branches on.
   const reply: ScenarioReply =
     afterMs === undefined
       ? { call: BRANCH_CONTEXT_CALL, result: SCRIPTED_BRANCH_CONTEXT }
@@ -145,9 +116,7 @@ describe("the fixture bridge's scripted calls — the same seam, rejecting inste
 
     engine.dispose();
 
-    // Same engine state, same code, different shape: a `PlatformBridge` method may
-    // only resolve or reject, so the bridge rejects where the port returns an outcome.
-    // A code that differed between the two would make the seam two seams.
+    // A `PlatformBridge` method may only resolve or reject; the code must match the port's.
     await expect(pending).rejects.toBeInstanceOf(FixtureBridgeError);
     await expect(pending).rejects.toMatchObject({
       refusal: { code: "reply-abandoned", origin: "fixture-bridge" },
@@ -165,10 +134,7 @@ describe("the fixture bridge's scripted calls — the same seam, rejecting inste
 
 describe("a computed reply — one call, one answer per entity", () => {
   it("answers each request with the entity that request named", async () => {
-    // The defect this arm exists for: `replyFor` matches on the method NAME, so a
-    // session holding two mounts that asked twice would get the same mount back both
-    // times. Both calls go through the real bridge, so what is asserted is what a view
-    // would receive.
+    // `replyFor` matches on the method name, so two mounts would get the same mount back.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
     await expect(
@@ -180,10 +146,8 @@ describe("a computed reply — one call, one answer per entity", () => {
   });
 
   it("refuses a request it scripts no answer for rather than resolving with an absence", async () => {
-    // The rule the whole seam is built on: an absent value renders as "there is none",
-    // which about a mount the scenario simply does not script is a claim nothing
-    // checked. The scenario scripts the METHOD and not this entity, and the fixture's
-    // own authoring refusal is what says so.
+    // An absent value renders as "there is none", a claim nothing checked; the scenario
+    // scripts the method and not this entity, and the authoring refusal says so.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
     const pending = bridge.daemon.call(MOUNT_READ_CALL, {
@@ -197,18 +161,16 @@ describe("a computed reply — one call, one answer per entity", () => {
   });
 
   it("refuses a request that names no entity at all, rather than picking one", async () => {
-    // A request carrying no id is a request the scenario answers for nothing, and the
-    // seam says so. The alternative a fixture reaches for — answering with the table's
-    // first row — is how a view ships having only ever been drawn against one
-    // entity, which is the whole defect this arm exists to close.
+    // Answering with the table's first row is how a view ships having only been drawn
+    // against one entity.
     const { bridge } = createFixture(scenarioComputingMountRead());
 
     await expect(callBridge(bridge, MOUNT_READ_CALL)).rejects.toBeInstanceOf(FixtureBridgeError);
   });
 
   it("negative control: the constant form still answers every request the same way", async () => {
-    // Without this, a seam that had made EVERY reply request-sensitive would pass the
-    // three cases above while breaking every session-scoped read in the corpus.
+    // Without it, a seam that made every reply request-sensitive passes the cases above while
+    // breaking every session-scoped read.
     const { bridge } = createFixture(scenarioConstantMountRead());
 
     await expect(

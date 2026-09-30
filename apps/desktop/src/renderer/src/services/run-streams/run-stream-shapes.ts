@@ -1,19 +1,9 @@
-// The parts of a run-stream projection that every arm shares.
-//
-// `run-stream-projection.ts` beside it answers WHICH arm a beat travels on and what
-// that arm composes. This answers what all three arms do identically: the outcome
-// they return, the envelope-against-payload session cross-check none of them may
-// skip, the single parse every composed candidate leaves through, and the two
-// refusal constructors that name the beat a reader has to go and find. The two are
-// separate files because they change for different reasons: that one when an ARM
-// changes, and this one when the shape of a refusal does.
-//
-// The two types live HERE rather than beside the arms because the dependency runs
-// one way: every helper below returns a `RunStreamProjection`, so declaring them in
-// the arms module would close an import cycle `structure:layering` rejects. Nothing
-// re-exports them, and nothing needs to — `projectRunStreamDelivery` is the only
-// symbol read from outside these run-stream modules, and it is read from the module
-// declaring it.
+// The parts of a run-stream projection that every arm shares: the outcome type, the
+// envelope-against-payload session cross-check, the single registered-shape parse, and the refusal
+// constructors. `run-stream-projection.fixture.ts` decides which arm a beat travels on; this file
+// changes only when the shape of a refusal does. The two types live here, not beside the arms,
+// because every helper returns a `RunStreamProjection` and declaring them in the arms module would
+// close an import cycle.
 
 import type {
   QueueItemSummary,
@@ -29,41 +19,22 @@ import type { ProjectedSessionEvent } from "@renderer/store/session/entities/ent
 export type RunStreamDelivery = RunStateChangeEvent | RunRolledBackEvent | QueueItemSummary;
 
 /**
- * What one beat projects to on one narrowed stream.
- *
- * A returned outcome rather than a thrown error, per `core/refusal.ts`: returning a
- * refusal is the console's default and an exception is the exception. The bridge is
- * what turns `unprojectable` into the named rejection a caller sees, because the
- * refusal VOCABULARY belongs to the bridge boundary and the projection rule belongs
- * here — the same split the scenario engine and the bridge already keep for a
- * scripted reply that never came due.
+ * What one beat projects to on one narrowed stream. An outcome is returned rather than thrown,
+ * per `lib/refusal.ts`; the bridge turns `unprojectable` into the named rejection, since the
+ * refusal vocabulary belongs to the bridge boundary and the projection rule to this module.
  */
 export type RunStreamProjection =
   | { readonly status: "projected"; readonly delivery: RunStreamDelivery }
   | { readonly status: "unprojectable"; readonly detail: string };
 
 /**
- * The envelope-against-payload session cross-check, for every arm of both run streams.
+ * The envelope-against-payload session cross-check for every arm of both run streams. A beat
+ * delivered on session A whose payload names session B is a frame no daemon produces, and the
+ * state and queue stream shapes carry no `sessionId`, so the mismatch would otherwise reach a
+ * subscriber unnoticed. It is one guard, not three copies that could drift. A non-string
+ * `sessionId` refuses like an absent one, since it cannot be compared.
  *
- * A fact about this BEAT that no schema can make, and one none of the three arms can
- * skip. Every one of these payloads carries a required `sessionId`, so a beat
- * delivered on session A whose payload names session B is not a beat that omitted a
- * check: it is a frame no daemon produces. The state and queue arms then compound it,
- * because neither registered stream shape carries a `sessionId` member at all — the
- * projection drops the disagreeing value on the floor and the narrowed subscriber
- * receives a valid-looking update about a session it never asked for, with nothing on
- * the delivered payload left to notice it by.
- *
- * ONE GUARD RATHER THAN THREE COPIES, because three copies of one comparison drift
- * and the gate goes green: the rollback arm carried this rule alone for one round and
- * the two arms beside it were the ones that could hide the mismatch afterwards.
- *
- * A non-string `sessionId` refuses on the same arm as an absent one. It cannot be
- * compared to the envelope's, and admitting it here would leave the state and queue
- * arms delivering on an identifier nothing ever checked.
- *
- * Returns the refusal, or `undefined` when the beat agrees with its envelope — the
- * guard shape a caller reads as "nothing to say" without a second status vocabulary.
+ * Returns the refusal, or `undefined` when the beat agrees with its envelope.
  */
 export function refuseSessionDisagreement(
   event: ProjectedSessionEvent,
@@ -86,12 +57,8 @@ export function refuseSessionDisagreement(
 }
 
 /**
- * Parse one composed candidate through the shape the corpus registers for it.
- *
- * The single delivery gate: nothing leaves this module without passing the schema a
- * live subscriber would be handed values against. A failure names every failing
- * member by its own path, so a scenario author reads which member is wrong rather
- * than that something is.
+ * Parses one composed candidate through the shape the corpus registers for it. This is the single
+ * delivery gate, and a failure names every failing member by path.
  */
 export function projectThroughRegisteredShape<Delivery extends RunStreamDelivery>(
   registeredShape: ZodType<Delivery>,

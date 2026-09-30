@@ -1,14 +1,8 @@
-// The two log reads that say which driver a run is bound to.
-//
-// `driver.listCapabilities` answers with one report PER DRIVER and is addressed at the
-// NODE, so it names no run. The session's own log can: `session.created` carries the
-// session's lead as the live agent list names it, binding and all; `run.queued` carries
-// an agent started from a saved definition the same way; and the run-lifecycle
-// projector carries a run's `agentId` onto its body in the run partition.
-//
-// READ THROUGH A SCHEMA rather than off the record by hand: the payload and the body are
-// `unknown` here, and a hand-shaped read would take a number, an empty string, or a
-// missing member as a binding.
+// The two log reads that say which driver a run is bound to. `driver.listCapabilities` is
+// addressed at the node and names no run, but the session's log does: `session.created` carries
+// the lead, `run.queued` an agent started from a saved definition, and the run-lifecycle projector
+// carries a run's `agentId` onto its body. Both are read through a schema because the payload and
+// body are `unknown`, and a hand-shaped read would take a number or an empty string as a binding.
 
 import { z } from "zod";
 import {
@@ -24,11 +18,9 @@ import {
 } from "@renderer/store/session/entities/entities.js";
 
 /**
- * The event kinds that bring an agent into its session: the session's birth brings the
- * lead, and a run's creation brings an agent started from a saved definition.
- *
- * Typed against the shipped taxonomy rather than written as bare strings, so a
- * misspelling fails to compile instead of quietly matching an event no daemon emits.
+ * The event kinds that bring an agent into its session: the session's birth brings the lead, and
+ * a run's creation brings an agent started from a saved definition. Typed against the taxonomy so
+ * a misspelling fails to compile.
  */
 const SESSION_CREATED_EVENT_KIND: Extract<SessionEventType, "session.created"> = "session.created";
 const RUN_QUEUED_EVENT_KIND: Extract<SessionEventType, "run.queued"> = "run.queued";
@@ -37,10 +29,8 @@ const RUN_QUEUED_EVENT_KIND: Extract<SessionEventType, "run.queued"> = "run.queu
 const runAgentBindingSchema = z.object({ agentId: z.string().min(1) });
 
 /**
- * Each agent's declared driver, from the rows that bring agents into the session.
- *
- * Held to the envelope's own session: a payload naming another session is a claim about
- * another store.
+ * Each agent's declared driver, from the rows that bring agents into the session. A payload naming
+ * another session is ignored.
  */
 export function readAgentDriverNames(
   timeline: readonly ProjectedSessionEvent[],

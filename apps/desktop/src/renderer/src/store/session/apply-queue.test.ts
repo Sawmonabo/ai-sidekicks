@@ -1,16 +1,7 @@
-// The apply queue, driven on frozen time.
-//
-// Every assertion here is about a claim the console's own rules make and that a
-// happy-path test cannot see: a burst costs one drain, a disposed pane arms nothing,
-// and a drain that throws loses no event and takes no other session's callback down
-// with it.
-//
-// It runs on `ManualClock` and arms no real timer at all. That is not a convenience:
-// `clock.pendingCount === 0` after settle is the only way the idle-CPU budget's
-// "no timer fires" claim can be CHECKED rather than asserted, and a test on real
-// timers could not make it.
-//
-// `RefreshScheduler`, the other scheduler, which times reads, is driven by
+// The apply queue on frozen time: a burst costs one drain, a disposed pane arms nothing, and a
+// drain that throws loses no event and takes no other session's callback down. It runs on
+// `ManualClock` with no real timer, since `clock.pendingCount === 0` after settle is the only way
+// to check that no timer fires. `RefreshScheduler`, which times reads, is tested in
 // `lib/reads/refresh-scheduler.test.ts`.
 
 import { describe, expect, it } from "vitest";
@@ -30,8 +21,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
       drain: (events) => {
         drains.push(events);
       },
-      // `0` means the coalescing unit is a PAINT, which on the manual clock is an
-      // explicit `runFrame()` — the frozen-clock arm, where no millisecond passes.
+      // `0` makes the unit a paint, which the manual clock runs as an explicit `runFrame()`.
       coalesceMs: 0,
     });
 
@@ -39,7 +29,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
     queue.enqueue(eventOfKind("session-1", "run.starting", 2));
     queue.enqueue(eventOfKind("session-1", "run.starting", 3));
 
-    // Three events, ONE armed frame. Three arms would be three renders.
+    // Three events arm one frame; three arms would be three renders.
     expect(queue.pendingCount).toBe(3);
     expect(clock.pendingFrameCount).toBe(1);
     expect(drains).toHaveLength(0);
@@ -55,9 +45,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
   });
 
   it("negative control: a second frame's events are a SECOND drain", () => {
-    // Without this, a `drain` that had stopped being called at all — or a
-    // `drainCount` stuck at one — would pass the coalescing case above while the
-    // queue delivered nothing after the first frame.
+    // Guards a queue that delivers nothing after the first frame yet passes the case above.
     const clock = new ManualClock(0);
     const drains: (readonly ProjectedSessionEvent[])[] = [];
     const queue = new ApplyQueue({
@@ -96,9 +84,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
   });
 
   it("drops and COUNTS events handed to a disposed queue rather than re-arming", () => {
-    // A pane that unmounted mid-stream. Dropping is right — the store is gone —
-    // but a subscription still delivering into it is a leak upstream, so the drop
-    // is counted rather than silent, and no timer survives the dispose.
+    // A pane unmounted mid-stream: dropping is right, but the drop is counted (an upstream leak).
     const clock = new ManualClock(0);
     let drainCount = 0;
     const queue = new ApplyQueue({
@@ -127,9 +113,7 @@ describe("ApplyQueue — a frame's worth of events is one drain", () => {
 });
 
 describe("ApplyQueue — a drain that throws", () => {
-  /** A drain that fails its first N calls and then succeeds. The defect models a
-   *  projector rejecting a malformed payload, which is the only way the console's
-   *  own drain can raise at all. */
+  /** A drain that fails its first N calls and then succeeds. */
   class FailingDrainRecorder {
     readonly drainedBatches: (readonly ProjectedSessionEvent[])[] = [];
     readonly failures: unknown[] = [];
@@ -175,17 +159,14 @@ describe("ApplyQueue — a drain that throws", () => {
       clock.runFrame();
     }).not.toThrow();
 
-    // Nothing is lost: the three events are still queued, and the drain is not
-    // counted as one that happened.
+    // Nothing is lost: the events are still queued and the drain is not counted.
     expect(queue.pendingCount).toBe(3);
     expect(queue.drainCount).toBe(0);
     expect(queue.failedDrainCount).toBe(1);
     expect(recorder.failures).toHaveLength(1);
     expect(recorder.failures[0]).toBeInstanceOf(TypeError);
-    // And the exception did not escape into the clock's own pass, where it would
-    // have taken every other pending callback — every other session's drain — with
-    // it. `runFrame` removes its entries before invoking them, so a throw there
-    // does not merely defer the rest, it drops them.
+    // The exception did not escape into the clock's pass, where it would have dropped every
+    // other session's drain (`runFrame` removes its entries before invoking them).
     expect(laterFrameRan).toBe(true);
   });
 
@@ -208,8 +189,7 @@ describe("ApplyQueue — a drain that throws", () => {
     clock.runFrame();
 
     expect(recorder.drainedBatches).toHaveLength(1);
-    // The retained events lead: they are older than what arrived while the failed
-    // drain was running, and the store's own sequencing reads a batch in order.
+    // The retained events lead: they are older than what arrived during the failed drain.
     expect(recorder.drainedBatches[0]?.map((event) => event.sequence)).toStrictEqual([1, 2, 3]);
     expect(queue.pendingCount).toBe(0);
     expect(queue.drainCount).toBe(1);
@@ -228,8 +208,7 @@ describe("ApplyQueue — a drain that throws", () => {
     queue.enqueue(eventOfKind("session-1", "run.starting", 1));
     clock.runFrame();
 
-    // One failure, and nothing armed to produce a second on its own. The retry
-    // rides the next enqueue rather than a timer the queue re-arms for itself.
+    // One failure and nothing armed; the retry rides the next enqueue, not a re-arm.
     expect(queue.failedDrainCount).toBe(1);
     expect(clock.pendingCount).toBe(0);
   });
@@ -249,8 +228,7 @@ describe("ApplyQueue — a drain that throws", () => {
   });
 
   it("negative control: a clean batch drains and counts as before", () => {
-    // Without this, a `flush` that had stopped calling its drain at all would pass
-    // every case above — nothing lost, nothing thrown, and nothing delivered.
+    // Guards a `flush` that stopped calling its drain: nothing lost, thrown or delivered.
     const clock = new ManualClock(0);
     const recorder = new FailingDrainRecorder(0);
     const queue = new ApplyQueue({

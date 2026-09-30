@@ -8,31 +8,21 @@ import { formatDateTime } from "@renderer/lib/wire-figures.js";
 import { observationAgeInDays } from "../quota-rows.js";
 
 /**
- * How old an observation has to be before the row says so out loud.
+ * How old an observation has to be before the row says so.
  *
- * A PRESENTATION threshold and nothing else: the timestamp renders either way, because
- * this page's degraded state is "a stale `healthObservedAt` renders with its timestamp
- * rather than being hidden". What crossing this line changes is the chip's tone, so a
- * reading a fortnight old reads as one rather than as current.
- *
- * Not in a `*-caps.ts` module because it bounds no resource — it is a word this one row
- * chooses, in the way the stall badge chooses its own volume.
+ * A presentation threshold only: the timestamp renders either way, and crossing this line
+ * changes the chip's tone so a fortnight-old reading does not read as current.
  */
 const STALE_OBSERVATION_DAYS = 14;
 
 /**
- * One registry row: the label, the provider, how it is charged, whether it is the
- * default, and the health reading with the moment it was taken.
+ * One registry row: the label, the provider, how it is charged, whether it is the default, and
+ * the health reading with the moment it was taken.
  *
- * THE HEALTH READING IS NOT A CLAIM OF AUTHENTICATION. It is a stored observation and
- * renders as one — the state, and when it was observed — so a row never says an account
- * works, only what the last look found. An account nothing has ever observed carries
- * `healthObservedAt: null`, and that renders as its own sentence rather than as a
- * timestamp this console picked.
- *
- * THE PROVIDER-REPORTED IDENTITY RENDERS ONLY WHERE IT WAS OBSERVED. Each member is
- * independently optional on the wire, so the row tests each rather than assuming a
- * provider that reported one reported all of them.
+ * The health reading is a stored observation, not a claim of authentication, so the row says
+ * what the last look found. An account never observed has `healthObservedAt: null`, which
+ * renders as its own sentence. The provider-reported identity renders only where observed,
+ * since each member is independently optional on the wire.
  */
 export function AccountRow(props: {
   readonly account: ProviderAccount;
@@ -59,9 +49,8 @@ export function AccountRow(props: {
         <span className="meridian-accounts__row-label">{account.displayLabel}</span>
         <span className="meridian-accounts__row-chips">
           <Chip label={account.provider} mono />
-          {/* The billing-mode label beside every money figure, so plan-included usage
-              is never presented as billed currency without saying so. It rides the row
-              rather than only the detail pane because the quota figures are read from
+          {/* The billing-mode label beside every money figure, so plan-included usage is never
+              presented as billed currency; it rides the row because quota figures are read from
               here down. */}
           <Chip label={account.billingMode} mono />
           {account.isDefault ? <Chip label="Default" tone="accent" glyph="check" /> : null}

@@ -1,33 +1,18 @@
-// Renderer scheme registration and the built-bundle protocol handler.
+// The Electron seam for the renderer bundle: registers the scheme, installs the handler, and
+// decides the response policy (status codes, empty refusal bodies, locked headers). Its
+// inputs live in modules that do not import `electron`: `./renderer-scheme.ts` (identity and
+// CSP), `./renderer-assets.ts` (containment and resolution) and
+// `../windows/load-failure-document.ts` (the generated failure document).
 //
-// This module is the ELECTRON seam and nothing else: it registers the scheme,
-// installs the handler, and decides the response policy — the status codes, the
-// empty refusal bodies, and the locked headers.
-// The three things it answers with live in their own modules, none of which
-// imports `electron`:
+// Two entry points, so the startup order is assertable (`startup-order.test.ts`):
+// `registerRendererScheme()` at module top level in `main/index.ts`, ahead of every
+// `whenReady()` consumer, and `installRendererProtocol(rendererRoot)` inside `whenReady()`
+// before any window exists.
 //
-//   • `./renderer-scheme.ts` ..... the scheme's identity and its CSP
-//   • `./renderer-assets.ts` ..... containment and resolution over the built tree
-//   • `./load-failure-document.ts` the generated failure document
-//
-// Two exported entry points, so the startup ORDER is asserted rather than
-// assumed (`startup-order.test.ts`):
-//
-//   • `registerRendererScheme()` — module-top-level in `main/index.ts`, ahead
-//     of every `whenReady()` consumer. Electron accepts exactly one
-//     `registerSchemesAsPrivileged` call per process and it must happen before
-//     `app.ready`; a scheme left non-standard has no origin, and an origin-less
-//     document gets neither IndexedDB nor `localStorage`, which is where the
-//     console persists its UI state.
-//   • `installRendererProtocol(rendererRoot)` — inside `whenReady()`, BEFORE
-//     any window is constructed, so no window can ever race the handler.
-//
-// The bundle is served over this custom scheme and never over `file://`, because
-// the hardening baseline disables the `GrantFileProtocolExtraPrivileges` fuse.
-//
-// Bodies stream through `net.fetch(pathToFileURL(...))` — the pattern Electron's
-// own `protocol.handle` documentation gives — so no response is ever buffered
-// into main-process memory.
+// The bundle is served over this scheme, never `file://`, because the hardening baseline
+// disables the `GrantFileProtocolExtraPrivileges` fuse. Bodies stream through `net.fetch`
+// over a `file:` URL, the pattern Electron's `protocol.handle` documentation gives, so no
+// response is buffered in main-process memory.
 
 import { net, protocol } from "electron";
 import { pathToFileURL } from "node:url";
@@ -39,23 +24,15 @@ import {
 import { resolveRendererAsset } from "./renderer-assets.js";
 import { RENDERER_CONTENT_SECURITY_POLICY, RENDERER_SCHEME } from "./renderer-scheme.js";
 
-// Registration is one-shot per process by construction, and the latch is
-// module-scoped on purpose: it mirrors a PROCESS-global Electron constraint
-// (exactly one `registerSchemesAsPrivileged` per process, before `app.ready`),
-// so a class instance holding it would be the same module-scoped singleton with
-// more ceremony and no additional guarantee. The flag is set BEFORE the Electron
-// call so a call that Electron itself rejects (registering after `app.ready`)
-// cannot be retried into a second registration — one attempt per process,
-// period.
+// Module-scoped on purpose: it mirrors a process-global Electron constraint (one
+// `registerSchemesAsPrivileged` call per process, before `app.ready`). Set before the Electron
+// call so a call Electron rejects cannot be retried into a second registration.
 let rendererSchemeRegistered = false;
 
 /**
- * Registers `sidekicks-renderer://` as a privileged scheme.
- *
- * MUST run at module top level in `main/index.ts`, ahead of every
- * `whenReady()` consumer. Throws on a second call: Electron accepts exactly one
- * registration per process, and a silently-swallowed second call would hide a
- * startup-order regression rather than surface it.
+ * Registers `sidekicks-renderer://` as a privileged scheme. Must run at module top level in
+ * `main/index.ts`, ahead of every `whenReady()` consumer. Throws on a second call, which
+ * would otherwise hide a startup-order regression.
  */
 export function registerRendererScheme(): void {
   if (rendererSchemeRegistered) {
@@ -78,10 +55,8 @@ export function registerRendererScheme(): void {
 function baseResponseHeaders(): Record<string, string> {
   return {
     "Content-Security-Policy": RENDERER_CONTENT_SECURITY_POLICY,
-    // Paired with the closed content-type map in `./renderer-assets.ts`: an
-    // unmapped asset is served as `application/octet-stream`, which only means
-    // anything if the browser is forbidden from sniffing a type back out of the
-    // bytes.
+    // Paired with the closed content-type map in `./renderer-assets.ts`: an unmapped asset is
+    // served as `application/octet-stream`, which needs sniffing forbidden.
     "X-Content-Type-Options": "nosniff",
   };
 }
@@ -92,12 +67,9 @@ function emptyResponse(status: number): Response {
 }
 
 /**
- * Installs the `sidekicks-renderer://` handler over the built renderer tree.
- *
- * MUST be called inside `app.whenReady()` and BEFORE any `BrowserWindow` is
- * constructed, so no window can load against an unhandled scheme. A second call
- * throws from Electron's own duplicate-handler check, which is the diagnostic
- * we want — this module adds no guard that would mask it.
+ * Installs the `sidekicks-renderer://` handler over the built renderer tree. Call inside
+ * `app.whenReady()` before any `BrowserWindow` exists. A second call throws from Electron's
+ * duplicate-handler check; this module adds no guard that would mask it.
  */
 export function installRendererProtocol(rendererRoot: string): void {
   protocol.handle(
@@ -107,14 +79,13 @@ export function installRendererProtocol(rendererRoot: string): void {
 }
 
 /**
- * Answers one request. Exported so the response policy — the status codes, the
- * empty refusal bodies, and the locked headers — is asserted directly rather
- * than inferred from `resolveRendererAsset`'s verdict, which carries no body
- * and no header of its own.
+ * Answers one request. Exported so the response policy (status codes, empty refusal bodies,
+ * locked headers) is asserted directly, since `resolveRendererAsset`'s verdict carries no body
+ * or header.
  */
 export async function handleRendererRequest(rendererRoot: string, url: string): Promise<Response> {
-  // Answered FIRST, and without touching the filesystem: this document exists
-  // to be servable when the tree is not.
+  // First and without touching the file system: this document exists to be servable when the
+  // tree is not.
   const loadFailureReason = matchLoadFailureRequest(url);
   if (loadFailureReason !== null) {
     return new Response(renderLoadFailureDocument(loadFailureReason), {
@@ -133,13 +104,10 @@ export async function handleRendererRequest(rendererRoot: string, url: string): 
 
   let fileResponse: Response;
   try {
-    // Streams the body straight through; nothing is buffered in the main
-    // process. `net.fetch` over a `file:` URL is the pattern Electron's own
-    // `protocol.handle` documentation gives.
+    // Streams the body straight through; nothing is buffered in the main process.
     fileResponse = await net.fetch(pathToFileURL(resolution.absolutePath).toString());
   } catch {
-    // The asset vanished between the realpath check and the read. Fail closed
-    // and stay silent about which path it was.
+    // The asset vanished between the realpath check and the read. Fail closed, naming no path.
     return emptyResponse(404);
   }
   if (!fileResponse.ok) {

@@ -1,8 +1,5 @@
-// One served payload reply read as the arm the pane draws, with no bridge and no reader.
-//
-// The decode itself is the contract's and is tested there. What is tested here is which
-// arm a served answer lands on: a handle is not bytes, bytes that are not text are named
-// rather than drawn, and text arrives whole however long it is.
+// Which arm a served payload reply lands on. The decode itself is the contract's and is tested
+// there.
 
 import { describe, expect, it } from "vitest";
 

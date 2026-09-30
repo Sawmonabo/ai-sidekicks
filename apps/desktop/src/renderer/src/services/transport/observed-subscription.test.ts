@@ -1,8 +1,5 @@
-// What an open reports, and what it does not swallow on the way.
-//
-// The rule is three lines, and each of the three is a claim a caller relies on: a
-// returned open says the wire is there, a thrown one says it is not, and the throw
-// still reaches the caller that has an arm for it.
+// What an open reports and what it does not swallow: a returned open says the wire is there, a
+// thrown one says it is not, and the throw still reaches the caller that has an arm for it.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -33,9 +30,8 @@ describe("openObservedSubscription — one rule for what an open observed", () =
   });
 
   it("emits the returning edge when a LATER, unrelated open succeeds", () => {
-    // The deadlock this whole seam exists to break, at its smallest: the open that
-    // failed and the open that recovers are different callers, so the edge cannot
-    // depend on the failing one being retried first.
+    // The deadlock this seam breaks, at its smallest: the failed open and the open that recovers
+    // are different callers, so the edge cannot depend on the failing one being retried first.
     const signal = new TransportReconnectSignal();
     const onReconnect = vi.fn();
     signal.subscribe(onReconnect);
@@ -51,9 +47,8 @@ describe("openObservedSubscription — one rule for what an open observed", () =
   });
 
   it("negative control: an open that is never taken reports nothing at all", () => {
-    // Without it, the cases above would pass over a helper that reported `reachable`
-    // on every call — which would make the returning edge a fact about being asked
-    // rather than about the wire answering.
+    // Without it, the cases above would pass over a helper that reported `reachable` on every call,
+    // making the edge a fact about being asked rather than about the wire answering.
     const signal = new TransportReconnectSignal();
     const open = vi.fn(() => () => undefined);
 

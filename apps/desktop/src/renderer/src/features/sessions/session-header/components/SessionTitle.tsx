@@ -1,11 +1,9 @@
-// The session's name, where it has one.
-//
-// Its own module for the one-component rule, and it earns one: a nameless session is
-// rendered by its identifier and never by an invented title, and this is where that
-// rule is obeyed rather than a fragment of the header's arrangement.
+// The session's display title, where it has one. Its own module because it is where the rule is
+// obeyed that a nameless session is rendered by its identifier and never by an invented title.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 
+/** The title to draw. */
 export interface SessionHeaderSessionTitleProps {
   /** The session's display title, where it has one. */
   readonly title: string | undefined;
@@ -14,15 +12,8 @@ export interface SessionHeaderSessionTitleProps {
 /**
  * The display title, when the session has one.
  *
- * A session with NO title renders nothing here — not an absence, not a placeholder.
- * The rule this follows is the same one the all-sessions list follows: an untitled
- * session is named by its identifier, which is already on screen a few pixels to the
- * left, and a "not checked" badge beside it would report a missing answer where the
- * answer is that this session has no name.
- *
- * A title that has not arrived renders nothing for the same reason: the id is the
- * whole identity until it does, and a skeleton bar beside the id would move it when the
- * title resolved.
+ * A session with no title, or one whose title has not arrived, renders nothing: the id beside
+ * it is the whole identity, and a badge or skeleton would report a missing answer or shift the id.
  */
 export function SessionTitle(props: SessionHeaderSessionTitleProps): React.JSX.Element | null {
   const { title } = props;

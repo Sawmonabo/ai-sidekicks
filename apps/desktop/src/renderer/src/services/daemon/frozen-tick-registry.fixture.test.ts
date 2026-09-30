@@ -1,9 +1,5 @@
-// The frozen-tick registry's own rules, and the reading it answers with.
-//
-// WHAT IS NOT HERE. Whether the BOARD is fully registered is a claim about the corpus
-// rather than about this module, and the corpus lives one directory up — which this
-// directory imports from through no path. That case is `../frozen-tick-board.test.ts`,
-// beside the board it reads.
+// The frozen-tick registry's own rules, and the reading it answers with. Whether the board is
+// fully registered is a claim about the corpus and is asserted in `fixtures/index.test.ts`.
 
 import { describe, expect, it } from "vitest";
 

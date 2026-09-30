@@ -1,18 +1,8 @@
 /*
- * `box-sizing` is stated on every primitive that pairs a fixed size with a border.
- *
- * Imported by `Chip.tsx`, so importing the component brings its styles.
- *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
- *
- * Design-language rules that govern this sheet: the two-hue rule — amber means a person is
- * needed, red means something failed.
- *
- * The generated base sheet sets no global `border-box` reset, and a token-driven
- * height that silently grows by its own boundary is a row of chips that no longer
- * shares a baseline with the text beside it.
+ * Composition only; values come from the sheet `styles/generate-css.ts` emits, as custom
+ * properties. `box-sizing` is set here because that sheet has no global border-box reset,
+ * and a fixed-height chip that grows by its border no longer shares a baseline with its text.
+ * Amber means a person is needed; red means something failed.
  */
 .meridian-chip {
   box-sizing: border-box;
@@ -36,17 +26,13 @@
   text-overflow: ellipsis;
 }
 
-/*
- * The mono token brings the slashed zero with it — it is an `@font-face` descriptor
- * on the mono faces themselves, not a property this sheet sets — so what is declared
- * here is the family and the tabular figures the platform fallback faces need.
- */
+/* The slashed zero is an `@font-face` descriptor on the mono faces, not set here. */
 .meridian-chip--mono .meridian-chip__label {
   font-family: var(--meridian-font-mono);
   font-variant-numeric: tabular-nums;
 }
 
-/* `neutral` is the common case and is the base rule above: no color at all. */
+/* `neutral` is the base rule above: no color. */
 
 .meridian-chip--attention {
   border-color: var(--meridian-amber-mark);

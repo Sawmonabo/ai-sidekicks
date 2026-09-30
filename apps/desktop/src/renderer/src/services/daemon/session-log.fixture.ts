@@ -1,34 +1,13 @@
-// The session log one scenario has actually delivered, and the one place a position in
-// it is allocated.
+// The session log one scenario has delivered, and the one place a log position is allocated.
+// `engine.fixture.ts` owns the clock (which beats are due); this owns positions.
 //
-// SPLIT FROM `scenario-engine.ts` when the log stopped being derivable from the script.
-// That file owns the CLOCK — which beats are due, when a held reply is released, what a
-// teardown drops — and this owns POSITIONS: what has been delivered, in what order, and
-// what sequence the next frame takes. Two jobs, and the second one only became a job at
-// all when the engine gained a way to append a frame the script does not carry.
-//
-// WHY THE SCRIPT CAN NO LONGER ANSWER IT. The engine used to serve its replay prefix by
-// slicing `scenario.beats` at the consumed count, which is exact for as long as every
-// delivered frame is a scripted one and its delivered sequence is the sequence its
-// author wrote. An APPENDED frame breaks both halves: it is in no slice of the script,
-// and it takes a position the beats after it can no longer also take. So the delivered
-// log becomes a record rather than a derivation — not a second copy of the beats, but
-// the only statement of what was delivered and at which position.
-//
-// ONE SEQUENCE LINE, AND APPENDING SHIFTS THE REST. A session's sequence is monotonic
-// and dense: `store/session/sequence-reconciler.ts` refuses anything at or below its cursor as a
-// duplicate and records everything skipped as a gap, so a fixture that numbered appended
-// frames above the whole script would make every later scripted beat a duplicate the
-// store drops, and one that reused a scripted number would collide outright. What a
-// daemon does instead is append at the head of the log and carry on, which is exactly
-// what this does: an appended frame takes the position after the last one delivered, and
-// every scripted beat after it is delivered at its authored sequence plus the number of
-// appends that preceded it. With no appends the shift is zero and every scenario is
-// delivered at the sequences it was written with, byte for byte.
-//
-// THE SCRIPT IS NEVER REWRITTEN. Stamping happens on the way out, so `scenario.beats`
-// stays the authored record that `tests/helpers/scenario-contract-check/contract-check.ts` checks and that a reader
-// reasons about — the shift is a property of one playback, not of the scenario.
+// The engine can append a frame the script does not carry, so the delivered log is a record, not a
+// slice of `scenario.beats`. Sequences stay monotonic and dense, which
+// `store/session/sequence-reconciler.ts` requires (it drops anything at or below its cursor as a
+// duplicate and records a skip as a gap). An appended frame takes the position after the last one
+// delivered, and each later scripted beat is delivered at its authored sequence plus the number of
+// appends before it; with no appends every scenario keeps its authored sequences. The script itself
+// is never rewritten, so `scenario.beats` stays the authored record the contract check reads.
 
 import type { ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
 
@@ -41,35 +20,25 @@ export class ScenarioSessionLog {
   #appendedCount = 0;
 
   /**
-   * Everything delivered so far, in log order.
-   *
-   * A fresh array per call: the replay hands it to a sink that may hold it, and
-   * lending out the log's own array would let the next delivery mutate a batch a
-   * store has already reconciled.
+   * Everything delivered so far, in log order. A fresh array per call, so a later delivery cannot
+   * mutate a batch a store already reconciled.
    */
   public delivered(): readonly ProjectedSessionEvent[] {
     return [...this.#delivered];
   }
 
   /**
-   * How many frames have been delivered, appended ones included.
-   *
-   * The engine's replay predicate reads THIS rather than its own consumed-script
-   * count, and the difference is the whole reason the accessor exists: the two agree
-   * only while every delivered frame is a scripted beat, so a scenario appended to
-   * before its first advance has a non-empty log and a consumed prefix of zero — and a
-   * subscriber attaching there was handed nothing to catch up on.
+   * How many frames have been delivered, appended ones included. The engine's replay predicate
+   * reads this rather than its consumed-script count, which is zero for a scenario appended to
+   * before its first advance.
    */
   public get deliveredCount(): number {
     return this.#delivered.length;
   }
 
   /**
-   * Record one batch of scripted beats, stamped with the positions they are delivered
-   * at.
-   *
-   * The batch is returned rather than emitted: what reaches a sink is the engine's
-   * decision, and a log that emitted would be a second delivery path.
+   * Records one batch of scripted beats at the positions they are delivered at, and returns it
+   * rather than emitting it, so the engine alone decides what reaches a sink.
    */
   public admitScriptedBeats(
     events: readonly ProjectedSessionEvent[],
@@ -80,12 +49,8 @@ export class ScenarioSessionLog {
   }
 
   /**
-   * Append one frame the script does not carry, at the next free position.
-   *
-   * The next free position is the one after the last frame delivered, so the line
-   * stays dense whether or not any beat has been delivered yet — a scenario appended
-   * to before its first advance starts at one, which is where its own first beat
-   * would have started.
+   * Appends one frame the script does not carry, at the position after the last one delivered
+   * (one for a fresh log).
    */
   public appendEvent(event: UnpositionedSessionEvent): ProjectedSessionEvent {
     this.#appendedCount += 1;

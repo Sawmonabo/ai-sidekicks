@@ -1,99 +1,41 @@
-// One reading of a wire instant, for the whole console.
+// One reading of a wire instant for the whole console. An RFC 3339 instant has many spellings that
+// sort by neither text order nor `Date.parse`: `2026-01-01T10:00:00+02:00` is earlier than
+// `2026-01-01T09:00:00Z` yet sorts after it as text. `Date.parse` is no validator: it reads a
+// timezone-less time in the host's zone and normalizes a day that does not exist (`2026-02-30`).
 //
-// Before this module the console read an RFC 3339 stamp four different ways, and
-// three of them were wrong in a way nothing caught:
+// No library: `Temporal` is absent on this repo's Node 24 floor and the `console-unit` tier runs
+// under Node; the polyfill's weight is a bundle-budget cost; `date-fns` `parseISO` accepts
+// date-only and timezone-less values; `zod` is admitted only in `services/` and narrows the
+// lowercase `t` and `z` that RFC 3339 section 5.6 permits.
 //
-//   • COMPARED AS TEXT. An RFC 3339 instant may carry a numeric offset as readily
-//     as `Z`, so one instant has many spellings and two spellings sort by neither:
-//     `2026-01-01T10:00:00+02:00` is an hour EARLIER than `2026-01-01T09:00:00Z`
-//     and sorts AFTER it in every lexical comparison — `localeCompare`, `<`, `>`.
-//     A list ordered that way showed the wrong row as newest.
-//   • PARSED WITH `Date.parse` AND NOTHING ELSE. That function is not a validator.
-//     It reads a timezone-less `2026-01-01T10:00:00` in the HOST's zone, a
-//     date-only `2026-01-01` in UTC, and it NORMALIZES a date that does not exist:
-//     `2026-02-30T10:00:00Z` becomes March 2 and `2026-01-01T24:00:00Z` becomes the
-//     next day. Each answers a number, so the `Number.isNaN` guard every call site
-//     wrote passes and a view renders an instant the wire never sent.
-//   • VALIDATED FIELD BY FIELD AT ONE CALL SITE. Correct where it was written, and
-//     invisible to the three sites that were not.
-//
-// So there is one parse, one comparison, and one place the rule is stated.
-//
-// THE LIBRARY QUESTION, ANSWERED BY MEASUREMENT.
-//
-//   • `Temporal` — absent. `typeof globalThis.Temporal` is `"undefined"` on Node
-//     24.18 (measured 2026-09-04), above this repo's 24.16 floor. The `console-unit`
-//     tier runs under Node, not under Electron's V8, so a `Temporal`-based parser
-//     would fail the tier that gates every console PR even where Electron's Chromium
-//     carried the API, and a guarded two-path implementation would read one way in
-//     CI and another in production, which is the single outcome a chokepoint exists
-//     to prevent.
-//   • `@js-temporal/polyfill` — declined. It ships the whole Temporal object model
-//     to buy one predicate, and the console's bundle budget is a gate rather than a
-//     preference.
-//   • `date-fns` `parseISO` — declined, and on correctness rather than on size. It
-//     is documented to accept what this console must refuse: a date-only value and
-//     a timezone-less value both parse, and the second is read in the host's zone —
-//     the exact leniency that made `Date.parse` unusable here.
-//   • `zod` (`z.iso.datetime`) — declined, on placement rather than on capability.
-//     It validates the calendar and the clock correctly, but the console admits a
-//     schema library in exactly one place — `services/`, where a daemon reply is parsed
-//     against the method's registered shape — and `lib/` sits at the bottom of the
-//     import layering and takes no library at all. A wire SHAPE needs a registry row;
-//     an ENCODING of one scalar needs twenty lines, written below, and those lines are
-//     also what let this reader follow RFC 3339 section 5.6 exactly where zod narrows
-//     it (the lowercase `t` / `z` separators that section permits and zod refuses).
-//
-// ONE NARROWING THIS READER KEEPS, recorded rather than discovered later. RFC 3339
-// section 5.6 permits a leap second (`23:59:60Z`); the platform's epoch cannot
-// represent one, so it reads as malformed here. Nothing this console talks to emits
-// one, and it fails CLOSED — an em dash and a row sorted last, never a wrong instant.
+// A leap second (`23:59:60Z`) reads as malformed because the platform's epoch cannot represent it;
+// it fails closed, as an em dash and a row sorted last, never a wrong instant.
 
 import { lossyStringify } from "./wire-errors.js";
 
 /**
- * RFC 3339 section 5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case,
- * as that section's note permits), `partial-time` with an optional fraction of any width,
- * then `time-offset` as `Z` (either case) or a signed `HH:MM`.
+ * RFC 3339 section 5.6 `date-time`, and nothing wider: `full-date`, a `T` (either case),
+ * `partial-time` with an optional fraction of any width, then `Z` (either case) or a signed
+ * `HH:MM` offset. It admits no date-only value, timezone-less time, compact `+0200` offset or
+ * space separator, each of which `Date.parse` reads as no instant or the host's zone.
  *
- * What the groups do NOT admit is the whole design: no date-only value, no
- * timezone-less time, no compact `+0200` offset, no space separator. Each is a form
- * `Date.parse` reads, and each names either no instant or the host's own zone.
- *
- * The grammar checks the digit groups; the calendar and clock checks in
- * {@link parseInstant} check that the digits name a day and a time that exist, and
- * the {@link InstantOffsetPolicy} check there decides which of the spellings this
- * grammar admits the CALLER's wire contract declares.
- *
- * ONE GRAMMAR, not two. A `"utc-only"` reader is this pattern plus a narrowing, and
- * never a second regular expression: two copies of one encoding drift, and the
- * drift is invisible because each copy has its own tests.
+ * It checks digit groups only; {@link parseInstant} checks the calendar, the clock and the
+ * {@link InstantOffsetPolicy}. A `"utc-only"` reader narrows this one pattern, never a second.
  */
 const RFC_3339_DATE_TIME =
   /^(\d{4})-(\d{2})-(\d{2})([Tt])(\d{2}):(\d{2}):(\d{2})(?:\.(\d+))?(?:([Zz])|([+-])(\d{2}):(\d{2}))$/;
 
 /**
- * The console's millisecond unit factors, each derived from the one before it.
- *
- * HERE BECAUSE THE MILLISECOND IS THIS MODULE'S UNIT. `Instant.epochMilliseconds` is
- * the only number the console does arithmetic on, so every duration a caller composes
- * or compares is a multiple of one of these. Written out per caller — a private
- * constant, a `SECOND_`-based chain, `24 * 60 * 60 * 1000` inline — each spelling of one
- * fact is one more place for a zero to go missing, and every one of them reads
- * correctly on its own.
- *
- * DERIVED RATHER THAN WRITTEN OUT, for the same reason. `86_400_000` typed by hand is a
- * digit count nobody verifies at review; `24 * MILLISECONDS_PER_HOUR` is the sentence a
- * reader can check. One base literal carries the encoding and the rest are arithmetic
- * over it, so a wrong factor is a wrong multiplier and never a wrong magnitude.
- *
- * NOT IN A `*-caps.ts` MODULE, which holds a CAP — a bound somebody chose, with a
- * rationale for the number. These are not chosen: they are what the units
- * are, and they belong beside the reading that makes the millisecond the unit.
+ * Milliseconds in a second. The console does arithmetic only on epoch milliseconds, so every
+ * duration is a multiple of these factors; each is derived from the one before it so a wrong
+ * factor is a wrong multiplier, not a mistyped magnitude.
  */
 export const MILLISECONDS_PER_SECOND = 1_000;
+/** Milliseconds in a minute. */
 export const MILLISECONDS_PER_MINUTE: number = 60 * MILLISECONDS_PER_SECOND;
+/** Milliseconds in an hour. */
 export const MILLISECONDS_PER_HOUR: number = 60 * MILLISECONDS_PER_MINUTE;
+/** Milliseconds in a day, ignoring daylight-saving shifts. */
 export const MILLISECONDS_PER_DAY: number = 24 * MILLISECONDS_PER_HOUR;
 
 /** A stamp this console could read. */
@@ -101,50 +43,34 @@ export interface Instant {
   readonly kind: "instant";
   /** Epoch milliseconds. The only number any caller may do arithmetic on. */
   readonly epochMilliseconds: number;
-  /** The wire's own spelling, kept so a refusal can quote what it was given. */
+  /** The wire's own spelling, kept so a refusal can quote it. */
   readonly text: string;
 }
 
 /**
  * A stamp this console could not read.
  *
- * `epochMilliseconds` is declared here as `undefined` rather than omitted, and that
- * is the whole ergonomic design: TypeScript lets a property be read off a union only
- * when every member declares it, so `parseInstant(iso).epochMilliseconds` types as
- * `number | undefined` with no narrowing ceremony at the call sites that only want
- * the number, while a caller that must tell the two apart still narrows on `kind`.
- * One export serves both, so no second accessor exists to drift from this one.
+ * `epochMilliseconds` is declared `undefined` rather than omitted so it can be read off the
+ * union as `number | undefined` without narrowing; a caller that must tell the arms apart
+ * narrows on `kind`.
  */
 export interface MalformedInstant {
   readonly kind: "malformed";
   readonly epochMilliseconds?: undefined;
-  /** What was given. Never widened into prose here — the caller writes the sentence. */
+  /** What was given; the caller writes any sentence about it. */
   readonly text: string;
 }
 
-/** What {@link parseInstant} answers. Closed at two arms. */
+/** What {@link parseInstant} answers. */
 export type InstantReading = Instant | MalformedInstant;
 
 /**
- * Which of RFC 3339's spellings the CALLER's wire contract declares.
+ * Which of RFC 3339's spellings the caller's wire contract declares; the two contracts the
+ * console reads declare different encodings.
  *
- * A parameter rather than a wider grammar, because the two wire contracts this console
- * reads genuinely declare different encodings and neither one is the module's to choose:
- *
- *   • `"any-offset"` — the whole of RFC 3339 section 5.6 the grammar admits: `Z` or
- *     `z`, a signed `HH:MM` offset, and either case of the `T` separator. What the
- *     wire figures and the rate-limit reader take, because a producer there may
- *     legally send any of them and every one names one instant unambiguously.
- *   • `"utc-only"` — `Z` and `T`, exactly. A numeric offset parses unambiguously, so
- *     admitting it would cost nothing today — but a contract that declares ONE encoding
- *     and a reader that quietly accepts a second is the place a producer's encoding
- *     change enters unremarked, and the lowercase separators go with it for the same
- *     reason. Refusing is not strictness for its own sake: it is the reading that
- *     reports the change instead of absorbing it.
- *
- * The default is `"any-offset"` because that is what the grammar above already was,
- * so a caller that has not thought about its contract keeps the behavior it had rather
- * than silently gaining a refusal.
+ *   - `"any-offset"`: `Z` or `z`, a signed `HH:MM` offset, and either case of `T`. The default.
+ *   - `"utc-only"`: `Z` and `T`, exactly, so a producer's encoding change is reported instead of
+ *     absorbed.
  */
 export type InstantOffsetPolicy = "any-offset" | "utc-only";
 
@@ -152,30 +78,16 @@ export type InstantOffsetPolicy = "any-offset" | "utc-only";
 export type InstantOrder = "oldest-first" | "newest-first";
 
 /**
- * Read one wire instant.
+ * Read one wire instant. Total: it never throws, whatever it is given.
  *
- * THREE CONJUNCTS, IN THIS ORDER, and none alone is the reading. The grammar answers
- * whether the text is spelled in RFC 3339 section 5.6 at all; the calendar and clock
- * checks then answer whether the digits name a day and a time that exist; and
- * `offsetPolicy` answers whether the spelling is one the CALLER's contract declares. Only a
- * value past all three is composed into a number, so there is no `Date.parse` here to
- * normalize a day that does not exist into the next one.
+ * A value must pass the grammar, then the calendar and clock checks, then `offsetPolicy`,
+ * before it is composed into a number; there is no `Date.parse` to normalize a day that does
+ * not exist. A fraction wider than milliseconds is truncated, never rounded, so a reading is
+ * never later than the wire's instant.
  *
- * A fraction wider than milliseconds is TRUNCATED, never rounded: `.9999Z` reads
- * as `.999`, so a reading is never later than the instant the wire named.
- *
- * TOTAL, and the runtime guard is what makes that true rather than the type. A
- * non-string reaching here past the type is the reachable case — this reader is fed
- * wire values the console did not itself validate — and it does NOT simply "match no
- * grammar": `RegExp.prototype.exec` runs `ToString` on its argument first, which
- * THROWS for a null-prototype object, for a symbol, and for any hostile or merely
- * broken `toString`. So the guard runs before the grammar, and it is the only reason
- * the totality claim holds.
- *
- * Such a value is refused like any other malformed one, and the malformed arm quotes
- * what it was given — `text` is declared `string` and is what a refusal renders, so
- * the spelling comes through {@link lossyStringify}, which is total for the same
- * reason this function has to be.
+ * The runtime `typeof` guard runs first because the input is wire data the console did not
+ * validate, and `RegExp.prototype.exec` throws on a null-prototype object, a symbol or a broken
+ * `toString`. Such a value is malformed, and its `text` comes from {@link lossyStringify}.
  */
 export function parseInstant(
   text: string,
@@ -202,11 +114,11 @@ export function parseInstant(
   const offsetMinute = Number(match[12] ?? "0");
 
   const calendarHolds = month >= 1 && month <= 12 && day >= 1 && day <= daysInMonth(year, month);
-  // Second 60 — the leap second — is the one narrowing the module header records.
+  // Second 60, the leap second, is refused (see the header).
   const clockHolds = hour <= 23 && minute <= 59 && second <= 59;
   const offsetHolds = utcMarker !== undefined || (offsetHour <= 23 && offsetMinute <= 59);
-  // One comparison covers both narrowings a Z-only contract makes: an offset spelling
-  // leaves `utcMarker` undefined, and a lowercase `z` is not `Z`.
+  // Covers both narrowings of a UTC-only contract: an offset leaves `utcMarker` undefined, and
+  // a lowercase `z` is not `Z`.
   const policyHolds = offsetPolicy === "any-offset" || (utcMarker === "Z" && separator === "T");
   if (!calendarHolds || !clockHolds || !offsetHolds || !policyHolds) {
     return { kind: "malformed", text };
@@ -222,8 +134,7 @@ export function parseInstant(
     second,
     millisecond,
   );
-  // An offset names how far AHEAD of UTC the local clock reads, so the instant is
-  // the local reading minus the offset: `10:00+02:00` is `08:00Z`.
+  // The offset is how far ahead of UTC the local clock reads: `10:00+02:00` is `08:00Z`.
   const offsetMilliseconds =
     utcMarker !== undefined
       ? 0
@@ -232,24 +143,11 @@ export function parseInstant(
 }
 
 /**
- * Order two readings.
+ * Order two readings; malformed readings sort last in both directions.
  *
- * MALFORMED SORTS LAST IN BOTH DIRECTIONS, and that is why this takes the direction
- * as an argument instead of leaving the caller to reverse it. A comparator that only
- * ascends is reversed by swapping its arguments — which reverses where the
- * unreadable values land too, so the same list puts them last when sorted one way
- * and FIRST when sorted the other. A numeric sentinel has the identical defect from
- * the other side: `-Infinity` is least, so it is last ascending and first
- * descending. Handling the arm before the numeric comparison is what makes "a row
- * whose stamp we could not read never displaces one we could" true in both
- * directions.
- *
- * Two unreadable readings TIE, deliberately: they carry no information to order by,
- * so the caller's next sort key decides, exactly as it does for two equal instants.
- *
- * Takes readings rather than strings so a sort parses once per row instead of twice
- * per comparison — the decorate-then-sort shape, and the reason this allocates
- * nothing on the comparison path.
+ * `order` is an argument because swapping arguments to reverse a sort would also move the
+ * unreadable values to the front. Two malformed readings tie, so the caller's next sort key
+ * decides. It takes readings so a sort parses once per row, not twice per comparison.
  */
 export function compareInstants(
   left: InstantReading,
@@ -263,14 +161,11 @@ export function compareInstants(
     return -1;
   }
   const ascending = left.epochMilliseconds - right.epochMilliseconds;
-  // `Math.sign` rather than the difference itself: epoch milliseconds are far inside
-  // the safe-integer range so the subtraction is exact, but a comparator that
-  // returns a magnitude invites a caller to read one, and the only contract `sort`
-  // has is the sign.
+  // `sort` only defines the sign, so return the sign rather than a magnitude.
   return Math.sign(order === "newest-first" ? -ascending : ascending);
 }
 
-/** Days in `month` of `year`, with the Gregorian leap rule stated in full. */
+/** Days in `month` of `year`, by the Gregorian leap rule. */
 function daysInMonth(year: number, month: number): number {
   if (month === 2) {
     const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
@@ -289,9 +184,8 @@ function epochMillisecondsOfUtc(
   second: number,
   millisecond: number,
 ): number {
-  // `Date.UTC` reads a two-digit year as 1900 + year; `setUTCFullYear` does not.
-  // Composing at a fixed leap year first keeps a February 29 in year 0004 intact
-  // while the year is moved into place.
+  // `Date.UTC` reads a two-digit year as 1900 + year; `setUTCFullYear` does not. Composing at a
+  // fixed leap year first keeps February 29 of year 0004 intact.
   const composed = new Date(Date.UTC(2000, month - 1, day, hour, minute, second, millisecond));
   composed.setUTCFullYear(year);
   return composed.getTime();

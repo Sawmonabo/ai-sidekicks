@@ -1,12 +1,9 @@
 /* The line under an account-plane refusal that names where it is answered.
 
-   Its own sheet beside the component that owns it, because the block is one
-   subject and the settings page chrome it sits inside knows nothing about it.
+   Its own sheet beside the component, since the block is one subject.
 
-   The action is a text button rather than a filled one: the refusal above it is
-   already the loud thing on the page, and the two-hue budget is spent on
-   the refusal's own mark. A second emphatic control here would compete with the
-   sentence a person still has to read. */
+   The action is a text button: the refusal above is already the loud thing on the page, and
+   a second emphatic control would compete with the sentence a person still has to read. */
 
 .meridian-account-handoff {
   display: flex;

@@ -1,10 +1,6 @@
-// The node's session directory, read for as long as a caller is mounted.
-//
-// THE STATE IS SUBJECT-SCOPED, AND THE SUBJECT IS THE CALL. A new call is a new source
-// of session truth, and the answer read through the previous one stops being an answer
-// at that instant. The state is held by the one subject-scoped holder, addressed during
-// the render that first sees a new call, and re-seeded to `reading`. An answer
-// dispatched through a call that has since been replaced writes nowhere.
+// The node's session directory, read for as long as a caller is mounted. The state is scoped to
+// the call: a replaced call re-seeds it to `reading`, and an answer from the old call writes
+// nowhere.
 
 import { useCallback, useMemo, useSyncExternalStore } from "react";
 
@@ -30,19 +26,12 @@ const SESSION_DIRECTORY_PROJECTION: SubjectReadProjection<
 };
 
 /**
- * Read the node's session directory, for as long as the caller is mounted.
+ * Read the node's session directory for as long as the caller is mounted.
  *
- * The effect is keyed on the call, so a re-render never re-reads and a replaced call
- * does. THE REVISION IS NOT THE SUBJECT: a stale directory re-reads over the SAME
- * address, so the answer already on screen stays there until the new one lands.
- *
- * THE WINDOW HALF OF THE TRIGGER SET AND NOT THE SESSION HALF, on the rule
- * `store/reads/read-triggers.ts` states: this read is addressed at the NODE, so no one
- * session's repair and no one session's timeline bear on it. The transport signal is
- * the caller's because it is the BRIDGE's.
- *
- * A rejected call is not caught here: the effect discards the promise, so the rejection
- * reaches the host as an unhandled rejection and the state stays `reading`.
+ * A re-render never re-reads; a replaced call does. A stale revision re-reads over the same
+ * address, so the answer on screen stays until the new one lands. Only the window triggers
+ * apply, since no one session's repair bears on the node's list. A rejected call is not
+ * caught: it surfaces as an unhandled rejection and the state stays `reading`.
  */
 export function useSessionDirectory(
   read: SessionDirectoryReadCall,
@@ -56,8 +45,7 @@ export function useSessionDirectory(
     () => sessionDirectoryStaleness.revisionFor(read),
     [read],
   );
-  // A number, so `useSyncExternalStore` compares it by value and a call whose revision
-  // has not moved re-renders nothing at all.
+  // A number, so an unmoved revision re-renders nothing.
   const directoryRevision = useSyncExternalStore(
     watchDirectoryRevision,
     readDirectoryRevision,
@@ -75,9 +63,7 @@ export function useSessionDirectory(
       () => ({
         triggeringEventKinds: NO_TRIGGERING_EVENT_KINDS,
         requestRead: (reason: RefreshReason): void => {
-          // `subscribe` is the read the subject read above already put on this mount.
-          // Routing it into the revision would put a second call on the wire for one
-          // arrival.
+          // The subject read above already covers `subscribe`; routing it here would double it.
           if (reason === "subscribe") {
             return;
           }

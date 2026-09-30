@@ -1,21 +1,10 @@
-// The navigation policy, as installed.
-//
-// `assert-webprefs.ts` proves the locked `webPreferences` literal is correct and
-// singular. It says nothing about NAVIGATION, and a locked window that can be
-// navigated to a remote origin is a locked window protecting somebody else's
-// content: the same preload, the same bridge, the same partition, now behind
-// attacker-served markup.
-//
-// `./navigation.test.ts` is the unit suite over `classifyNavigation` — the pure
-// verdict function, exhaustively. THIS suite is the wiring: that a constructed
-// window carries the classification on every seam that can change its document,
-// and that each seam does the same thing with the same verdict.
-//
-// Three seams, not two. `will-navigate` fires on the ORIGINAL target, so an
-// admitted origin answering `302 Location: https://evil.test` is already past it
-// by the time the redirect is known; `will-redirect` is where that is caught.
-// The redirect cases below are deliberately the navigate cases with one string
-// changed, because "the same classification and the same refusal" is the claim.
+// The navigation policy as installed. `assert-webprefs.ts` proves the locked `webPreferences`
+// literal; it says nothing about navigation, and a locked window navigated to a remote origin
+// runs attacker markup with the same preload, bridge and partition. `./navigation.test.ts` covers
+// the pure classifier; this covers the wiring: every seam that can change a window's document
+// carries the classification and takes the same decision. The redirect cases are the navigate
+// cases with one string changed, because `will-navigate` fires on the original target and
+// `will-redirect` is where a 302 to an outside origin is caught.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -57,9 +46,8 @@ describe("the navigation policy", () => {
 
     const browserWindow = createMainWindow();
 
-    // Asserted as REGISTRATION, separately from the verdict cases below: a
-    // policy that classified correctly on a seam nobody registered would pass
-    // every case that invokes the listener it just fetched.
+    // Registration is asserted apart from the verdicts: a policy that classified correctly on
+    // a seam nobody registered would pass every case that fetches its own listener.
     for (const seam of NAVIGATION_SEAMS) {
       expect(navigationListenerOf(browserWindow, seam)).toBeDefined();
     }
@@ -116,11 +104,9 @@ describe("the navigation policy", () => {
 
       navigationListenerOf(browserWindow, seam)({ preventDefault }, `${DEV_SERVER_URL}/index.html`);
 
-      // Stopped in-window, and handed to the browser rather than rendered here:
-      // `http:` is an allowlisted EXTERNAL scheme, and the packaged build has no
-      // dev origin to render it in. Awaited rather than left in flight, because
-      // the external open is deferred by one turn and an unawaited one lands in
-      // the NEXT case's recording.
+      // Stopped, and handed to the browser rather than rendered: `http:` is an allowlisted
+      // external scheme and a packaged build has no dev origin. Awaited because the open is
+      // deferred a turn and would otherwise land in the next case's recording.
       expect(preventDefault).toHaveBeenCalledTimes(1);
       await vi.waitFor(() => {
         expect(electronMock.externalOpens).toEqual([`${DEV_SERVER_URL}/index.html`]);
@@ -141,11 +127,8 @@ describe("the navigation policy", () => {
     });
   });
 
-  // The two seams take the same decision and still say WHICH one fired: a
-  // refusal log that could not tell "the page tried to navigate there" from "a
-  // server redirected it there" describes two quite different incidents with one
-  // sentence. This is the only place the seams are allowed to differ, so it is
-  // asserted rather than left to the reader of the log.
+  // The seams take the same decision but say which one fired, so a log can tell a page
+  // navigation from a server redirect.
   it.each([
     ["will-navigate", "refused an in-window navigation"],
     ["will-redirect", "refused an in-window redirect"],

@@ -1,21 +1,6 @@
-// The rail's order is the tuple's, and its destinations round-trip through the
-// router.
-//
-// Two separable claims, and the reason they are separable is the point of the entry
-// table's shape: the SET of destinations is the table's (total over the union, held
-// by the compiler), and the SEQUENCE is `RAIL_DESTINATIONS`'. A record's key order
-// would have been a third, accidental source of truth for the second one, so the
-// control below shows the two orders are genuinely different things rather than the
-// same thing observed twice.
-//
-// The third claim is the one this module got wrong, and it was wrong about WHICH
-// destinations exist rather than about when they are shown. The screen set names
-// sessions, workflows, and settings; the rail shipped sessions, workspace, and
-// settings, so the destination that opens the workflow builder was unreachable and the
-// session screen — a route reached from the sessions list — was carrying a rail icon
-// that had to be hidden half the time to make sense. The last case here is what holds
-// the pair straight now: a click on an entry lands on a route the rail reports as that
-// same entry, for every one of them.
+// The rail's order comes from the `RAIL_DESTINATIONS` tuple, not from the entry table's key order,
+// and every destination round-trips through the router: a click lands on a route the rail reports
+// as that same destination.
 
 import { describe, expect, it } from "vitest";
 
@@ -42,8 +27,7 @@ describe("RAIL_ENTRIES — order comes from the tuple", () => {
   });
 
   it("negative control: a table's key order is not the tuple's order", () => {
-    // If the entries were built by walking the table, this is the order they would
-    // come out in — which is why they are not built that way.
+    // Entries built by walking the table would come out in this order, which is why they are not.
     expect(Object.keys(REORDERED_TABLE)).not.toStrictEqual([...RAIL_DESTINATIONS]);
   });
 
@@ -63,8 +47,7 @@ describe("routeForDestination — where a rail click goes", () => {
   });
 
   it("negative control: no two destinations land on one route", () => {
-    // Without this, a router that answered the sessions list for everything would
-    // satisfy the case above's shape while making two of the three icons dead.
+    // Without this, a router answering the sessions list for everything would leave two icons dead.
     const addresses = RAIL_DESTINATIONS.map((destination) =>
       JSON.stringify(routeForDestination(destination)),
     );
@@ -74,10 +57,8 @@ describe("routeForDestination — where a rail click goes", () => {
 
 describe("the rail and the router answer from one set", () => {
   it("lands every entry on a route the rail reports as that same entry", () => {
-    // The defect this pins is a rail whose click leaves the pressed icon
-    // unhighlighted — a control that navigates somewhere and then denies it. The
-    // pair is walked from the tuple rather than case by case, so a fourth
-    // destination cannot be added on one side alone.
+    // Pins a click that leaves the pressed icon unhighlighted; walking the tuple stops a fourth
+    // destination being added on one side alone.
     for (const destination of RAIL_DESTINATIONS) {
       expect(railDestinationFor(routeForDestination(destination)), destination).toBe(destination);
     }
@@ -116,9 +97,7 @@ describe("warmDestination — the screen a press is about to mount", () => {
   }
 
   it("resolves each destination through the route table to its own screen", async () => {
-    // The step that could go wrong twice: a second open-coded reading of
-    // `findScreenNameForRoute` would drift the first time a destination changed screens, so the
-    // walk holds every destination to the screen its own route resolves to.
+    // Holds every destination to the screen its own route resolves to.
     for (const destination of RAIL_DESTINATIONS) {
       const { screenRegistry, loaded } = boardOverDestinations();
       warmDestination(screenRegistry, destination);
@@ -136,8 +115,7 @@ describe("warmDestination — the screen a press is about to mount", () => {
   });
 
   it("costs one fetch however often a person passes over the same entry", async () => {
-    // Highlight moves with every arrow key and a press follows a hover, so this runs
-    // far more often than a navigation does.
+    // The highlight moves with every arrow key, so this runs far more often than a navigation.
     const { screenRegistry, loaded } = boardOverDestinations();
     warmDestination(screenRegistry, "settings");
     warmDestination(screenRegistry, "settings");
@@ -147,8 +125,7 @@ describe("warmDestination — the screen a press is about to mount", () => {
   });
 
   it("does nothing for a destination whose screen is component-form", () => {
-    // A caller must not have to ask first whether what it is about to open is
-    // loader-backed, or every call site carries a copy of that question.
+    // A caller need not ask first whether the screen is loader-backed.
     const screenRegistry = new ScreenRegistry();
     screenRegistry.register({ name: "sessions", owner: "sessions", render: () => null });
     expect(() => {
@@ -158,10 +135,8 @@ describe("warmDestination — the screen a press is about to mount", () => {
   });
 
   it("swallows a chunk that will not load rather than raising it here", async () => {
-    // A speculative fetch has nobody waiting on it; a chunk that cannot be fetched is a
-    // damaged install, and the honest place for that is the mount, where the console's
-    // error boundary can say so. An unhandled rejection from a hover would be a crash
-    // report for a destination nobody entered.
+    // A failed speculative fetch belongs to the mount's error boundary; an unhandled rejection from
+    // a hover would report a crash for a destination nobody entered.
     const screenRegistry = new ScreenRegistry();
     screenRegistry.register({
       name: "workflows",
@@ -176,8 +151,7 @@ describe("warmDestination — the screen a press is about to mount", () => {
   });
 
   it("negative control: an empty board is warmed without complaint and stays empty", () => {
-    // Without this, the cases above would pass over a `warmDestination` that registered
-    // something of its own on the way past.
+    // Without this, the cases above would pass over a `warmDestination` that registered something.
     const screenRegistry = new ScreenRegistry();
     for (const destination of RAIL_DESTINATIONS) {
       warmDestination(screenRegistry, destination);

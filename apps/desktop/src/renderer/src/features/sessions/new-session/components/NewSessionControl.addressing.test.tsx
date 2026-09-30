@@ -1,16 +1,9 @@
-// WHICH composition a settlement lands in, and which bridge a draft belongs to.
-//
-// Split from `NewSessionControl.test.tsx`, which is about the acts being reachable at
-// all. Every case here is about ADDRESSING: discard is reachable while a send is in
-// flight and "+ New" is reachable the moment it is, so a continuation that wrote its
-// result into whatever composition was on screen when it settled would show an older
-// draft's refusal under a newer one — and a control that held its draft on nothing
-// would keep sending through a bridge that has been replaced.
-//
-// AND THE SAME QUESTION ASKED OF ONE DRAFT RATHER THAN TWO: a completed send closes the
-// content it SENT, and a draft the person has typed into since is not that content. The
-// second describe holds that pair — the revision the settlement is measured against, and
-// the read-only field that keeps the window it lives in as narrow as a frame.
+// Which composition a settlement lands in, and which bridge a draft belongs to. Discard and
+// "+ New" are reachable while a send is in flight, so a continuation that wrote into
+// whatever composition was on screen would show an older draft's refusal under a newer one,
+// and a draft held on nothing would keep sending through a replaced bridge. The second
+// describe asks the same of one draft: a completed send closes the content it sent, not text
+// typed since.
 
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -37,10 +30,8 @@ import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 
 describe("the composed new-session draft — which composition a settlement lands in", () => {
   it("drops a discarded draft's settlement rather than showing it under its replacement", async () => {
-    // The defect: the continuation wrote its result into whatever composition was on
-    // screen when it settled. Discard is reachable while a send is in flight and
-    // "+ New" is reachable the moment it is, so a person who discarded and started
-    // again was shown a refusal for a session THIS draft never sent.
+    // A continuation once wrote its result into whatever composition was on screen, so a
+    // person who discarded and started again saw a refusal for a session this draft never sent.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
@@ -55,15 +46,13 @@ describe("the composed new-session draft — which composition a settlement land
 
     expect(container.textContent).not.toContain("first-turn-failed");
     expect(politeText(container)).toBe("");
-    // The replacement is untouched and still sendable — nothing about the old send
-    // reached it, including its sending flag.
+    // The replacement is untouched and still sendable, including its sending flag.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(false);
   });
 
   it("keeps Send disabled when an older draft's send settles under a newer one", async () => {
-    // The second half of the same defect. One boolean over two drafts is cleared by
-    // whichever send settles first, so the older one's `finally` re-enabled Send under
-    // a composition whose own create was still in flight.
+    // One boolean over two drafts was cleared by whichever send settled first, re-enabling
+    // Send under a composition whose own create was still in flight.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
@@ -92,8 +81,7 @@ describe("the composed new-session draft — which composition a settlement land
   });
 
   it("negative control: a settlement for the draft still on screen is rendered", async () => {
-    // Without this, a control that dropped EVERY settlement would pass both cases
-    // above — and no send would ever report anything.
+    // Without this, a control that dropped every settlement would pass both cases above.
     const queued = bridgeQueueingCreates();
     const container = renderControlOn(queued.bridge);
     await openDraftWithFirstTurn();
@@ -110,9 +98,8 @@ describe("the composed new-session draft — which composition a settlement land
     );
   });
 
-  // The negative control: without it, a control whose Send button was wired to
-  // nothing would satisfy every case above that only reads the opened panel — the
-  // refusal text and the announcement are the only evidence a send happened at all.
+  // Without this, a Send wired to nothing would satisfy every case that only reads the opened
+  // panel; the refusal text and the announcement are the only evidence a send happened.
   it("negative control: an unsent draft carries neither refusal nor announcement", async () => {
     const container = renderControl({ scriptsCreate: true });
     await openDraftWithFirstTurn();
@@ -127,11 +114,10 @@ describe("the composed new-session draft — the composition a completed send cl
   afterEach(cleanup);
 
   it("keeps words typed after the press rather than closing the draft over them", async () => {
-    // The defect: a completed send published `undefined` over whatever draft was on
-    // screen. `#performSend` captured the first message when it read the draft, so text
-    // typed while the create was in flight was never sent — and the settlement then
-    // threw away the only copy of it. The send is slow here because that is the whole
-    // window the defect lives in.
+    // A completed send once published `undefined` over whatever draft was on screen. The send
+    // captured the first message when it read the draft, so text typed while the create was in
+    // flight was never sent, and the settlement threw away the only copy. The send is slow
+    // here because that window is where the defect lives.
     const settledSessionIds: string[] = [];
     const held = bridgeHoldingCreate();
     const container = renderControlOn(held.bridge, {
@@ -140,10 +126,9 @@ describe("the composed new-session draft — the composition a completed send cl
     });
     await openDraftWithFirstTurn();
     await press("Send");
-    // The frame between the press and the render that closes the field: the control
-    // publishes its sending flag inside the click handler, so a person typing into a
-    // field that is already read-only cannot reach this — a keyboard path, an input
-    // method, or a caller arriving before that render can.
+    // The frame between the press and the render that closes the field: the sending flag is
+    // published inside the click handler, so only a keyboard path, an input method or a caller
+    // arriving before that render can type here.
     await typeFirstTurn("Start on the migration, and read the changelog first.");
 
     await act(async () => {
@@ -155,26 +140,22 @@ describe("the composed new-session draft — the composition a completed send cl
     expect((screen.getByLabelText("Its first message") as HTMLTextAreaElement).value).toBe(
       "Start on the migration, and read the changelog first.",
     );
-    // And the person is told, rather than left to notice: the session exists, and the
-    // words in front of them are not in it.
+    // The person is told the session exists and the words in front of them are not in it.
     expect(container.textContent).toContain(
       "What you typed after pressing Send was not sent, and it is still here.",
     );
     expect(politeText(container)).toBe(
       "The session was created. What you typed after pressing Send was not sent, and it is still here.",
     );
-    // Nothing more can be put on the wire from this draft — every leg it names landed —
-    // so Send is closed rather than left to report the same session again.
+    // Every leg it names landed, so Send is closed rather than left to report the session again.
     expect(screen.getByRole("button", { name: "Send" }).hasAttribute("disabled")).toBe(true);
-    // Not settled either: the settlement navigates, and it would take the sentence above
-    // and the unsent words off the screen with it.
+    // Not settled either: settling navigates and would take the sentence and the words away.
     expect(settledSessionIds).toStrictEqual([]);
   });
 
   it("closes the field while the send runs, without taking focus off it", async () => {
-    // The structural half is the revision above; this is the affordance half, and it is
-    // `readOnly` rather than `disabled` on purpose — a disabled control loses focus, so
-    // a person typing when the press landed would find their place gone.
+    // The affordance half of the revision guard, `readOnly` rather than `disabled` so a
+    // person typing when the press landed keeps focus.
     const held = bridgeHoldingCreate();
     renderControlOn(held.bridge, { queueFirstTurn: completingFirstTurn().call });
     await openDraftWithFirstTurn();
@@ -192,9 +173,8 @@ describe("the composed new-session draft — the composition a completed send cl
   });
 
   it("negative control: a send nobody edited closes its draft and hands the session out", async () => {
-    // Without this, a control that never closed a draft at all would pass the case
-    // above — and every completed send would leave a form standing over a session the
-    // console had already started.
+    // Without this, a control that never closed a draft would pass the case above and leave a
+    // form standing over a session the console had already started.
     const settledSessionIds: string[] = [];
     const held = bridgeHoldingCreate();
     const container = renderControlOn(held.bridge, {
@@ -216,14 +196,9 @@ describe("the composed new-session draft — the composition a completed send cl
 });
 
 /**
- * The settlement these cases hand over, which records nothing.
- *
- * Every case in this describe is about which BRIDGE a draft sends through, and none of
- * them completes a send — only `session.create` is scripted, so each settles partial
- * and the settlement arm is never reached. Declared once so the three mounts hand over
- * one identity, which is the shape the destination does not: a settlement whose
- * identity moved every pass is exactly what the control's committed reference exists to
- * be correct under, and that property is asserted in `NewSessionControl.test.tsx`.
+ * The settlement these cases hand over, which records nothing. None of them completes a send
+ * (only `session.create` is scripted, so each settles partial); the settlement's identity
+ * moving each pass is asserted in `NewSessionControl.test.tsx`.
  */
 function recordNothing(): void {
   return undefined;
@@ -235,8 +210,7 @@ function bridgeCountingCreates(): {
   readonly createCount: () => number;
 } {
   let creates = 0;
-  // Scoped to the create by name, so any other call reaches the fixture's own answer
-  // and is never counted as a create.
+  // Scoped to the create by name, so any other call reaches the fixture's own answer.
   const { bridge } = withDaemonCall(
     bridgeFor({ scriptsCreate: true }),
     async (call, passThrough) => {
@@ -254,11 +228,9 @@ describe("the composed new-session draft — the transport it would send through
   afterEach(cleanup);
 
   it("drops the draft when the bridge is replaced, and sends nothing through the retired one", async () => {
-    // A draft holds the bridge it was composed against and sends `session.create`
-    // through that one, so a reconnect leaves it addressed to a transport that is
-    // gone: the send would either never land or land on a connection this console
-    // will not read again, and the id it reported back would name a session nobody
-    // can open. The draft goes with the transport, and "+ New" comes back.
+    // A reconnect leaves a draft addressed to a retired transport, where its send would never
+    // land or would name a session nobody can open. The draft goes with the transport and
+    // "+ New" comes back.
     const retired = bridgeCountingCreates();
     const live = bridgeCountingCreates();
     const { rerender } = render(
@@ -297,8 +269,7 @@ describe("the composed new-session draft — the transport it would send through
   });
 
   it("negative control: with no replacement, the same composition reaches its own bridge", async () => {
-    // Without this, the case above would pass over a control whose Send reached no
-    // bridge at all, and "never the retired one" would be true of every bridge.
+    // Without this, the case above would pass over a Send that reached no bridge at all.
     const composed = bridgeCountingCreates();
     render(
       <LiveAnnouncerProvider>

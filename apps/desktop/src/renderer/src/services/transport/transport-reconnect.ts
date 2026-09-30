@@ -1,98 +1,43 @@
-// The console's one transport-reconnect signal: the wire went away, and it is back.
+// The console's one transport-reconnect signal: the wire went away, and it is back. A window-scoped
+// reading (this node's diagnostics or accounts, the machine's settings) has no session and no
+// repair edge, so this is where its `reconnect` refresh reason comes from.
 //
-// The console's refresh policy is fixed: on subscribe, on window focus, on
-// reconnect, and on the terminal events the owning wire names. A SESSION store's repair
-// edge produces `RefreshReason`'s `reconnect` for its session, but a window-scoped
-// reading — this node's diagnostics, this node's accounts, the machine's own settings —
-// has no session and no repair edge, so this signal is where its reconnect comes from.
+// The signal observes rather than polls. It is told what happened by every daemon subscription the
+// window opens, through `observed-subscription.ts` (reported into by
+// `services/daemon/daemon-streams.ts` and the session-event subscriber), and under the fixture by
+// the scenario's scripted outages.
+// There is no timer, probe or retry ladder, and no connection state is inferred from an unrelated
+// call, since the supervisor owns that. No single consumer is also the only producer, or a window
+// whose only session failed to bind could never emit the edge that retries it.
 //
-// ONE EMITTER, AND IT OBSERVES RATHER THAN POLLS
+// The live half sees one moment: whether `daemon.subscribe` returned or threw. A subscription that
+// opened and then died (daemon exit, IPC closing, stream ending) reaches this signal through
+// nothing, so a window whose wire goes away after every stream is open stays `reachable` and no
+// edge fires. That is a missing signal, not a missing observer: the handler has no error, end or
+// close arm and no bridge member reports connection state, and the alternatives, a heartbeat probe
+// or treating a failed unrelated call as a loss, are the ones this design refuses. When the
+// preload contract grows a stream-termination arm, `openObservedSubscription` reports
+// `unreachable` from it.
 //
-// Nothing here asks anything. The signal is TOLD what happened, by every daemon
-// subscription this window opens — through `observed-subscription.ts` beside this file,
-// which holds the one rule for what an open proves and is reported into by
-// `services/daemon/daemon-streams.ts` and by the session-event subscriber — and, under
-// the fixture, by the scenario's own scripted outages. There is no timer, no probe, and no
-// retry ladder: a renderer that polled to find out whether the wire was back would be the
-// interval polling the design forbids, and a renderer that inferred it from a call that
-// happened to succeed would be synthesizing a connection state the supervisor owns.
-//
-// NO OBSERVER IS ALSO THE ONLY CONSUMER, which is a property rather than a coincidence.
-// Were the session-event subscriber the sole live producer AND the sole consumer of the
-// edge, a window whose only session failed to bind could never emit the edge that would
-// retry it. The observation belongs to the call every subscription passes through, so
-// the edge is a fact about the wire rather than about one session's binding.
-//
-// WHAT THE LIVE HALF IS NOT TOLD, STATED RATHER THAN LEFT TO BE DISCOVERED
-//
-// It is told about ONE moment: whether `daemon.subscribe` returned or threw when a
-// caller opened one. A subscription that opened and then DIED — the daemon exiting, the
-// IPC channel closing, the stream ending without another payload — reaches this signal
-// through nothing, so a window whose wire goes away after every stream is open stays
-// at `reachable` and the returning edge never fires for it. The readings that name
-// `reconnect` in their refresh policy are correct about the signal they subscribe to
-// and wrong about the transport, on that one path.
-//
-// THAT IS A MISSING SIGNAL AND NOT A MISSING OBSERVER, which is why nothing here
-// compensates for it. `PlatformBridge.daemon.subscribe` is `(event, request,
-// handler) => Unsubscribe`: the handler is a payload sink with no error, end, or close arm, the
-// handle only cancels, and no member anywhere on that bridge — `daemon`,
-// `controlPlane`, `native`, `update`, `app` — reports connection state.
-// There is nothing an observer could listen to. The alternatives are the two this file
-// already refuses: a heartbeat probe is the interval polling the design forbids, and
-// treating a failed unrelated call as a loss is a connection state this renderer would
-// be inventing rather than observing.
-//
-// THE RE-ARM IS NAMED. The day the preload contract grows a stream-termination arm —
-// a handler that is told the stream ended, or a bridge-level connection observable —
-// `openObservedSubscription` reports `unreachable` from it and this paragraph goes. Until
-// then the live half covers the loss it can see, the fixture covers both edges by
-// script, and the gap is written down here rather than implied by a header that reads
-// as though every loss were observed.
-//
-// WHAT AN EDGE IS, AND WHY A FIRST CONNECTION IS NOT ONE
-//
-// The signal holds three states, and only one transition emits. `unknown` is where a
-// window starts — nothing has been observed, so nothing is claimed. `unreachable` is
-// a loss somebody observed. `reachable` is the wire working. The emit is
-// `unreachable → reachable` and nothing else: a first `reachable` is the transport
-// coming up rather than coming back, and a reading's own `subscribe` reason already
-// covers the moment it opens. Firing there too would put two reads behind every
-// view that mounts, on a signal whose whole justification is that it costs nothing
-// when nothing happened.
-//
-// REPEATED OBSERVATIONS OF THE SAME STATE ARE FREE. Every subscription reports, so a
-// window with four sessions open and two node-scoped tails reports `reachable` six
-// times for one transport; only a state CHANGE is a change, so the five redundant
-// reports cost nothing and no reading re-reads for them.
-//
-// WHY IT IS NOT ON `PreloadApi`
-//
-// The preload contract is what the preload actually exposes, and it exposes no
-// connection state. Putting one there would make the fixture shape-identical to a
-// lie. This sits on `PlatformBridge`, where the console's own seams live.
+// The signal has three states and only `unreachable → reachable` emits. `unknown` is where a
+// window starts, and a first `reachable` is the transport coming up, not back; a reading's own
+// `subscribe` reason already covers that, and firing too would put two reads behind every mounting
+// view. Repeated observations of the same state are free, since every subscription reports. It is
+// not on `PreloadApi` because the preload exposes no connection state; it sits on `PlatformBridge`.
 
 import { Emitter, type Unsubscribe } from "@renderer/lib/emitter.js";
 import { type TransportReconnectObservable } from "@renderer/lib/transport-reconnect.js";
 
 /**
- * What this window has observed about its transport. Three states, one of which is
- * the honest "nobody has said".
- *
- * Exported because the tests that drive the signal name the states they drive it
- * through, and a test spelling them as bare strings would be a second vocabulary.
- * Deliberately NOT published on the observable a reading consumes: a view that
- * could read the current state would render it.
+ * What this window has observed about its transport: three states, one of which is "nobody has
+ * said". Exported so tests name the states they drive. It is not published on the observable a
+ * reading consumes, since a view that could read the state would render it.
  */
 export type TransportReachability = "unknown" | "unreachable" | "reachable";
 
 /**
- * The signal, with both halves: the observers report, the readings subscribe.
- *
- * A class with a private field rather than a module-level flag, per
- * `apps/desktop/AGENTS.md`: the reachability is state, one instance is held per
- * bridge, and a module-level one would make two windows in one process share a
- * transport reading that only one of them observed.
+ * The signal, with both halves: observers report and readings subscribe. One instance is held per
+ * bridge, so two windows in one process do not share a reading only one of them observed.
  */
 export class TransportReconnectSignal implements TransportReconnectObservable {
   readonly #reconnects = new Emitter<void>("transport reconnect");
@@ -104,12 +49,8 @@ export class TransportReconnectSignal implements TransportReconnectObservable {
   }
 
   /**
-   * Record what an observer saw. Emits exactly on the returning edge.
-   *
-   * One entry point for both states rather than a `reportLoss` / `reportReturn`
-   * pair, because the edge is a property of the TRANSITION and an observer that had
-   * to choose which method to call would be deciding, at the call site, something
-   * this class exists to decide once.
+   * Records what an observer saw and emits exactly on the returning edge. One entry point for both
+   * states, since the edge is a property of the transition and this class decides it once.
    */
   public observe(reachability: Exclude<TransportReachability, "unknown">): void {
     const wasUnreachable = this.#reachability === "unreachable";

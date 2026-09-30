@@ -1,32 +1,9 @@
-// Every beat reaches a subscriber exactly once, whatever order the script is in.
-//
-// The engine's count and the set it has actually delivered are one claim, and the
-// old delivery filter let them come apart: it picked every remaining beat that had
-// fallen due — including one sitting behind an entry that had not — and then
-// advanced `deliveredBeatCount` as though a prefix had been consumed. The next
-// advance sliced past the entry it had skipped, so one beat was delivered twice and
-// another never at all. Both halves are asserted below, against the same script, so
-// a fix that only stopped the duplicate would still fail.
-//
-// The second claim in this file is what a LATE subscriber receives. The engine
-// registered a sink for future emissions only, so a store opened after the clock had
-// already delivered beats read the next one as a real sequence gap — the fixture's
-// snapshot answers at cursor zero, so every position in between counts as missing —
-// and a store opened after the script finished stayed empty. Both are asserted here
-// against the REAL store rather than against a count, because the gap is the store's
-// own rule and a test that restated it would be checking its own copy.
-//
-// The engine's other two answers are here for the same reason: they are the parts of
-// it a fixture namespace reaches that the session log does not carry. The ADVANCE
-// subscription is what a scripted fact with no beat to ride is delivered on, and its
-// first claim is that there is exactly ONE of it — two methods over that one emitter
-// shipped side by side for a while and split the fixture's callers between identical
-// names. The computed-reply ORDINAL is what lets a scripted reply mint a distinct
-// identity per call rather than hand every caller one fixed receipt.
-//
-// WHAT IS NOT HERE. Teardown — the disposed engine's dropped ticks, its abandoned
-// replies, and the advance sink it stops calling — is `failure-modes.test.ts`'s, and
-// the scripted-latency queue is `daemon.fixture.latency.test.ts`'s.
+// Every beat reaches a subscriber exactly once, whatever order the script is in. The engine's
+// count and the set it has delivered are one claim, and both halves are asserted against the same
+// script. A late subscriber gets the delivered prefix, asserted against the real store because
+// the sequence-gap rule is the store's own. The advance subscription and the computed-reply
+// ordinal are here too. Teardown is in `failure-modes.test.ts` and the scripted-latency queue in
+// `daemon.fixture.latency.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -90,12 +67,9 @@ describe("ScenarioEngine — the due prefix", () => {
   });
 
   it("delivers a later-due beat placed first without duplicating or dropping either", () => {
-    // THE control for this file, and it fails on the old filter in two ways at
-    // once: the second entry falls due at 10ms while the first does not, so the
-    // old code emitted it alone, counted one beat consumed, and on the next
-    // advance sliced past the entry it had never sent — re-emitting the one it
-    // had. Here nothing is delivered until the entry in front is due, and then
-    // both go in script order.
+    // The control for this file. The second entry falls due at 10ms while the first does not;
+    // a filter would emit it alone, count one beat consumed, then slice past the entry it never
+    // sent and re-emit the one it had. Nothing is delivered until the entry in front is due.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([100, 10]) });
     const delivered = collectDeliveredEventIds(engine);
 
@@ -113,9 +87,8 @@ describe("ScenarioEngine — the due prefix", () => {
   });
 
   it("delivers beats sharing one tick together, in the order they are scripted", () => {
-    // Nondecreasing rather than strictly increasing is the rule the ordering check
-    // enforces, so the engine has to serve it: a session event and the transition
-    // it triggers are ordinarily written at the same tick.
+    // The ordering check requires nondecreasing `atMs`, not strictly increasing: an event and
+    // the transition it triggers are ordinarily written at the same tick.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([20, 20]) });
     const delivered = collectDeliveredEventIds(engine);
 
@@ -128,8 +101,8 @@ describe("ScenarioEngine — the due prefix", () => {
   });
 
   it("negative control: an advance that reaches no beat delivers nothing and consumes nothing", () => {
-    // Without it, an engine that delivered the whole script on the first advance
-    // would pass every exactly-once case above.
+    // Without it, an engine that delivered the whole script on the first advance passes every
+    // exactly-once case above.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([80, 160]) });
     const delivered = collectDeliveredEventIds(engine);
 
@@ -160,12 +133,8 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   }
 
   /**
-   * A real store opened on the scenario's session, at the base state the fixture
-   * read answers with.
-   *
-   * The real `SessionStore` and the real `BASE_STATE_CURSOR`, because the claim is
-   * about the store's own gap rule: a test that counted sequences itself would be
-   * asserting its own arithmetic rather than the rule a degraded banner comes from.
+   * A real store opened on the scenario's session, at the base state the fixture read answers
+   * with. Real, because the claim is about the store's own gap rule.
    */
   function storeAtBaseState(scenario: Scenario): SessionStore {
     const store = new SessionStore({ sessionId: scenario.sessionId });
@@ -188,10 +157,9 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   });
 
   it("leaves a store opened mid-script ungapped and undegraded", () => {
-    // The reason the replay exists, stated in the store's own terms. Before it the
-    // late store's first delivery was sequence 4 against a cursor of zero, which the
-    // reconciler reads as three missing rows: a recorded gap, a sticky
-    // `sequence-gap` degradation, and a repair read the fixture cannot answer.
+    // Without the replay, the late store's first delivery is sequence 4 against a cursor of
+    // zero, which reads as three missing rows: a gap, a sticky `sequence-gap` degradation and
+    // a repair read the fixture cannot answer.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });
     const store = storeAtBaseState(scenario);
@@ -212,9 +180,8 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   });
 
   it("hands a subscriber attaching after completion the whole script", () => {
-    // The other half, and the one that is silent rather than degraded: a scenario
-    // already run to completion emits nothing more, so a store opened afterwards had
-    // no path to any state at all.
+    // A completed scenario emits nothing more, so without the replay a later store would have
+    // no path to any state, silently.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });
 
@@ -227,11 +194,8 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   });
 
   it("negative control: an early subscriber's delivery is unchanged, each beat once", () => {
-    // Without this, an engine that replayed on every emission — or one that replayed
-    // to a subscriber that had already received the prefix — would pass every case
-    // above while delivering the opening beats twice to the console's real
-    // subscriber, which is a duplicate the store would silently drop and a transcript
-    // that would read as though the session had happened twice.
+    // Without it, an engine that replayed on every emission, or to a subscriber that already
+    // had the prefix, passes every case above while delivering the opening beats twice.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });
     const received = collectWithReplay(engine);
@@ -243,10 +207,8 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   });
 
   it("negative control: a subscriber that asks for no replay still receives no prefix", () => {
-    // Replay is the whole-session stream's registered behavior and not the engine's
-    // default: the narrowed run streams and the relay are live, and an engine that
-    // replayed unconditionally would hand a run-stream subscriber transitions it never
-    // subscribed in time for.
+    // Replay is the whole-session stream's behavior, not the default: the narrowed run
+    // streams and the relay are live.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });
 
@@ -261,8 +223,7 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
   });
 
   it("negative control: a disposed engine replays nothing into a late sink", () => {
-    // A replay is a delivery, and this module's teardown rule is that a delivery
-    // after teardown lands in a store that no longer has a consumer.
+    // A replay is a delivery, and a delivery after teardown lands in a store nobody consumes.
     const scenario = eightBeatScenario();
     const engine = new ScenarioEngine({ scenario });
 
@@ -275,12 +236,9 @@ describe("ScenarioEngine — a whole-session subscription that attaches late", (
 
 describe("ScenarioEngine — the advance subscription", () => {
   it("publishes exactly one method for it, so no caller can sit on a second name", () => {
-    // The finding: `subscribeToAdvances` and `subscribeToAdvance` shipped side by side
-    // over one emitter, and the fixture's schedule-driven namespaces were split between
-    // them — two identical wrappers, which is the duplicate-implementation drift
-    // this package's shared-code rule forbids. Read off the prototype rather than
-    // compared against a written list, so a second name added later fails here whatever
-    // it happens to be called.
+    // Two identical wrappers over one emitter would be duplicate-implementation drift. Read
+    // off the prototype rather than a written list, so a second name fails here whatever it
+    // is called.
     const advanceSubscriptions = Object.getOwnPropertyNames(ScenarioEngine.prototype).filter(
       (member) => member.startsWith("subscribeToAdvance"),
     );
@@ -289,10 +247,8 @@ describe("ScenarioEngine — the advance subscription", () => {
   });
 
   it("hands the elapsed tick to its sink on every advance, after that advance's beats", () => {
-    // Both halves of what the one method promises, in one observation: an advance that
-    // crossed no beat still wakes the sink — which is the case a beat-driven schedule
-    // misses entirely — and an advance that did cross one wakes it AFTER the beat, so a
-    // subscriber walking its own due rule sees a log that has already moved.
+    // An advance crossing no beat still wakes the sink, which a beat-driven schedule misses,
+    // and one that crossed a beat wakes it after the beat, so the log has already moved.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([40]) });
     const observed: string[] = [];
     engine.subscribe(() => {
@@ -310,8 +266,8 @@ describe("ScenarioEngine — the advance subscription", () => {
   });
 
   it("negative control: an unsubscribed sink is handed no later advance", () => {
-    // Without it the case above would pass over a subscription that never released,
-    // which on this engine is a pane's schedule outliving the pane.
+    // Without it, the case above passes over a subscription that never released, a pane's
+    // schedule outliving the pane.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([40]) });
     const ticks: number[] = [];
     const unsubscribe = engine.subscribeToAdvances((elapsedMs) => {
@@ -328,9 +284,8 @@ describe("ScenarioEngine — the advance subscription", () => {
 
 describe("ScenarioEngine — the computed-reply ordinal", () => {
   it("steps for each answer one call produces, and counts each call apart", () => {
-    // What a scripted mint derives a distinct receipt from. Per CALL, because the
-    // identity a room mints is the Nth of its own kind — a playback-wide counter would
-    // hand the first mint whatever number the reads before it had reached.
+    // Per call: the identity a mint gets is the Nth of its own kind, so a playback-wide counter
+    // would number the first mint by the reads before it.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const minted = [
@@ -344,11 +299,8 @@ describe("ScenarioEngine — the computed-reply ordinal", () => {
   });
 
   it("negative control: the frozen clock cannot stand in for it", () => {
-    // Why the ordinal exists at all rather than the settled instant a computed reply is
-    // already handed. Two answers produced without an advance between them read the
-    // same tick — which is exactly the shape two calls parked on one latency and
-    // released by one advance arrive in — so a receipt keyed on the instant collides
-    // precisely where a second mint has to differ.
+    // Two answers with no advance between them read the same tick, as two calls released by
+    // one advance do, so a receipt keyed on the instant would collide.
     const engine = new ScenarioEngine({ scenario: scenarioWithBeatsDueAt([]) });
 
     const firstInstant = engine.clock.now();
@@ -369,9 +321,8 @@ describe("ScenarioEngine — the tick", () => {
 
 describe("the fixture tick names one frame", () => {
   it("is longer than the coalescing window", () => {
-    // A tick inside the coalescing window would fold two scenario ticks into one
-    // notification, and the tick would stop naming one exact frame, which the
-    // screenshot target's byte-stability rests on.
+    // A tick inside the coalescing window would fold two ticks into one notification and stop
+    // naming one exact frame, which the screenshot target's byte-stability rests on.
     expect(SCENARIO_TICK_MS).toBeGreaterThan(APPLY_COALESCE_MS);
   });
 });

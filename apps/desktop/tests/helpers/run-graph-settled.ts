@@ -1,74 +1,45 @@
-// The readiness a view owes any tier that reads it, when a lazily-drawn graph is
-// on it.
+// The readiness a view owes any tier that reads it when a lazily-drawn graph is on it.
 //
-// Not a test file — no `include` glob reaches it. It lives in `tests/helpers/` rather
-// than in one tier's directory because two tiers ask the same question of the same
-// view: the screenshot tier asks it before a capture, and the accessibility tier
-// asks it before an axe run. One home, for the reason a second copy would rot — the
-// pre-fit transform this module names is a fact about the graph library, and a tier
-// carrying its own reading of it would be a tier that silently stopped waiting.
+// Shared by the screenshot tier (before a capture) and the accessibility tier (before an axe run),
+// since the pre-fit transform named here is a fact about the graph library and a tier carrying its
+// own reading would silently stop waiting.
 //
-// WHY A READER NEEDS THIS AT ALL. The run's phase graph is a lazily-loaded chunk: the
-// graph renders its absence primitive immediately, `import()`s the graph renderer, and
-// mounts the canvas when it arrives. The renderer stamps no pending-body marker, so
-// nothing in a mount helper's own wait waits for the picture.
+// The run's phase graph is a lazily-loaded chunk: it renders its absence primitive at once,
+// `import()`s the renderer, and mounts the canvas when it arrives. The renderer stamps no
+// pending-body marker, so a mount helper's own wait does not wait for the picture. An audit run at
+// that point checks a loading placeholder, so a regression in the canvas, its focusable nodes or
+// the library's attribution link leaves the tier green. A capture may hold a drawn graph anyway,
+// but the graph is fitted rather than placed: the fit lands as a fractional scale on the viewport,
+// so every line box sits at a fractional device-pixel offset. Two captures on either side of the
+// fit's commit rasterize those offsets to different pixels, and individual text lines move by one
+// pixel.
 //
-// FOR AN AUDIT, THAT IS THE WHOLE SUBJECT MISSING. A tier that runs over the view
-// at the mount helper's own return audits a loading placeholder: the canvas, its
-// focusable nodes, and the library's attribution link are not in the tree yet, so a
-// regression unique to any of them leaves the tier green.
+// So the wait is on a state, never a clock: the fitted transform, then its survival across an
+// animation frame, which separates "the fit has been computed" from "the fit is what the
+// compositor last drew". An auditing caller needs only the first and pays the frame for the same
+// readiness rule the capture tier uses.
 //
-// FOR A CAPTURE, IT IS WORSE THAN MISSING — the reference holds a drawn graph anyway,
-// because the capture's own round trip is slower than the fetch, so which frame of
-// the graph's arrival it holds was luck.
-//
-// AND THE LUCK IS NOT HARMLESS, because the graph is fitted rather than placed. The
-// canvas asks the library to fit the sequence into its box, and the fit lands as a
-// FRACTIONAL scale on the viewport — 0.715 for this fixture's four phases — so every
-// line box inside every node sits at a fractional device-pixel offset. Two captures
-// taken on either side of the fit's commit rasterize those offsets to different
-// pixels: the glyph shapes are identical and individual text lines move by exactly
-// one pixel, which is the 582-pixel disagreement the screenshot tier reported, while
-// it still compared, against an image taken on its own runner from its own commit.
-//
-// SO THE WAIT IS ON A STATE, NEVER ON A CLOCK. A sleep long enough today is a sleep
-// too short on a loaded runner, and it would have to be paid on every subject. What
-// is waited for is the fitted transform itself, and then its survival across a frame,
-// which is the difference between "the fit has been computed" and "the fit is what
-// the compositor last drew". An auditing caller needs only the first of those two and
-// pays for the second anyway, which is one animation frame and buys it the same
-// answer the capture tier gets rather than a second, weaker readiness rule.
-//
-// AND THE TRANSFORM ALONE IS NOT THE PICTURE. The library writes a fitted transform at
-// any container size, including none: a root collapsed to zero height fits its nodes
-// and reports the same style attribute this module used to read, so both tiers took a
-// graph that had been fitted into nothing for a graph that was ready — a capture went
-// on to record a 20rem sunken box with no phase in it, and an axe run audited a canvas
-// whose whole subject was clipped away. So readiness is two readings rather than one:
-// the fit HAS BEEN COMPUTED, and the picture IS ON SCREEN — a painted root with height
-// in it, holding at least one phase. Refusing is the point of the second: a throw
-// writes no reference and fails the audit, where a silent pass mints both.
+// The transform alone is not the picture. The library writes a fitted transform at any container
+// size, including a root collapsed to zero height, so readiness is two readings: the fit has been
+// computed, and the picture is on screen (a painted root with height, holding at least one phase).
+// Refusing matters because a throw writes no reference and fails the audit, where a silent pass
+// mints both.
 
 import { waitFor } from "@testing-library/react";
 
 /**
  * The viewport transform the library renders before it has fitted anything.
  *
- * The canvas passes no `defaultViewport`, so the library's own default — origin, unit
- * zoom — is what stands until the nodes are measured and the fit is applied. Naming it
- * is what lets "fitted" be a state rather than a duration: the transform is present
- * from the first commit, and its VALUE is the only thing that says whether the picture
- * on screen is the one the pane asked for.
+ * The canvas passes no `defaultViewport`, so the library's default (origin, unit zoom) stands
+ * until the nodes are measured. Naming it lets "fitted" be a state rather than a duration.
  */
 const UNFITTED_VIEWPORT_TRANSFORM = "translate(0px, 0px) scale(1)";
 
 /**
  * How long a fit may take before the capture is refused rather than taken.
  *
- * A ceiling on a hang, not a wait anybody expects to spend: the fit lands about
- * 150 ms after the mount on an idle host. A timeout THROWS rather than returning —
- * a capture of a half-drawn graph is a reference nobody could reproduce, and a
- * silently-taken one is worse than a red run that names what was missing.
+ * A ceiling on a hang: the fit lands about 150 ms after the mount on an idle host. A timeout
+ * throws, since a capture of a half-drawn graph is a reference nobody could reproduce.
  */
 const FIT_DEADLINE_MS = 5_000;
 
@@ -82,10 +53,8 @@ function nextAnimationFrame(): Promise<void> {
 /**
  * The fitted transform on this element's graph, or `undefined` while there is none.
  *
- * `undefined` covers all three of the unready states deliberately, because a caller
- * has the same thing to do about each: the chunk has not arrived, the canvas has
- * mounted without a viewport, or the viewport is still carrying the library's
- * pre-fit default.
+ * `undefined` covers three unready states a caller treats alike: the chunk has not arrived, the
+ * canvas mounted without a viewport, or the viewport still carries the pre-fit default.
  */
 function fittedViewportTransform(mountedElement: HTMLElement): string | undefined {
   const viewport = mountedElement.querySelector<HTMLElement>(".react-flow__viewport");
@@ -99,17 +68,12 @@ function fittedViewportTransform(mountedElement: HTMLElement): string | undefine
 /**
  * Whether the graph's own root is painted, with a phase standing in it.
  *
- * TWO READINGS AND NOT ONE, because a root of the right height that fitted its picture
- * outside its own box shows an operator exactly as much as a collapsed one. The root's
- * height answers "is there anywhere to draw"; a node's box inside it answers "is
- * anything drawn there". Both are measured rather than inferred from a style
- * attribute, which is what the transform reading above already does and what a
- * collapsed root satisfies.
- *
- * The node is compared against the ROOT rather than against the pane's canvas box: this
- * module is the readiness rule for any view that mounts a graph, and where the
- * picture sits inside the view around it is the geometry gate's subject
- * (`browser/workflow-run-geometry.test.tsx`), which measures the canvas by name.
+ * Two readings, since a root of the right height whose picture fitted outside its box shows as
+ * little as a collapsed one: the root's height says there is somewhere to draw, and a node's box
+ * inside it says something is drawn. Both are measured rather than inferred from a style
+ * attribute. The node is compared against the root, not the pane's canvas box, because where the
+ * picture sits in the surrounding view is the geometry gate's subject
+ * (`browser/run-graph-geometry.test.ts`).
  */
 function isGraphPainted(mountedElement: HTMLElement): boolean {
   const paintedRoot = mountedElement.querySelector<HTMLElement>(".meridian-run-graph .react-flow");
@@ -136,13 +100,10 @@ function isGraphPainted(mountedElement: HTMLElement): boolean {
 }
 
 /**
- * Whether this element is still enough to read.
+ * Whether this element is settled: it draws no graph, or its graph is fitted and painted.
  *
- * An element that draws no graph is settled by construction — the predicate reads the
- * pane's own container rather than the library's, so "no graph here" and "the graph
- * has not arrived" are different answers rather than one absent element — which is
- * what lets a caller run this over every element it reads rather than over the one it
- * knows draws a graph.
+ * The predicate reads the pane's own container rather than the library's, so "no graph here" and
+ * "the graph has not arrived" are different answers and a caller can run this over every element.
  */
 export function isRunGraphSettled(mountedElement: HTMLElement): boolean {
   if (mountedElement.querySelector(".meridian-run-graph") === null) {
@@ -154,14 +115,10 @@ export function isRunGraphSettled(mountedElement: HTMLElement): boolean {
 /**
  * Hold until this element's graph has been fitted and that fit has survived a frame.
  *
- * Two waits, because they are waits for different things. The FIT arrives on a state
- * update React drives, so it is waited for through the library's own `waitFor`, whose
- * polling is wrapped in the async act every other wait in these tiers goes through —
- * a hand-rolled loop here would see the same commits and would make the console carry
- * an act warning for each one. The STILLNESS is not a React event at all: it is the
- * same transform surviving an animation frame, which is the difference between "the
- * fit has been computed" and "the fit is what the compositor last drew", and a frame
- * is the only clock that answers it.
+ * The fit arrives on a React state update, so it is waited for through the library's `waitFor`,
+ * whose polling runs in the async act every other wait goes through; a hand-rolled loop would
+ * produce an act warning per commit. The stillness is not a React event, so a frame is the only
+ * clock that answers it.
  */
 export async function awaitRunGraphSettled(mountedElement: HTMLElement): Promise<void> {
   if (mountedElement.querySelector(".meridian-run-graph") === null) {

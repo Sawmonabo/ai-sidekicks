@@ -1,18 +1,10 @@
-// What the pane layout's restore does when the read never landed at all.
-//
-// A separate story from `layout-persistence.restore-order.test.tsx`, which is about
-// the ORDER the restore and the save happen in — both of which assume the read
-// answered. Here it does not, and the failure is the quietest one the pane layout has:
-// `UiStateStore.read` resolved `undefined` for a record that was never written AND for
-// a read the adapter could not perform, so a transient failure read as a first run.
-// The hook opened its fallback transcript pane, counted zero restored panes, and filed
-// that one pane over the pane layout the adapter was still holding — and still perfectly
-// willing to accept a write for.
-//
-// The adapter is the real memory one with exactly one operation misbehaving, and the
-// misbehavior is lifted before every read-back: an assertion taken while reads still
-// fail asserts the failure a second time and would pass over a store that had written
-// anything at all.
+// What the pane layout's restore does when the read never landed at all. The quietest failure
+// the pane layout has: `UiStateStore.read` resolves `undefined` both for a record never
+// written and for a read the adapter could not perform, so a transient failure read as a first
+// run, opened the fallback transcript pane and filed it over the pane layout the adapter still
+// held. The adapter is the real memory one with one operation misbehaving, and the misbehavior
+// is lifted before every read-back, since an assertion taken while reads still fail would pass
+// over a store that wrote anything at all.
 
 import { act } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -38,19 +30,16 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     mountPersistence(layout, store);
     await drain();
 
-    // The fallback is still OPENED — a window with no panes is not a state the
-    // pane layout has — and simply not saved: the three-pane record is untouched, where
-    // the one-pane fallback would have replaced it.
+    // The fallback is still opened (a window with no panes is not a state the pane layout has)
+    // and not saved: the three-pane record is untouched.
     expect(paneKinds(layout)).toStrictEqual(["transcript"]);
     adapter.stopFailingReads();
     expect(await savedPaneCount(store)).toBe(3);
   });
 
   it("negative control: saving is not disabled, so the next deliberate change lands", async () => {
-    // Without this the fix could be "never settle the restore", which would leave the
-    // person rearranging their pane layout all session with nothing kept and no refusal
-    // raised — a worse failure than the one being fixed, and invisible in the case
-    // above.
+    // Without this the fix could be "never settle the restore", leaving the person rearranging
+    // all session with nothing kept and no refusal raised.
     const adapter = new ReadFailurePersistenceAdapter();
     const store = new UiStateStore({ adapter });
     await savePaneLayout(store, ["transcript", "terminal", "agents"]);
@@ -63,8 +52,8 @@ describe("usePaneLayoutPersistence — a read the adapter could not perform", ()
     });
     await drain();
 
-    // Two, not three: the pane layout the person is now looking at replaced the record, which
-    // is what saving IS. The restore settles on a failed read for exactly this reason.
+    // Two, not three: the layout the person now sees replaced the record, which is what saving
+    // is.
     adapter.stopFailingReads();
     expect(paneKinds(layout)).toStrictEqual(["transcript", "terminal"]);
     expect(await savedPaneCount(store)).toBe(2);

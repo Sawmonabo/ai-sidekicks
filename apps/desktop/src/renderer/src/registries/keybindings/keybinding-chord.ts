@@ -1,22 +1,9 @@
-// The chord — one keystroke, parsed, matched, and compared.
-//
-// WHAT IS ADOPTED AND WHAT IS OURS. The headless-UI library policy ADOPTs
-// `tinykeys` 4.0.0 as the chord parser only, and OWN-BUILDs the keybinding service
-// and the when-clause grammar. This module is the whole of the adopted half: it
-// imports exactly two things from tinykeys — `parseKeybinding`, which turns
-// `"$mod+KeyK"` into modifier sets and a key, and `matchKeybindingPress`, which
-// decides whether one `KeyboardEvent` satisfies one parsed press — and wraps them
-// in the two refusals and the one comparison key the service above needs. It
-// deliberately does NOT call `tinykeys()` itself; the three reasons are stated in
-// `keybinding-table.ts`, which is the module that would otherwise have used it.
-//
-// WHAT IS NOT HERE. How a chord is PRINTED and SPOKEN lives in
-// `primitives/chord/chord-format.ts`. A keycap is a renderer's concern and primitives
-// are below palette in the console's import graph, so keeping the tables here
-// forced `ChordHint` to reach up into this folder for its vocabulary. The one
-// symbol that has to be shared is imported below, and it is shared rather than
-// duplicated because the printer and the conflict comparator disagreeing about
-// whether `k` and `KeyK` are one keystroke is the exact defect it prevents.
+// One keystroke, parsed, matched and compared. The only tinykeys use is here: `parseKeybinding`
+// turns `"$mod+KeyK"` into modifier sets and a key, and `matchKeybindingPress` matches a
+// `KeyboardEvent` against a parsed press. `tinykeys()` itself is not used (see
+// `keybinding-table.ts`). Printing and speaking chords lives in `lib/chord-format.ts`; the shared
+// key decoder keeps the printer and the conflict comparator agreeing that `k` and `KeyK` are one
+// key.
 
 import { matchKeybindingPress, parseKeybinding, type KeybindingPress } from "tinykeys";
 import { decodeChordKeyToken } from "@renderer/lib/chord-format.js";
@@ -30,14 +17,8 @@ export type ChordParseResult =
   | { readonly ok: false; readonly kind: ChordParseErrorKind; readonly message: string };
 
 /**
- * Parse a chord into the single press the table matches against.
- *
- * MULTI-PRESS SEQUENCES ARE REFUSED. tinykeys can express `"g d"`, and honoring
- * it would require a pending-press map behind a timeout — a timer on the console's
- * input path, which the console rules out: no timer fires except the refresh
- * scheduler's deadline and the presence heartbeat. The grammar the console names is
- * a CHORD grammar, so a sequence is refused loudly at install rather than
- * half-supported at runtime.
+ * Parses a chord into the single press the table matches against. Multi-press sequences such
+ * as `"g d"` are refused at install: supporting them needs a pending-press timer on the input path.
  */
 export function parseChord(chord: string): ChordParseResult {
   const trimmed = chord.trim();
@@ -63,16 +44,14 @@ export function parseChord(chord: string): ChordParseResult {
   return { ok: true, press };
 }
 
-/** Does this event satisfy this parsed chord? Thin, so tinykeys owns the semantics. */
+/** Whether this event satisfies this parsed chord; tinykeys owns the semantics. */
 export function chordMatchesEvent(press: KeybindingPress, event: KeyboardEvent): boolean {
   return matchKeybindingPress(event, press);
 }
 
 /**
- * A comparison key for a parsed press: required modifiers, optional modifiers,
- * and the key, each normalized so two spellings of one keystroke collide. A
- * regular-expression key is compared by its source, which is exact for the
- * spellings tinykeys produces.
+ * A comparison key for a parsed press (required modifiers, optional modifiers, key), normalized
+ * so two spellings of one keystroke collide. A regular-expression key is compared by its source.
  */
 export function normalizePressForComparison(press: KeybindingPress): string {
   const [requiredModifiers, optionalModifiers, key] = press;

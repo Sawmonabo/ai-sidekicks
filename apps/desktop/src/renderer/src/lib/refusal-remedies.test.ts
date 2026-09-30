@@ -1,6 +1,5 @@
-// The remedy table: what it says about each code it answers for, and that an unlisted
-// code answers `undefined` rather than a nearest neighbor, which would tell a person
-// to do something about a refusal the console does not understand.
+// The remedy table answers for its own codes, and `undefined` for any other rather than a nearest
+// neighbor, which would advise on a refusal the console does not understand.
 
 import { describe, expect, it } from "vitest";
 
@@ -12,8 +11,8 @@ describe("what the table says about each answered code", () => {
   });
 
   it("settles the four whose act cannot be retried, and leaves the one that can", () => {
-    // `settled` is what withdraws a control. A component reading it wrongly either
-    // leaves a button that can only be refused again, or takes away one that works.
+    // `settled` withdraws a control; a wrong value leaves a button that can only be refused again
+    // or removes one that works.
     expect(refusalRemedyFor("intervention.idempotency_conflict")?.settled).toBe(true);
     expect(refusalRemedyFor("approval.already_resolved")?.settled).toBe(true);
     expect(refusalRemedyFor("run.not_found")?.settled).toBe(true);
@@ -34,8 +33,7 @@ describe("an unlisted code gets no invented move", () => {
   });
 
   it("answers nothing for a name inherited from Object.prototype", () => {
-    // The lookup is `Object.hasOwn`, not `in`. A `constructor` key reaching a
-    // renderer as a remedy would render a function.
+    // The lookup is `Object.hasOwn`, not `in`; an inherited key would reach a renderer as a remedy.
     expect(refusalRemedyFor("constructor")).toBeUndefined();
     expect(refusalRemedyFor("toString")).toBeUndefined();
   });

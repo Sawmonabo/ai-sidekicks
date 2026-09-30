@@ -1,18 +1,14 @@
-// What session this is: the short id, and the display title where one exists.
-//
-// THE TWO ARE ONE ANSWER. The session identity sits at the head of the header, and a
-// nameless session is rendered by its identifier rather than by an invented title. So the
-// id is unconditional and in mono, and the title is rendered when the session carries one.
-//
-// What a nameless session renders is stated in the module that obeys it,
-// `SessionHeaderSessionTitle.tsx`. This module arranges the two and decides nothing.
+// What session this is: the short id, always, in mono, and the display title where one exists. A
+// nameless session is rendered by its identifier, never by an invented title. `SessionTitle.tsx`
+// decides what a nameless session renders; this module only arranges the two.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import { SessionTitle } from "./SessionTitle.js";
 
+/** What the identity renders from. */
 export interface SessionHeaderIdentityProps {
-  /** `undefined` on a route that names no session — rendered as an absence. */
+  /** `undefined` on a route that names no session, rendered as an absence. */
   readonly sessionId: string | undefined;
   /** The session's display title, where it has one. */
   readonly title: string | undefined;

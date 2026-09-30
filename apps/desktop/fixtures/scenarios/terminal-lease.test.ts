@@ -1,16 +1,9 @@
-// What the terminal-lease scenario promises the pane built against it.
+// What the terminal-lease scenario promises the pane built against it: the lease the script
+// ends on. Wire truth is checked for every catalog scenario by
+// `tests/helpers/scenario-contract-check/contract-check.ts`, so it is not repeated here.
 //
-// WIRE TRUTH IS NOT HERE, AND DELIBERATELY SO.
-// `tests/helpers/scenario-contract-check/contract-check.ts` is the one predicate every
-// scenario in the catalog is measured through — the event census, the canonical
-// envelope, the log position and tick each beat takes, and one scripted answer per call —
-// and this scenario is in the catalog, so every one of those legs already runs against it.
-//
-// WHAT IS HERE IS WHAT NOTHING ELSE COVERS: the lease the script has to end on.
-
-// Every clean assertion below has a negative control that fails, because a
-// predicate that accepted everything would satisfy the positive half of all of
-// them.
+// Every clean assertion has a negative control that fails, so a predicate that accepted
+// everything could not satisfy them all.
 
 import { describe, expect, it } from "vitest";
 import { TERMINAL_LEASE_SCENARIO } from "./terminal-lease.js";
@@ -26,12 +19,8 @@ describe("the terminal scenario ends held", () => {
   }
 
   /**
-   * The last lease transition the script plays.
-   *
-   * Found rather than named by sequence: the script grows beats when a transition
-   * gains the acquisition it needed, and a hard-coded ordinal turns that into a
-   * silently vacuous filter — the control below would then remove nothing and pass
-   * against the very script it exists to reject.
+   * The last lease transition the script plays, found rather than named by sequence so a
+   * new beat cannot turn the control below into a filter that removes nothing.
    */
   function finalLeaseTransition(): ScenarioBeat {
     const transitions = TERMINAL_LEASE_SCENARIO.beats.filter(
@@ -45,17 +34,16 @@ describe("the terminal scenario ends held", () => {
   }
 
   it("leaves the lease held at the last transition", () => {
-    // It is the last transition, so a script that ended on a plain release would pin
-    // a frame with no holder — and the held frame is what `runToCompletion()` pins.
+    // A script ending on a plain release would pin a frame with no holder, and the held
+    // frame is what `runToCompletion()` pins.
     expect(holderAfter(TERMINAL_LEASE_SCENARIO.beats)).toBe(
       TERMINAL_LEASE_SCENARIO.userIdsInJoinOrder[0],
     );
   });
 
   it("would notice a script that ended free", () => {
-    // The same function over the script with its final take removed — which is
-    // exactly the mistake it exists to catch, and which a run of automatic releases
-    // makes easy to leave behind.
+    // The same function over the script with its final take removed, the mistake it exists
+    // to catch.
     const withoutFinalTake = TERMINAL_LEASE_SCENARIO.beats.filter(
       (beat) => beat !== finalLeaseTransition(),
     );

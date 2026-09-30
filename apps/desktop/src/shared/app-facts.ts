@@ -1,11 +1,9 @@
 // The facts about this build and this machine that main hands every window once, at start.
 //
-// Main reads them after ready (the version and locale from Electron's `app`, the platform and
-// architecture from the process, the physical memory from the operating system), checks the
-// platform and architecture against the supported matrix, and passes them to the window as
-// renderer switches through `webPreferences.additionalArguments`. The preload is sandboxed
-// and cannot import Electron's `app`, so it reads the switches off its own `process.argv` and
-// exposes them as the bridge's `app` namespace. Both spellings of each switch live here once.
+// Main passes them as renderer switches through `webPreferences.additionalArguments`. The
+// sandboxed preload cannot import Electron's `app`, so it reads the switches off its own
+// `process.argv` and exposes them as the bridge's `app` namespace. Both spellings of each
+// switch live here once.
 
 /** The operating systems a build runs on. */
 export const SUPPORTED_PLATFORMS = ["darwin", "linux", "win32"] as const;
@@ -25,10 +23,7 @@ export interface AppFacts {
   readonly platform: SupportedPlatform;
   readonly arch: SupportedArch;
   readonly locale: string;
-  /**
-   * The machine's physical memory in bytes. The screen's caches take their budgets as a
-   * share of it, so they scale with the machine rather than holding a fixed count.
-   */
+  /** The machine's physical memory in bytes; the screen's cache budgets are a share of it. */
   readonly physicalMemoryBytes: number;
 }
 
@@ -56,10 +51,7 @@ export function supportedArch(arch: string): SupportedArch {
   return supported;
 }
 
-/**
- * The renderer switches that carry the facts into a window. Each value is URI-encoded, so a
- * locale or version holding an `=` reaches the preload as one switch with its value intact.
- */
+/** The renderer switches that carry the facts into a window; each value is URI-encoded. */
 export function appFactsSwitches(facts: AppFacts): string[] {
   return [
     `${VERSION_SWITCH}${encodeURIComponent(facts.version)}`,
@@ -71,9 +63,8 @@ export function appFactsSwitches(facts: AppFacts): string[] {
 }
 
 /**
- * The facts a window's switches carry. Throws when one is missing or out of range: main
- * always passes all five, so a window without them was not started by main, and a
- * made-up value would be a fact nobody read.
+ * The facts a window's switches carry. Throws when one is missing or out of range: main always
+ * passes all five, and a made-up value would be a fact nobody read.
  */
 export function readAppFactsSwitches(argv: readonly string[]): AppFacts {
   const physicalMemoryBytes = Number(requiredSwitch(argv, PHYSICAL_MEMORY_SWITCH));

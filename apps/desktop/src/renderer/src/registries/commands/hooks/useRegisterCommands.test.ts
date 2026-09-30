@@ -1,11 +1,5 @@
-// What a component's contribution does to this window's registry, and to the palette.
-//
-// Two claims, and the second is the one a hand-written effect gets wrong. The first
-// is the ordinary lifecycle: rows are in the registry while the component is mounted
-// and gone when it is not. The second is that a contribution SIGNALS — the palette
-// memoizes its search against a revision, so a registration nothing announces is a
-// command a person cannot find — and that a stale mount's teardown never clears a
-// live one's rows.
+// Rows are in the registry while the component is mounted; a contribution signals the palette,
+// and a stale mount's teardown never clears a live one's rows.
 
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -21,7 +15,7 @@ import type { CommandDefinition } from "../command-types.js";
 
 const OWNER = "command-registration-test";
 
-/** One inert command. The suite is about registration, not about what a command does. */
+/** A command that does nothing; the suite is about registration. */
 function command(id: string): CommandDefinition {
   return {
     id,
@@ -31,7 +25,7 @@ function command(id: string): CommandDefinition {
   };
 }
 
-/** The ids this window currently holds under the suite's own namespace. */
+/** The ids this window holds under the suite's own namespace. */
 function registeredSuiteIds(): readonly string[] {
   return commandRegistry
     .all()
@@ -63,9 +57,7 @@ describe("a component's command registration", () => {
       useRegisterCommands(OWNER, commands);
     });
 
-    // The contribution itself is the signal: `registerCommands` would have
-    // put the row in the registry and told nobody, which is a command the open
-    // palette has already memoized past.
+    // `registerCommands` would add the row and tell nobody, leaving an open palette stale.
     expect(signals).toBeGreaterThan(0);
 
     mounted.unmount();
@@ -88,11 +80,7 @@ describe("a component's command registration", () => {
   });
 
   it("leaves a live component's rows alone when a superseded mount tears down", () => {
-    // Two mounts of one component, the second arriving before the first goes: the
-    // pane layout can hold two panes of a kind, and development-mode React remounts one.
-    // Owner-scoped replace means the second owns the rows, so the FIRST one's
-    // cleanup must not take them — which is what a plain effect does, leaving a
-    // living pane whose commands have silently left the palette.
+    // The second mount arrives before the first goes; the first's cleanup must not take the rows.
     const older = renderHook(() => {
       useRegisterCommands(OWNER, [command("suite.older")]);
     });
@@ -112,11 +100,7 @@ describe("a component's command registration", () => {
   });
 
   it("hands the rows back to the older mount when the newer one closes", () => {
-    // The other tear-down order, and the one a person actually performs: two panes
-    // of a kind are open and they close the one they opened last. A register that
-    // only remembered WHICH contributor was live had nothing to restore here and
-    // replaced the owner with an empty contribution — so the pane still on screen
-    // lost every act it offers, and the palette said nothing about why.
+    // The order a person performs: close the pane opened last; the older pane must keep its acts.
     const older = renderHook(() => {
       useRegisterCommands(OWNER, [command("suite.older")]);
     });
@@ -134,9 +118,7 @@ describe("a component's command registration", () => {
   });
 
   it("restores through three mounts, in either closing order", () => {
-    // Three, because two cannot tell "restore the next one down" apart from
-    // "restore the first one". Closing the middle mount changes nothing on screen;
-    // closing the newest then falls back past it to the oldest.
+    // Three mounts, because two cannot tell "restore the next one down" from "restore the first".
     const first = renderHook(() => {
       useRegisterCommands(OWNER, [command("suite.first")]);
     });
@@ -163,11 +145,7 @@ describe("a component's command registration", () => {
 
 describe("the live-contributor register belongs to the composition, not to the module", () => {
   it("two compositions do not see each other's rows, nor disarm each other's release", () => {
-    // The register used to be a module-level `Map`, which every composition in the
-    // process shared: a second window — or a second test building its own registry —
-    // contributing under the same owner superseded a token it holds no rows for, and
-    // the first composition's release then became a permanent no-op. Its rows would
-    // have outlived the component that owned them with nothing on screen to say so.
+    // A second composition under the same owner must not supersede the first's release.
     const firstRegistry = new CommandRegistry();
     const secondRegistry = new CommandRegistry();
     const first = new CommandContributionRegistry(firstRegistry);
@@ -210,9 +188,7 @@ describe("the live-contributor register belongs to the composition, not to the m
   });
 
   it("restores the older contributor's CHORDS too, not only its commands", () => {
-    // The pair arrives together and has to leave and come back together: a chord
-    // naming a command nobody registered is a keypress that silently does nothing,
-    // and the register that restores one has to restore the other in the same act.
+    // Commands and chords leave and return together; a chord for a missing command does nothing.
     const registry = new CommandRegistry();
     const contributions = new CommandContributionRegistry(registry);
 
@@ -236,10 +212,7 @@ describe("the live-contributor register belongs to the composition, not to the m
   });
 
   it("negative control: releasing one contribution twice does not withdraw the restored one", () => {
-    // Without this the restore above would pass over a release that removed by
-    // POSITION rather than by identity: React runs a cleanup once, but a release is
-    // an ordinary function a caller holds, and a second call that popped the register
-    // again would take the rows of a contributor that never asked to go.
+    // Guards removal by identity rather than position: a second call must not take another's rows.
     const registry = new CommandRegistry();
     const contributions = new CommandContributionRegistry(registry);
 

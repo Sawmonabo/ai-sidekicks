@@ -1,45 +1,24 @@
 // Whether an OS notification this console emits will reach a person at all.
 //
-// OS notifications denied is a state only the notification center can show.
-// `native.showNotification` returns `void`, so a denial is indistinguishable from a
-// delivery at the moment of emission; the bridge's `native.getNotificationPermission`
-// is what reports it.
+// `native.showNotification` returns `void`, so a denial is indistinguishable from a delivery at
+// emission; `native.getNotificationPermission` reports it. The renderer's `Notification.permission`
+// is the wrong instrument: it concerns the Web notification API, while this console emits through
+// the main process.
 //
-// WHY THE RENDERER'S OWN `Notification.permission` IS NOT THE INSTRUMENT. It answers
-// about the RENDERER's Web notification API, and this console emits through the main
-// process. Two different subjects with one word between them: a renderer that has
-// never been granted the Web permission can sit in front of a main process that shows every
-// notification it asks for, and the reverse holds on a host where the app's own
-// entitlement was revoked. Reading one and reporting the other is the wrong
-// instrument, whatever it answers.
-//
-// THE READING IS ADVISORY AND GATES NOTHING ON THE WAY OUT. Emission is the main process's
-// act and the OS is its authority: do-not-disturb lives in the main process, and the
-// console honors nothing of its own. So a reading this console could not obtain
-// suppresses no emission — it would suppress every one on every live host, which is
-// exactly the state the main process was built to decide — and the one arm that changes what
-// a person sees is `withheld`, where the center says it is the only place these
-// items reach.
-//
-// WHAT IS HERE IS THE FOLD AND NOT THE READ. The probe, its scheduling, and the rule
-// that decides which of two overlapping answers is the live one are
-// `os-notification-permission.ts`'s. This fold asks "will an emission reach anybody";
-// the Notifications page says something different for each state, so the reading is
-// handed out unfolded and each consumer folds it.
+// The reading is advisory and gates nothing on the way out: the OS is the authority, so an
+// unobtainable reading suppresses no emission. Only `withheld` changes what a person sees. This
+// file is the fold; the probe and its scheduling are in `os-notification-permission.ts`, and the
+// reading is handed out unfolded so each consumer folds it for its own question.
 
 import type { OsNotificationPermissionReading } from "./os-notification-permission.js";
 
 /**
  * What the console may say about the OS notification path.
  *
- * Three arms and not four: `granted` and `not-determined` are both `permitted`,
- * because a machine nobody has asked yet is a machine whose first emission raises the
- * system's own consent flow — and reporting that as a denial would put "this is the
- * only place" in front of someone whose notifications work.
- *
- * `unread` covers a read in flight and a platform the main process cannot read the permission
- * on. Both mean the console does not know, and there is nothing to say about a fact it
- * has not got.
+ * Three arms: `granted` and `not-determined` are both `permitted`, since a machine nobody has
+ * asked yet raises the system's own consent flow on the first emission, and reporting that as
+ * a denial would mislead someone whose notifications work. `unread` covers a read in flight
+ * and a platform whose permission the main process cannot read; the console does not know.
  *
  * @consumedBy the notifications settings page
  */
@@ -51,12 +30,8 @@ export type OsNotificationDelivery =
 /**
  * The three readings, as three values.
  *
- * Named constants rather than a literal per settlement, because this reading is
- * re-read and every re-read publishes: a fresh object per answer would re-identify
- * the value on every focus, re-render the center, and re-mint the context object the
- * window's attention binding memoizes — for an answer that did not move. Three
- * arms, three objects, and an unchanged answer compares equal at the one comparison
- * `useSyncExternalStore` performs.
+ * Named constants so an unchanged answer compares equal at the one comparison
+ * `useSyncExternalStore` makes; a fresh object per answer would re-render on every re-read.
  */
 const UNREAD_DELIVERY: OsNotificationDelivery = { status: "unread" };
 const PERMITTED_DELIVERY: OsNotificationDelivery = { status: "permitted" };

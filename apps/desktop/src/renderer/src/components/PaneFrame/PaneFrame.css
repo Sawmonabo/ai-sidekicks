@@ -1,15 +1,9 @@
-/* The pane frame. One sheet for every pane kind, imported by `PaneFrame.tsx`, the single
-   edge into it. */
+/* The pane frame: one sheet for every pane kind. */
 
-/* `flex: 1 1 auto` because a pane is a flex CHILD as often as it is a grid one, and the
-   initial `0 1 auto` is only harmless under the grid. The pane layout is a column flex chain
-   (`pane-layout.css`), so without this a pane mounted there would not grow into the space
-   it is given and would be sized by its content instead, while the same sheet under a grid
-   parent stretches correctly and hides the fault. `flex` is inert on a
-   grid item, so this declaration changes the pane layout's arrangement and leaves every grid
-   one exactly where it was; `tests/browser/pane-layout-pane-fill.test.tsx` holds both
-   halves. A `height: 100%` would fit both parents today and break under the first
-   parent that is not the full height of its own parent. */
+/* `flex: 1 1 auto` because a pane is a flex child as often as a grid one: the pane layout is a
+   column flex chain (`pane-layout.css`), where the initial `0 1 auto` would size the pane by its
+   content. `flex` is inert on a grid item. `tests/browser/pane-layout-pane-fill.test.tsx` holds
+   both. `height: 100%` would break under a parent that is not full height. */
 .meridian-pane {
   display: flex;
   flex: 1 1 auto;
@@ -22,17 +16,14 @@
   border-radius: var(--meridian-radius-lg);
 }
 
-/* Quiet chrome: the head is a boundary, not a title bar. It reads at the small size
-   and the muted weight so the body it wraps is what the eye lands on. */
+/* Quiet chrome: the head is a boundary, not a title bar. */
 .meridian-pane__head {
   display: flex;
   gap: var(--meridian-space-3);
   align-items: center;
   min-height: 34px;
-  /* The block padding and the type size are the PANE LAYOUT's rhythm, spent here because this
-     component owns the class. Both fall back to the value a pane outside a pane layout wants — an
-     auxiliary window mounts one with no density around it — so the pane is dressed with
-     or without a pane layout above it. */
+  /* Block padding and type size come from the pane layout's rhythm, with fallbacks for a pane
+     mounted outside one (the auxiliary window). */
   padding: var(--meridian-pane-head-padding-block, 0) var(--meridian-space-2)
     var(--meridian-pane-head-padding-block, 0) var(--meridian-space-3);
   font-size: var(--meridian-pane-head-font-size, inherit);
@@ -67,11 +58,9 @@
 }
 
 /*
- * A long address loses its outermost crumbs rather than the pane's own name: every
- * address crumb may shrink and ellipse, and the current crumb below may not. Stated as
- * shrink factors rather than as a reversed writing direction — `direction: rtl` on a
- * flex row truncates from the start by laying its items out from the right, which
- * renders the trail backwards.
+ * A long address loses its outermost crumbs, not the pane's name: address crumbs may shrink and
+ * ellipse, the current crumb may not. Shrink factors, not `direction: rtl`, which renders the
+ * trail backwards.
  */
 .meridian-pane__crumb,
 .meridian-pane__crumb-absent {
@@ -92,8 +81,7 @@
   font-style: italic;
 }
 
-/* The pane's own name: the crumb the trail is on, and the element the section is named
-   by. It never shrinks — an ellipsed pane name is a pane nothing can be told from. */
+/* The pane's own name; it never shrinks, since an ellipsed name cannot tell panes apart. */
 .meridian-pane__heading {
   flex: 0 0 auto;
   color: var(--meridian-text);
@@ -108,12 +96,7 @@
   align-items: center;
 }
 
-/*
- * Quiet until reached. The control carries no border and no fill at rest — a secondary
- * control one click away, applied to a head that is one line — and it
- * is a 26 px hit target with a 14 px glyph, which is the smallest square that still
- * clears a pointer's aim at this density.
- */
+/* Quiet until reached: no border or fill at rest; a 26 px target holding a 14 px glyph. */
 .meridian-pane__control {
   display: inline-flex;
   align-items: center;
@@ -137,11 +120,8 @@
 }
 
 /*
- * The body carries no padding of its own: a feed pane wants none and a form pane wants
- * some, and that is the body's feature to decide in its own sheet. It scrolls so a body
- * that provides no scroll container of its own is reachable rather than clipped by the
- * frame's `overflow: hidden`; a body that provides one holds all its content there and
- * this box never overflows.
+ * No padding: the body's feature decides. It scrolls so a body with no scroll container of its
+ * own is reachable rather than clipped by the frame's `overflow: hidden`.
  */
 .meridian-pane__body {
   display: flex;

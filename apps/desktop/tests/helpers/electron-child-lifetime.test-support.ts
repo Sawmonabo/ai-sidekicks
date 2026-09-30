@@ -1,22 +1,12 @@
 // The child programs the lifetime suites drive, and the spawn that starts them.
 //
-// Split out of the suite rather than written inside it because the suite reached
-// the size at which a file is doing two jobs: these are the REAL CHILDREN — a
-// child with a real grandchild, a child that exits leaving its stdout held open,
-// a child that never exits at all — and the suite is the claims made with them.
-// Nothing here asserts a lifetime rule; everything here makes one causable.
+// These are the real children (one with a real grandchild, one that exits leaving its stdout held
+// open, one that never exits); the suites make the claims. Nothing here asserts a lifetime rule.
+// What a spawn is handed is in `electron-child-doubles.test-support.ts`, and the bounded readings
+// of what a child did are in `electron-child-liveness.test-support.ts`.
 //
-// What a spawn is HANDED sits in `electron-child-doubles.test-support.js` beside
-// this — the settle-time registrar, the tree terminator, the profile remover —
-// because causing a lifetime and standing in for the collaborators that observe
-// one are two jobs, and this file grew past the package's split threshold holding
-// both. The bounded READINGS of what a child did — whether a pid is gone, when a
-// terminal event arrived, and the reaper every negative control owes — sit in
-// `electron-child-liveness.test-support.js` for the same reason.
-//
-// It is a `.test-support` module, so its only legitimate dependents are the
-// suites beside it, which is what `test-support-has-no-shipping-reader` in
-// `.dependency-cruiser.mjs` enforces.
+// As a `.test-support` module its only legitimate dependents are the suites beside it, enforced by
+// `test-support-has-no-shipping-reader` in `.dependency-cruiser.mjs`.
 
 import process from "node:process";
 
@@ -41,14 +31,10 @@ import { TERMINATION_OBSERVATION_MS } from "./electron-child-liveness.test-suppo
 const SPAWN_ANNOUNCEMENT_BUDGET_MS = 5_000;
 
 /**
- * The per-test bound, DERIVED from the phases each case contains rather than
- * written down: the spawn and its announcement, then up to two terminations
- * observed in sequence, then the reserve every spawner in this package keeps
- * between its own bounds and vitest's.
- *
- * The relation is the module's own: a case's bounds fire first, so the kill it
- * schedules always runs. The settle-time registration below is what holds even
- * when that arithmetic is wrong.
+ * The per-test bound, derived from the phases each case contains: the spawn and its announcement,
+ * up to two terminations observed in sequence, then the reserve every spawner keeps between its
+ * own bounds and vitest's. A case's bounds fire first so the kill it schedules runs; the
+ * settle-time registration holds even when that arithmetic is wrong.
  */
 export const LIFETIME_TEST_TIMEOUT_MS: number =
   SPAWN_ANNOUNCEMENT_BUDGET_MS + 2 * TERMINATION_OBSERVATION_MS + TEST_TIMEOUT_SLACK_MS;
@@ -59,25 +45,23 @@ export const ABANDONED_SETUP_MESSAGE = "the setup failed after the child was alr
 /**
  * A child that will not exit on its own, and no grandchild.
  *
- * The misuse case reads the pid out of the terminator rather than out of a
- * returned handle — there is no returned handle, which is the whole defect —
- * and a grandchild whose pid nothing announced would be unobservable. The pid
- * that IS observable is the root's, and the root is what the claim is about.
+ * The misuse case reads the pid out of the terminator because no handle is returned, and a
+ * grandchild whose pid nothing announced would be unobservable; the root is what the claim is
+ * about.
  */
 export const NON_TERMINATING_PROGRAM = "setInterval(() => {}, 60000);";
 
 /**
  * A spawn through the real chokepoint whose settle-time registration refuses.
  *
- * Holds the two doubles so the case can read what the recovery did: whether
- * the registrar was reached at all, and which pid — if any — the module handed
- * the tree terminator on its way out.
+ * Holds both doubles so a case can read whether the registrar was reached and which pid the
+ * recovery handed the terminator.
  */
 export class RefusedRegistrationSpawn {
   readonly #registrar = new RefusingSettleRegistrar();
   readonly #terminator: ObservedTreeTerminator;
 
-  /** `refusedKills` denies the recovery's first asks — the misuse's second half. */
+  /** `refusedKills` denies the recovery's first asks. */
   constructor(refusedKills = 0) {
     this.#terminator = new ObservedTreeTerminator(refusedKills);
   }
@@ -130,19 +114,14 @@ export class AbandonedPair {
 /**
  * A child that never exits on its own, and a grandchild it leaves behind.
  *
- * The grandchild is what reconstructs the Electron shape without Electron.
- * `node_modules/.bin/electron` is a Node shim that spawns the real browser; a
- * signal delivered to the shim alone reaches the browser only if the shim
- * survives to forward it, and SIGKILL cannot be forwarded. So the shape
- * that orphans a browser is exactly the shape that orphans this grandchild, and
- * the two kill paths the suite drives are distinguishable only because it is here.
- *
- * The grandchild is spawned ATTACHED, so it inherits the process group the
- * detached parent leads — which is the group `terminateProcessTree` addresses.
+ * The grandchild reconstructs the Electron shape without Electron: `node_modules/.bin/electron` is
+ * a shim, and a signal to the shim alone reaches the browser only if the shim survives to forward
+ * it, which SIGKILL cannot. It is spawned attached so it inherits the process group the detached
+ * parent leads, which `terminateProcessTree` addresses.
  */
 const CHILD_PROGRAM = [
   "const { spawn } = require('node:child_process');",
-  // A grandchild that outlives its parent unless the whole group is signaled.
+  // Outlives its parent unless the whole group is signaled.
   "const grandchild = spawn(process.execPath, ['-e', 'setInterval(() => {}, 60000)'], { stdio: 'ignore' });",
   "process.stdout.write(JSON.stringify({ grandchildPid: grandchild.pid }) + '\\n');",
   "setInterval(() => {}, 60000);",
@@ -151,12 +130,9 @@ const CHILD_PROGRAM = [
 /**
  * A child that hands its stdout to a grandchild and then exits on its own.
  *
- * The shape `close` exists for, and the one an exit code cannot see: the parent
- * is gone — `exit` fired, `exitCode` set, the pid reaped — while the pipe this
- * process reads is still held open by a descendant that inherited it. That is
- * the Electron shim exactly, one step smaller. The grandchild is spawned
- * ATTACHED for the same reason the pair above is, so it sits in the group a
- * tree kill addresses, and the exit is deferred to the write callback because
+ * The shape `close` exists for and an exit code cannot see: `exit` has fired and the pid is reaped
+ * while a descendant still holds the pipe, like the Electron shim one step smaller. The grandchild
+ * is attached for the same reason as above, and the exit waits for the write callback because
  * `process.exit` does not flush an asynchronous pipe write.
  */
 const STDIO_HOLDING_CHILD_PROGRAM = [
@@ -174,10 +150,12 @@ export interface SpawnedPids {
   readonly grandchildPid: number;
 }
 
+/** The pids plus the managed handle of a spawned pair. */
 export interface SpawnedPair extends SpawnedPids {
   readonly managed: ManagedElectronChild;
 }
 
+/** Options for `spawnChildWithGrandchild`. */
 export interface SpawnPairOptions {
   /** Drives the refusal case; the default is the real tree terminator. */
   readonly terminateProcessTree?: ProcessTreeTerminator;
@@ -195,7 +173,7 @@ export interface SpawnPairOptions {
   readonly terminationExitWaitMs?: number | undefined;
 }
 
-/** Spawn the pair and wait until the grandchild has announced its pid. */
+/** Spawns the pair and waits until the grandchild has announced its pid. */
 export async function spawnChildWithGrandchild(
   registrar: RecordingSettleRegistrar,
   options: SpawnPairOptions = {},
@@ -218,9 +196,9 @@ export async function spawnChildWithGrandchild(
 
   const announcement = await new Promise<string>((resolve, reject) => {
     let buffered = "";
-    // One flag rather than listener removal: the failure listeners stay attached
-    // for the life of the child, and they MUST be inert once the announcement has
-    // arrived, because every case in the suite then kills that child on purpose.
+    // One flag rather than listener removal: the failure listeners stay attached for the child's
+    // life and must be inert once the announcement arrives, since every case then kills the child
+    // on purpose.
     let settled = false;
     managed.child.stdout.on("data", (chunk: Buffer) => {
       if (settled) return;
@@ -235,11 +213,8 @@ export async function spawnChildWithGrandchild(
       settled = true;
       reject(error);
     });
-    // `close` and not `exit`, because one of these programs exits ON PURPOSE
-    // right after announcing and `exit` may be delivered before the pipe this
-    // promise reads has been drained — which would reject a spawn that in fact
-    // announced. `close` cannot: it arrives only once every stdio stream is
-    // done, so by then the announcement has either been read or does not exist.
+    // `close`, not `exit`: one program exits on purpose right after announcing, and `exit` may
+    // arrive before the pipe is drained, which would reject a spawn that did announce.
     managed.child.once("close", () => {
       if (settled) return;
       settled = true;
@@ -250,10 +225,8 @@ export async function spawnChildWithGrandchild(
   expect(grandchildPid).toBeGreaterThan(0);
   options.onSpawned?.({ childPid, grandchildPid });
   if (options.abandonAfterAnnouncement === true) {
-    // Stands in for every setup that spawns and then fails before it returns —
-    // an announcement that will not parse, an assertion inside the helper, a
-    // vitest timeout during it. The caller receives no handle, so the caller's
-    // own cleanup cannot run, and the settle-time registration is all there is.
+    // Stands in for a setup that spawns and then fails before returning. The caller gets no
+    // handle, so only the settle-time registration can clean up.
     throw new Error(ABANDONED_SETUP_MESSAGE);
   }
   return { managed, childPid, grandchildPid };

@@ -1,36 +1,20 @@
 /*
- * Two button treatments several features share, each declared once as a class a
- * control wears beside its own.
+ * Two button treatments several features share, each a class a control wears beside its own.
  *
- * `meridian-action-button` is a button that does something: approve and reject, a
- * scope choice, revoke and cancel, a queue item's cancel, a steer's send and cancel, a
- * settings page's actions, the composer's send, a saved sidekick's actions and the
- * new-sidekick control, a question's options and send, a schema answer's submit, the
- * session import, the keyboard page's record and reset controls, and the terminal's take
- * control. The base holds only what every one of those has in common: the inherited
- * font, a one-pixel solid edge, the small corner and the pointer.
+ * `meridian-action-button` is a button that does something. The base holds only what every such
+ * button shares: the inherited font, a one-pixel solid edge, the small corner and the pointer.
+ * Sizes: `--regular` is the small text step with roomy side padding; `--small` is the smallest
+ * text step with tight padding, laid out for a glyph beside the label. Faces: `--outline` is the
+ * page surface under the strong edge; `--raised` is the raised surface under the quiet edge,
+ * which strengthens on hover. A size or face no other control shares stays in that control's
+ * class.
  *
- * Its modifiers are a size and a face that several controls share, each written once:
+ * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the content beside
+ * it (a details toggle, a message's Copy) and holds the whole treatment.
  *
- *   --regular  the regular size: the small text step with a roomy side padding.
- *   --small    the small size: the smallest text step with a tight padding, laid out
- *              for a glyph beside the label.
- *   --outline  the outline face: the page surface under the strong edge.
- *   --raised   the raised face: the raised surface under the quiet edge, which
- *              strengthens on hover.
- *
- * A control whose size or face no other control shares keeps it in its own class.
- *
- * `meridian-disclosure-trigger` is a quiet text control that opens or acts on the
- * content beside it: a details toggle, a schema toggle, a message's Copy. It holds
- * the whole treatment, so a control that wears it needs no rules of its own.
- *
- * The base and the modifiers sit inside `:where()`, which gives them no specificity.
- * A control's own class, state and variant then win over them whichever sheet loads
- * first, so a control's `font-size` is never reset by the base's `font` shorthand and
- * a destructive variant's red edge is never repainted by a face.
- *
- * A global sheet, imported by `main.tsx`. Every value is a Meridian token.
+ * The base and modifiers sit inside `:where()` so they carry no specificity: a control's own
+ * class, state and variant win whichever sheet loads first. A global sheet, loaded through
+ * `global-sheets.ts`; every value is a Meridian token.
  */
 
 /* --- the action button ------------------------------------------------------- */

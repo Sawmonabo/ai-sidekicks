@@ -1,7 +1,6 @@
-// Plain stubs for the three account-plane verbs, shared by the suites that drive them.
-//
-// One builder, so two suites do not carry two sets of default answers. A verb a case
-// does not script never answers.
+// Plain stubs for the three account-plane verbs, shared by the suites that drive them. One
+// builder keeps two suites from carrying two sets of default answers; a verb a case does not
+// script never answers.
 
 import { vi } from "vitest";
 

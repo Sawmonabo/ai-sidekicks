@@ -1,31 +1,14 @@
-// The keyboard map: which chord runs which command, and how a person's next
-// keystroke becomes one.
+// The keyboard map: which chord runs which command, and how a keystroke becomes one.
 //
-// One row per command with its chord, its command id, and the when-grammar expression
-// that scopes it. Conflict detection runs against the same when-scope and names the
-// command that already holds the chord. A chord that collides in the same scope is
-// never accepted without naming the collision, a binding a platform reserves is never
-// silently dropped — it renders as unavailable with the reason — and a binding is never
-// written to a wire; the map is renderer-local.
+// One row per command with its chord, command id and scoping when-expression. A chord that
+// collides in the same scope is never accepted without naming the collision, and a binding a
+// platform reserves renders as unavailable with the reason. Every verdict about a binding set is
+// the keybinding service's (`keybinding-audit.ts`); this module only joins the answers to rows.
 //
-// EVERY VERDICT ABOUT A BINDING SET IS THE KEYBINDING SERVICE'S OWN
-//
-// None of them is decided here, and none may be. `palette/keybindings/keybinding-audit.ts` asks
-// the service — the same service that will install the result — and this module
-// only joins the answers to rows a person reads. The reserved-chord table lives
-// there too: it was here, and the frame's override store became its second reader,
-// so it moved DOWN to the lowest folder both readers already import rather than
-// being copied into one of them.
-//
-// THE RECORDER'S HALF IS HERE BECAUSE THE RECORDER IS
-//
-// {@link readChordFromEvent} turns one keystroke into a chord string. It is the
-// page's half of the seam: what it produces is offered to the override store, which
-// is the authority on whether the chord can be bound at all. Chords are composed in
-// `KeyboardEvent.code` form wherever the host supplies one — `KeyK` rather than `k`
-// — for the reason `primitives/chord/chord-format.ts` gives about the same choice: `code`
-// is layout-independent, so a binding stays on the same physical key on AZERTY and
-// Dvorak.
+// {@link readChordFromEvent} is the page's half of the recorder seam: the override store decides
+// whether its chord can be bound. Chords use `KeyboardEvent.code` (`KeyK`, not `k`) where the
+// host supplies one, as `chord-format.ts` does, so a binding stays on the same physical key on
+// AZERTY and Dvorak.
 
 import { reservedChordReason } from "@renderer/registries/keybindings/keybinding-audit.js";
 import {
@@ -48,25 +31,17 @@ export interface KeybindingRow {
   /** Present when the host takes this chord before the console can. */
   readonly unavailableReason: string | undefined;
   /**
-   * The chord the console SHIPS for this command, or `undefined` where it ships
-   * none.
+   * The chord the console ships for this command, or `undefined` where it ships none.
    *
-   * Carried on the row so a reset control can name what it restores to rather than
-   * promising an unnamed "default": a person about to give up a chord they chose is
-   * entitled to know which one comes back, and a command the console ships no chord
-   * for restores to none — which is a different answer and has to read as one.
-   *
-   * It is the SHIPPED table's answer and never the effective one. The effective
-   * table is the shipped table with the overrides already composed onto it, so
-   * reading a default out of it would answer with the override the reset removes.
+   * Carried so a reset control can name what it restores. It is the shipped table's answer,
+   * never the effective one, which already has the overrides composed onto it.
    */
   readonly shippedChord: string | undefined;
   /**
    * True when this row's chord is a person's rather than the console's.
    *
-   * Read from the override map rather than by comparing the chord against the
-   * shipped one: a person who explicitly unbound a command and a command that never
-   * had a chord both show no chord, and only the first has something to reset.
+   * Read from the override map, not by comparing chords: an explicitly unbound command and a
+   * command that never had a chord both show none, and only the first has something to reset.
    */
   readonly overridden: boolean;
 }
@@ -74,10 +49,8 @@ export interface KeybindingRow {
 /**
  * What one keystroke means to a recorder that is listening for a chord.
  *
- * Four outcomes and each is an act a person performed, not a state the recorder is
- * in: three of them end the recording and `incomplete` is the one that does not.
- * They are values rather than callbacks so the whole grammar is decided in one pure
- * function a test can drive with a synthetic event.
+ * Each outcome is an act a person performed; `incomplete` is the one that does not end the
+ * recording. Values rather than callbacks, so one pure function decides the grammar.
  */
 export type ChordRecording =
   | { readonly outcome: "captured"; readonly chord: string }
@@ -88,21 +61,16 @@ export type ChordRecording =
       /**
        * The modifiers held at this keystroke, in the order the console writes them.
        *
-       * Carried rather than discarded because the section asks for "the keys held so
-       * far, and whether the chord is complete": a recorder that showed nothing until
-       * the chord settled left a person pressing `⌘⇧` with no evidence the console
-       * had received either key. Empty is a real answer — a bare key that is not a
-       * chord key yet, which is what a `code`-less synthetic press produces.
+       * Carried so the row can show the console received each key while a chord is in
+       * progress. Empty is a real answer: a bare key that is not yet a chord key.
        */
       readonly heldModifiers: readonly string[];
     };
 
 /**
- * Everything but "not yet" — what a recorder hands upward and stops recording on.
+ * Everything but "not yet": what a recorder hands upward and stops recording on.
  *
- * Derived from the union above rather than written beside it: a fifth outcome joins
- * both of these narrowings by being added in one place, and a reader can see which
- * arms each caller is answerable for without a comment claiming it.
+ * Derived from the union so a new outcome joins both narrowings in one place.
  */
 export type CompletedChordRecording = Exclude<ChordRecording, { readonly outcome: "incomplete" }>;
 
@@ -113,22 +81,15 @@ export type AppliedChordRecording = Exclude<
 >;
 
 /**
- * Compose the rows a person reads.
- *
- * Pure over its inputs, so the ordering, the binding join, and the reserved
- * marking are all testable without a registry, a table, or a DOM. Ordered by group
- * and then title — the order the palette already puts these same commands in, so
- * one console does not have two ideas about how its acts are arranged.
+ * Compose the rows a person reads, ordered by group then title as the palette orders the same
+ * commands. Pure over its inputs.
  */
 export function composeKeybindingRows(options: {
   readonly commands: readonly CommandDefinition[];
   readonly bindings: readonly Keybinding[];
   /**
-   * The table the console SHIPS, so each row can name the chord a reset restores.
-   *
-   * Required rather than optional: a row whose default is unknown would have to
-   * render a reset control that promises something it cannot name, and an omitted
-   * argument would produce exactly that silently.
+   * The table the console ships, so each row can name the chord a reset restores. Required,
+   * since an omitted table would render a reset that promises something it cannot name.
    */
   readonly shippedBindings: readonly Keybinding[];
   readonly overrides?: KeyboardMap;
@@ -148,9 +109,8 @@ export function composeKeybindingRows(options: {
         title: command.title,
         group: command.group,
         chord: bound?.chord,
-        // The BINDING's scope and not the command's: a command may be offered
-        // everywhere while its chord is live in one place, and the row is about
-        // the chord.
+        // The binding's scope, not the command's: a command may be offered everywhere while
+        // its chord is live in one place.
         whenExpression: bound?.when,
         unavailableReason:
           bound === undefined ? undefined : reservedChordReason(bound.chord, platform),
@@ -162,19 +122,12 @@ export function composeKeybindingRows(options: {
 }
 
 /**
- * Narrow the rows to a typed query.
+ * Narrow the rows to a typed query with the console's one matcher, as settings search does.
  *
- * The console's one matcher, reached the way settings search reaches it
- * (`settings-page-registry.ts`) — imported, never re-implemented. A row offers its
- * title, its command id, its group, its CHORD, and its when-scope; the best of the
- * five decides. An empty query answers every row in composition order, which is what
- * the page shows before anyone has typed.
- *
- * THE CHORD AND THE SCOPE ARE CANDIDATES BECAUSE THE SECTION SAYS SO: "Filter the
- * list by command, chord, or scope through the shared matcher". A row with no chord
- * and a row with no scope each offer one candidate fewer rather than a placeholder —
- * an absent chord is not the string `"none"`, and matching a person's query against
- * a word this module invented would rank a row for text nothing on it says.
+ * A row offers its title, command id, group, chord and when-scope; the best score decides. An
+ * empty query answers every row in composition order. An absent chord or scope offers one
+ * candidate fewer rather than a placeholder, which would rank a row for text nothing on it
+ * says.
  */
 export function matchKeybindingRows(
   rows: readonly KeybindingRow[],
@@ -197,17 +150,12 @@ export function matchKeybindingRows(
       scored.push({ row, score: best });
     }
   }
-  // Stable sort over an already-ordered input, so two equally-good rows never
-  // swap places between keystrokes.
+  // Stable sort over an ordered input, so equally good rows keep their places between keystrokes.
   return scored.sort((left, right) => right.score - left.score).map((entry) => entry.row);
 }
 
 /**
- * The strings one row offers the scorer.
- *
- * Its own function so the candidate set is one list a test can drive rather than an
- * array literal buried in a loop — and so the two OPTIONAL candidates are dropped
- * where they are absent rather than becoming `undefined` inside a `string[]`.
+ * The strings one row offers the scorer; the optional candidates are dropped where absent.
  */
 function matchCandidatesOf(row: KeybindingRow): readonly string[] {
   const candidates = [row.title, row.commandId, row.group];
@@ -234,12 +182,9 @@ const MODIFIER_KEYS: ReadonlySet<string> = new Set([
 /**
  * Read one keystroke as a chord, a cancellation, a clearing, or nothing yet.
  *
- * `Escape` cancels and `Backspace` / `Delete` clear, both only when pressed alone:
- * `$mod+Backspace` is a chord somebody may legitimately want, and a recorder that
- * treated it as a clearing would make that chord unbindable. A press of a modifier
- * on its own completes nothing — a person on their way to `⌘⇧K` passes through
- * `⌘` and `⌘⇧`, and a recorder that settled on the first of them would bind the
- * wrong chord every time.
+ * `Escape` cancels and `Backspace` / `Delete` clear only when pressed alone, so
+ * `$mod+Backspace` stays bindable. A modifier on its own completes nothing: on the way to
+ * `⌘⇧K` a person passes through `⌘` and `⌘⇧`.
  */
 export function readChordFromEvent(
   event: Pick<KeyboardEvent, "key" | "code" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
@@ -268,22 +213,11 @@ export function readChordFromEvent(
 /**
  * The modifiers held, in the order the console writes them.
  *
- * `$mod` is the platform's own command modifier — Cmd on macOS, Ctrl elsewhere —
- * which is the token every shipped chord is authored in, so a recorded chord and a
- * declared one read the same way. The OTHER control key is written literally,
- * because on macOS `⌃` and `⌘` are two different keys and a chord that folded them
- * together would install on the wrong one.
- *
- * EXPORTED BECAUSE A RELEASE IS READ THE SAME WAY A PRESS IS. A keystroke's modifier
- * flags describe the state the host is in AFTER the event, so the flags on the keyup
- * that ends a `⇧` are exactly the flags on a keydown taken at the same instant — which
- * makes the answer to "what is held now?" one function rather than two. A recorder that
- * cleared its held set on every release instead would empty the hint while `⌥` was still
- * down, and a recorder that read a second copy of this table would drift from the one
- * the chord is composed with.
- *
- * It reads no `key` and no `code`: which key ENDED is not the question, and the four
- * flags answer the one that is.
+ * `$mod` is the platform's command modifier (Cmd on macOS, Ctrl elsewhere), the token shipped
+ * chords are authored in. The other control key is written literally because `⌃` and `⌘` are
+ * different keys on macOS. Exported because a release is read the same way as a press: the
+ * event flags describe the state after the event, so one function answers "what is held now?"
+ * and reads no `key` or `code`.
  */
 export function readHeldModifiersFromEvent(
   event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,

@@ -1,35 +1,21 @@
-// The one edge into the import panel's deferred body, and the only one that is
-// asynchronous.
+// The one edge into the import panel's deferred body, and the only asynchronous one.
 //
-// WHAT THIS MODULE IS. `provider-import-panel-body.ts` is the chunk root and states why
-// its body is off the initial import graph; this module is the half that stays ON it —
-// the mount, and nothing else. It holds no form knowledge and imports the body at run
-// time only through the `import()` call inside the mount: the `import type` line below
-// is erased by the compiler.
+// `provider-import-panel-body.ts` is the chunk root; this module stays on the initial graph
+// and reaches the body only through the `import()` in the mount (the `import type` is
+// erased by the compiler).
 //
-// A `LoaderBackedBody` rather than a `lazy()` of this module's own, because that class is
-// already the console's one answer to a loader-backed body: one in-flight promise however
-// many callers ask, one component identity so a host re-render does not remount a
-// half-typed form, a fresh payload only where a load rejected so the error boundary's
-// retry reaches a live loader, and the settled body rendered directly once the chunk has
-// landed — so a form disclosed, dismissed, and disclosed again never suspends at all.
-//
-// A `const` and not a module-level `let`: the memo is the class's own private field,
-// which is what the state-and-views rule in `apps/desktop/AGENTS.md` asks for.
-//
-// WHAT A PENDING BODY DRAWS is the marker `components/LazyBody/pending-body-marker.ts` owns and nothing
-// else: no spinner, no skeleton, and none of the five kinds of nothing, which render
-// differently because the next move differs. What is
-// absent is a MODULE rather than anything about the act, and the marker rides a `hidden`
-// element, so what the wait costs the layout is nothing and the screenshot tier refuses
-// to photograph a tree still carrying one.
+// A `LoaderBackedBody` is the console's one loader-backed body: one in-flight promise, one
+// component identity so a re-render does not remount a half-typed form, and the settled
+// body rendered directly so reopening never suspends. While pending it draws only the
+// hidden marker from `components/LazyBody/pending-body-marker.ts`, which costs the layout
+// nothing and which the screenshot tier refuses to photograph.
 
 import { LoaderBackedBody } from "@renderer/components/LazyBody/lazy-body.js";
 import { reservedBodyRegion } from "@renderer/components/LazyBody/pending-body-marker.js";
 import type { ProviderImportPanelProps } from "./ProviderImportPanel.js";
 
 /**
- * What a pending import panel stamps, so a refused capture says WHICH body was loading.
+ * What a pending import panel stamps, so a refused capture says which body was loading.
  *
  * Not a pane kind — the body is not a pane — so the value is the body's own name.
  */

@@ -1,9 +1,5 @@
-// The tokens main hands the renderer in place of a path.
-//
-// The renderer never holds a path: a dialog's pick comes back as a `FilePathRef`, and main
-// keeps the path it stands for. A token belongs to the page that received it and lives as
-// long as that page does, so a closed or reloaded page's tokens go with it and the table
-// stays bounded by what the open pages have picked.
+// The renderer never holds a path: a picked file comes back as a `FilePathRef` token and main
+// keeps the path. Tokens die with the page that received them, which bounds the table.
 
 import { randomUUID } from "node:crypto";
 
@@ -15,6 +11,7 @@ export interface FilePathRefOwner {
   once(event: "destroyed", listener: () => void): unknown;
 }
 
+/** Main's table from the tokens it handed a page to the paths they stand for. */
 export class FilePathRefs {
   readonly #pathsByOwner = new Map<number, Map<FilePathRef, string>>();
 

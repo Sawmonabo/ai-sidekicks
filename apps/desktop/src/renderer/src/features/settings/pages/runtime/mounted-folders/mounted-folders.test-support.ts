@@ -1,19 +1,8 @@
-// The cast both mounts suites drive the page and its inventory with.
+// The cast both mounted-folders suites drive the block and its inventory with: one session,
+// one node, two mounts, and the read shapes.
 //
-// Hoisted on second use, per `apps/desktop/AGENTS.md`. The two files ask different
-// questions — one about the composed read and its cap, the other about what the page
-// draws — but they name the same session, the same node, and the same two mounts,
-// and they built the same four id generators and the same read shapes twice, 350
-// lines apart in files whose readers are not looking at each other. A registered
-// response shape gaining one required member moved two bodies; it now moves one.
-//
-// The store both suites open is `store/session-store-registry.test-support.ts`'s, and
-// the event they apply to it is `store/session-event.test-support.ts`'s. Neither is
-// re-declared here: this module is the mounts cast, not a second store cast.
-//
-// THE IDS ARE UUIDS rather than readable strings, because the request ids are branded
-// UUID scalars and a shipped call parses them. Named, so the cases still read as "the
-// first mount" rather than as a hex string.
+// The ids are UUIDs because request ids are branded UUID scalars that a shipped call parses;
+// they are named so cases read as "the first mount".
 
 import type {
   ProjectId,
@@ -58,12 +47,10 @@ export function workspaceListWith(mountIds: readonly string[]): WorkspaceListRes
     })),
   };
 }
-
 /**
  * One healthy attached mount, with the overrides a case needs to make it otherwise.
  *
- * The overrides land last so a case that has to say "this axis disagrees with that
- * one" writes only the axis it moved.
+ * The overrides land last, so a case writes only the field it moved.
  */
 export function mountReadFor(
   repoMountId: string,

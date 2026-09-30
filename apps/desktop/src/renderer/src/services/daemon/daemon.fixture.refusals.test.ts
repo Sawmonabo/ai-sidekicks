@@ -1,23 +1,9 @@
-// A scenario can script a call that REFUSES, and it refuses in the wire's shape.
-//
-// The third of the three places a fixture that matched `PlatformBridge`'s SHAPE
-// still answered something the live bridge never would: `ScenarioReply` carried a
-// `result` and nothing else, so no scenario could script a call that refuses — and
-// every typed daemon refusal the console renders was unreachable through the
-// fixture, leaving the refusal renderings undrivable.
-//
-// Two properties make the arm worth having rather than one. The refusal a caller
-// catches has to BE the daemon's envelope, recognized by `src/shared/`'s own wire
-// vocabulary, because a fixture-scoped wrapper would train every refusal rendering
-// against a code the person is never meant to read. And a refusal a real transport
-// takes time to deliver is a loading state before it is an error, so the scripted
-// latency binds this arm exactly as it binds the resolving one — which is why the
-// pending and abandoned cases are repeated here rather than assumed from the
-// sibling file.
-//
-// Every case drives the REAL fixture bridge over a real scenario and the real
-// engine. A hand-written stand-in for either would pass over exactly the seam
-// these cases exist to hold.
+// A scenario can script a call that refuses, in the wire's shape. Without this arm, no typed
+// daemon refusal the console renders is reachable through the fixture. The caller must catch the
+// daemon's envelope itself, recognized by the shared wire vocabulary, since a fixture-scoped
+// wrapper would train renderings against a code no person reads. A refusal is a loading state
+// before it is an error, so scripted latency binds this arm as it binds the resolving one. Every
+// case drives the real fixture bridge and engine.
 
 import { describe, expect, it } from "vitest";
 
@@ -39,21 +25,14 @@ import { normalizeWireRejection } from "@renderer/lib/wire-rejection.js";
 /** The call the refusal cases script, so a scenario can carry both arms at once. */
 const REFUSED_CALL = "session.read";
 
-/**
- * The refusal a scripted rejection carries.
- *
- * A real registered code rather than an invented one: the rate-limit refusals are
- * exactly the class of typed daemon failure this arm exists to make
- * reachable, and a fixture refusing under a code no namespace owns would teach
- * the views that render refusals a value nothing sends.
- */
+/** The refusal a scripted rejection carries: a real registered code, not an invented one. */
 const SCRIPTED_REFUSAL: WireErrorEnvelope = {
   code: "ratelimit.exceeded",
   message: "Too many session reads from this user. Retry after 30 seconds.",
 };
 
 describe("fixture bridge — a scenario can script a call that refuses", () => {
-  /** The concurrent-streaming scenario script, re-scripted so one call refuses and one still answers. */
+  /** The concurrent-streaming script, re-scripted so one call refuses and one still answers. */
   function scenarioWithRefusal(afterMs?: number): Scenario {
     return {
       ...CONCURRENT_STREAMING_SCENARIO,
@@ -72,10 +51,8 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
   it("rejects with the scripted wire error, verbatim and unwrapped", async () => {
     const fixture = createFixture(scenarioWithRefusal());
 
-    // `toStrictEqual` against the envelope itself, not a message match: the value a
-    // caller catches has to BE the daemon's refusal. A fixture that wrapped it
-    // would hand every refusal rendering a fixture-scoped code instead of the one
-    // the person is meant to read.
+    // Strict equality against the envelope: a fixture that wrapped it would hand every
+    // rendering a fixture-scoped code.
     await expect(callThroughBridge(fixture, REFUSED_CALL)).rejects.toStrictEqual(SCRIPTED_REFUSAL);
   });
 
@@ -85,24 +62,18 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
       (rejection: unknown) => rejection,
     );
 
-    // The claim is not "some object was thrown" — it is that the console's own wire
-    // vocabulary recognizes it, which is what every renderer catch arm runs. A second
-    // refusal shape would pass a `rejects` assertion and fail here. Read rather than
-    // tested: the reader answers both members in one pass, so the assertion names
-    // what the fixture refused with instead of guarding and then reading it again.
+    // The console's wire vocabulary must recognize it, as every renderer catch arm does; a
+    // second refusal shape would pass a `rejects` assertion and fail here.
     expect(readWireErrorEnvelope(caught)).toStrictEqual({
       code: SCRIPTED_REFUSAL.code,
       message: SCRIPTED_REFUSAL.message,
     });
-    // Through `core/wire-rejection.ts` — the normalizer a console catch arm actually
-    // calls — rather than `src/shared/`'s `Error`-returning one, which no console
-    // component calls. What matters is that the daemon's CODE survives as the refusal's
-    // code, because that is the string a person pastes into an issue.
+    // Through `lib/wire-rejection.ts`, the normalizer a console catch arm calls. The daemon's
+    // code must survive as the refusal's code, since a person pastes it into an issue.
     const rendered = normalizeWireRejection("fixture-bridge", caught);
     expect(rendered.code).toBe(SCRIPTED_REFUSAL.code);
     expect(rendered.detail).toBe(SCRIPTED_REFUSAL.message);
-    // The negative control: a normalizer with no envelope arm would answer its own
-    // synthesized code here, which is the defect this substrate exists to close.
+    // Negative control: a normalizer with no envelope arm would answer its own synthesized code.
     expect(rendered.code).not.toBe("fixture-bridge-call-failed");
   });
 
@@ -115,9 +86,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
     });
 
     await crossMacrotaskBoundary();
-    // A refusal a real transport takes time to deliver is a loading state first. A
-    // fixture that refused on the calling turn would make that half unreachable —
-    // the same defect the resolving arm's latency exists to close.
+    // A refusal a real transport takes time to deliver is a loading state first.
     expect(settled).toBe(false);
     expect(fixture.engine.pendingReplyCount).toBe(1);
 
@@ -133,10 +102,8 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
 
     fixture.engine.dispose();
 
-    // The FIXTURE's refusal, not the scenario's: the engine was torn down before
-    // the clock ever reached the scripted answer, so what the caller is owed is the
-    // reason the fixture could not answer at all. Reporting the scripted refusal
-    // here would claim the daemon spoke.
+    // The fixture's refusal, not the scenario's: the engine was torn down before the clock
+    // reached the scripted answer, and reporting that refusal would claim the daemon spoke.
     await expect(pending).rejects.toBeInstanceOf(FixtureBridgeError);
     await expect(pending).rejects.toMatchObject({
       refusal: { code: "reply-abandoned", origin: "fixture-bridge" },
@@ -145,8 +112,7 @@ describe("fixture bridge — a scenario can script a call that refuses", () => {
   });
 
   it("negative control: a resolving reply in the same scenario still resolves", async () => {
-    // Without this, an implementation that rejected every scripted reply would pass
-    // every case above.
+    // Without it, a fixture that rejected every scripted reply passes every case above.
     const fixture = createFixture(scenarioWithRefusal());
 
     await expect(callThroughBridge(fixture, DELAYED_CALL)).resolves.toStrictEqual(DELAYED_RESULT);

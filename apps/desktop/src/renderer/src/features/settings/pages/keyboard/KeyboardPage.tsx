@@ -1,26 +1,13 @@
-// The keyboard page: every chord this window installs, what the service says about
-// them, and the one place a person changes one.
+// The keyboard page: every chord this window installs, what the service says about them, and
+// the one place a person changes one.
 //
-// One row per command with its chord, its command id, and the when-grammar expression
-// that scopes it. Conflict detection runs against the same when-scope and names the
-// command that already holds the chord. A binding is never written to a wire; the map
-// is renderer-local.
-//
-// WHERE A REBINDING GOES
-//
-// The palette publishes the seam (`palette/keybindings/keybinding-override-store.ts`): one store per
-// window, holding the overrides a person authored composed onto the chords the
-// console ships, read by the frame's key dispatch through the same accessor this
-// page reads. So a chord recorded here IS the chord installed — no second table, no
-// second listener, no window in which the page and the keyboard disagree. The
-// override is kept in main's keyboard map, one file on this machine; it reaches no wire.
-// A map main could not use is read as the shipped chords and written out again, and
-// this page says both happened.
-//
-// The recorder captures the next press on the control itself, and the console
-// keyboard is SUSPENDED while it does — which is what makes `$mod+1` recordable at
-// all, since the frame's table listens on the window in the capture phase and would
-// otherwise navigate to Sessions instead of letting the chord be bound.
+// One row per command with its chord, command id and scoping when-expression; conflict
+// detection names the command that holds a chord. The map is renderer-local and never written to
+// a wire. The page reads and writes the override store (`registries/keybindings/`), the same
+// accessor the frame's key dispatch reads, so a recorded chord is the installed chord. Overrides
+// live in main's keyboard map, one file on this machine; a map main could not use is read as
+// the shipped chords and written out again, and the page says so. The recorder suspends the
+// console keyboard, since the frame's capture-phase table would otherwise navigate on `$mod+1`.
 
 import "./keyboard.css";
 
@@ -53,35 +40,28 @@ import {
 /** The filter field's id, so its label points at it rather than wrapping it. */
 const FILTER_FIELD_ID = "meridian-keyboard-filter";
 
+/** The keyboard settings page: the chord map, the rebinding recorder, and the audit. */
 export function KeyboardPage(): ReactNode {
   const [query, setQuery] = useState("");
   const [recordingCommandId, setRecordingCommandId] = useState<string | undefined>(undefined);
   const [report, setReport] = useState<KeyboardActReport | undefined>(undefined);
   const announce = useAnnounce();
 
-  // The effective table, and whether the console keyboard is suspended. Read
-  // through the frame's one accessor, so this page cannot draw a keyboard that
-  // differs from the one installed.
+  // The effective table and whether the console keyboard is suspended, read through the same
+  // accessor as the frame so the page cannot draw a different keyboard.
   const keybindingSnapshot = useKeybindingSnapshot(keybindingOverrides);
 
-  // Commands are read on EVERY render pass, not once per visit. The registry is a
-  // mutable object with no change signal of its own, and the frame registers this
-  // window's commands from an effect — which React runs AFTER a child page's first
-  // render. A memo keyed on nothing therefore kept the empty registry a window that
-  // opened directly on this route had, and the page showed no rows until the person
-  // left the section and came back. The frame bumps its own command revision the
-  // moment it registers, and that re-renders this subtree; reading here rather than
-  // remembering is what lets the page see it, and it adds no second subscription to
-  // a registry that publishes none. The BINDINGS are live for their own reason:
-  // those are what this page changes.
+  // Read on every render, not once per visit: the registry has no change signal, and the frame
+  // registers this window's commands from an effect that runs after this page's first render, so
+  // a memo would keep the empty registry and show no rows. The frame bumps its command revision
+  // on registering, which re-renders this subtree. Bindings are live because this page
+  // changes them.
   const commands = commandRegistry.all();
   const rows = composeKeybindingRows({
     commands,
     bindings: keybindingSnapshot.bindings,
-    // The SHIPPED table beside the effective one, so every row can name the chord its
-    // reset restores. The effective table is this one with the overrides already
-    // composed onto it, so reading a default out of it would answer with the override
-    // the reset removes.
+    // The shipped table, so each row can name the chord its reset restores; the effective
+    // table already has the overrides composed onto it.
     shippedBindings: keybindingSnapshot.shippedBindings,
     overrides: keybindingOverrides.overrides,
   });
@@ -89,8 +69,7 @@ export function KeyboardPage(): ReactNode {
   const visibleRows = matchKeybindingRows(rows, query);
   const changedRows = rows.filter((row) => row.overridden);
 
-  // A recorder still armed when the page goes away would leave the console keyboard
-  // suspended for the life of the window.
+  // A recorder still armed when the page goes away would leave the console keyboard suspended.
   useEffect(() => () => keybindingOverrides.endRecording(), []);
 
   const stopRecording = useCallback(() => {

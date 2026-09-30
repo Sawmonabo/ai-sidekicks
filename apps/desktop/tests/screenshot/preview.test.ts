@@ -1,8 +1,7 @@
-// The screenshot tier: the preview pane: the pane chrome around an empty body, per scheme.
-//
+// The screenshot tier: the preview pane chrome around an empty body, per scheme.
 // `settled-capture.ts` owns the mechanism: every capture is written into the gitignored
-// `__screenshots__/` and compared against nothing, so this file gates on whether the
-// pane can be captured at all.
+// `__screenshots__/` and compared against nothing, so this file gates on whether the pane can be
+// captured at all.
 
 import { afterEach, beforeEach, describe, it } from "vitest";
 
@@ -26,9 +25,8 @@ afterEach(async () => {
 describe("screenshot — the preview pane", () => {
   for (const scheme of COLOR_SCHEMES) {
     it(`renders preview-pane-chrome in the ${scheme} scheme`, async () => {
-      // Through the system preference rather than a stamped attribute: the token sheet's
-      // dark layer is a `prefers-color-scheme` block, which is what a default install
-      // resolves.
+      // Through the system preference, not a stamped attribute: the token sheet's dark layer is a
+      // `prefers-color-scheme` block, which a default install resolves.
       await emulateSystemScheme(scheme);
       const mounted = await mountPreviewPane();
 

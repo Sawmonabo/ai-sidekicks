@@ -1,13 +1,4 @@
-/*
- * The wire choice list: one list, and every view that offers wire identifiers to
- * choose between. The sessions destination offers sessions to open in place, the
- * auxiliary picker asks first which session a window should follow and then which
- * agent inside it, and the workflows destination asks which session its definitions
- * resolve from. All of them render the identical row, so the row is styled once.
- *
- * Imported by `WireChoiceList.tsx`, so a caller cannot render the list without its
- * CSS. Every value here reads back out of `styles/`.
- */
+/* The wire choice list: one row style for every view that offers wire identifiers to pick from. */
 
 .meridian-choice-list {
   display: flex;

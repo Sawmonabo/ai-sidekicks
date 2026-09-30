@@ -1,9 +1,6 @@
-// One banner per thing a person is told, and one identity per banner.
-//
-// The column is a fold over raises, so the cases below are about what the fold keeps:
-// a repeat leaves the standing banner as it is, other words are another banner, and
-// dismissing one leaves the others exactly as they were — which is what lets the
-// render key on the identity rather than on a position.
+// One banner per thing a person is told. The column is a fold over raises: a repeat leaves the
+// standing banner as it is, other words are another banner, and dismissing one leaves the others
+// untouched, which lets the render key on identity.
 
 import { describe, expect, it } from "vitest";
 
@@ -26,16 +23,14 @@ function raiseAll(...banners: readonly SessionBanner[]): readonly SessionBanner[
 
 describe("the session screen banner column", () => {
   it("keeps one banner, unchanged, when the same banner is raised again", () => {
-    // A failing store refuses a save on every pane the person moves, so a drag used to
-    // produce a column of identical banners saying one thing.
+    // A failing store refuses a save on every pane moved; a drag must not stack identical banners.
     const raised = raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER);
 
     expect(raiseSessionBanner(raised, PANE_LAYOUT_NOT_SAVED_BANNER)).toBe(raised);
   });
 
   it("negative control: other words are a banner of their own", () => {
-    // Without this, the case above would pass over a fold that took every raise as the
-    // same banner and hid a second thing a person had to be told.
+    // The case above would also pass over a fold that treated every raise as the same banner.
     expect(raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER)).toHaveLength(2);
   });
 
@@ -48,8 +43,7 @@ describe("the session screen banner column", () => {
   });
 
   it("negative control: dismissing an identity nothing carries removes nothing", () => {
-    // Without this, the case above would pass over a dismissal that emptied the column
-    // whatever it was handed.
+    // The case above would also pass over a dismissal that emptied the column whatever it got.
     const raised = raiseAll(PANE_LAYOUT_NOT_SAVED_BANNER, OTHER_BANNER);
 
     expect(dismissSessionBanner(raised, "no-such-banner")).toStrictEqual(raised);

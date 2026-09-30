@@ -1,22 +1,18 @@
 // The scripted root a capture is driven against, and the tree it names.
 //
-// Two suites drive `SpawnedTreeIdentity` and they ask different questions of it:
-// `process-tree-identity.test.ts` asks whether the root pid still names the same
-// process, and `process-tree-capture.test.ts` asks what the descendant set is
-// allowed to contain and when it may be replaced. Both need a root whose stamp
-// answers on a script and a tree whose rows are known, so those live here rather
-// than in whichever file happened to be written first.
-//
-// A STAND-IN AND NOT A FIXTURE CONSTRUCTOR, which is why it is not folded into
-// `process-table-fixture.test-support.ts` beside it. That module builds table
-// DATA and decides nothing; this one answers a reading in place of the platform,
-// which is a different role and the reason the two are separate homes.
+// `process-tree-identity.test.ts` asks whether the root pid still names the same process, and
+// `process-tree-capture.test.ts` asks what the descendant set may contain and when it may be
+// replaced; both need a root whose stamp answers on a script and a tree with known rows. This
+// module answers a reading in place of the platform, unlike
+// `process-table-fixture.test-support.ts`, which builds table data and decides nothing.
 
 import { type ProcessTableRow } from "./process-tree/readers.js";
 import { processTableOf } from "./process-table-fixture.test-support.js";
 
-/** The tree whose root is captured, and the one descendant it is known to hold. */
+/** The pid of the tree's captured root. */
 export const CAPTURED_ROOT_PID: number = 4242;
+
+/** The one descendant the captured tree is known to hold. */
 export const CAPTURED_CHILD_PID: number = 4243;
 
 /** The stamp the descendant is listed under while it is still itself. */
@@ -28,18 +24,11 @@ export const CAPTURED_TREE_TABLE: ReadonlyMap<number, ProcessTableRow> = process
 ]);
 
 /**
- * A start-stamp reader whose answers are scripted in order.
- *
- * A queue rather than a value for `ScriptedLivenessProbes`' reason: the whole
- * subject is a SEQUENCE — the stamp taken at the spawn against the stamp taken
- * before the kill — and only what the later answer says separates the cases. A
- * read past the script throws rather than repeating, because a reading that
- * asks more often than the case described is a different reading; `undefined`
- * is a legitimate scripted answer, so the bound is checked before the take
- * rather than inferred from one.
- *
- * Exported because both suites take a scripted root: the reissue cases in
- * one, and the ancestry proof and the refresh that could not read in the other.
+ * A start-stamp reader whose answers are scripted in order. It is a queue because the subject is
+ * a sequence: the stamp taken at the spawn against the stamp taken before the kill. A read past
+ * the script throws instead of repeating, since a reading that asks more often than the case
+ * described is a different reading; `undefined` is a legitimate answer, so the bound is checked
+ * before the take. Both suites take a scripted root.
  */
 export class ScriptedStartStamps {
   readonly #answers: readonly (string | undefined)[];

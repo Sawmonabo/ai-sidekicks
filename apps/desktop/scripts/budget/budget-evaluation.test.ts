@@ -1,13 +1,5 @@
-// The comparison every harness runs, held to its edges.
-//
-// `evaluateBudget` is the only place a measurement meets a ceiling, which is what
-// keeps `<=` from being written a second time inside a measuring script — a
-// second copy is a second place a budget can be loosened. The three cases below
-// are the boundary: under, exactly at, and one over, because a ceiling that
-// excluded its own value would fail a measurement the spec's own figure permits.
-//
-// The registry's shape is `budget-registry.test.ts`'s and the loader's refusals
-// are `budget-document.test.ts`'s; what this file holds is the arithmetic.
+// The boundary of the comparison every harness runs: under, exactly at, and one over the limit.
+// A ceiling that excluded its own value would fail a measurement the spec permits.
 
 import { describe, expect, it } from "vitest";
 

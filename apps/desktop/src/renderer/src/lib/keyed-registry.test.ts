@@ -1,14 +1,6 @@
-// One registry, three policies, and the refusal each of them raises.
-//
-// The reason this module exists is that five registries had already diverged on
-// what a second registration MEANS. So the cases below are organized by policy
-// rather than by method: the question a reader has is "what happens on a repeat
-// here", and the answer has to be readable per policy or the parameter is just a
-// switch statement nobody can audit.
-//
-// The refusals are asserted on their `code`, not on their message text. A catch
-// site renders `code` verbatim and branches on it; message wording is prose that
-// may be improved, and a test pinned to prose makes improving it a test failure.
+// One registry, three policies, and the refusal each raises. The cases are organized by policy
+// because the question a reader has is what happens on a repeat. Refusals are asserted on `code`,
+// which a catch site branches on, not on message prose that may be reworded.
 
 import { describe, expect, it } from "vitest";
 import {
@@ -77,9 +69,8 @@ describe("DuplicatePolicy — three answers, and every one of them reached", () 
   });
 
   it("gives every policy a defined answer to a repeat, so none falls through", () => {
-    // Walked from the tuple rather than retyped. A fourth policy added to the union
-    // alone would leave `register`'s switch returning undefined for it, and this is
-    // the case that turns that into a failure instead of a value nobody looked at.
+    // Walked from the tuple: a policy added to the union alone would leave `register`'s switch
+    // returning undefined for it.
     const outcomes = DUPLICATE_POLICIES.map((duplicatePolicy) => {
       const registry = new KeyedRegistry<string, OwnedCommand>({
         duplicatePolicy,
@@ -170,8 +161,7 @@ describe("KeyedRegistry — the idempotent policy", () => {
   });
 
   it("negative control: the same repeat under the throw policy is refused", () => {
-    // Without this, a `register` that never threw at all would pass every
-    // idempotent case while silently disarming the throw policy.
+    // Guards against a `register` that never throws passing every idempotent case.
     const registry = throwingCommandRegistry();
     registry.register("boot", { owner: "frame", label: "Boot" });
     expect(() => {
@@ -205,8 +195,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
   });
 
   it("raises the SAME conflict from registerAll as from register", () => {
-    // The two paths used to carry hand-copied message text, which is how one of
-    // them drifts. They are one builder now, and this is what says so.
+    // One builder serves both paths, so their messages cannot drift.
     const single = ownerScopedScreenRegistry();
     single.register("transcript", { owner: "transcript", label: "Transcript" });
     const batched = ownerScopedScreenRegistry();
@@ -223,9 +212,7 @@ describe("KeyedRegistry — the owner-scoped policy", () => {
   });
 
   it("refuses at construction when it has no way to read an owner", () => {
-    // At construction rather than at the first duplicate: a registry that discovers
-    // it cannot honor its policy only when a conflict arrives has already admitted
-    // the conflicting registration.
+    // At construction: discovering this at the first conflict would already have admitted it.
     const constructWithoutOwnerReader = (): KeyedRegistry<string, OwnedCommand> =>
       new KeyedRegistry<string, OwnedCommand>({
         duplicatePolicy: "owner-scoped",
@@ -260,15 +247,13 @@ describe("KeyedRegistry — registerAll is atomic", () => {
       ]);
     }).toThrow(DuplicateRegistrationError);
 
-    // Half a feature's contributions is a state no caller can reason about and none
-    // unwinds, so the first entry must not have landed.
+    // Half a feature's contributions is a state nothing unwinds, so the first entry must not land.
     expect(registry.has("run-pause")).toBe(false);
     expect(registry.size).toBe(1);
   });
 
   it("negative control: the same batch without the conflict lands whole", () => {
-    // Without this, a `registerAll` that stored nothing ever would pass the case
-    // above.
+    // Guards against a `registerAll` that stores nothing passing the case above.
     const registry = throwingCommandRegistry();
     registry.registerAll([
       ["run-pause", { owner: "transcript", label: "Pause" }],
@@ -323,8 +308,7 @@ describe("lookupOrThrow — one wording for the missing-key defect", () => {
   });
 
   it("throws a RangeError naming what was missing", () => {
-    // A RangeError and deliberately not a console refusal: a key missing from a
-    // table the caller itself populated is a defect with nowhere to render.
+    // A `RangeError`, not a refusal: a key missing from a table the caller populated is a defect.
     expect(() => lookupOrThrow(paneTitles, "gallery", "pane title")).toThrow(RangeError);
     expect(() => lookupOrThrow(paneTitles, "gallery", "pane title")).toThrow(
       'no pane title named "gallery"',

@@ -1,9 +1,5 @@
-// The screen registry's table, and the closed set of screen names behind it.
-//
-// The name set is checked for the same reason its declaration was collapsed: a
-// tuple and a union that agree today are two closed sets, and a test that reads
-// the tuple is what keeps the agreement checkable at runtime rather than only at
-// the one call site the compiler happens to visit.
+// The screen registry's table and its closed set of screen names, checked at runtime through the
+// tuple rather than only at the call sites the compiler visits.
 
 import { describe, expect, it } from "vitest";
 
@@ -16,16 +12,14 @@ import {
   type ScreenDescriptor,
 } from "./screen-registry.js";
 
-/** A descriptor whose render is never called: these cases are about the table. */
+/** A descriptor whose render is never called. */
 function descriptor(name: ScreenDescriptor["name"], owner: string): ScreenDescriptor {
   return { name, owner, render: () => null };
 }
 
 describe("screen registry — one owner per screen name", () => {
   it("replaces when the same owner re-claims", () => {
-    // A hot reload re-runs a feature's module. Refusing that would make the
-    // console unreloadable; silently keeping the FIRST would leave the window
-    // rendering the pre-edit screen, which reads as an edit that did nothing.
+    // A hot reload re-runs a feature's module; keeping the first screen would render a stale one.
     const registry = new ScreenRegistry();
     registry.register(descriptor("settings", "settings"));
     registry.register(descriptor("settings", "settings"));
@@ -44,16 +38,14 @@ describe("screen registry — one owner per screen name", () => {
 describe("screen registry — the screen name set is one declaration", () => {
   it("reports screen names in the declared order, and only registered ones", () => {
     const registry = new ScreenRegistry();
-    // Registered back to front, so an implementation that reported insertion
-    // order rather than declaration order would answer differently.
+    // Registered back to front, so insertion order would answer differently.
     registry.register(descriptor("settings", "third"));
     registry.register(descriptor("sessions", "first"));
     expect(registry.registeredScreenNames()).toStrictEqual(["sessions", "settings"]);
   });
 
   it("routes every navigable address to a declared screen name", () => {
-    // The union and the tuple are one declaration now, so this asserts the other
-    // half: every screen name the route table can produce is one the registry knows.
+    // Every screen name the route table can produce is one the registry knows.
     const routes: readonly AppRoute[] = [
       { kind: "sessions" },
       { kind: "session", sessionId: "s-1" },
@@ -75,9 +67,7 @@ describe("screen registry — the screen name set is one declaration", () => {
   });
 
   it("negative control: a route that names nothing resolves to no screen", () => {
-    // The loop above would be vacuous over an empty list and would pass over a
-    // `findScreenNameForRoute` that answered `"sessions"` for everything, so the case
-    // that must NOT produce a screen name is asserted separately.
+    // The loop above would pass over a function that answered `"sessions"` for everything.
     expect(findScreenNameForRoute({ kind: "not-found", attempted: "#/nowhere" })).toBeUndefined();
     expect(SCREEN_NAMES).not.toContain("not-found");
   });

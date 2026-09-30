@@ -1,30 +1,12 @@
-// `budgets.json` as bytes, validated into a document.
-//
-// One half of what `budget-registry.mts` used to be. This module answers "is this
-// file a budget document, and what does it say?" and nothing else: it reads the
-// bytes, parses the JSON, checks every field a row must carry and every rule the
-// envelope must satisfy, and refuses with `BudgetRegistryError` rather
-// than producing a partial document — because a budget that silently vanishes is
+// Reads `budgets.json` and validates it into a `BudgetDocument`. It refuses with
+// `BudgetRegistryError` rather than return a partial document: a budget that silently vanishes is
 // a gate nobody notices is off.
-//
-// Querying that document, comparing a measurement against one of its rows, and
-// printing a report over it are three other jobs, and they are three other
-// modules (`budget-registry.mts`, `budget-evaluation.mts`, `budget-report.mts`).
-// The split is by concern rather than by size: validation is the only half that
-// reads the filesystem and the only half that refuses, so it is the half a reader
-// checking "can a malformed row get through?" should be able to read alone.
 
 import { readFileSync } from "node:fs";
 
 /**
- * The only registry revision this reader accepts.
- *
- * 2 added the required `scope` field. 3 added the required `subjectSymbol`, which
- * is what turns `measuredBy` from a path that merely EXISTS into a claim a test
- * can check: the harness has to hold the symbol the row is about. Older documents
- * parse into a registry that would answer "which rows are the spec's?" or "does
- * this harness touch its subject?" wrongly rather than loudly, so they are
- * refused instead of defaulted.
+ * The only registry revision this reader accepts. An older document is refused rather than
+ * defaulted, because a default would answer registry queries wrongly instead of loudly.
  */
 const SUPPORTED_SCHEMA_VERSION = 3;
 
@@ -36,18 +18,9 @@ type BudgetStatus = "enforced" | "n/a";
 const BUDGET_STATUS_VALUES: readonly BudgetStatus[] = Object.freeze(["enforced", "n/a"]);
 
 /**
- * Where a budget's figure comes from, and what it is therefore a claim about.
- *
- * `product` rows are the console's own product budgets, and their set is
- * closed: the eight of them are the whole list and nothing else may join.
- * `harness` rows are the complement — a bound with NO product figure behind it,
- * whether the scaffolding applies it to itself (the five launch slices) or a
- * harness applies it to a shipped artifact the product list does not bound in
- * that unit (`renderer-initial-fonts`, raw bytes beside a gzip row). They share
- * this file rather than getting one of their own because a budget with a second
- * home is a budget that will disagree with itself — and they are discriminated
- * rather than merged so the completeness claim over the product list stays
- * checkable by counting, which is the property a ninth `product` id would cost.
+ * Where a budget's figure comes from. `product` rows are the console's own product budgets, a
+ * closed list. `harness` rows bound the test scaffolding or a shipped artifact the product list
+ * does not cover; they stay a separate scope so the product list can be checked by counting.
  */
 type BudgetScope = "product" | "harness";
 
@@ -63,11 +36,12 @@ interface BudgetLimit {
   readonly canonicalUnit: string;
 }
 
+/** One row of `budgets.json`, validated. */
 export interface Budget {
   readonly id: string;
   readonly label: string;
   readonly subject: string;
-  /** The figure as its own source writes it: the product figure for a `product` row, the derivation for a `harness` one. */
+  /** The figure as its source writes it: the product figure, or a `harness` row's derivation. */
   readonly specTarget: string;
   readonly limit: BudgetLimit;
   readonly scope: BudgetScope;
@@ -75,26 +49,17 @@ export interface Budget {
   /** Repo-relative harness path; `null` exactly when `status` is `"n/a"`. */
   readonly measuredBy: string | null;
   /**
-   * The exported symbol `measuredBy` must hold; `null` exactly when `status` is `"n/a"`.
-   *
-   * A path is not evidence: a file can exist and never touch the row's subject.
-   * The symbol the harness has to hold is, so this parser refuses an `enforced` row
-   * that names none. Whether the named
-   * symbol is the one that suite actually drives is a reviewer's read.
+   * The exported symbol `measuredBy` must hold; `null` exactly when `status` is `"n/a"`. A path
+   * alone is not evidence that a harness touches the row's subject, so an `enforced` row that
+   * names no symbol is refused.
    */
   readonly subjectSymbol: string | null;
   /** Why it is not measurable yet; non-null exactly when `status` is `"n/a"`. */
   readonly notMeasurableReason: string | null;
   /**
-   * The size, in bytes, of the smallest additional subject this row's ceiling was
-   * derived to REFUSE; `null` for a row whose figure was not chosen against one.
-   *
-   * A ceiling picked for a refusal property carries the figure that property is
-   * about, and the harness that plants a control needs exactly that number — plant
-   * anything larger and the control proves only that some larger number is over.
-   * It lives on the row because the row's `notes` already state it in prose, and a
-   * threshold restated in a test beside a file the test already loads is the second
-   * home the config-single-sourcing rule in `apps/desktop/AGENTS.md` rejects.
+   * The size in bytes of the smallest extra subject this row's ceiling was derived to refuse;
+   * `null` when the figure was not chosen against one. The harness plants its control at exactly
+   * this number, so it reads it here instead of restating it.
    */
   readonly refusalControlBytes: number | null;
   readonly notes: string;
@@ -106,19 +71,14 @@ export interface Budget {
 export interface BudgetDocument {
   readonly schemaVersion: number;
   /**
-   * Why the `harness` rows carry the figures they do, stated once for the set.
-   *
-   * A document-level field rather than a sentence per row, because those bounds
-   * are slices of one deadline: the derivation is a property of the set, and a
-   * rule restated per row is a rule with as many places to drift as there are
-   * rows — which is what it did, three copies deep and already imprecise about
-   * which tier the sum is held against. `null` exactly when the document
-   * declares no `harness` row at all.
+   * Why the `harness` rows carry the figures they do, stated once for the set. Required when any
+   * `harness` row exists.
    */
   readonly harnessBudgetDerivation: string | null;
   readonly budgets: readonly Budget[];
 }
 
+/** Thrown when the budget registry is unreadable, malformed, or breaks a rule of the format. */
 export class BudgetRegistryError extends Error {
   constructor(message: string) {
     super(message);
@@ -295,11 +255,8 @@ export function readBudgetDocument(budgetsFilePath: string): BudgetDocument {
     seenIds.add(budget.id);
   }
 
-  // A `product` row's figure is the product list's and needs no derivation here; a
-  // `harness` row's figure is ours, so a document that declares one and says
-  // nowhere why is a bound with no reviewable source — the shape this file
-  // exists to refuse. Required for the SET rather than per row, which is what
-  // keeps it stated once.
+  // A `harness` row's figure is ours, so a document that declares one and never says why has a
+  // bound with no reviewable source. The derivation is required once for the set, not per row.
   const harnessBudgetDerivation = optionalString(document, "harnessBudgetDerivation");
   if (budgets.some((budget) => budget.scope === "harness") && harnessBudgetDerivation === null) {
     refuse(

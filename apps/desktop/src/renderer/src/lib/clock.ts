@@ -1,18 +1,13 @@
-// The console's clock seam.
+// The console's clock seam, an interface rather than direct calls to `Date.now` and
+// `requestAnimationFrame` for two reasons:
 //
-// Two reasons this is an interface rather than direct calls to `Date.now` and
-// `requestAnimationFrame`:
+//   1. In fixture mode the fixture clock is the only clock the renderer reads; a frozen tick
+//      names one exact frame only if nothing reaches past it to the wall clock.
+//   2. A test can count armed timers only if every timer in the console is minted through one
+//      object.
 //
-//   1. The fixture clock is the only clock the renderer reads in fixture mode. A
-//      frozen tick only names one exact frame if nothing anywhere reaches past it to
-//      the wall clock — so the seam has to exist at the bottom, not at the scenario
-//      engine.
-//   2. The budgets forbid polling. "no timer fires except the refresh scheduler's
-//      deadline and the presence heartbeat" is a claim a test can only check if
-//      every timer in the console is minted through one object it can count.
-//
-// `ManualClock` is that counting instrument and the fixture's frozen clock at
-// once: nothing advances until a test or a scenario advances it.
+// `ManualClock` is that counting instrument and the fixture's frozen clock: nothing advances
+// until a test or scenario advances it.
 
 /** An opaque handle for canceling scheduled work. */
 export type ScheduledHandle = number;
@@ -30,12 +25,9 @@ export interface Clock {
 }
 
 /**
- * The two frame functions, declared rather than read off the DOM lib.
- *
- * `core/` sits at the bottom of the console's import graph and is reached from
- * node-context tiers whose program has no DOM. Declaring the pair as OPTIONAL is
- * also the honest statement of what `RealClock` assumes: they may be absent, and
- * the timeout path below is what runs when they are.
+ * The two frame functions, declared rather than read off the DOM lib because `lib/` is also
+ * compiled by node-context programs with no DOM. Optional: when absent, `RealClock` uses
+ * timeouts.
  */
 interface FrameScheduling {
   readonly requestAnimationFrame?: (callback: (time: number) => void) => number;
@@ -45,22 +37,16 @@ interface FrameScheduling {
 const frameScheduling = globalThis as unknown as FrameScheduling;
 
 /**
- * The real clock. `requestAnimationFrame` where the document has one and a
- * zero-delay timeout where it does not — a `node`-environment test project has no
- * animation frames, and a substrate that threw there would be untestable outside
- * a browser.
+ * The real clock. Frames use `requestAnimationFrame` where the document has one and a
+ * zero-delay timeout where it does not, as in a `node`-environment test project.
  */
 export class RealClock implements Clock {
   /**
    * Armed work, keyed by the handle this clock issued.
    *
-   * The clock mints its OWN handles rather than passing the platform's through, and
-   * that is the difference between `cancel` being idempotent and only looking it.
-   * `requestAnimationFrame` and `setTimeout` number their handles in two
-   * independent spaces that both start at 1, so a returned platform number does not
-   * say which space it came from. Canceling a frame that had already run therefore
-   * fell through to `clearTimeout` carrying a number some unrelated timeout was
-   * still holding — a cancellation of someone else's work, with nothing to see.
+   * The clock mints its own handles because `requestAnimationFrame` and `setTimeout` number
+   * theirs in two independent spaces, so canceling an already-run frame with the platform
+   * number could cancel an unrelated timeout.
    */
   readonly #armedWorkByHandle = new Map<ScheduledHandle, ArmedWork>();
   #nextHandle = 1;
@@ -96,9 +82,7 @@ export class RealClock implements Clock {
   public cancel(handle: ScheduledHandle): void {
     const armed = this.#armedWorkByHandle.get(handle);
     if (armed === undefined) {
-      // Never armed, already run, or already canceled. All three are the no-op
-      // `cancel`'s idempotence promises, and none of them may reach a platform
-      // call carrying a handle this clock no longer owns.
+      // Never armed, already run, or already canceled: no platform call with a handle not owned.
       return;
     }
     this.#armedWorkByHandle.delete(handle);
@@ -109,7 +93,7 @@ export class RealClock implements Clock {
     globalThis.clearTimeout(armed.platformHandle as unknown as ReturnType<typeof setTimeout>);
   }
 
-  /** Work still armed. The frame path's counterpart to `ManualClock.pendingCount`. */
+  /** Work still armed; the counterpart of `ManualClock.pendingCount`. */
   public get pendingCount(): number {
     return this.#armedWorkByHandle.size;
   }
@@ -122,12 +106,8 @@ export class RealClock implements Clock {
 }
 
 /**
- * A clock that advances only when told to.
- *
- * The fixture bridge's frozen clock and every deterministic test run on this. It
- * is also the console's timer audit: `pendingCount` answers "does anything still
- * have a timer armed?", which is how the idle-CPU budget's "no timer fires" claim
- * is checked rather than asserted.
+ * A clock that advances only when told to; the fixture's frozen clock and the timer audit for
+ * tests: `pendingCount` says whether anything is still armed.
  */
 export class ManualClock implements Clock {
   #currentTime: number;
@@ -174,19 +154,11 @@ export class ManualClock implements Clock {
   }
 
   /**
-   * Move time forward, running every TIMEOUT that falls due, in order. Work armed
-   * by a callback during the advance runs too, if it falls due inside the window —
-   * which is what makes a re-arming scheduler observable rather than invisible.
+   * Move time forward, running every timeout that falls due, in order, including work a
+   * callback arms inside the window.
    *
-   * Frames are excluded, and that exclusion is the whole reason `runFrame` exists
-   * beside this method. A frame is armed with `dueAt` equal to the current time,
-   * so selecting work on due time alone would make EVERY pending frame due on any
-   * advance at all, including `advance(0)`. Time and paint are two controls here
-   * precisely because the real clock has two sources — `setTimeout` and
-   * `requestAnimationFrame` — and a scenario beat that painted implicitly would
-   * report a frame the caller never released, which is the one thing a frozen
-   * clock is for. A timeout a frame callback arms is ordinary timeout work and the
-   * next advance owns it.
+   * Frames are excluded and run only by `runFrame`: a frame is armed due now, so selecting on
+   * due time would paint every pending frame on any advance, including `advance(0)`.
    */
   public advance(deltaMs: number): void {
     const target = this.#currentTime + deltaMs;
@@ -213,7 +185,7 @@ export class ManualClock implements Clock {
   }
 }
 
-/** One armed piece of work, and which platform call has to be told to drop it. */
+/** One armed piece of work, and which platform call must be told to drop it. */
 interface ArmedWork {
   readonly isFrame: boolean;
   readonly platformHandle: number;

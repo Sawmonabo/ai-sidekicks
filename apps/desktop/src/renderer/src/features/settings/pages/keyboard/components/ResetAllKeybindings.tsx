@@ -1,20 +1,10 @@
-// The reset-all control, and the defaults it restores — named one by one.
+// The reset-all control, and the defaults it restores named one by one.
 //
-// A per-row reset and a reset-all, both showing the default they restore to. The
-// per-row half can say it on the
-// control itself, because one row restores to one chord. This half cannot: a single
-// button restores N rows to N different chords, and a label reading "reset all" makes
-// a promise a person has no way to check before pressing it.
-//
-// SO THE LIST IS THE PROMISE, AND THE BUTTON IS BESIDE IT. Every changed row is
-// listed with the chord that comes back — the console's SHIPPED chord, never the
-// effective one, which is the shipped table with these very overrides already
-// composed onto it and would therefore answer with the override being removed. A
-// command the console ships no chord for restores to none, and the row says that in
-// the same words the per-row control uses, through `describeShippedChord`.
-//
-// ITS OWN MODULE because this is one subject: what a bulk act will do, stated
-// before it is done — a seam the page it came out of already carried.
+// A per-row reset can show its default on the control because one row restores to one chord;
+// one button restoring N rows to N chords cannot, so the list is the promise. Every changed
+// row is listed with the shipped chord that comes back, never the effective one, which has
+// these overrides composed onto it. A command with no shipped chord restores to none, in the
+// words `describeShippedChord` gives the per-row control.
 
 import type { ReactNode } from "react";
 
@@ -25,6 +15,7 @@ import { formatCount } from "@renderer/lib/wire-figures.js";
 import { describeShippedChord } from "./KeybindingRowBody.js";
 import type { KeybindingRow } from "../keybinding-map.js";
 
+/** Props for {@link ResetAllKeybindings}. */
 export interface ResetAllKeybindingsProps {
   /** Every row whose chord is a person's rather than the console's. */
   readonly changedRows: readonly KeybindingRow[];
@@ -34,9 +25,8 @@ export interface ResetAllKeybindingsProps {
 /**
  * The bulk reset: what it would restore, then the control that restores it.
  *
- * Renders the "nothing to reset" absence itself rather than leaving the page to
- * choose between two shapes: the two arms are one question — is anything changed —
- * and answering it in two places is how they come to disagree.
+ * Renders the "nothing to reset" absence itself so "is anything changed" is answered in one
+ * place.
  */
 export function ResetAllKeybindings(props: ResetAllKeybindingsProps): ReactNode {
   if (props.changedRows.length === 0) {

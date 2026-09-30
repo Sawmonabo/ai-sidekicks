@@ -1,13 +1,10 @@
 // The local-runtime page: the supervisor's numbers, and the two controls that confirm.
 //
-// The page's honesty rests on four things: the numbers it shows are the ones it was told
-// and never invented, a control names what it will interrupt before it does anything, a
-// confirmation answered once dispatches once, and the daemon's own reported line is asked
-// again once it can have changed.
-//
-// The last is two claims. A read that never happens again leaves a stopped runtime beside
-// `Reported state: connected`; a read on every render, or on every retry the supervisor's
-// ladder makes, is an interval poll. So the cases drive a settled control and a
+// The page shows only the numbers it was told, names what a control will interrupt before
+// acting, dispatches once per answered confirmation, and asks the daemon's reported line
+// again once it can have changed. That last is two claims: a read that never happens again
+// leaves a stopped runtime beside `Reported state: connected`, while a read on every render
+// or every supervisor retry is an interval poll. The cases drive a settled control and a
 // supervisor transition, and an advancing retry attempt that must change nothing.
 
 import { act, fireEvent, renderHook, waitFor } from "@testing-library/react";
@@ -39,8 +36,8 @@ describe("DaemonPage — the supervisor's numbers", () => {
   });
 
   it("shows no attempt row on a connected window — the control", () => {
-    // A row reading "attempt — of 5" on a healthy window would be a field with
-    // nothing in it pretending to be a measurement.
+    // An attempt row on a healthy window would show a field with nothing in it as a
+    // measurement.
     const { container } = renderRuntimePage({
       mainProcessState: { ...UNREPORTED_MAIN_PROCESS_STATE, connection: { kind: "connected" } },
     });
@@ -73,9 +70,9 @@ describe("DaemonPage — the reported status", () => {
   });
 
   it("asks the runtime again once a control settles", async () => {
-    // The defect this pins: a stop that was accepted changes what the runtime would
-    // answer, and a page holding the pre-control reply shows a stopped supervisor
-    // beside its own `Reported state: connected` for the rest of the visit.
+    // Guards a stale reply: a stop that was accepted changes what the runtime would answer,
+    // and a page holding the pre-control reply would show a stopped supervisor beside
+    // `Reported state: connected` for the rest of the visit.
     const { container, ledger } = renderRuntimePage({});
     await waitFor(() => {
       expect(container.textContent).toContain("2026-04-30-read-1");
@@ -106,10 +103,9 @@ describe("DaemonPage — the reported status", () => {
   });
 
   it("negative control: a re-render and an advancing retry attempt ask nothing", async () => {
-    // Both halves of the anti-poll claim. A page that re-read on every render would
-    // satisfy the two cases above and put a call on the wire per pass — and keying the
-    // read on the whole connection would put one per attempt of the supervisor's
-    // ladder, which is interval polling in another form.
+    // Both halves of the anti-poll claim: a page re-reading on every render would pass the
+    // two cases above, and keying the read on the whole connection would put one call per
+    // supervisor retry, which is polling in another form.
     const { ledger, showMainProcessState } = renderRuntimePage({
       mainProcessState: {
         ...UNREPORTED_MAIN_PROCESS_STATE,
@@ -165,8 +161,7 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("releases the dispatch once a call settles, so the same control works again", async () => {
-    // The single-flight latch must clear when the call ends. A latch that stayed held
-    // would leave the runtime's controls dead for the rest of the visit.
+    // The single-flight latch must clear when the call ends, or the controls stay dead.
     const { container, ledger } = renderRuntimePage({});
     fireEvent.click(getButton(container, "Stop"));
     fireEvent.click(getButton(container, "Stop"));
@@ -183,9 +178,8 @@ describe("DaemonPage — the two controls", () => {
   });
 
   it("hands a rejected call to the caller and still releases the dispatch", async () => {
-    // A dispatch key that outlived a failed call would leave the destructive controls dead
-    // for the rest of the visit: the second press must reach the call, and each failure
-    // must reach whoever pressed.
+    // A dispatch key that outlived a failed call would leave the destructive controls dead:
+    // the second press must reach the call, and each failure must reach whoever pressed.
     const calls: string[] = [];
     const failure = new Error("the transport went away");
     const operations: DaemonOperations = {
@@ -214,18 +208,17 @@ describe("DaemonPage — the two controls", () => {
     fireEvent.click(getButton(container, "Stop"));
     const confirmAction = getButton(container, "Stop");
 
-    // Both presses in ONE frame, which is the case a rendered flag cannot catch: the
-    // second handler is the one the first render produced, so it reads the page as
-    // idle however fast the re-render is. A double-click on a destructive verb is
-    // exactly this shape.
+    // Both presses in one frame, which a rendered flag cannot catch: the second handler is
+    // the one the first render produced and reads the page as idle. A double-click on a
+    // destructive verb has this shape.
     act(() => {
       confirmAction.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
       confirmAction.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     });
     await settle();
 
-    // One confirmation is one intended act, and two stops is not a slower version of
-    // one — the second lands against a runtime the first is already taking down.
+    // One confirmation is one intended act; a second stop lands against a runtime the first
+    // is already taking down.
     expect(ledger.calls).toStrictEqual(["stop"]);
   });
 

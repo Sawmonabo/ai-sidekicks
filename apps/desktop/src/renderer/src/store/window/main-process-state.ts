@@ -1,19 +1,10 @@
-// What a window makes of the supervisor's `daemon.status` topic: the state it holds before
-// main's first delivery, the comparison that keeps an unchanged delivery from re-rendering,
-// and the words a connection state reads as.
+// What a window makes of the supervisor's `daemon.status` topic: the state it holds before main's
+// first delivery, the comparison that keeps an unchanged delivery from re-rendering, and the
+// words a connection state reads as. The topic's vocabulary is `@shared/daemon-status-topic.ts`;
+// this half lives in `store/` because the settings pages read it and `store/` sits below features.
 //
-// The topic's vocabulary is `@shared/daemon-status-topic.ts`, which main writes and the
-// renderer reads. This module is the renderer's half, and it lives in `store/` because the
-// settings pages read it for the supervisor detail and `store/` sits below every feature.
-//
-// NOTHING HERE READS A CLOCK, A TIMER, OR A WIRE.
-//
-// THE UNREPORTED ARM IS THE ONE THAT MAKES THIS HONEST. Main does not publish the topic yet,
-// so the ordinary state of a shipped window is "nobody has said". That is not `connected`
-// and it is not `offline`: a window that synthesized `connected` from a call that happened
-// to succeed would be doing exactly what the console's trust stance forbids, and one that
-// assumed `offline` would report a working console as down. So the arm exists and it
-// renders as the _not checked_ kind of nothing.
+// Main does not publish the topic yet, so a window's ordinary state is `unreported`: not
+// `connected` and not `offline`, since either would be a guess.
 
 import type {
   DaemonConnection,
@@ -35,14 +26,9 @@ export const UNREPORTED_MAIN_PROCESS_STATE: MainProcessState = {
 };
 
 /**
- * Whether two reports say the same thing.
- *
- * The subscription that fills this state answers with a fresh object per frame, so
- * without a comparison every heartbeat would re-render every reader of the state for
- * a value that did not move.
- *
- * Written over the union rather than as a deep equality, so a new arm is a compile error
- * here rather than a silent "always different".
+ * Whether two reports say the same thing. The subscription answers with a fresh object per
+ * frame, so without a comparison every heartbeat would re-render every reader. Written over the
+ * union so a new arm is a compile error rather than a silent "always different".
  */
 export function mainProcessReportsAreEqual(
   left: MainProcessState,
@@ -61,11 +47,8 @@ export function mainProcessReportsAreEqual(
 }
 
 /**
- * One supervisor state in a person's words.
- *
- * HERE RATHER THAN IN `layout/` because the local-runtime settings page renders it
- * and imports point one way, so a sentence declared in `layout/` is one a feature
- * cannot reach without a second spelling of it.
+ * One supervisor state in a person's words. Here rather than in `layout/` because the
+ * local-runtime settings page renders it and imports point one way.
  */
 export function describeDaemonConnection(connection: DaemonConnection): string {
   switch (connection.kind) {
@@ -152,12 +135,7 @@ function cannotStartsAreEqual(
   );
 }
 
-/**
- * What a window with no report says about the runtime, in one place.
- *
- * The settings page's state row renders this absence, and it is one fact, so it has one
- * spelling.
- */
+/** What a window with no report says about the runtime, spelled once for the settings state row. */
 export const UNREPORTED_DAEMON_NOTICE: { readonly title: string; readonly detail: string } = {
   title: "Local runtime",
   detail:

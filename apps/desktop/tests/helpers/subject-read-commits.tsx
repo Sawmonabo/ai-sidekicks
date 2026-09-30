@@ -1,31 +1,16 @@
-// What a subject-keyed read COMMITS, recorded across a change of source or subject.
-//
-// THE PROBE RECORDS COMMITTED STATES AND NOT RENDER CALLS, which is the difference the
-// mechanism turns on. `lib/subject-scoped/subject-scoped-holder.ts` re-addresses DURING the render, and a
-// render React discards still ran — so a log written from a render body shows a value
-// no commit ever carried, under a correct holder as readily as under a broken one, and
-// therefore proves nothing about what a person saw. An effect runs once per COMMIT,
-// which is exactly the frame a component paints and assistive technology reads.
-//
-// WHY IT IS HERE RATHER THAN IN EACH SUITE. Three suites make the same claim about
-// three different reads — the definitions directory, the runs directory, and the run
-// snapshot — and the claim is about the commit boundary rather than about any one of
-// their state shapes. `apps/desktop/AGENTS.md` hoists a helper on its second use; this
-// is its third, and it sits beside the seed rule those three reads share.
+// Records what a subject-keyed read commits across a change of source or subject. The probe logs
+// committed values, not render calls: the holder re-addresses during render, and a discarded
+// render still ran, so a log written from a render body shows values no commit carried. An
+// effect runs once per commit, the frame a person sees and assistive technology reads. Shared by
+// every suite that makes this claim about a different read.
 
 import { useEffect } from "react";
 import { render } from "@testing-library/react";
 
 /**
- * What a read is addressed at: the source it is put through, and its subject.
- *
- * `TKey` DEFAULTS TO `undefined`, which is the keyless read — one addressed by its
- * source and by nothing else, `store/session-directory/session-directory.ts` being the
- * console's. A
- * keyed read supplies the key type and the probe follows it, so what a read is
- * addressed BY is a fact the type carries rather than a sentence beside the call.
- * The member stays required on both: an address is a pair, and a probe that let half
- * of it be omitted would let a keyed case forget the key it is a claim about.
+ * What a read is addressed at: its source and its subject. `TKey` defaults to `undefined`, the
+ * keyless read addressed by its source alone; a keyed read supplies the key type. Both members
+ * stay required so a keyed case cannot forget its key.
  */
 export interface SubjectReadAddress<TSource extends object, TKey = undefined> {
   readonly source: TSource;
@@ -41,12 +26,8 @@ export interface ObservedSubjectRead<TSource extends object, TReading, TKey = un
 }
 
 /**
- * Drive one read hook through a rendered probe, recording what each commit carried.
- *
- * The REAL hook, always: a probe that called a stand-in would be measuring a closure
- * rather than the render-time re-addressing, which is the whole mechanism — and a
- * keyless hook goes in unwrapped, since an adapter closure that swallows the second
- * argument is a stand-in for exactly the signature under test.
+ * Drives one read hook through a rendered probe, recording what each commit carried. It uses the
+ * real hook, never a stand-in, and a keyless hook goes in unwrapped.
  */
 export function observeSubjectRead<TSource extends object, TReading, TKey = undefined>(
   useRead: (source: TSource, subject: TKey | undefined) => TReading,

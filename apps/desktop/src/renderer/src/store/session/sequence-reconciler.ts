@@ -1,39 +1,26 @@
-// Reconciling a delivered sequence against the run a store has already admitted.
+// Reconciling a delivered sequence against the run a store has already admitted. The cursor, the
+// dedupe set and the recorded holes are one mechanism answering one question (new, seen or
+// unreachable), so they live behind one class that the apply chokepoint asks once per event.
 //
-// The cursor, the dedupe set, and the recorded holes are one mechanism, not three:
-// every one of them answers the same question — is this sequence new, seen, or
-// unreachable — and splitting them across the caller would let the three disagree.
-// So they live behind one class, and the apply chokepoint asks it once per event.
-//
-// The rules it enforces, each of them a failure the store is required to survive:
-//
-//   • **A duplicate sequence is refused, silently and countably.** Re-delivery is
-//     ordinary on a resumed subscription. The dedupe set answers only for sequences
-//     the CURSOR cannot — anything at or below it is refused without help — so
-//     entries are released at each batch boundary and the set stays a batch wide
-//     rather than growing one number per event for the session's life, behind a
-//     timeline the store's cap has already trimmed.
-//   • **A gap is a bounded RANGE, and past a bound it is a different stream.** A
-//     hole is recorded as `[from, to]` and never enumerated: a delivered sequence
-//     is untrusted arithmetic, and walking from the cursor to it would let one
-//     event cost the renderer a billion allocations before the store could say
-//     anything at all. Past `MAX_REPAIRABLE_SEQUENCE_GAP` of ACCUMULATED loss — and
-//     for any sequence too large or too malformed to increment reliably — the event
-//     is refused rather than admitted, because admitting it would move the cursor
-//     to a position an authoritative read may never answer at and every later
-//     repair would then be refused as a rewind.
-//   • **The batch is ordered before it is reconciled.** The reconciler assumes
-//     ascending delivery, which `orderBatchBySequence` is what supplies.
+// - A duplicate is refused silently and countably; re-delivery is ordinary on a resumed
+//   subscription. The dedupe set answers only for sequences the cursor cannot (anything at or
+//   below it is refused anyway), so entries are released at each batch boundary and the set
+//   stays a batch wide.
+// - A gap is a bounded range, recorded as `[from, to]` and never enumerated: a delivered
+//   sequence is untrusted arithmetic, and walking to it could cost a billion allocations. Past
+//   `MAX_REPAIRABLE_SEQUENCE_GAP` of accumulated loss, or for a sequence too large or malformed
+//   to increment, the event is refused: admitting it would move the cursor to a position an
+//   authoritative read may never answer at, and every later repair would be refused as a rewind.
+// - The batch is ordered first (`orderBatchBySequence`); the reconciler assumes ascending
+//   delivery.
 
 import { MAX_REPAIRABLE_SEQUENCE_GAP } from "./session-store-caps.js";
 import type { ProjectedSessionEvent } from "./entities/entities.js";
 
 /**
- * A contiguous run of sequences the store never saw, inclusive at both ends.
- *
- * A RANGE rather than one entry per sequence, and that is the whole point: the
- * width comes from a delivered event, so enumerating it hands untrusted arithmetic
- * control of how much the renderer allocates.
+ * A contiguous run of sequences the store never saw, inclusive at both ends. A range, not one
+ * entry per sequence: the width comes from a delivered event, so enumerating it would hand
+ * untrusted arithmetic control of allocation.
  */
 export interface SequenceGap {
   readonly fromSequence: number;
@@ -66,35 +53,27 @@ export class SequenceReconciler {
   }
 
   /**
-   * Sequences still retained for duplicate detection.
-   *
-   * Bounded by construction: everything at or below the cursor is released at the
-   * batch boundary, because the cursor test already refuses it. Exposed so the
-   * steady-heap claim is COUNTED rather than asserted — a set that grew with the
-   * session would be invisible behind a capped timeline.
+   * Sequences still retained for duplicate detection. Bounded by construction, since everything
+   * at or below the cursor is released at the batch boundary. Exposed so the steady-heap claim
+   * is counted; a set that grew with the session would hide behind a capped timeline.
    */
   public get retainedSequenceCount(): number {
     return this.#admittedSequences.size;
   }
 
   /**
-   * The runs observed as missing, oldest first.
-   *
-   * A fresh array per call: the caller commits it into immutable state, and handing
-   * out the reconciler's own list would let the next admission mutate a value React
-   * has already rendered.
+   * The runs observed as missing, oldest first. A fresh array per call, since the caller commits
+   * it into immutable state and a shared list would let the next admission mutate rendered state.
    */
   public gaps(): readonly SequenceGap[] {
     return [...this.#gaps];
   }
 
   /**
-   * Reconcile one delivered sequence, advancing the run when it is admitted.
-   *
-   * Callers deliver in ascending order (`orderBatchBySequence`), which is what
-   * makes the cursor test and the dedupe set jointly exhaustive: a sequence at or
-   * below the cursor that the set does not hold sits inside a recorded hole, and a
-   * hole never arrives later in an ascending batch than the event that opened it.
+   * Reconcile one delivered sequence, advancing the run when it is admitted. Callers deliver in
+   * ascending order, which makes the cursor test and the dedupe set jointly exhaustive: a
+   * sequence at or below the cursor that the set lacks sits inside a recorded hole, and a hole
+   * never arrives later in an ascending batch than the event that opened it.
    */
   public reconcile(sequence: number): SequenceAdmission {
     if (this.#admittedSequences.has(sequence) || sequence <= this.#cursor) {
@@ -102,10 +81,8 @@ export class SequenceReconciler {
     }
     const missingBefore = sequence - (this.#cursor + 1);
     if (this.#missingSequenceCount + missingBefore > MAX_REPAIRABLE_SEQUENCE_GAP) {
-      // Refused rather than admitted with a wider hole recorded. Admitting it would
-      // put the cursor somewhere no authoritative read need ever answer at, and the
-      // store's snapshot guard would then refuse every real repair as a rewind — a
-      // store degraded with no way back.
+      // Admitting it would put the cursor where no authoritative read need answer, and the
+      // snapshot guard would then refuse every real repair as a rewind.
       return DIVERGED;
     }
     let openedGap: SequenceGap | undefined;
@@ -115,19 +92,14 @@ export class SequenceReconciler {
       this.#missingSequenceCount += missingBefore;
     }
     this.#admittedSequences.add(sequence);
-    // A plain assignment rather than a `Math.max`: the duplicate test above already
-    // refused everything at or below the cursor, so this sequence is strictly ahead
-    // of it and the cursor cannot rewind here.
+    // Strictly ahead of the cursor (duplicates were refused above), so no `Math.max` is needed.
     this.#cursor = sequence;
     return { outcome: "admitted", openedGap };
   }
 
   /**
-   * Forget dedupe entries the cursor now refuses on its own.
-   *
-   * Called at the batch boundary rather than per event: within a batch the set is
-   * what rejects a second copy of a sequence the same batch already carried, and a
-   * release between the two would admit it.
+   * Forget dedupe entries the cursor now refuses on its own. Called at the batch boundary, since
+   * within a batch the set rejects a second copy of a sequence the batch already carried.
    */
   public releaseSequencesAtOrBelowCursor(): void {
     for (const sequence of this.#admittedSequences) {
@@ -154,26 +126,18 @@ export class SequenceReconciler {
 }
 
 /**
- * Whether a delivered sequence is one cursor arithmetic can survive.
- *
- * Checked BEFORE anything else a store does with an event, because no base state
- * makes such a sequence applicable: `Math.max(cursor, NaN)` is `NaN` and every
- * comparison against that cursor is false afterwards, so one of these admitted
- * would silently disarm dedupe, gap detection, and the rewind guard together — for
- * the rest of the session, with nothing to see.
+ * Whether a delivered sequence is one cursor arithmetic can survive. Checked before anything else
+ * a store does with an event: `Math.max(cursor, NaN)` is `NaN`, and every comparison against it
+ * is false afterwards, which would silently disarm dedupe, gap detection and the rewind guard.
  */
 export function isReconcilableSequence(sequence: number): boolean {
   return Number.isSafeInteger(sequence);
 }
 
 /**
- * Batch order, by sequence.
- *
- * Total on purpose. The obvious `left.sequence - right.sequence` returns `NaN` for
- * a malformed sequence, and a comparator that answers `NaN` leaves the sort order
- * of the whole batch undefined — so one hostile event would decide the order of
- * every well-formed one beside it. Anything the cursor cannot carry sorts last,
- * together, and the caller refuses each of them.
+ * Batch order, by sequence. Total on purpose: `left.sequence - right.sequence` is `NaN` for a
+ * malformed sequence and would leave the whole batch's order undefined. Anything the cursor
+ * cannot carry sorts last, together, and the caller refuses each.
  */
 export function orderBatchBySequence(
   events: readonly ProjectedSessionEvent[],

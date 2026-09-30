@@ -1,12 +1,5 @@
-// The idle walk: what it schedules on, when it stops, and what it re-reads.
-//
-// Both halves are driven here because both are seams a browser would hide. The
-// scheduler's feature detection decides whether a walk can be CANCELED at all, and a
-// host that answered `requestIdleCallback` without its cancel would leave a background
-// walk running past the window that started it — a leak that shows up as nothing at all
-// until an auxiliary window closes. And the walk's own rules — once per instance,
-// cancelable at any point, re-read between steps — are the difference between a warm
-// board and a loop that re-requests a chunk it already has.
+// The idle walk: its scheduler's feature detection, its once-per-instance and cancel rules, and
+// that it re-reads the board between steps.
 
 import { describe, expect, it } from "vitest";
 
@@ -66,9 +59,7 @@ describe("the warm scheduler — the pair is detected together", () => {
   });
 
   it("falls to the timeout floor when the cancel half is missing", () => {
-    // The arm that matters: a host with `requestIdleCallback` and no cancel would
-    // schedule through the idle API and have nothing to stop it with, so the pair is
-    // detected together and both branches take `schedule` and `cancel` from one API.
+    // A host with `requestIdleCallback` and no cancel must fall back to the timeout path.
     const { host, calls, timeoutDelays } = recordingHost({
       withRequestIdle: true,
       withCancelIdle: false,
@@ -87,8 +78,7 @@ describe("the warm scheduler — the pair is detected together", () => {
   });
 
   it("negative control: a host with neither still schedules", () => {
-    // Without this the two cases above would pass over a detector that answered
-    // `setTimeout` unconditionally and never read the idle API at all.
+    // Negative control: catches a detector that always answered `setTimeout`.
     const { host, calls } = recordingHost({ withRequestIdle: false, withCancelIdle: false });
     idleWarmScheduler(host).schedule(() => undefined);
     expect(calls).toStrictEqual(["setTimeout"]);
@@ -105,13 +95,10 @@ class RecordingBoard implements PreloadableRegistry<string> {
 
   public readonly preload = async (key: string): Promise<void> => {
     this.preloaded.push(key);
-    // A real board's memo is written synchronously by `preload`, which is what stops the
-    // next step re-selecting this key — so the fake drops it synchronously too.
+    // A real board drops the key synchronously on preload, so the fake does too.
     this.#unloaded = this.#unloaded.filter((unloadedKey) => unloadedKey !== key);
     if (this.#rejectingKeys.has(key)) {
-      // AND A REAL BOARD RELEASES THAT MEMO WHEN THE LOAD REJECTS, so the key is offered
-      // back to `unloadedKeys` — which is exactly the state the walk has to bound and
-      // the reason this fake re-adds it rather than leaving it dropped.
+      // A real board releases the memo when the load rejects; the fake re-adds the key.
       this.#unloaded.push(key);
       throw new Error(`chunk for ${key} could not be fetched`);
     }
@@ -139,9 +126,7 @@ describe("the warm walk — one key per callback, once", () => {
   });
 
   it("arms one step at a time rather than looping inside one", () => {
-    // The whole reason the walk re-arms: a loop inside one idle callback would hold the
-    // main thread through a frame the person is looking at, which is what an idle
-    // callback exists to avoid.
+    // One key per callback; a loop inside one callback would hold the main thread.
     const board = new RecordingBoard(["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
@@ -150,8 +135,7 @@ describe("the warm walk — one key per callback, once", () => {
   });
 
   it("re-reads the board between steps", () => {
-    // A snapshot taken at `start` would miss a feature that registered late and would go
-    // on requesting a body someone opened mid-walk.
+    // A snapshot at `start` would miss a late registration.
     const board = new RecordingBoard(["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
@@ -161,8 +145,7 @@ describe("the warm walk — one key per callback, once", () => {
   });
 
   it("does not start twice", () => {
-    // Two starts on one instance — a frame that mounts twice under StrictMode — must not
-    // double-schedule, or every body is fetched by two walks racing each other.
+    // Two starts (StrictMode double mount) must not double-schedule.
     const board = new RecordingBoard(["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
@@ -175,8 +158,7 @@ describe("the warm walk — one key per callback, once", () => {
   });
 
   it("negative control: a walk that was never started warms nothing", () => {
-    // Without this, every case above would pass over a walk that began in its own
-    // constructor — and an effect's cleanup could then never stop one.
+    // Negative control: the walk must not begin in its constructor.
     const board = new RecordingBoard(["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
@@ -211,8 +193,7 @@ describe("the warm walk — canceling it", () => {
   });
 
   it("refuses to start after a cancel", () => {
-    // An effect whose cleanup ran before a queued start would otherwise re-arm a walk
-    // for a window that is already gone.
+    // A cleanup that ran before a queued start must not re-arm the walk.
     const board = new RecordingBoard(["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     const walk = new LazyBodyIdleWarm(board, scheduler);
@@ -230,17 +211,14 @@ describe("the warm walk — canceling it", () => {
       walk.cancel();
       walk.cancel();
     }).not.toThrow();
-    // Nothing was armed, so nothing was canceled — a `cancel` that passed `undefined`
-    // to the host's API would show up here as a recorded handle.
+    // Nothing was armed, so no handle may reach the host's cancel.
     expect(scheduler.canceledHandles).toStrictEqual([]);
   });
 });
 
 describe("the warm walk — a chunk that will not load", () => {
   it("carries on to the next key and raises nothing", async () => {
-    // The walk is speculative: nobody asked for this pane, so the honest place for the
-    // failure is the mount, where the region's error boundary can say so. An unhandled
-    // rejection here would surface as a crash report for a pane nobody opened.
+    // A rejected speculative preload must not surface as an unhandled rejection.
     const board = new RecordingBoard(["diff", "inspector"], ["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
@@ -248,17 +226,13 @@ describe("the warm walk — a chunk that will not load", () => {
       scheduler.runToQuiescence();
     }).not.toThrow();
     expect(board.preloaded).toStrictEqual(["diff", "inspector"]);
-    // Let the rejected promise settle inside the case, so an unswallowed rejection is
-    // this case's failure rather than the next file's.
+    // Settle the rejection inside this case so it cannot fail the next file.
     await Promise.resolve();
   });
 
   it("asks for each key once and ends, when every chunk fails", async () => {
-    // THE SPIN THE ATTEMPTED SET EXISTS TO STOP. A released memo makes a failed key
-    // indistinguishable from one never asked for, so a walk selecting on the board alone
-    // alternates between two such keys forever — one background refetch per idle
-    // callback, for panes nobody has opened, on exactly the damaged install that can
-    // least afford it. The retry a failed chunk gets is the one a person asks for.
+    // A released memo makes a failed key look never-asked; the attempted set stops two failing
+    // keys from being refetched forever.
     const board = new RecordingBoard(["diff", "inspector"], ["diff", "inspector"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();
@@ -269,8 +243,7 @@ describe("the warm walk — a chunk that will not load", () => {
   });
 
   it("negative control: a key still unloaded and never attempted is still warmed", async () => {
-    // Without this, the case above would pass over a walk that stopped at its first
-    // failure — and one broken chunk would leave every later body cold.
+    // Negative control: one broken chunk must not leave later bodies cold.
     const board = new RecordingBoard(["diff", "inspector", "terminal"], ["diff"]);
     const scheduler = new ManualIdleWarmScheduler();
     new LazyBodyIdleWarm(board, scheduler).start();

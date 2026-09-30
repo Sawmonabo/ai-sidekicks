@@ -1,9 +1,9 @@
 // Putting a provider import from its panel, end to end.
 //
-// The panel and the model above it are the real modules and the two calls are plain
-// stubs. What is asserted is what the form sends, that the stream opens on the provider
-// the form named, and that the panel renders the service's own words at every step
-// until the import it started settles — with the control shut until then.
+// The panel and the model above it are the real modules; the two calls are stubs. Asserts
+// what the form sends, that the stream opens on the named provider, and that the panel shows
+// the service's own words at every step, with the control shut until the started import
+// settles.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -50,8 +50,8 @@ const MESSAGES: readonly ProviderImportProgress[] = [
 /**
  * A stream that waits for the case before each message.
  *
- * Paced by the case rather than by a clock, so the intermediate states are on screen
- * to be asserted at all — a stream that walked itself would batch them into the last.
+ * Paced by the case, not a clock, so the intermediate states are on screen to be asserted;
+ * a stream that walked itself would batch them into the last.
  */
 function steppedStream(): {
   readonly stream: ImportProgressStream;
@@ -61,8 +61,7 @@ function steppedStream(): {
   let isReleased = false;
   async function* messages(): AsyncGenerator<ProviderImportProgress> {
     for (const message of MESSAGES) {
-      // A release that arrived before the generator parked is spent here, so the
-      // case never depends on which of the two got there first.
+      // A release that arrived before the generator parked is spent here, so order does not matter.
       if (!isReleased) {
         await new Promise<void>((resolve) => {
           release = resolve;
@@ -135,7 +134,7 @@ describe("importing a provider's conversations", () => {
     expect(beginRequests).toStrictEqual([{ provider: "claude" }]);
     expect(subscribeRequests).toStrictEqual([{ provider: "claude" }]);
 
-    // The stream's first message is the LAST import's outcome. It is shown, and it
+    // The stream's first message is the last import's outcome. It is shown, and it
     // does not reopen the form: the import this panel started has not settled.
     await step();
     expect(progressText(view.container)).toContain("found nothing new");

@@ -1,83 +1,31 @@
-// The four-lane frame-time budget, measured.
+// The four-lane frame-time budget: the median of three runs' 95th-percentile frame duration
+// while four agent lanes stream into the transcript, compared through the registry's own
+// `evaluateBudget`.
 //
-// The renderer's 95th-percentile frame duration is bounded at 16.7 ms while four agent lanes stream into the
-// transcript. This file is the row's `measuredBy`, and it compares through the
-// registry's own `evaluateBudget`, so the number this gate uses and the number the
-// spec wrote are one number read from one file.
+// A frame's duration is the main-thread work it costs, not the interval between frames. The
+// interval between animation-frame callbacks is the display's refresh period (~16.7 ms at 60 Hz,
+// as on the pinned runner's Xvfb source), so its p95 could never be under a 16.7 ms ceiling.
+// The p50 is printed beside the p95 to show which of the two is being reported.
 //
-// WHAT THE INSTRUMENT MEASURES, AND WHY IT IS NOT THE INTERVAL BETWEEN FRAMES
+// A sample runs from the start of a frame's animation-frame callback to the first task after
+// that frame's rendering: a `MessageChannel` message posted from the callback is a task, and
+// the event loop cannot select one until the rendering update it is in has finished.
+// `setTimeout(0)` is not used because its clamped timeout would be added to every reading.
 //
-// The row bounds frame DURATION — `budgets.json`'s own subject line says so, "the
-// 95th-percentile frame duration of the renderer" — which is the main-thread work
-// one frame costs. Until 2026-09-02 this file sampled the INTERVAL between
-// consecutive `requestAnimationFrame` callbacks instead, and that is a different
-// quantity: on a display that presents at 60 Hz a healthy renderer is called back
-// every ~16.67 ms whatever it does, so its p95 interval is ~16.7 ms by construction
-// and cannot be under a 16.7 ms ceiling. The spec's own reference profile is "one
-// 60 Hz display", so the interval reading made the row unpassable on the very
-// machine its figure is written for — and on the Xvfb software begin-frame source
-// the pinned runner presents through, which is also 60 Hz. The p50 is printed
-// beside the p95 for exactly that reason: a p50 pinned at ~16.67 ms is the display's
-// cadence being reported, not the console's work.
+// The comparison gates only on the pinned runner class (`pinned-runner-class.ts`); elsewhere
+// the figure is printed so the instrument still runs. The negative control is not pinned:
+// whether the instrument tells a stalled frame from a healthy one holds on every machine.
 //
-// So the sample is taken from the START of the frame's animation-frame callback to
-// the first task that runs after that frame's rendering has been committed. The
-// ordering is the HTML event loop's own: the callback runs inside "update the
-// rendering" (whose steps run the animation frame callbacks and then update the
-// rendering of the document), while a `MessageChannel` message posted from inside
-// that callback is queued on a TASK queue, and the event loop cannot select a task
-// until it has finished the rendering update it is in. The first such task
-// therefore observes style, layout, and paint for that frame as already done.
-// `setTimeout(0)` is not used for this: its timeout is clamped — and clamped harder
-// once nested — so it would add the clamp to every reading.
+// The sampled window holds the concurrent-streaming scenario: four runs mid-turn at the same
+// tick, one blocked on an approval. The run asserts the script delivered inside the window and
+// that four lanes streamed in it (`streaming-lanes.ts`). Revealed text is not measured: the
+// scripted beats carry each body's description, not the body, and the reveal engine has its
+// own row, `streaming-cpu-one-lane`.
 //
-// WHY THIS ROW STILL GATES ON ONE MACHINE AND REPORTS ON EVERY OTHER
-//
-// It is the first hardware-dependent row in the registry to be measured at all.
-// `budgets.json`'s `measurementProtocol.hardwareDependent` has always said such a
-// reading gates "on the pinned CI runner class the desktop workflow names by
-// label", and `pinned-runner-class.ts` is that sentence given a mechanism. A
-// duration is not a property of the display, but it is squarely a property of the
-// machine: the main-thread work in a frame is what this CPU does in that frame, and
-// a runner rasterizing in software is not the reference profile's integrated GPU.
-// The figure is therefore printed everywhere — the tier still exercises the
-// instrument on every runner — and asserted on one.
-//
-// The negative control is NOT pinned, on the screenshot tier's reasoning for its
-// own fail-closed guard: whether the instrument can tell a stalled frame from a
-// healthy one is a claim about the measurement, it holds on every machine, and a
-// tier that could not check it anywhere except one runner would be a tier nobody
-// finds out has stopped working.
-//
-// WHAT THE SAMPLED WINDOW ACTUALLY CONTAINS
-//
-// Four agent lanes streaming into the transcript, which is the row's own subject.
-// `fixtures/scenarios/concurrent-streaming.ts` scripts four runs mid-turn at the same tick —
-// interleaved thinking, messages, and tool calls across four run groups, with an
-// approval blocking one of them while the other three carry on — and the sampled
-// window covers that stretch of it. The run asserts both halves rather than
-// describing them: that the script delivered INSIDE the window rather than before
-// it, and that four lanes were streaming inside the window, read off the scenario's
-// own beats by `tests/endurance/streaming-lanes.ts`. A scenario that stopped streaming
-// would fail the second assertion, which is what the first enforced revision of this
-// row could not say — its script carried no assistant beat at all.
-//
-// What is still not claimed is REVEALED text. The scripted beats carry each body's
-// description and never the body, so what the frame renders is a card and its named
-// absence; the reveal engine's own budget row is `streaming-cpu-one-lane`, and it
-// stays `n/a`.
-//
-// WHY THE WARM-UP IS COUNTED IN FRAMES AND NOT IN SECONDS
-//
-// The protocol says ten warm-up seconds discarded, which is written for the CPU
-// rows' sixty-second average. Applied here it would discard the entire workload:
-// the frozen clock only moves when this file moves it, and ten seconds of frames at
-// two milliseconds each would walk the script to its end before the first sample
-// was taken, leaving three runs that measured an idle console and a p95 no
-// regression in the streaming path could ever move. The warm-up is therefore a
-// frame count, sized to let the first-frame allocations settle, and the advance per
-// frame is derived from the script's own span — the derivation
-// `steady-state.test.ts` uses, for the same reason.
+// The warm-up is a frame count, not the protocol's ten seconds: the frozen clock only moves
+// when this file moves it, so ten seconds of frames would deliver the whole script before the
+// first sample. The advance per frame is derived from the script's span, as `steady-state.test.ts`
+// does.
 
 import process from "node:process";
 
@@ -101,7 +49,7 @@ import { evaluateBudget } from "../../scripts/budget/budget-evaluation.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-/** The row this file measures. Named once; every figure below comes off it. */
+/** The budget row this file measures. */
 const FRAME_TIME_BUDGET_ID = "frame-time-p95-four-lanes";
 
 const registry = BudgetRegistry.load();
@@ -110,49 +58,39 @@ const budget = registry.requireBudget(FRAME_TIME_BUDGET_ID);
 /**
  * How many frame durations one run samples.
  *
- * Three hundred is the floor a 95th percentile is worth taking at: the statistic is
- * the fifteenth-slowest of them, so a single hiccup moves it by one rank rather
- * than deciding it, and one rank is the granularity this gate can actually resolve.
+ * Three hundred puts the 95th percentile at the fifteenth-slowest frame, so one hiccup moves it
+ * by a rank rather than deciding it.
  */
 const SAMPLED_FRAME_COUNT = 300;
 
 /**
  * Frames discarded before sampling starts.
  *
- * The first frames after a mount carry the virtualizer's initial measurement pass
- * and V8's compilation of paths nothing had run, neither of which is what this
- * budget bounds. Small on purpose — see the header on why this is a frame count.
+ * The first frames after a mount carry the virtualizer's initial measurement pass and V8
+ * compilation, which the budget does not bound. A frame count, not seconds; see the header.
  */
 const WARM_UP_FRAME_COUNT = 30;
 
 /**
- * How many runs the reported figure is the median of.
+ * How many fresh launches the reported figure is the median of.
  *
- * The protocol's "median of three runs", and each is a fresh LAUNCH rather than a
- * third of one: the frozen clock does not rewind, so three passes inside one window
- * would be one run that streamed and two that measured a console with its whole
- * script already delivered — and the median of those is the idle figure, which is
- * the reading a streaming regression hides in.
+ * Each is its own launch because the frozen clock does not rewind: repeat passes in one window
+ * would measure a console whose script was already delivered.
  */
 const MEASURED_RUN_COUNT = 3;
 
 /**
  * The per-frame stall the negative control plants, in milliseconds.
  *
- * Comfortably over the ceiling on its own, so the control's verdict does not depend
- * on the machine: the stall is synchronous work inside the frame's own callback, so
- * it lands in the measured duration whatever the display's cadence is. Measured p95
- * 37.40–38.30 ms against a 6.80–9.20 ms clean reading, each pair taken in the same
- * pass of this file on the same machine.
+ * Well over the ceiling and synchronous inside the frame's callback, so the verdict does not
+ * depend on the display's cadence. Measured p95 was 37.40-38.30 ms against 6.80-9.20 ms clean.
  */
 const PLANTED_FRAME_STALL_MS = 30;
 
 /**
  * The percentile a sorted sample answers at, by nearest rank.
  *
- * Nearest rank rather than an interpolating estimator: the claim is "at most one
- * frame in twenty was slower than this", which is a statement about an observed
- * frame, and an interpolated value is a number no frame took.
+ * The result is a frame that was observed, not an interpolated number no frame took.
  */
 function percentileByNearestRank(samples: readonly number[], fraction: number): number {
   const sorted = [...samples].sort((left, right) => left - right);
@@ -173,19 +111,12 @@ interface FrameTimingRun {
 }
 
 /**
- * Sample frame durations while the concurrent-streaming script delivers into the open session.
+ * Samples frame durations while the concurrent-streaming script delivers into the open session.
  *
- * The whole loop runs inside the renderer. A driver round trip per frame would be
- * the largest thing in every duration it measured, which is the harness timing
- * itself; and the scenario handle is on the page, so the frozen clock can be walked
- * from the same callback the frame's work is timed from.
- *
- * One frame is opened by `requestAnimationFrame` and closed by the message the
- * callback posts to itself — see this file's header for why that message is the
- * first thing to run after the frame's rendering has been committed, and why a
- * timer is not used in its place. The next frame is requested from the CLOSING
- * side, so exactly one measurement is ever open and a frame can never be paired
- * with the wrong one's start.
+ * The loop runs inside the renderer because a driver round trip per frame would dwarf the
+ * durations measured. A frame is opened by `requestAnimationFrame` and closed by the message
+ * the callback posts to itself; the next frame is requested from the closing side, so only one
+ * measurement is ever open.
  */
 async function sampleFrameTimings(
   consoleApplication: AppUnderTest,
@@ -280,13 +211,9 @@ async function runOnce(plantedStallMilliseconds: number): Promise<FrameTimingRun
 }
 
 /**
- * The workload was the workload the row names.
- *
- * Three claims, and the third is the one that makes this row's subject true rather
- * than merely asserted: the script finished inside the window, it was still
- * arriving during it, and four lanes were streaming while it did. The lane count
- * comes off the scenario's own cast, so a script that grew a fifth agent and kept
- * four lanes streaming would fail here rather than pass on a stale literal.
+ * Asserts the sampled window holds the workload the row names: the script finished inside it,
+ * was still arriving during it, and four lanes streamed. The lane count comes from the
+ * scenario's cast, so a stale literal cannot pass.
  */
 function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
   expect(
@@ -311,9 +238,8 @@ function expectFourLaneWorkloadInsideWindow(run: FrameTimingRun): void {
 }
 
 describe("the four-lane frame-time budget row", () => {
-  // The ceiling and the unit are the budget tier's to hold. What only THIS file can
-  // say is that it is the harness the row names — so a reading that moves away, or a
-  // row flipped back to ungated while this gate keeps running, fails here.
+  // The ceiling and unit belong to the budget tier; this checks only that the row names this
+  // file as its measurer and is still enforced.
   it("is the harness the row names as its measurer", () => {
     expect(budget.status).toBe("enforced");
     expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/frame-time.test.ts");
@@ -336,14 +262,9 @@ describe.skipIf(!bundleIsBuilt)(
       const measuredP95 = medianOf(perRunPercentiles);
       const verdict = evaluateBudget(budget, measuredP95);
 
-      // Reported before the assertion, and reported on every machine: the figure is
-      // the whole value of this run off the pinned class, and on it a reviewer still
-      // needs to see a margin shrink before the run that crosses.
-      //
-      // The p50 is beside the p95 because it is what tells the two possible readings
-      // apart. A typical frame's WORK is a small fraction of the frame; a p50 sitting
-      // at the display's own cadence — ~16.67 ms on a 60 Hz presenter — would mean the
-      // instrument had gone back to reporting how often frames arrive.
+      // Printed before the assertion on every machine, so a shrinking margin shows before a
+      // run crosses. The p50 tells the readings apart: one at the display's cadence (~16.67 ms
+      // at 60 Hz) would mean the instrument reports how often frames arrive.
       process.stdout.write(
         `[console-endurance] frame time p95 ${measuredP95.toFixed(2)} ms ` +
           `(median of ${String(MEASURED_RUN_COUNT)} runs: ` +
@@ -356,9 +277,8 @@ describe.skipIf(!bundleIsBuilt)(
       );
 
       if (!isPinnedRunnerClass) {
-        // Not a skip: the run happened, the instrument was exercised, and the figure
-        // is on the record. What is withheld is the COMPARISON, because the work a
-        // frame costs on an unpinned machine is a reading about that machine.
+        // Not a skip: the instrument ran and the figure is printed. Only the comparison is
+        // withheld, because frame cost off the pinned class describes that machine.
         return;
       }
       expect(
@@ -369,13 +289,9 @@ describe.skipIf(!bundleIsBuilt)(
     });
 
     it("negative control: a planted frame stall crosses the same ceiling", async () => {
-      // Without this the case above would pass over an instrument that reported a
-      // constant, sampled nothing, or divided by the wrong number — and off the pinned
-      // runner class it would pass over an instrument that had stopped measuring
-      // entirely, since nothing there asserts on the figure. The stall is real
-      // synchronous work inside each frame's own callback, driven through the SAME
-      // sampler, so what is shown is that this gate's own comparison fails on a
-      // renderer that misses its budget.
+      // Without this the case above would pass over an instrument that reported a constant or
+      // sampled nothing, and off the pinned class nothing asserts the figure at all. The stall
+      // is synchronous work in each frame's callback through the same sampler.
       const run = await runOnce(PLANTED_FRAME_STALL_MS);
       const stalledP95 = percentileByNearestRank(run.frameDurationsMs, 0.95);
       process.stdout.write(

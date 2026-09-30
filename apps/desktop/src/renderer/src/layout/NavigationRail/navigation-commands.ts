@@ -1,8 +1,5 @@
-// The rail's own acts: one command and one chord per rail destination.
-//
-// The destinations are walked from `RAIL_DESTINATIONS`, so the palette, the chord table
-// and the rail offer one closed set; a destination added to the rail gets its command,
-// its chord and its warm-up with it.
+// The rail's own acts: one command and one chord per rail destination, walked from
+// `RAIL_DESTINATIONS` so the palette, the chord table and the rail share one closed set.
 
 import { RAIL_DESTINATIONS, type RailDestination } from "@renderer/routing/route-readers.js";
 import type { WindowStore } from "@renderer/store/window/window-store.js";
@@ -16,11 +13,8 @@ import { RAIL_ENTRY_TEMPLATES } from "./NavigationRail.js";
 import { routeForDestination, warmDestination } from "./rail-navigation.js";
 
 /**
- * What the palette and the chord table need to offer one rail destination.
- *
- * The ids are written out (`frame.goToSessions`) because a person can rebind them on
- * the Keyboard page. The first two chords are positional; Settings takes `$mod+,`, the
- * platform's settings chord on every desktop the app targets.
+ * What the palette and the chord table need to offer one rail destination. Command ids are written
+ * out because a person can rebind them on the Keyboard page; Settings takes `$mod+,`.
  */
 export const RAIL_NAVIGATION_DETAILS: Readonly<Record<RailDestination, RailNavigationDetail>> = {
   sessions: {
@@ -53,11 +47,9 @@ export const RAIL_KEYBINDINGS: readonly FrameKeybinding[] = RAIL_DESTINATIONS.ma
 );
 
 /**
- * Contribute the rail's chords, ahead of every feature's.
- *
- * The chords are the window's first rows because the table listens in the capture
- * phase and the first match wins. The commands they run close over a window's store,
- * so the window registers those when it mounts.
+ * Contributes the rail's chords ahead of every feature's, since the table listens in the capture
+ * phase and the first match wins. The commands close over a window's store, so the window
+ * registers those on mount.
  */
 export function registerNavigationKeybindings(contributions: CommandContributionRegistry): void {
   contributions.contribute({
@@ -68,11 +60,8 @@ export function registerNavigationKeybindings(contributions: CommandContribution
 }
 
 /**
- * One `Go to` command per rail destination, titled with the rail's own label.
- *
- * Each warms the destination's screen before navigating, so a chord that never
- * highlights a palette row still has the chunk in flight when the screen mounts, and
- * warms it again while its palette row is highlighted.
+ * One `Go to` command per rail destination, titled with the rail's label. Each warms the screen
+ * before navigating, and again while its palette row is highlighted.
  */
 export function buildNavigationCommands(
   frameStore: WindowStore,

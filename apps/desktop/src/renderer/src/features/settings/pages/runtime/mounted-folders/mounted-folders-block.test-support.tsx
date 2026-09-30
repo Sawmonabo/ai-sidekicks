@@ -1,11 +1,9 @@
-// The mounts page's own harness: a settings context, the two inventory calls as plain
+// The mounted-folders block's harness: a settings context, the two inventory calls as plain
 // stubs, and a render that settles the two chained reads behind them.
 //
-// BESIDE `mounts.test-support.ts` RATHER THAN INSIDE IT. That module is the FIXTURE
-// vocabulary — mount ids, the two workspace rows, the shapes a read answers with —
-// and it is a `.ts` because none of it renders. What is here mounts a React tree and
-// holds a live announcer, so it is a `.tsx`, and the two suites that drive this page
-// share it rather than each carrying its own copy of the call stubs.
+// Beside `mounted-folders.test-support.ts`, which holds the fixture vocabulary (mount ids,
+// workspace rows, read shapes) and renders nothing. This one mounts a React tree with a live
+// announcer, so it is a `.tsx`, and both suites that drive the block share it.
 
 import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
@@ -30,11 +28,11 @@ import { MountedFoldersBlock } from "./MountedFoldersBlock.js";
  * A settings context on a clock the test owns, and the two calls the inventory reads
  * through, answered from plain stubs.
  *
- * The bridge is the shipped fixture, which is where the page looks for its reconnect
- * signal, and the clock is its scenario's frozen one, which the window runs on; the
- * calls are separate because they are an argument of the list and not a method of the
- * bridge. The clock is handed back beside the context, because a case that advanced a
- * clock the page was not reading would be asserting about a timer that never fell due.
+ * The bridge is the shipped fixture, where the page looks for its reconnect signal, and the
+ * clock is its scenario's frozen one, which the window runs on. The calls are separate
+ * because they are an argument of the list, not a bridge method. The clock is returned
+ * beside the context because advancing a clock the page is not reading would assert about
+ * a timer that never fell due.
  */
 export function contextReading(options: {
   readonly mountIds: readonly string[];
@@ -48,8 +46,7 @@ export function contextReading(options: {
   /**
    * How many calls `rejectWith` covers. Unbounded when omitted.
    *
-   * A bounded count is what drives RECOVERY: a first attempt that fails and a second
-   * that answers.
+   * A bounded count drives recovery: a first attempt that fails and a second that answers.
    */
   readonly rejectionCount?: number;
 }): {
@@ -104,10 +101,9 @@ export function mountedFoldersBlockOf(root: HTMLElement): HTMLElement {
 /**
  * Mount, advance past the coalescing window, and let the two chained reads settle.
  *
- * The read itself is the real one and only the wire is a stand-in. Settling is one
- * turn of the macrotask queue rather than a counted run of microtask flushes,
- * because the number of ticks a fan-out takes is a function of how many mounts the
- * fixture named.
+ * The read is the real one; only the wire is a stand-in. Settling is one macrotask turn,
+ * not a counted run of microtask flushes, because a fan-out's tick count depends on how
+ * many mounts the fixture named.
  */
 export async function renderSettledBlock(reading: {
   readonly context: SettingsPageContext;
@@ -120,15 +116,11 @@ export async function renderSettledBlock(reading: {
   readonly settle: () => Promise<void>;
 }> {
   const { context, clock, calls } = reading;
-  // One announcer, on the page's own frozen clock — the resolution `AppFrame` makes
-  // in a window. A second time base here would make "was it said again" a question
-  // about the runner rather than about the read.
+  // One announcer on the page's own frozen clock, as `AppFrame` resolves it in a window; a
+  // second time base would make "was it said again" a question about the runner.
   const announcer = new LiveAnnouncer({ clock });
-  // Under the bridge provider, because the list below this page takes the window's
-  // clock from `useClock` — the console's one answer to which clock a window
-  // runs on, and the resolution the provider's own error message says every console
-  // screen renders inside. The supplied bridge is the context's and the clock is the
-  // case's, so nothing about what this case answers moves.
+  // Under the bridge provider, because the list takes the window's clock from `useClock`.
+  // The bridge is the context's and the clock the case's.
   const { container } = render(
     <PlatformBridgeProvider bridge={context.bridge} clock={clock}>
       <LiveAnnouncerProvider announcer={announcer}>

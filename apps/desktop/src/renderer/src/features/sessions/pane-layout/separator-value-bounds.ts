@@ -1,30 +1,16 @@
-// The one defect the pane layout's panel library is admitted with, and the wrap over it.
+// Works around an upstream defect in `react-resizable-panels` 4.12.3: on groups of three or more
+// panes, every separator after the first reports `aria-valuemin` and `aria-valuemax` the wrong
+// way round (upstream issue #740).
 //
-// `react-resizable-panels` 4.12.3 is adopted under the constraint that the open ARIA
-// min/max swap on three-plus pane groups is pinned or patched. The defect is upstream
-// issue #740 — at 4.12.3 every separator after the first reports `aria-valuemin` and
-// `aria-valuemax` the wrong way round, open since 2026-08-28 with a pending fix. There
-// is no later release to pin to, so the swap is corrected here.
+// The correction runs over the DOM after each commit, not over props: the library spreads the
+// caller's props first and writes its own computed `aria-value*` over them. It swaps the two
+// values rather than recomputing them, because only their assignment is crossed and a
+// recompute would duplicate the library's constraint solver.
 //
-// WHY THE CORRECTION IS OVER THE DOM AND NOT OVER A PROP. The library's separator
-// spreads the caller's props FIRST and then writes its own computed
-// `aria-valuemin` / `aria-valuemax` / `aria-valuenow` over them, so a value passed
-// as a prop is discarded before it reaches the element. Measured against the
-// pinned dist, not assumed. What is left is the rendered element, corrected after
-// each commit — which is also the narrowest possible patch: it touches two
-// attributes on elements the library owns and nothing else about how it behaves.
-//
-// WHY IT IS A SWAP AND NOT A RECOMPUTE. The two numbers the library produces are
-// correct; only their assignment is crossed. Recomputing them here would put a
-// second implementation of the library's constraint solver in this tree — and one
-// that would go silently wrong the moment the library's own changed. Swapping is
-// the whole of the defect, so swapping is the whole of the fix.
-//
-// WHEN THE FIX LANDS UPSTREAM, THIS MODULE IS DELETED, not left in place as a
-// belt-and-braces guard: a correction that has become a no-op still runs on every
-// commit, and the assertion below would then be passing for the wrong reason.
+// Delete this module when the fix lands upstream; a no-op correction would still run on every
+// commit.
 
-/** The attribute the panels library marks each of its separators with. */
+/** The selector the panels library marks each of its separators with. */
 export const PANEL_SEPARATOR_SELECTOR = "[data-separator]";
 
 /** One separator's announced range, as the DOM currently carries it. */
@@ -34,11 +20,8 @@ export interface SeparatorValueBounds {
 }
 
 /**
- * Read a separator's announced range, or `undefined` where it announces none.
- *
- * Absent rather than zero for a missing attribute: a separator whose panels have
- * not been measured yet legitimately carries no range, and reading that as `0` would
- * make the ordering assertion below pass on a separator that announces nothing.
+ * Reads a separator's announced range, or `undefined` where it announces none. A separator whose
+ * panels are not yet measured carries no range; reading that as `0` would pass the ordering check.
  */
 export function readSeparatorValueBounds(separator: Element): SeparatorValueBounds | undefined {
   const minimumAttribute = separator.getAttribute("aria-valuemin");
@@ -55,11 +38,9 @@ export function readSeparatorValueBounds(separator: Element): SeparatorValueBoun
 }
 
 /**
- * Whether every separator in `root` announces a range a screen reader can read.
- *
- * The predicate the pane layout's test asserts and the predicate the correction restores,
- * in one function — so the test cannot pass against a rule the correction does not
- * enforce, and a negative control that swaps the attributes by hand fails it.
+ * Whether every separator in `root` announces a range a screen reader can read. The tests and
+ * the correction share this predicate, so a test cannot pass against a rule the correction
+ * does not enforce.
  */
 export function separatorValueBoundsAreOrdered(root: ParentNode): boolean {
   for (const separator of root.querySelectorAll(PANEL_SEPARATOR_SELECTOR)) {
@@ -72,11 +53,8 @@ export function separatorValueBoundsAreOrdered(root: ParentNode): boolean {
 }
 
 /**
- * Put every crossed range back the right way round. Returns how many it corrected.
- *
- * Counted rather than silent, so the pane layout's test can assert the correction fired at
- * least once on a three-pane group — a patch that quietly stopped matching would
- * otherwise look identical to a library that had been fixed.
+ * Puts every crossed range back the right way round and returns how many it corrected, so a
+ * test can tell a patch that stopped matching from a library that was fixed.
  */
 export function correctSeparatorValueBounds(root: ParentNode): number {
   let corrected = 0;

@@ -1,15 +1,14 @@
 // Types the `window.desktopBridge` global the preload installs with
-// `contextBridge.exposeInMainWorld`, which carries no static type of its own.
-//
-// Both renderer graphs pick this file up: the production one through
-// `src/renderer/tsconfig.json`'s `**/*`, the test one through `src/renderer/tsconfig.test.json`'s
-// `src/**/*.d.ts` (a test config's `include` replaces the one it extends). The top-level
-// `import type` makes the file a module, so the augmentation needs `declare global`.
+// `contextBridge.exposeInMainWorld`, which carries no static type of its own. Both renderer graphs
+// include this file: the production one through `src/renderer/tsconfig.json`, the test one
+// through `src/renderer/tsconfig.test.json`'s `src/**/*.d.ts`. The top-level `import type` makes
+// it a module, hence `declare global`.
 
 import type { PreloadApi } from "@shared/preload-api.js";
 
 declare global {
   interface Window {
+    /** The bridge the preload exposes to the renderer. */
     desktopBridge: PreloadApi;
   }
 }

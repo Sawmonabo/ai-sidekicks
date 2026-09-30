@@ -1,9 +1,6 @@
-// `window-reveal.ts` unit tests — the unobtrusive-windows decision.
-//
-// This project substitutes the test-tier build flag with `false` (see `vitest.config.ts`,
-// `main-unit`), which is the release shape. The two pure resolvers therefore
-// take the build kind as an argument so the test-build arm is reachable here,
-// and the two wrappers are exercised on the release arm they are compiled into.
+// The unobtrusive-windows decision. `vitest.config.ts` (`main-unit`) substitutes the test-tier
+// build flag with `false`, the release shape, so the two pure resolvers take the build kind as an
+// argument to reach the test-build arm, and the wrappers are exercised on the release arm.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -20,20 +17,17 @@ const REQUESTED: NodeJS.ProcessEnv = { [UNOBTRUSIVE_WINDOWS_ENV]: "1" };
 
 describe("resolveWindowRevealMode", () => {
   it("never reveals a requested macOS test build", () => {
-    // Nothing ordered onto a screen or Space: the only reveal that cannot pull
-    // an operator anywhere.
+    // Nothing is ordered onto a screen or Space.
     expect(resolveWindowRevealMode(true, REQUESTED, "darwin")).toBe("hidden");
   });
 
   it.each(["linux", "win32"] as const)("reveals inactive on %s", (platform) => {
-    // A hidden window stops painting on Windows (electron/electron#31016), so
-    // the window a test can measure faithfully there is an inactive one.
+    // A hidden window stops painting on Windows (electron/electron#31016).
     expect(resolveWindowRevealMode(true, REQUESTED, platform)).toBe("inactive");
   });
 
   it("ignores the request outside a test build", () => {
-    // Negative control for the production-safety claim: the same environment,
-    // a release build, an ordinary reveal.
+    // Negative control: the same environment in a release build reveals ordinarily.
     expect(resolveWindowRevealMode(false, REQUESTED, "darwin")).toBe("active");
   });
 
@@ -42,8 +36,7 @@ describe("resolveWindowRevealMode", () => {
   });
 
   it("accepts exactly the string 1", () => {
-    // The opt-in is deliberate, like the smoke probe's: a truthy-looking value
-    // is not a request.
+    // A deliberate opt-in, like the smoke probe's: a truthy-looking value is not a request.
     expect(resolveWindowRevealMode(true, { [UNOBTRUSIVE_WINDOWS_ENV]: "true" }, "darwin")).toBe(
       "active",
     );
@@ -70,8 +63,7 @@ describe("resolveActivationPolicyChange", () => {
 
 describe("the release-compiled wrappers", () => {
   it("revealWindow shows the window the ordinary way", () => {
-    // Both flags are `false` in this project, so even with the variable set in
-    // the real environment the release arm is the one compiled in.
+    // Both flags are `false` here, so the release arm is compiled in even with the variable set.
     vi.stubEnv(UNOBTRUSIVE_WINDOWS_ENV, "1");
     const show = vi.fn();
     const showInactive = vi.fn();

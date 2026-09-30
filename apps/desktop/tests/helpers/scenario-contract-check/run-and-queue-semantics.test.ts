@@ -1,31 +1,22 @@
 // The run and rollback legs: what a beat has to carry for the stream that delivers it.
 //
-// One file per axis of the predicate. Every case here drives
-// `findScenarioContractDefects` and not the leg module directly: the aggregate is the
-// only function a scenario is ever measured through, and a test that reached past it would be checking a function
-// no scenario meets.
-//
-// EVERY CASE IS BUILT FROM A SHIPPED BEAT. The concurrent-streaming scenario's own `run.starting` beat is
-// the base for all of them, so what a case varies is the one member it is about and
-// every other member is one the shipped scenario already carries and the predicate already
-// accepts.
+// Cases drive `findScenarioContractDefects`, the only function a scenario is measured through, and
+// start from the concurrent-streaming scenario's own beats so each varies one member.
 
 import { describe, expect, it } from "vitest";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../../fixtures/scenarios/concurrent-streaming.js";
 import { findScenarioContractDefects } from "./contract-check.js";
 import type { Scenario, ScenarioBeat } from "../../../fixtures/scenario.js";
 
-/** A session the branded schema accepts that is not the one the concurrent-streaming scenario's beats travel on. */
+/** A valid session id that is not the one the concurrent-streaming beats travel on. */
 const STRANGER_SESSION_ID = "019b79ee-0280-75e5-8510-ada11a5a7777";
 
 /**
- * The concurrent-streaming scenario with exactly ONE beat replaced — the first beat of the kind named.
+ * The concurrent-streaming scenario with exactly one beat replaced: the first beat of the kind
+ * named.
  *
- * Every case in this file is about a single beat, and the shipped scenario plays several
- * runs, so replacing every beat of a kind would vary five and report five defects for
- * the one defect the case is about. The helper is the only thing that knows there is
- * more than one run; each case still reads as "the concurrent-streaming scenario's own beat, with X
- * replaced", which is what its own comment claims.
+ * The shipped scenario plays several runs, so replacing every beat of a kind would report five
+ * defects for the one a case is about.
  */
 function scenarioWithFirstBeatOfKindReplaced(
   scenarioId: string,
@@ -53,9 +44,7 @@ describe("scenario wire truth — a run beat that reports two states at once", (
   /**
    * The concurrent-streaming scenario's own `run.starting` beat, with its `newState` replaced.
    *
-   * Built from the shipped beat rather than from a synthetic one so the case is
-   * about the state pair and nothing else: every other member is the beat the
-   * shipped scenario already carries and the predicate already accepts.
+   * Built from the shipped beat so the case is about the state pair and nothing else.
    */
   function scenarioWithStartingBeatState(scenarioId: string, newState: string): Scenario {
     return scenarioWithFirstBeatOfKindReplaced(scenarioId, "run.starting", (beat) => ({
@@ -65,35 +54,28 @@ describe("scenario wire truth — a run beat that reports two states at once", (
   }
 
   it("reports a beat whose payload names a state its kind does not announce", () => {
-    // The defect the strict layer cannot see: `run.starting` and `"failed"` are
-    // both registered, the census admits the kind, the envelope carries the beat,
-    // and no payload variant is registered for the run-lifecycle kinds — so before
-    // this leg the pair reached the fold unchallenged.
+    // Both `run.starting` and `"failed"` are registered and no payload variant exists for run
+    // lifecycle kinds, so the strict layer cannot see the pair.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatState("reports-two-run-states", "failed"),
     ]);
 
     expect(defects).toHaveLength(1);
     expect(defects[0]?.subject).toContain("run.starting");
-    // The projection's own words, because the projection is what makes the call.
+    // The projection's own words, because the projection makes the call.
     expect(defects[0]?.reason).toContain("two current states");
   });
 
   it("negative control: the same beat naming the state its kind announces is clean", () => {
-    // Without this the case above would hold over a leg that reported every run
-    // beat, and the shipped-scenario case at the top of this file would be the only
-    // thing standing between that and a predicate nothing can satisfy.
+    // Without this the case above would hold over a leg that reported every run beat.
     expect(
       findScenarioContractDefects([scenarioWithStartingBeatState("names-one-state", "starting")]),
     ).toStrictEqual([]);
   });
 
   it("reports a beat whose payload names no state at all", () => {
-    // The quieter half, and the one that stayed green: absence was treated as
-    // clean, so a feature's scenario could ship a `run.running` beat with no
-    // `newState`, pass the architecture suite, and then be refused at delivery as
-    // unprojectable while the run-lifecycle projector dropped its mutation. Green
-    // gate, nothing on screen.
+    // A `run.running` beat with no `newState` would be refused at delivery as unprojectable while
+    // the projector dropped its mutation: a green gate with nothing on screen.
     const withoutNewState = scenarioWithFirstBeatOfKindReplaced(
       "names-no-run-state",
       "run.starting",
@@ -111,10 +93,8 @@ describe("scenario wire truth — a run beat that reports two states at once", (
   });
 
   it("leaves the kinds the run-state stream does not carry to the other legs", () => {
-    // `run.queued` is the run's creation rather than a transition, and the mapping
-    // this leg reads claims no state for it — so the shipped creation beat, which
-    // names `newState: "queued"` and no state it came from, is not this leg's
-    // business and stays clean.
+    // `run.queued` is a creation, not a transition, and the mapping claims no state for it, so the
+    // shipped creation beat (`newState: "queued"`, no state it came from) stays clean.
     const queuedBeat = CONCURRENT_STREAMING_SCENARIO.beats.find(
       (beat) => beat.event.kind === "run.queued",
     );
@@ -126,11 +106,9 @@ describe("scenario wire truth — a run beat that reports two states at once", (
 
 describe("scenario wire truth — a run beat held to the whole shape its stream projects", () => {
   /**
-   * The concurrent-streaming scenario's own `run.starting` beat, carrying exactly the payload named.
+   * The concurrent-streaming scenario's own `run.starting` beat, carrying exactly `payload`.
    *
-   * A replacement rather than a spread, unlike the state-pair cases above: what these
-   * cases vary is which members are PRESENT, and a spread would supply the ones the
-   * beat is meant to be missing.
+   * A replacement rather than a spread, since these cases vary which members are present.
    */
   function scenarioWithStartingBeatPayload(
     scenarioId: string,
@@ -142,12 +120,7 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
     }));
   }
 
-  /**
-   * The concurrent-streaming scenario's own `run.starting` payload — a complete registered transition.
-   *
-   * Read off the shipped beat rather than written out again, so a case that varies one
-   * member varies it against the payload the shipped scenario actually carries.
-   */
+  /** The concurrent-streaming scenario's own `run.starting` payload: a complete transition. */
   function shippedStartingPayload(): Readonly<Record<string, unknown>> {
     const payload = CONCURRENT_STREAMING_SCENARIO.beats.find(
       (beat) => beat.event.kind === "run.starting",
@@ -161,11 +134,8 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
   }
 
   it("reports a beat carrying nothing but the state its kind announces", () => {
-    // The finding and its negative control at once: on the old walk this answered NO
-    // defect. The announced state matched, the tolerant envelope carried the payload,
-    // and the strict layer's discriminator escape covered the rest — while the fixture
-    // refused the very same beat at delivery and the run-lifecycle projector, which
-    // needs a `runId`, produced no mutation for it. Green gate, nothing on screen.
+    // The announced state matches and the tolerant envelope carries it, yet the fixture refuses the
+    // beat at delivery and the run-lifecycle projector, which needs a `runId`, yields no mutation.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatPayload("names-only-its-state", { newState: "starting" }),
     ]);
@@ -177,9 +147,8 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
   });
 
   it("names every member the registered transition shape is still missing", () => {
-    // With the session supplied the refusal reaches the parse, which reports each
-    // absent member by its own path rather than stopping at the first — so a scenario
-    // author fixes the beat in one pass instead of one member per run.
+    // With the session supplied the refusal reaches the parse, which reports each absent member by
+    // path so an author fixes the beat in one pass.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatPayload("names-its-session-and-no-more", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
@@ -195,11 +164,8 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
   });
 
   it("reports a transition beat whose payload names a session it is not delivered on", () => {
-    // The rollback arm used to carry this check alone, which left the two state arms
-    // as the ones that could hide the mismatch: neither registered stream shape carries
-    // a `sessionId` member at all, so the disagreeing value is dropped by the projection
-    // and the subscriber receives a valid-looking update about a session nobody asked
-    // about, with nothing on the delivered payload left to notice it by.
+    // Neither state arm's registered shape carries a `sessionId`, so the projection drops the
+    // disagreeing value and the subscriber gets a valid-looking update about another session.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatPayload("transition-names-another-session", {
         ...shippedStartingPayload(),
@@ -213,9 +179,7 @@ describe("scenario wire truth — a run beat held to the whole shape its stream 
   });
 
   it("negative control: the complete transition the shipped scenario carries is clean", () => {
-    // Without it every case above would hold over a leg that refused every run beat,
-    // and no feature could script a transition at all. The payload is the shipped one,
-    // handed back through the same replacement the cases above use.
+    // Without it every case above would hold over a leg that refused every run beat.
     expect(
       findScenarioContractDefects([
         scenarioWithStartingBeatPayload("names-the-shipped-payload", shippedStartingPayload()),
@@ -228,10 +192,7 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
   /**
    * The concurrent-streaming scenario's own `run.starting` beat, re-kinded as the rollback row.
    *
-   * Built from a shipped beat for the reason the state-pair cases above are: every
-   * envelope member is one the shipped scenario already carries and the predicate already
-   * accepts, so what the case is about is the payload's session and nothing else. The
-   * transition members go with the state kind — the rollback row registers none.
+   * The transition members go with the state kind, since the rollback row registers none.
    */
   function scenarioWithRollbackBeat(
     scenarioId: string,
@@ -253,10 +214,8 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
   }
 
   it("reports a rollback beat that carries no session at all", () => {
-    // The member is required by the registered per-type payload and enforced by
-    // nothing the contracts package ships — no strict-layer variant is registered for
-    // this kind — so before this leg the beat passed every check and the projection
-    // that consumes it stamped the envelope's session on in its place.
+    // The registered payload requires the member and nothing shipped enforces it, so the projection
+    // stamped the envelope's session on in its place.
     const defects = findScenarioContractDefects([
       scenarioWithRollbackBeat("rollback-names-no-session", undefined),
     ]);
@@ -277,9 +236,7 @@ describe("scenario wire truth — a rollback beat whose payload names the wrong 
   });
 
   it("negative control: the same beat naming its own session is clean", () => {
-    // Without it both cases above would hold over a leg that reported every rollback
-    // beat — and the shipped-scenario case at the top of this file would be all that stood
-    // between that and a predicate no scenario carrying a rollback could satisfy.
+    // Without it both cases above would hold over a leg that reported every rollback beat.
     expect(
       findScenarioContractDefects([
         scenarioWithRollbackBeat(
@@ -306,9 +263,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
   /**
    * The concurrent-streaming scenario's `run.starting` beat, re-kinded to a forward, non-state row.
    *
-   * A replacement payload rather than a spread, because what these cases vary is
-   * which members are PRESENT: a spread would supply the transition members the
-   * shipped beat carries and the case would be about something else.
+   * A replacement payload rather than a spread, since these cases vary which members are present.
    */
   function scenarioWithForwardRunBeat(
     scenarioId: string,
@@ -329,10 +284,8 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
   };
 
   it("reports a creation beat carrying neither its progression counter nor its state", () => {
-    // `run.queued` reaches a subscriber only through `session.subscribe`, so the
-    // projection leg does not claim it; its payload is the contract's registered
-    // creation row. A beat naming neither its counter nor its state must be refused,
-    // or the run-lifecycle projector folds it into a run with no version and no state.
+    // `run.queued` reaches a subscriber only through `session.subscribe`, so its payload is the
+    // contract's creation row; a half payload would fold into a run with no version and no state.
     const defects = findScenarioContractDefects([
       scenarioWithQueuedPayload("creation-names-half-a-payload", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
@@ -375,11 +328,8 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
   });
 
   it("negative control: a complete payload passes on every one of the four kinds", () => {
-    // Without this the cases above would hold over a leg that reported every beat of
-    // these kinds, which would make the shipped creation row — and every feature's
-    // scenario that scripts one — unshippable. The optional members are carried too,
-    // because the registered shapes name them and a leg that refused them would be
-    // stricter than the wire.
+    // Without this the cases above would hold over a leg reporting every beat of these kinds. The
+    // optional members are carried too, since a leg refusing them would be stricter than the wire.
     expect(findScenarioContractDefects([CONCURRENT_STREAMING_SCENARIO])).toStrictEqual([]);
     expect(
       findScenarioContractDefects([
@@ -401,9 +351,8 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
   });
 
   it("negative control: a projected kind is left to the projection leg, not held here", () => {
-    // The two legs partition the `run.` root, so a beat can be reported by one of
-    // them and never by both. A `run.starting` beat missing the same members reports
-    // in the projection's own words, which is how a reader tells which rule it broke.
+    // The two legs partition the `run.` root, so a beat is reported by one and never both; a
+    // `run.starting` beat reports in the projection's own words.
     const defects = findScenarioContractDefects([
       scenarioWithForwardRunBeat("transition-names-half-a-payload", "run.starting", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
@@ -418,7 +367,7 @@ describe("scenario wire truth — the run kinds no narrowed stream projects", ()
 });
 
 describe("scenario wire truth — a run beat claiming it moved to the state it was in", () => {
-  /** The concurrent-streaming scenario's own `run.starting` beat, with the state it came FROM replaced. */
+  /** The concurrent-streaming scenario's own `run.starting` beat, with `previousState` replaced. */
   function scenarioWithStartingBeatPreviousState(
     scenarioId: string,
     previousState: string,
@@ -430,13 +379,8 @@ describe("scenario wire truth — a run beat claiming it moved to the state it w
   }
 
   it("reports a beat naming one state as both the state it left and the state it reached", () => {
-    // Every member here is individually registered — `run.starting` is a census row and
-    // `starting` is a member of the run-state vocabulary twice over — so neither the
-    // census leg nor the strict layer can see this one, and the strict layer registers
-    // no variant for the run-lifecycle kinds at all. The transition table is what rules
-    // it out: it has no row whose `From` and `To` are one state, so no daemon emits
-    // this, and a view built against it learns to render a transition production
-    // never produces.
+    // Each member is registered and the strict layer has no variant for run lifecycle kinds, so
+    // only the transition table rules it out: it has no row whose `From` and `To` are one state.
     const defects = findScenarioContractDefects([
       scenarioWithStartingBeatPreviousState("reports-a-self-transition", "starting"),
     ]);
@@ -447,10 +391,8 @@ describe("scenario wire truth — a run beat claiming it moved to the state it w
   });
 
   it("negative control: the same beat naming a real transition is clean", () => {
-    // Without it, a rule that reported every run beat would pass the case above — and
-    // every scenario's run script would be unbuildable. `queued` is the state the shipped
-    // scenario's own beat comes from, so the revision is a no-op and what is measured is
-    // the state pair and nothing else about the beat.
+    // Without it a rule reporting every run beat would pass the case above. `queued` is the state
+    // the shipped beat comes from, so the revision is a no-op.
     expect(
       findScenarioContractDefects([
         scenarioWithStartingBeatPreviousState("reports-a-real-transition", "queued"),

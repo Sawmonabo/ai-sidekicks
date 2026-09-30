@@ -1,23 +1,13 @@
-// The scripted platform every termination cell is answered against.
+// The scripted platform every termination cell is answered against. No platform can be made to
+// refuse a kill on demand and no runner can be made Windows, so the platform I/O stays
+// unexecuted and the decisions the arms funnel through are driven directly with these
+// collaborators (`process-tree.test.ts` does the same).
 //
-// WHAT IS DRIVEN, AND WHAT CANNOT BE. No platform can be asked to refuse a kill
-// on demand, no runner can be made Windows, and a zombie is the reaping behavior
-// of an init this process does not own. So the platform I/O stays unexecuted by
-// construction — `process-tree.test.ts` says the same about itself — and the
-// DECISIONS those arms funnel through are driven directly with the collaborators
-// below, which is why each is a named exported function rather than an expression
-// at a call site.
-//
-// THE PIDS ARE A CAST, AND EACH ONE PLAYS ONE PART. `ROOT_PID` is the number a
-// tree is addressed through. `DESCENDANT_PID` is the member that outlives it.
-// `IMPOSTOR_CHILD_PID` is a child of whoever holds the root's number after a
-// reissue, which is what a walk from a RECYCLED pid hands back.
-// `STALE_PARENT_ROW_PID` is the quieter one: a live process that recorded the root
-// pid as its parent before this tree ever existed, still listed under that number
-// because Windows retains the column after a parent exits. The two strangers are
-// separate constants on purpose — a cell asserting "the stranger's tree was not
-// walked" and one asserting "the stale row was not signaled" are different
-// claims, and one pid playing both parts would let a fix for either satisfy both.
+// The pids are a cast. `ROOT_PID` is the number a tree is addressed through and `DESCENDANT_PID`
+// the member that outlives it. `IMPOSTOR_CHILD_PID` is a child of whoever holds the root's number
+// after a reissue; `STALE_PARENT_ROW_PID` is a live process that recorded the root pid as its
+// parent before this tree existed (Windows keeps that column after a parent exits). They are
+// separate so a fix for one claim cannot satisfy the other.
 
 import {
   type ExternalTreeTools,
@@ -33,20 +23,15 @@ export const ROOT_PID = 4242;
 /** The descendant a rootless tree leaves behind, addressable only explicitly. */
 export const DESCENDANT_PID = 4243;
 /**
- * A child of whoever holds `ROOT_PID` once it has been reissued.
- *
- * The pid that makes the recycled cells non-vacuous: it is what a parent-table
- * walk from `ROOT_PID` hands back after the reissue, so a cell asserting "the
- * stranger's tree was not walked" has something concrete to be false about.
+ * A child of whoever holds `ROOT_PID` once it is reissued: what a parent-table walk from
+ * `ROOT_PID` returns, so "the stranger's tree was not walked" has something concrete to be false
+ * about.
  */
 export const IMPOSTOR_CHILD_PID = 4244;
 /**
- * A live process that recorded `ROOT_PID` as its parent before this tree existed.
- *
- * The stale row. Windows keeps a process's recorded parent id after that parent
- * exits, so a child of the number's FORMER holder sits in the table under
- * exactly the row shape this tree's own descendant sits in — and a kill list
- * built from the table cannot tell them apart.
+ * A live process that recorded `ROOT_PID` as its parent before this tree existed. Its row has the
+ * same shape as this tree's descendant, so a kill list built from the table cannot tell them
+ * apart.
  */
 export const STALE_PARENT_ROW_PID = 4245;
 
@@ -63,14 +48,9 @@ export const CAPTURED_DESCENDANT: CapturedTreeMember = {
 export const EMPTY_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([]);
 
 /**
- * A host that would not answer — the sentinel, and not a table with no rows.
- *
- * Its whole job is to be the foil for `EMPTY_TABLE`. That one is a listing that
- * RAN and named nothing beneath the root, which on Windows is positive evidence
- * that nothing survives the dead pid; this one is a query that would not start,
- * spent its bound, or exited non-zero, which is evidence of nothing at all. The
- * two cells that differ only in this constant are what keeps the distinction
- * from collapsing back into "no rows".
+ * A host that would not answer: the sentinel, not a table with no rows. It is the foil for
+ * `EMPTY_TABLE`, a listing that ran and named nothing beneath the root, which on Windows is
+ * evidence that nothing survives; this one is evidence of nothing.
  */
 export const UNREADABLE_TABLE: undefined = undefined;
 
@@ -80,11 +60,8 @@ export const ROOTLESS_TREE_TABLE: ReadonlyMap<number, ProcessTableRow> = process
 ]);
 
 /**
- * The same rootless tree, plus a stranger the dead root's number also carries.
- *
- * Both rows are `parent = ROOT_PID` and only the capture separates them, which is
- * the whole point: the stale one was never captured, so nothing this package
- * holds says it is ours.
+ * The same rootless tree plus a stranger the dead root's number also carries. Both rows have
+ * `parent = ROOT_PID` and only the capture separates them: the stale one was never captured.
  */
 export const STALE_PARENT_ROW_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([
   [DESCENDANT_PID, ROOT_PID, DESCENDANT_STAMP],
@@ -92,39 +69,32 @@ export const STALE_PARENT_ROW_TABLE: ReadonlyMap<number, ProcessTableRow> = proc
 ]);
 
 /**
- * A table taken AFTER the descendant's own pid was reissued.
- *
- * The number is listed under a different parent and a different stamp, so the
- * member captured under it has exited and what holds it now is a stranger.
+ * A table taken after the descendant's own pid was reissued: the number is listed under another
+ * parent and stamp, so the captured member has exited and a stranger holds the pid.
  */
 export const REISSUED_DESCENDANT_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([
   [DESCENDANT_PID, 1, "somebody-else"],
 ]);
 
 /**
- * A table taken AFTER the ROOT's reissue: the rows under `ROOT_PID` are the
- * stranger's children, and this tree's descendant is not in it at all.
+ * A table taken after the root's reissue: the rows under `ROOT_PID` are the stranger's children,
+ * and this tree's descendant is absent.
  */
 export const REISSUED_ROOT_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([
   [IMPOSTOR_CHILD_PID, ROOT_PID, "impostor"],
 ]);
 
 /**
- * The external arm's collaborators, scripted. `hasTerminated` is handed the pids
- * the arm ran a tree kill from, so "it addressed the descendant" is separable
- * from "it reported success without looking": a scripted tree dies only if named.
- *
- * `rootIdentity` and `capturedDescendants` default to the ordinary reading — the
- * pid is still this tree's, and nothing has been captured beyond what the table
- * says — so a cell that is not about a reissued pid says nothing about one.
+ * The external arm's collaborators, scripted. `hasTerminated` receives the pids the arm ran a tree
+ * kill from, so a scripted tree dies only if named. `rootIdentity` and `capturedDescendants`
+ * default to the ordinary reading (the pid is still this tree's, nothing captured), so a cell not
+ * about a reissued pid says nothing about one.
  */
 export function scriptedExternalTools(script: {
   readonly killTreeFrom: (processId: number) => boolean;
   /**
-   * The listing this scripted host produces, or `undefined` for one that will
-   * not answer at all. Spelled explicitly rather than left optional, because
-   * the whole point of the value is that an unreadable host and a host that
-   * lists nothing are two different readings a cell has to choose between.
+   * The listing this host produces, or `undefined` for one that will not answer; explicit,
+   * because an unreadable host and one that lists nothing are different readings.
    */
   readonly processTable: ReadonlyMap<number, ProcessTableRow> | undefined;
   readonly hasTerminated: (processId: number, killAttempts: readonly number[]) => boolean;
@@ -146,22 +116,18 @@ export function scriptedExternalTools(script: {
 }
 
 /**
- * The tools for a rootless tree whose descendant takes, or refuses, an explicit
- * kill. The root is gone throughout — that is what makes the tree rootless — so
- * the only pid whose fate can change is the descendant's, and it changes only if
- * the arm actually addressed it.
- *
- * The descendant arrives as a CAPTURED member and not as a table row, which is
- * the discrimination the whole rootless arm now rests on: the table says who
- * claims the dead number, and only the capture says who is ours.
+ * The tools for a rootless tree whose descendant takes or refuses an explicit kill. The root is
+ * gone throughout, so only the descendant's fate can change, and only if the arm addressed it. The
+ * descendant arrives as a captured member, not a table row: the table says who claims the dead
+ * number, only the capture says who is ours.
  */
 export function rootlessTreeTools(
   descendantYieldsToExplicitKill: boolean,
   processTable: ReadonlyMap<number, ProcessTableRow> = ROOTLESS_TREE_TABLE,
 ): ExternalTreeTools & { readonly killedFrom: readonly number[] } {
   return scriptedExternalTools({
-    // The walk starts at the root, and a pid that names nothing has no tree to
-    // walk, so `taskkill` exits non-zero however alive the descendant is.
+    // `taskkill` walks from the root; a pid that names nothing has no tree, so it exits non-zero
+    // however alive the descendant is.
     killTreeFrom: (processId: number) => processId !== ROOT_PID && descendantYieldsToExplicitKill,
     processTable,
     hasTerminated: (processId: number, killAttempts: readonly number[]) =>
@@ -173,12 +139,9 @@ export function rootlessTreeTools(
 }
 
 /**
- * The tools for a rootless tree whose captured descendant's own pid was reissued.
- *
- * The root is gone and the number the capture named is somebody else's now, so
- * the member this tree held is itself gone — the stranger holding its pid stays
- * alive, which is what makes "it was not signaled" observable rather than
- * vacuous.
+ * The tools for a rootless tree whose captured descendant's own pid was reissued. The captured
+ * member is gone and the stranger holding its pid stays alive, so "it was not signaled" is
+ * observable.
  */
 export function reissuedDescendantTools(): ExternalTreeTools & {
   readonly killedFrom: readonly number[];
@@ -193,13 +156,9 @@ export function reissuedDescendantTools(): ExternalTreeTools & {
 }
 
 /**
- * The tools for a tree whose root pid has been handed to somebody else.
- *
- * The STRANGER is scripted to take the kill and to stay alive — both halves
- * matter. Taking it is the clean `taskkill` exit that used to latch the child as
- * killed; staying alive is what makes "the root was signaled" observable in
- * `hasTerminated` as well as in `killedFrom`, so a rewrite cannot satisfy the
- * cell by signaling and then reading the wrong pid.
+ * The tools for a tree whose root pid was handed to somebody else. The stranger takes the kill and
+ * stays alive: taking it is the clean `taskkill` exit that would latch the child as killed, and
+ * staying alive makes a signal to the root visible in `hasTerminated` as well as `killedFrom`.
  */
 export function reissuedRootTools(
   capturedDescendants: readonly CapturedTreeMember[],
@@ -224,10 +183,9 @@ export function scriptedLiveness(stateCode: string): {
 }
 
 /**
- * The POSIX arm's collaborators, scripted: nothing delivers, and the case says
- * what the GROUP and the ROOT each still hold. Both are supplied separately
- * because the whole cell is that they disagree — the root reaped and its group
- * not empty, which a shim exiting under a live browser produces on every run.
+ * The POSIX arm's collaborators, scripted: nothing delivers, and the case says what the group and
+ * the root each still hold. They disagree in the cell: the root reaped while its group is not
+ * empty, as a shim exiting under a live browser produces.
  */
 export function undeliverableSignalTools(script: {
   readonly groupHasMember: boolean;

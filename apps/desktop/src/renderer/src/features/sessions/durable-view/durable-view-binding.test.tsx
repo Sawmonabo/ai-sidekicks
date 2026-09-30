@@ -1,16 +1,8 @@
-// A durable binding whose store was replaced, and what may still reach the old one.
-//
-// The defect is silent from every direction. `frame/bindings/ui-state-lifecycle.ts` closes
-// this window's store and mints a fresh one whenever the bridge changes, and a
-// binding built by a `useState` initializer stays attached to the closed store for
-// the rest of the mount — so the previous scenario's value stays on screen, every
-// later write lands in a database nothing reads, and the replacement is never
-// hydrated. None of the three raises anything.
-//
-// The destination's durable binding is driven here rather than only the holder,
-// because the property under test is a React LIFETIME: a case that called `acquire`
-// by hand would prove the holder's arithmetic and nothing about what a mounted
-// view is subscribed to.
+// A durable binding whose store was replaced, and what may still reach the old one. The
+// window closes and remakes its store when the bridge changes; a binding built in a
+// `useState` initializer would stay on the closed one, silently. The pin binding is driven
+// through a mounted view, because the property is a React lifetime and calling `acquire`
+// by hand would only prove the holder.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -29,11 +21,8 @@ async function settle(): Promise<void> {
 }
 
 /**
- * A binding that records what the holder did to it and holds nothing else.
- *
- * A stub COLLABORATOR of the holder rather than a stand-in for a pin store: the
- * cases below that drive real behavior drive the real stores, and what this one
- * buys is a count of disposals, which no real store exposes and none should.
+ * A binding that records what the holder did to it. It counts disposals, which no real store
+ * exposes; the cases that drive real behavior use the real stores.
  */
 class RecordingBinding implements DurableViewBinding {
   public hydrateCount = 0;
@@ -75,9 +64,8 @@ describe("the holder that keys a binding on its store", () => {
   });
 
   it("negative control: a render-body lookup mints and disposes nothing", () => {
-    // Without this, the disposal above would pass over a holder whose pure lookup
-    // also acquired — which is what makes a discarded render dispose the binding
-    // the committed tree is subscribed to.
+    // Without this, the disposal above could pass over a holder whose lookup also acquired,
+    // letting a discarded render dispose the committed tree's binding.
     const adapter = new MemoryPersistenceAdapter();
     const store = openStoreOver(adapter);
     const holder = new DurableViewBindingHolder(() => new RecordingBinding());
@@ -118,18 +106,17 @@ describe("the pin binding when the window replaces its durable store", () => {
     await settle();
     expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
 
-    // A fresh adapter, the way a scenario swap arrives: the replacement store has
-    // never seen this window's writes.
+    // A fresh adapter, as a scenario swap arrives: the replacement never saw these writes.
     view.rerender(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
 
-    // The previous scenario's map is gone rather than leaking into the new one.
+    // The previous map is gone.
     expect(renderedPins(view.container)).toStrictEqual({});
   });
 
   it("sends a write made after the replacement to the replacement", async () => {
-    // The half of the defect nobody sees: the map on screen could be right and every
-    // write still land in the closed database.
+    // The half nobody sees: the map on screen could be right while every write still landed
+    // in the closed database.
     const replacementAdapter = new MemoryPersistenceAdapter();
     const view = render(<PinProbe store={openStoreOver(new MemoryPersistenceAdapter())} />);
     await settle();
@@ -142,8 +129,8 @@ describe("the pin binding when the window replaces its durable store", () => {
     await settle();
 
     expect(renderedPins(view.container)).toStrictEqual({ "session-a": "front" });
-    // Read back through a fresh store over the replacement's own adapter, so the
-    // assertion is about what was persisted rather than about what is on screen.
+    // Read back through a fresh store over the replacement's adapter: this asserts what was
+    // persisted, not what is on screen.
     const readBack = await openStoreOver(replacementAdapter).readGlobal(PINNED_SESSIONS_KEY);
     expect(readBack?.value).toStrictEqual({ "session-a": "front" });
   });
@@ -162,9 +149,8 @@ describe("the pin binding when the window replaces its durable store", () => {
   });
 
   it("negative control: a re-render with the SAME store keeps the binding it had", async () => {
-    // Without this, every case above would pass over a hook that re-minted on every
-    // render — which would re-read the record after each local act and put a pin
-    // back the way a person had just changed it.
+    // Without this, the cases above could pass over a hook that re-minted every render,
+    // re-reading the record after each local act.
     const store = openStoreOver(new MemoryPersistenceAdapter());
     const view = render(<PinProbe store={store} />);
     await settle();

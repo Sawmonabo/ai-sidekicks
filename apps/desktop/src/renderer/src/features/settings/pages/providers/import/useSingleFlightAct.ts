@@ -1,13 +1,7 @@
 // One act, in flight or settled: a single control, pressed, and what came of it.
 //
-// There is one control, so there is no key; the act names no subject that can move
-// underneath the call, so there is no supersession; and neither call changes anything
-// this feature holds a copy of, so there is no local application.
-//
-// THE THREE STATES ARE THE POINT. A form with a boolean `isSending` renders "nothing
-// happened" and "it worked" identically, and a person who pressed Import and saw the
-// field clear cannot tell which they got. So the settlement is a closed union and every
-// arm has a rendering: nothing attempted, attempt in flight, and the answer.
+// The settlement is a closed union (nothing attempted, in flight, the answer) so a form can
+// tell "nothing happened" from "it worked", which a boolean `isSending` renders alike.
 
 import { useCallback, useSyncExternalStore } from "react";
 
@@ -40,14 +34,10 @@ const NOTHING_ATTEMPTED: ActSettlement<never> = { status: "unattempted" };
 /**
  * One act's state, held off the render tree.
  *
- * A class rather than three `useState` cells, per the state-and-views rule in
- * `apps/desktop/AGENTS.md`: the transitions are a machine — a second press while one
- * is unsettled is ANSWERED rather than sent — and a machine spread across cells is a
- * machine no test can drive without a component around it.
- *
- * The snapshot is REBUILT on transition and held rather than composed per read,
- * because `useSyncExternalStore` compares snapshot identity with `Object.is` and a
- * getter minting a fresh object renders forever.
+ * A class, not three `useState` cells: a second press while one is unsettled is answered
+ * rather than sent, and a machine spread across cells cannot be driven without a component.
+ * The snapshot is rebuilt on transition and held, because `useSyncExternalStore` compares
+ * identity.
  */
 export class SingleFlightAct<TRequest, TAnswer> {
   readonly #attempt: ActAttempt<TRequest, TAnswer>;
@@ -77,28 +67,12 @@ export class SingleFlightAct<TRequest, TAnswer> {
   /**
    * Put the act, and settle it.
    *
-   * A press arriving while one is unsettled makes NO call and refuses audibly: a
-   * press that vanishes is indistinguishable from one the daemon ignored. It does
-   * not queue — an act held and put later is a second act nobody re-confirmed.
-   *
-   * THE DUPLICATE REFUSAL IS ANSWERED TO THE CALLER AND IS NEVER PUBLISHED. The
-   * settlement belongs to the request that is still in flight, and publishing the
-   * second press's refusal over it would replace `running` while the first call is
-   * still out: every form reading this act would see a settled state, re-enable its
-   * control, and admit a third press whose call races the first to overwrite the
-   * settlement both of them write. So the in-flight state stands untouched — no
-   * publish, no notification, no transition — and the refusal travels back on the
-   * return, which is the one route that reaches the presser without making a claim
-   * about the act.
-   *
-   * The caller that ignores the return loses nothing a person can see: the control
-   * that could have been pressed twice is already disabled by the `running` arm this
-   * refusal exists to preserve, so the return is what a programmatic second press —
-   * a restored draft, a keyboard repeat, a test — is told.
-   *
-   * A rejected attempt propagates to whoever pressed, and the act stays `running`.
-   *
-   * @returns the duplicate-press refusal, or `undefined` where the act was put.
+   * A press arriving while one is unsettled makes no call and resolves to a refusal, since
+   * a press that vanishes looks like one the daemon ignored; it does not queue. The refusal
+   * is returned, never published: publishing it would replace `running` while the first
+   * call is still out, and every form reading the act would re-enable its control and admit
+   * a third press. Resolves to `undefined` where the act was put. A rejected attempt
+   * propagates to whoever pressed, and the act stays `running`.
    */
   public async run(request: TRequest): Promise<Refusal | undefined> {
     if (this.#settlement.status === "running") {

@@ -15,10 +15,8 @@ const WORKFLOWS_ROUTE: AppRoute = { kind: "workflows" };
 /**
  * The fields the route switch reads, and nothing else.
  *
- * The frame store is the real class, because it is the subject; the rest of the
- * context is cast away because constructing it opens a database to hand a branch that
- * never touches it — the same reason `app/pane-harness/PaneHarnessScreen.test.tsx`
- * casts.
+ * The frame store is real; the rest of the context is cast away because constructing it opens a
+ * database for a branch that never touches it.
  */
 function contextFor(route: AppRoute): ScreenContext {
   return {

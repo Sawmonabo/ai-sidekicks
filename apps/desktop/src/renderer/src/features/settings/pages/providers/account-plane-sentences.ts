@@ -1,18 +1,13 @@
 // What each remedy kind reads as, in this console's own words.
 //
-// Three sentences and no fourth: the vocabulary is `ProviderRemedy["kind"]`, so a
-// remedy arm added upstream is a compile error here rather than a kind that routes
-// to a control with no label.
-//
-// EACH SENTENCE NAMES THE ACT AND NOT HOW TO PERFORM IT. "Sign in to that account's
-// credential home" is the act; which command signs in, and which home it writes into,
-// are the daemon's to disclose and travel on the readiness entry. A sentence here
-// that named either would be this console composing a remedy — the thing the accounts
-// page refuses in terms, and the reason these are three fixed strings rather than
-// anything assembled from a refusal's payload.
+// Three sentences and no fourth: the vocabulary is `ProviderRemedy["kind"]`, so a new upstream
+// arm is a compile error here. Each names the act, not how to perform it: which command signs
+// in and which home it writes into are the daemon's to disclose on the readiness entry, so
+// these are fixed strings and not assembled from a refusal's payload.
 
 import type { ProviderRemedy } from "@ai-sidekicks/contracts";
 
+/** The fixed sentence the handoff shows for each remedy kind. */
 export const ACCOUNT_PLANE_HANDOFF_SENTENCES: Readonly<Record<ProviderRemedy["kind"], string>> = {
   register: "No account is registered for that provider. Registering one closes this.",
   choose_default:

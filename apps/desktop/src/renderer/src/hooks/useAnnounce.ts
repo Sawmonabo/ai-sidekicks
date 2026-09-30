@@ -8,9 +8,7 @@ const OUTSIDE_PROVIDER =
 
 /**
  * How a component says something. Throws outside the provider rather than returning a
- * no-op: a component announcing into nothing is a wiring bug that is invisible to
- * everyone who can see the screen, which is the one class of defect this primitive
- * exists to prevent.
+ * no-op, because announcing into nothing is invisible to everyone who can see the screen.
  */
 export function useAnnounce(): Announce {
   const announcer = useContext(LiveAnnouncerContext);

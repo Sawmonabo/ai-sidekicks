@@ -16,10 +16,8 @@ const SCENARIO = unscriptedScenario("application-page-test");
 /**
  * A settings context over the shipped fixture bridge, with the build facts replaced.
  *
- * The build facts are overridden deliberately and not inherited: the fixture pins
- * `0.0.0-fixture` so a screenshot baseline does not move with the machine, and the
- * negative control below reads exactly that string to prove the panel prints what the
- * bridge said rather than a constant of its own.
+ * The fixture pins `0.0.0-fixture` for stable screenshots; the negative control below reads
+ * that string to prove the panel prints what the bridge said.
  */
 function contextFor(): SettingsPageContext {
   const { bridge } = createFixtureBridge({ scenario: SCENARIO });
@@ -48,8 +46,7 @@ describe("application page", () => {
   });
 
   it("negative control: the facts are the bridge's and not a placeholder", () => {
-    // Without this, the first case would pass over a page that printed a fixed
-    // version string — which is exactly what a build-facts panel must never do.
+    // Guards against a page that prints a fixed version string.
     const text = render(<GeneralPage context={contextFor()} />).container.textContent ?? "";
     expect(text).not.toContain("0.0.0");
   });

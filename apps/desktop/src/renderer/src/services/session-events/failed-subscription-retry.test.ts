@@ -1,11 +1,7 @@
-// One returning edge, one pass, and the ids that were still worth attempting.
-//
-// The binder suites drive this class through a real fixture transport, which is where
-// the reading that matters is proven. These cases drive it directly, because three of
-// its rules are about a pass that is INTERRUPTED — by a teardown, by a close, by a
-// re-entrant edge the pass itself caused — and reaching those through a bridge would
-// mean scripting a transport to fail in a particular order rather than stating the
-// rule. A recorder for `rebind` and two predicates is the whole world it has.
+// One returning edge, one pass, and the ids still worth attempting. The subscriber suites cover
+// this class through a real fixture transport; these cases drive it directly because three of its
+// rules concern an interrupted pass (a teardown, a close, a re-entrant edge), which a bridge would
+// have to be scripted to fail in a particular order to reach.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,11 +29,8 @@ function createRetry(
 }
 
 /**
- * A rebind that delivers another returning edge from inside the pass it is in.
- *
- * That is what a successful re-attempt actually causes — the open reports the wire
- * reachable — so the recorder holds the retry it re-enters, rather than a case
- * reaching for a binding that does not exist yet at the point the callback is built.
+ * A rebind that delivers another returning edge from inside the pass it is in, as a successful
+ * re-attempt does. The recorder holds the retry it re-enters.
  */
 class ReentrantRebinder {
   public readonly rebound: string[] = [];
@@ -66,8 +59,7 @@ describe("FailedSubscriptionRetry", () => {
   });
 
   it("negative control: a pass over nothing retained attempts nothing", () => {
-    // Without it, a class that re-attempted some remembered id of its own — the last
-    // one, the whole open set — would pass the case above unnoticed.
+    // Without it, a class that re-attempted some id of its own would pass the case above.
     const { retry, rebound } = createRetry();
 
     retry.runOnePass();
@@ -88,9 +80,8 @@ describe("FailedSubscriptionRetry", () => {
   });
 
   it("retains one id per session however many times its open failed", () => {
-    // A window that failed the same open three times must re-attempt it once, not
-    // three times: the set is the state, and a list would make the retry count a
-    // count of failures rather than of attempts.
+    // Failing the same open three times must re-attempt it once: the set is the state, so the retry
+    // count counts attempts, not failures.
     const { retry, rebound } = createRetry();
     retry.retain(FIRST_SESSION_ID);
     retry.retain(FIRST_SESSION_ID);
@@ -130,9 +121,8 @@ describe("FailedSubscriptionRetry", () => {
   });
 
   it("stops a pass that is retired part-way through it", () => {
-    // A returning edge reaches a SNAPSHOT of the signal's sinks, so a teardown can
-    // land while a pass is walking. Asked before every attempt rather than once at
-    // entry, so the count stays a count of attempts the owner actually made.
+    // A returning edge reaches a snapshot of the signal's sinks, so a teardown can land mid-walk.
+    // Asked before every attempt so the count is of attempts the owner made.
     const rebound: string[] = [];
     let retired = false;
     const retry = new FailedSubscriptionRetry({
@@ -153,10 +143,8 @@ describe("FailedSubscriptionRetry", () => {
   });
 
   it("makes one pass even when an attempt inside it delivers another edge", () => {
-    // The re-entrancy the flag exists for: a re-attempt that succeeds reports the
-    // wire reachable, which IS a returning edge and arrives back in this method
-    // mid-walk. One pass is what an edge is worth, so the nested delivery is a
-    // no-op rather than a second walk that re-attempts and double-counts.
+    // A successful re-attempt reports the wire reachable, which is a returning edge arriving back
+    // mid-walk; the nested delivery must be a no-op, not a second walk that double-counts.
     const rebinder = new ReentrantRebinder();
     const retry = new FailedSubscriptionRetry({
       isRetired: (): boolean => false,

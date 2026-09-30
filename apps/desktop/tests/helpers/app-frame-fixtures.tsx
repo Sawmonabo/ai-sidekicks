@@ -1,10 +1,7 @@
-// What both frame suites need before they can render a frame.
-//
-// One home for the two roles each of them plays: the props `AppFrame` requires that
-// no case is making a claim about, and the bridge host the frame resolves its clock
-// from. It holds nothing a single suite uses — the exploding screen, the failure
-// card's addressing, the banner, and the live regions each have one reader and stay
-// beside it.
+// What both frame suites need before they can render a frame: the props `AppFrame` requires that
+// no case makes a claim about, and the bridge host the frame resolves its clock from. Anything a
+// single suite uses (the exploding screen, the failure card's addressing, the banner, the live
+// regions) stays beside its one reader.
 import { createStubBridge } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
 import type { Clock } from "@renderer/lib/clock.js";
@@ -26,8 +23,10 @@ const RAIL_ENTRIES: readonly RailEntry[] = [
   { destination: "sessions", ...RAIL_ENTRY_TEMPLATES.sessions },
 ];
 
+/** The route a frame renders when the case makes no claim about the address. */
 export const SESSIONS_ROUTE: AppRoute = { kind: "sessions" };
 
+/** A screen that renders without failing. */
 export function CalmScreen(): React.JSX.Element {
   return <p>the settings screen rendered</p>;
 }
@@ -57,13 +56,11 @@ export function frameProps(
 /**
  * A bridge host for the frame, because the frame resolves the window's clock.
  *
- * `AppFrame` mounts the live announcer, and the announcer arms the one timeout the
- * console's idle budget counts — so which clock it runs on is a property of the
- * WINDOW rather than of the primitive, and the frame reads it from the resolution. Both
- * arms are the real thing: `createStubBridge()` is the object the preload exposes
- * to a shipped window, and `createFixtureBridge` builds the real engine over the
- * real concurrent-streaming scenario, whose frozen clock a case hands in beside it.
- * Absent a clock, the window runs on real time.
+ * `AppFrame` mounts the live announcer, which arms the one timeout the console's idle budget
+ * counts, so the clock is a property of the window and the frame reads it from the resolution.
+ * Both arms are real: `createStubBridge()` is what the preload exposes to a shipped window, and
+ * `createFixtureBridge` builds the real engine over a scenario, whose frozen clock a case hands
+ * in beside it. Without a clock the window runs on real time.
  */
 export function bridgeWrapper(
   bridge: PlatformBridge,
@@ -105,6 +102,7 @@ export function liveBridgeWrapper(): (props: {
   return bridgeWrapper(createLiveBridge(createStubBridge(FIXTURE_APP_META)));
 }
 
+/** The frame's background wrapper, which the frame makes inert behind an open overlay. */
 export function backgroundOf(container: HTMLElement): HTMLElement {
   const background = container.querySelector<HTMLElement>(".meridian-frame__background");
   if (background === null) {

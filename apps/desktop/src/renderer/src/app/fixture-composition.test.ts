@@ -1,9 +1,7 @@
-// The fixture launch as the renderer takes it: which scenario plays, which session opens,
-// and the handles a driver in another process reads off the page.
-//
-// The Electron tiers drive a real window through those handles, so a handle missing from
-// the page is a tier that measures nothing and passes. Each case therefore reads the page
-// the way a driver does, and the launch cases each carry the control that fails without it.
+// The fixture launch as the renderer takes it: which scenario plays, which session opens, and
+// the handles a driver in another process reads off the page. A missing handle makes an Electron
+// tier measure nothing and still pass, so each case reads the page as a driver does and the
+// launch cases carry the control that fails without them.
 
 import { render } from "@testing-library/react";
 import { createElement } from "react";
@@ -110,7 +108,7 @@ describe("createFixtureComposition — the handles a driver reads", () => {
 
     const control = scenarioControlOnPage();
     expect(control?.scenarioId).toBe(CONCURRENT_STREAMING_SCENARIO_ID);
-    // The control drives THIS bridge's engine, not one of its own: the window's clock moves.
+    // The control drives this bridge's engine: the window's clock moves.
     const before = composed.clock.now();
     control?.advance(1);
     expect(control?.deliveredBeatCount()).toBeGreaterThan(0);
@@ -123,8 +121,8 @@ describe("createFixtureComposition — the handles a driver reads", () => {
   });
 
   it("a superseded window's teardown leaves the live window's handles up", () => {
-    // Several consoles mount into one document in the browser tiers. An unconditional
-    // delete on the first one's teardown would strip what the second had just put up.
+    // Several consoles mount into one document in the browser tiers; an unconditional delete
+    // would strip the second window's handles.
     const first = createFixtureComposition(CONCURRENT_STREAMING_SCENARIO_ID);
     const second = createFixtureComposition(FIRST_RUN_SCENARIO_ID);
     const removeFirst = first.createBridge().installHandles();

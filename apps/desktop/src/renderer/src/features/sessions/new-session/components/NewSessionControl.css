@@ -1,8 +1,5 @@
-/* The new-session draft, on the sessions destination.
-   The two buttons take the shipped `.meridian-sessions__start` shape verbatim —
-   same padding, edge, radius, and `cursor: default` — because they sit beside it in
-   the same row and a control that is one pixel different reads as a different KIND
-   of control. What is new here is the panel the draft opens, which is a card. */
+/* The new-session draft. The buttons take the `.meridian-sessions__start` shape (padding,
+   edge, radius, `cursor: default`) because they sit beside it in one row. */
 
 .meridian-new-session__open,
 .meridian-new-session__discard,
@@ -17,10 +14,8 @@
   cursor: default;
 }
 
-/* Disabled because the draft is empty, which is a state and not a failure — or
-   because a create answered unreadably, which is a state a second press cannot
-   improve. Dimmed so it reads as not-yet rather than refused, and left in place so
-   the row does not reflow the moment the first message is typed. */
+/* Dimmed, not refused: disabled while the draft is empty or a create answered unreadably.
+   Left in place so the row does not reflow when the first message is typed. */
 .meridian-new-session__send:disabled {
   color: var(--meridian-text-muted);
 }
@@ -43,9 +38,7 @@
   color: var(--meridian-text);
 }
 
-/* `font: inherit` because a textarea's UA default is a monospace family at a size
-   the card never sets — the words a person types here are prose, and the field is
-   the only place in this card that would have rendered them as something else. */
+/* `font: inherit` because a textarea's UA default is monospace, and this field holds prose. */
 .meridian-new-session__first-turn-input {
   padding: var(--meridian-space-1) var(--meridian-space-2);
   border: 1px solid var(--meridian-edge-strong);
@@ -56,16 +49,13 @@
   resize: vertical;
 }
 
-/* What already exists after a partial send. Muted rather than colored: it is a
-   statement of fact beside the refusal above it, not a second fault. */
+/* What already exists after a partial send. Muted: a fact beside the refusal, not a fault. */
 .meridian-new-session__completed {
   margin: 0;
   color: var(--meridian-text-muted);
 }
 
-/* The words a completed send did not carry, because they were typed after the press.
-   The same muted treatment for the same reason: the session was made and nothing
-   failed, so a warning hue would report a fault where there is only a fact. */
+/* The words typed after the press that a completed send did not carry. Muted: nothing failed. */
 .meridian-new-session__unsent {
   margin: 0;
   color: var(--meridian-text-muted);

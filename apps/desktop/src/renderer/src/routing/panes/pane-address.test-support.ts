@@ -1,37 +1,29 @@
-// The entity references and the refusal reader both pane-address suites drive.
-//
-// The rows this folder declares are read at two points — the compiler's and the untyped
-// boundary's — and each point has its own file. These five references and this reader are
-// what both of them build a case out of, so they are here rather than written twice: two
-// copies of `refusalFrom` is two answers to "the parse admitted something it should have
-// refused", and the one that is not looked at is the one that stops saying which.
+// The entity references and the refusal reader both pane-address suites build cases from.
 
 import { isRefusal } from "@renderer/lib/refusal.js";
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import { parsePaneAddress } from "./parse-pane-address.js";
 
 /**
- * A `EntityRef` whose kind is pinned to one literal.
- *
- * An annotation rather than `as const satisfies`, because `isolatedDeclarations` needs
- * an explicit type on an exported binding — and an intersection rather than `Extract`,
- * because `EntityRef` is one interface over the kind vocabulary rather than a
- * union of per-kind members, so extracting from it yields `never`. Pinned rather than
- * left at the bare union because a case hands these to an address arm that admits one
- * kind and nothing else.
+ * An `EntityRef` whose kind is pinned to one literal. An intersection rather than `Extract`,
+ * because `EntityRef.kind` is the whole union and extracting from it yields `never`.
  */
 type EntityRefOf<TKind extends EntityRef["kind"]> = EntityRef & {
   readonly kind: TKind;
 };
 
+/** An agent reference. */
 export const AGENT: EntityRefOf<"agent"> = { kind: "agent", id: "agent-1" };
+/** A run reference. */
 export const RUN: EntityRefOf<"run"> = { kind: "run", id: "run-1" };
+/** An artifact reference. */
 export const ARTIFACT: EntityRefOf<"artifact"> = { kind: "artifact", id: "artifact-1" };
+/** A workflow-run reference. */
 export const WORKFLOW_RUN: EntityRefOf<"workflow-run"> = {
   kind: "workflow-run",
   id: "workflow-run-1",
 };
-/** Still a registered entity kind, and no longer one any pane kind is a view of. */
+/** An entity kind that is registered but that no pane kind is a view of. */
 export const BROWSER_PAGE: EntityRefOf<"browser-page"> = { kind: "browser-page", id: "page-1" };
 
 /** The refusal a parse answered with, or a failure naming what it admitted instead. */

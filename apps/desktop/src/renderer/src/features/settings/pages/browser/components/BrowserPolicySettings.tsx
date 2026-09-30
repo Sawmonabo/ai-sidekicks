@@ -1,20 +1,11 @@
-// The two node-wide browser switches, and nothing else about the browser.
+// The two node-wide browser switches, and nothing else about the browser in settings; a
+// navigation refusal renders in the pane, never here.
 //
-// This pair is the whole of the browser's presence in settings, and no policy row is
-// placed anywhere else: a navigation refusal renders in the pane and never here.
-//
-// Each switch's consequence is written in the traits table beside the switch it belongs
-// to, so the sentence cannot be edited without the control moving. The file-boundary
-// label says what turning it on stops enforcing; the page-tools label says that off
-// withholds the tools from every subsequent spawn and that running sessions keep the
-// tool set they were spawned with.
-//
-// The switch ids are the console's own, not the wire's: a toggle hands one back, and the
-// renderer names no preference key.
-//
-// The component reads nothing and writes nothing: positions arrive as props and a toggle
-// leaves as a callback, so it stays a projection of daemon state rather than a second
-// place the node's policy is decided.
+// Each switch's consequence sits in the traits table beside its control, so the sentence
+// cannot change without the control moving. The switch ids are the console's own, not the
+// wire's, and the renderer names no preference key. The component reads and writes nothing:
+// positions arrive as props and a toggle leaves as a callback, so the node's policy is decided
+// in one place.
 
 import { PolicyRow } from "./PolicyRow.js";
 import {
@@ -23,6 +14,7 @@ import {
   type BrowserPolicySwitchWriter,
 } from "../policy-switches.js";
 
+/** Props for {@link BrowserPolicySettings}. */
 export interface BrowserPolicySettingsProps {
   /** The position the node reported for each switch, total over the switch set. */
   readonly positions: Readonly<Record<BrowserPolicySwitchId, boolean>>;

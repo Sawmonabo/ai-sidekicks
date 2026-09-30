@@ -1,46 +1,32 @@
 // Tier: endurance.
 //
-// A pane that is closed while its read is on the wire pays for nothing after it
-// closes, and a console that opens and closes panes all day accumulates nothing from
-// having done so. Both claims are about SUSTAINED churn, which is why they are here:
-// one abandoned read costs so little that a unit case cannot tell a console that
-// stops from one that does not, and the shape this file drives — open, read, close
-// mid-read, repeat several hundred times — is exactly the shape a working day has.
+// A pane closed while its read is on the wire pays for nothing after it closes, and a console
+// that opens and closes panes all day accumulates nothing. Both claims are about sustained
+// churn: one abandoned read costs too little for a unit case to tell, so this drives open,
+// read, close mid-read, several hundred times.
 //
-// WHY THIS RUNS IN THE NODE PROJECT AND OPENS NO ELECTRON WINDOW
+// It runs in the Node project and opens no Electron window. The subject is
+// `store/reads/push-driven-read.ts` over `lib/reads/refresh-scheduler.ts`,
+// `lib/reads/read-scope.ts` and `callDaemon`, none of which touches the DOM, so the claims are
+// checkable in milliseconds on any runner, as in `diff-row-index.test.ts` beside it. That a
+// closed pane is gone from the tree belongs to the browser tiers.
 //
-// The subject is `store/reads/push-driven-read.ts` over `lib/reads/refresh-scheduler.ts` over
-// `lib/reads/read-scope.ts` and `callDaemon` — a model, a scheduler, a
-// read line, and a parse. None of it touches the DOM, and `diff-row-index.test.ts`
-// beside this file is the same separation cashed the same way: the claims are
-// checkable in milliseconds, deterministically, on any runner, with no bundle to
-// build and no window to launch. The DOM half — that a closed pane is gone from the
-// tree — is the browser tiers' and is not restated here.
+// The real mechanism is driven top to bottom: a `PushDrivenRead` over a `RefreshScheduler` on a
+// `ManualClock`, whose read body calls the real `callDaemon` against the fixture bridge with the
+// round's own signal. The tallies observe it; they do not stand in for it.
 //
-// WHAT IS DRIVEN IS THE REAL MECHANISM, top to bottom. A real `PushDrivenRead` over a
-// real `RefreshScheduler` on a `ManualClock`, whose read body calls the real
-// `callDaemon` against the shipped fixture bridge with the round's own signal — which
-// is what a reader in this tree writes. Nothing here reimplements a rule: the tallies
-// below observe the mechanism, they do not stand in for it.
+// The evidence that no parse ran is the reply itself. Each held call is released with a body the
+// presence schema refuses, so a call that read it would answer `reply-unreadable`; every answer
+// being `read-abandoned` shows the parse never ran, which a "did the value arrive" assertion
+// cannot.
 //
-// THE EVIDENCE THAT NO PARSE RAN is the reply itself. Each held call is released with
-// a body the presence schema REFUSES, so a call that had gone on to read it would
-// answer `reply-unreadable`. Every answer being `read-abandoned` is therefore
-// evidence the parse never ran, rather than evidence it ran and agreed — the
-// distinction a "did the value arrive" assertion cannot make.
-//
-// THREE CLAIMS, and the third is what makes the first two non-vacuous:
-//
-//   1. NO PROJECTION AFTER ABANDONMENT. Over hundreds of close-mid-read cycles, no
-//      model reaches `loaded` and no model reaches `failed`. A view that has gone
-//      renders neither, so paying to decide which one would be paying twice over.
-//   2. NOTHING ACCUMULATES. No timer is left armed on the clock, every subscription
-//      is released, and the number of listeners the churn leaves behind is zero. A
-//      leak here is a leak per pane open, which is the shape that survives a fast
-//      tier and kills a long session.
-//   3. THE CONTROL. The same churn, with the close held until after the reply, loads
-//      every time — so the zero above is a consequence of abandonment and not of a
-//      harness that never got as far as reading anything.
+// Three claims, the third making the first two non-vacuous:
+//   1. No projection after abandonment: over hundreds of close-mid-read cycles no model reaches
+//      `loaded` or `failed`, since a gone view renders neither.
+//   2. Nothing accumulates: no timer stays armed on the clock, every subscription is released
+//      and the churn leaves zero listeners. A leak here is a leak per pane open.
+//   3. The control: the same churn with the close held until after the reply loads every time,
+//      so the zeros above come from abandonment and not from a harness that never read.
 
 import { describe, expect, it } from "vitest";
 import type { Unsubscribe } from "@shared/preload-api.js";
@@ -55,14 +41,10 @@ import { PushDrivenRead } from "@renderer/store/reads/push-driven-read.js";
 /**
  * How many open / read / close cycles one claim is measured over.
  *
- * Large enough that a per-cycle leak is unmistakable in the counts below and a
- * per-cycle projection could not hide in rounding, and small enough that the whole
- * file is a few seconds on any runner — measured at roughly three, nearly all of it
- * the two real timer boundaries each cycle waits on rather than the churn itself.
- * That is the price of `crossMacrotaskBoundary` over a counted microtask loop, and it
- * is the right one to pay: the count a local loop would carry is tuned against
- * whatever settlement chain happens to sit under it today, which is the failure
- * `core/settle.test-support.ts` records nine suites having had.
+ * Large enough that a per-cycle leak is unmistakable and small enough that the file takes a few
+ * seconds, nearly all of it the two real timer boundaries each cycle waits on. That is the price
+ * of `crossMacrotaskBoundary` over a counted microtask loop, whose count would be tuned against
+ * whatever settlement chain sits under it today.
  */
 const CHURN_CYCLES = 400;
 
@@ -92,8 +74,7 @@ interface HeldCall {
  * One model over a bridge whose call this run holds, plus the tally it writes to.
  *
  * The read body is what a reader in this tree writes: forward the round's signal to
- * `callDaemon`, throw on a refusal, project on a reply. Everything the claims measure is
- * counted from inside it.
+ * `callDaemon`, throw on a refusal, project on a reply.
  */
 function openChurnSubject(
   clock: ManualClock,
@@ -136,9 +117,8 @@ function openChurnSubject(
         throw new Error(reply.refusal.code);
       }
       tally.callAnswers.push("served");
-      // THE PROJECTION. Trivial arithmetic standing for the real thing — a device
-      // list built, a diff flattened, a timeline folded — because what is under test
-      // is whether it runs at all, not what it costs when it does.
+      // Trivial arithmetic standing for a real projection; what is under test is whether it
+      // runs at all, not what it costs.
       tally.projections += 1;
       return reply.value.devices.length;
     },
@@ -168,8 +148,7 @@ async function runOneCycle(
   const call = await subject.held;
 
   if (closeBeforeTheReply) {
-    // The whole subject of this file: the person left while the daemon was still
-    // composing its answer.
+    // The person left while the daemon was still composing its answer.
     subject.model.dispose();
     call.release(UNREADABLE_REPLY);
     await crossMacrotaskBoundary();
@@ -198,13 +177,12 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
     }
 
     expect(tally.projections).toBe(0);
-    // Every read reached `callDaemon` and every one of them was answered by the
-    // departure rather than by a parse. A single `reply-unreadable` here would mean
-    // a reply was read after its owner had gone.
+    // Every read reached `callDaemon` and was answered by the departure, not a parse. A single
+    // `reply-unreadable` would mean a reply was read after its owner had gone.
     expect(tally.callAnswers).toHaveLength(CHURN_CYCLES);
     expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["read-abandoned"]));
-    // No model reached a rendering state, `failed` included: an abandoned read has
-    // no failure to report and no view left to report it to.
+    // No model reached a rendering state, `failed` included: an abandoned read has no failure
+    // to report and no view left to report it to.
     expect(tally.settlements).toBe(0);
   });
 
@@ -216,9 +194,8 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
       await runOneCycle(clock, tally, true);
     }
 
-    // `releaseSubscription` asserted the subscription count per cycle; this is the
-    // other accumulation, and the one a disposed scheduler would leak: an armed
-    // re-read behind a model nothing holds.
+    // `releaseSubscription` asserted the subscription count per cycle; this is the other
+    // accumulation, an armed re-read behind a model nothing holds.
     expect(clock.pendingCount).toBe(0);
   });
 
@@ -230,9 +207,8 @@ describe("read abandonment under churn — a closed pane pays for nothing", () =
       await runOneCycle(clock, tally, false);
     }
 
-    // Same models, same daemon call, same fixture, same number of cycles — the one thing
-    // that moved is when the pane closed. Without this the zeroes above would be
-    // satisfied by a harness whose reads never reached the wire.
+    // Only the close time moved. Without this the zeroes above would be satisfied by a harness
+    // whose reads never reached the wire.
     expect(tally.projections).toBe(CHURN_CYCLES);
     expect(new Set(tally.callAnswers)).toStrictEqual(new Set(["served"]));
     expect(tally.settlements).toBe(CHURN_CYCLES);

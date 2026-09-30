@@ -1,39 +1,27 @@
-// The composer feature's views, mounted once for the two tiers that look at them.
+// The composer feature's views, mounted once for the screenshot and accessibility tiers.
 //
-// Not a test file — no `include` glob reaches it as one. It lives in `feature-mounts/`
-// rather than beside the tier harnesses, because the two tiers that mount it are two
-// directories and a module named for one feature belongs with the other feature mounts.
-// The screenshot tier and the accessibility tier need the same compositions, and a
-// per-tier copy of the mount would be two chances to compose them differently and then
-// read the results as if they were comparable. `app-harness.ts` owns HOW the app is mounted, one
-// level down; this owns WHAT of this feature is mounted into it.
+// Not a test file. Both tiers need the same compositions, and a per-tier copy of the mount would
+// be two chances to compose them differently and then compare the results. `app-harness.ts` owns
+// how the app is mounted; this owns what of this feature is mounted into it.
 //
-// THE COMPOSER STATES ARE ADDRESSES, NOT VARIANTS. `chip-models.ts` resolves the send
-// path from the FOCUSED PANE and the session store's own partitions, so the composer
-// has no state to be put into — it has an address to be read at. The three below are
-// therefore three `focusedPane` values (and, for the two provider-bound ones, two
-// different prefixes of the same scenario log), which is why they share one store
-// builder and differ in one argument each:
+// The composer states are addresses, not variants: `composer-target.ts` resolves the send path
+// from the focused pane and the session store's own partitions, so the composer has an address to
+// be read at, not a state to be put into. The three mounts are three `focusedPane` values (and,
+// for the two provider-bound ones, two prefixes of the same scenario log), so they share one
+// store builder:
 //
-//   • the session's own default, which is what a composer addresses when focus is not
-//     in the pane layout;
-//   • the provider-bound path with the run still `running`;
-//   • the provider-bound path with the run `waiting_for_input`, which is where the
-//     composer scenario ends and the one state the design calls "steer".
+//   • the session default, which a composer addresses when focus is not in the pane layout;
+//   • the provider-bound path with the run `running`;
+//   • the provider-bound path with the run `waiting_for_input`, the steer path.
 //
-// EVERY PARTITION IS THE REAL ONE, because every store here opens with the fold the
-// window composes — {@link COMPOSED_ENTITY_PROJECTORS}, and never a registrar this
-// file picked. A mount that named its own would be deciding which partitions its
-// view can read.
+// Every store opens with the fold the window composes ({@link COMPOSED_ENTITY_PROJECTORS}), never
+// a registrar this file picked, which would decide which partitions its view can read.
 //
-// AND EVERY VIEW HERE READS, SO EVERY VIEW HERE SETTLES ITS READS —
-// {@link mountViewSettled} is the one seam that does it, rather than each mount
-// remembering to. Each of these compositions arms at least one `RefreshScheduler` on
-// the fixture's frozen clock, and `renderSettled` moves no clock: without the advance
-// the scheduled reads never perform at all, and both tiers photograph an in-flight
-// phase under a name that claims to be the answered composition. The settlement is
-// then ASSERTED rather than assumed — see {@link requireNoReadInFlight} — because a
-// capture of a skeleton is a green case in both tiers.
+// Every view here reads, so every view settles its reads through {@link mountViewSettled}: each
+// composition arms a `RefreshScheduler` on the fixture's frozen clock and `renderSettled` moves no
+// clock, so without the advance the scheduled reads never perform and both tiers photograph an
+// in-flight phase. The settlement is asserted ({@link requireNoReadInFlight}) because a capture of
+// a skeleton is a green case in both tiers.
 
 import type { ReactElement } from "react";
 
@@ -59,9 +47,8 @@ import { type MountedView } from "./mount-queries.js";
 /**
  * A store holding the scenario's beats up to and including the named kind.
  *
- * A PREFIX rather than the whole log, because the two provider-bound views differ
- * only in how far the run has got: feeding both the whole log would capture the same
- * composition twice under two names and report the pair as covering two states.
+ * A prefix rather than the whole log, because the two provider-bound views differ only in how far
+ * the run has got.
  */
 function composerSessionStore(throughKind: string): SessionStore {
   const store = new SessionStore({
@@ -84,16 +71,11 @@ function composerSessionStore(throughKind: string): SessionStore {
 }
 
 /**
- * Mount one view, let its scheduled reads answer, and prove that they did.
+ * Mounts one view, lets its scheduled reads answer, and proves that they did.
  *
- * THE SEAM RATHER THAN EACH MOUNT, because "remember to advance the clock" is a rule
- * a sixth view added to this file would not know about. `renderSettled` owns the
- * promise flush and moves no clock; every composition here arms a `RefreshScheduler`
- * on the scenario's frozen one, so the advance is not an option a mount takes but the
- * second half of what settling MEANS for a view that reads.
- *
- * The absolute deadline is `settleScheduledRead`'s to spend, not this file's — which
- * is why the constant it advances by is not imported here any more.
+ * A seam rather than a step in each mount, so a view added later cannot forget to advance the
+ * clock: `renderSettled` moves no clock, and every composition here arms a `RefreshScheduler` on
+ * the scenario's frozen one. The absolute deadline is `settleScheduledRead`'s.
  */
 async function mountViewSettled(
   fixture: FixtureBridge,
@@ -108,16 +90,12 @@ async function mountViewSettled(
 }
 
 /**
- * Throw if anything in the mounted tree is still reporting a read in flight.
+ * Throws if anything in the mounted tree still reports a read in flight.
  *
- * THE PREDICATE IS THE ONE ASSISTIVE TECHNOLOGY READS, and that is deliberate: the
- * console's `not-loaded` absence is the only thing it renders with `aria-busy`, so
- * this asks the tree the same question a screen reader does rather than restating a
- * class name the primitive composes. A capture taken while one is up photographs a
- * skeleton under a name that claims to be the answered composition, and both tiers
- * that mount these views would pass on it — the screenshot tier by minting the
- * skeleton as its reference, the accessibility tier by auditing a view whose
- * controls have not been offered yet.
+ * Asks the question a screen reader does: the `not-loaded` absence is the only thing rendered
+ * with `aria-busy`. A capture taken with one up photographs a skeleton, which the screenshot tier
+ * would mint as its reference and the accessibility tier would audit before the controls are
+ * offered.
  */
 function requireNoReadInFlight(container: HTMLElement): void {
   const inFlight = [...container.querySelectorAll('[aria-busy="true"]')];
@@ -180,12 +158,9 @@ export async function mountComposerProviderBoundWaiting(): Promise<MountedView> 
 }
 
 /**
- * Find the one element a view renders itself as.
+ * Finds the one element a view renders itself as.
  *
- * Scoped by accessible name rather than by class, because that is what a person
- * using assistive technology navigates by — a view that lost its accessible name
- * would still match a class selector and would still be captured as if nothing had
- * changed.
+ * Scoped by accessible name rather than class, which is what assistive technology navigates by.
  */
 function requireRegion(container: HTMLElement, accessibleName: string): HTMLElement {
   const region = container.querySelector(`[aria-label="${accessibleName}"]`);

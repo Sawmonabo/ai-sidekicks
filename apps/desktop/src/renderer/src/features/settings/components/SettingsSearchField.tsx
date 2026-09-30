@@ -1,6 +1,7 @@
 import { Glyph } from "@renderer/components/Glyph/Glyph.js";
 import { GLYPH_SIZE_CHROME } from "@renderer/styles/glyphs.js";
 
+/** Props for {@link SettingsSearchField}. */
 export interface SettingsSearchFieldProps {
   readonly query: string;
   readonly onQueryChange: (query: string) => void;
@@ -9,10 +10,8 @@ export interface SettingsSearchFieldProps {
 /**
  * The one control above the rail.
  *
- * A plain `<input type="search">` with a visible label association rather than a
- * combobox: the results below are a navigable list of links, not an autocomplete
- * popover, and announcing them as one would promise a keyboard grammar this field
- * does not implement.
+ * A plain search input, not a combobox: the results are a list of links, and announcing them
+ * as an autocomplete would promise a keyboard grammar this field lacks.
  */
 export function SettingsSearchField(props: SettingsSearchFieldProps): React.JSX.Element {
   return (

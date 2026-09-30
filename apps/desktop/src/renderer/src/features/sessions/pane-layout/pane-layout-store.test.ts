@@ -1,9 +1,5 @@
-// The pane layout's arrangement, driven: what one entity opens, what order and focus do, and what
-// the panel group's settled sizes are allowed to change.
-//
-// Split from `pane-layout-store.snapshot.test.ts`, which is about what a saved layout
-// carries and the five ways a restored one can be wrong. This half touches no
-// snapshot at all — it is the layout as the pane layout itself moves it.
+// The layout as it moves: what one entity opens, what order and focus do, and what the panel
+// group's settled sizes may change. Snapshots are in `pane-layout-store.snapshot.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,9 +37,8 @@ describe("PaneLayoutStore — one entity, one pane", () => {
   });
 
   it("negative control: the same entity in a different KIND of pane opens a second", () => {
-    // Without this, the case above would pass over a layout that refused every
-    // second open — and a worktree legitimately appears in both an inspector and a
-    // diff pane.
+    // The case above would also pass over a layout that refused every second open; a worktree
+    // appears in both an inspector and a diff pane.
     const layout = emptyLayout();
     layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
     layout.open({ kind: "diff", entity: { kind: "worktree", id: "worktree-01" } });
@@ -136,9 +131,8 @@ describe("PaneLayoutStore — adopting what the panel group settled on", () => {
   });
 
   it("clamps a width below the floor IN THE STORE, whatever the DOM reported", () => {
-    // The subject is the persisted value, not the rendered one: a width below the
-    // floor that reached the store would be written to disk and restored on the next
-    // launch, where no drag is happening for the library's own clamp to run in.
+    // The subject is the persisted value: a width below the floor would be saved and restored
+    // on the next launch, when the library's own clamp is not running.
     const layout = twoPaneLayout();
     const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
     const floorPermille = 400;
@@ -151,8 +145,7 @@ describe("PaneLayoutStore — adopting what the panel group settled on", () => {
   });
 
   it("negative control: with no floor the same layout is adopted unclamped", () => {
-    // Without this the case above would pass over a store that clamped every width
-    // to some fixed minimum of its own, which would make the floor argument dead.
+    // The case above would also pass over a store that clamped every width to a fixed minimum.
     const layout = twoPaneLayout();
     const paneIds = layout.snapshot().panes.map((pane) => pane.paneId);
     layout.applyLayout({ [paneIds[0] ?? ""]: 95, [paneIds[1] ?? ""]: 5 }, 0);
@@ -160,8 +153,7 @@ describe("PaneLayoutStore — adopting what the panel group settled on", () => {
   });
 
   it("negative control: a report that changes nothing raises no revision", () => {
-    // The guard that stops the write-back looping: the group reports its layout
-    // after every commit, including the ones this method caused.
+    // Stops the write-back looping: the group reports after every commit, including its own.
     const layout = twoPaneLayout();
     const revisionBefore = layout.snapshot().revision;
     const percentages = Object.fromEntries(
@@ -174,9 +166,8 @@ describe("PaneLayoutStore — adopting what the panel group settled on", () => {
 
 describe("PaneLayoutStore — the split act", () => {
   it("splits the source pane and leaves every other pane's width alone", () => {
-    // Three panes at a third each, then a browser opened beside the FIRST. The split
-    // rule takes the arriving pane's width from that pane and nothing else, so the
-    // two panes the person was not splitting keep the widths they had.
+    // Three panes at a third each, then a browser opened beside the first: only that pane gives
+    // up width.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "terminal" });
@@ -200,8 +191,8 @@ describe("PaneLayoutStore — the split act", () => {
   });
 
   it("negative control: an open naming no source re-divides the whole pane layout", () => {
-    // Without this the case above would pass over a pane layout that never equalized at
-    // all, and the list placement — the palette's and a rail destination's — is the common one.
+    // The case above would also pass over a layout that never equalized; list placement (the
+    // palette, a rail destination) is the common one.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "terminal" });
@@ -210,8 +201,8 @@ describe("PaneLayoutStore — the split act", () => {
   });
 
   it("falls back to the list placement when the source is too narrow to halve", () => {
-    // A pane at one permille has no width to give. The person still asked for a pane,
-    // so they get one and the pane layout re-divides rather than the open being refused.
+    // A pane at one permille has no width to give, so the layout re-divides rather than
+    // refusing the open.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "terminal" });

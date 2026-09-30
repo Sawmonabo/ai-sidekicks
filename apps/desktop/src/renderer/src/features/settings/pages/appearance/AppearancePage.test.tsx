@@ -1,6 +1,5 @@
-// The appearance page projects the applied scheme and chooses through the window's act.
-//
-// The page reads no wire and holds no store, so the mount needs nothing beside it.
+// The appearance page projects the applied scheme and chooses through the window's act. It
+// reads no wire and holds no store.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -46,8 +45,8 @@ describe("appearance page", () => {
   });
 
   it("treats an absent attribute as following the machine", async () => {
-    // The frame encodes `system` by REMOVING the attribute, so a page that read an
-    // absent attribute as "no choice" would show nothing current on a default install.
+    // The frame encodes `system` by removing the attribute, so reading absence as "no choice"
+    // would show nothing current on a default install.
     const container = await renderAppearancePage();
     const checked = [...container.querySelectorAll(".meridian-scheme-choice__option")].filter(
       (option) => option.querySelector("[data-checked]") !== null,

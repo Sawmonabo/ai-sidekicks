@@ -1,4 +1,5 @@
-// The accessibility tier over the preview pane's chrome, scoped to the pane so a violation names it.
+// The accessibility tier over the preview pane's chrome, scoped to the pane so a violation
+// names it.
 //
 // Both schemes: contrast is the rule most likely to pass in one and fail in the other.
 
@@ -36,7 +37,7 @@ describe("accessibility — the preview pane", () => {
   }
 
   it("finds a planted violation, so a clean result means something", async () => {
-    // A misconfigured run returns the same empty list the cases above expect.
+    // Negative control: a misconfigured run returns the same empty list the cases above expect.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

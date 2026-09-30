@@ -1,6 +1,5 @@
-// What the always-on capture promises: JSONL under named caps, a counted drop rather
-// than a silent one, a positive marker when it cannot see, and a forward that loses
-// nothing when it fails.
+// The capture promises JSONL under named caps, a counted drop, a positive marker when it cannot
+// see, and a forward that loses nothing when it fails.
 
 import { describe, expect, it } from "vitest";
 
@@ -64,8 +63,7 @@ describe("batching and the pending bound", () => {
       capture.record(recordAt(index));
     }
     expect(capture.pendingRecordCount).toBe(DIAGNOSTIC_CAPTURE_BOUNDS.pendingRecordCount);
-    // Ten dropped by the bound, plus the one the blind marker added on the first
-    // failed flush — the marker is a record and is bounded like every other one.
+    // Ten dropped by the bound, plus any the blind marker's own record displaced.
     expect(capture.droppedRecordCount).toBeGreaterThanOrEqual(10);
   });
 });
@@ -77,7 +75,7 @@ describe("the I-am-blind marker", () => {
     capture.flush();
     expect(capture.isBlind(DIAGNOSTIC_FORWARD_PROBE)).toBe(true);
     expect(capture.blindProbes()[0]?.reason).toContain("no diagnostic forwarder");
-    // The records are still here: blindness is reported, not paid for by loss.
+    // Blindness is reported without losing records.
     expect(capture.pendingRecordCount).toBeGreaterThan(0);
   });
 
@@ -104,9 +102,8 @@ describe("the I-am-blind marker", () => {
 
   it("holds at most the blind-probe bound, and counts what it refuses past it", () => {
     const capture = new DiagnosticCapture();
-    // A forwarder from the start, so the auto-flush at the batch bound does not spend an
-    // entry marking the forward seam blind — that would make the arithmetic below about
-    // this test's own scaffolding rather than about the refusal.
+    // A forwarder from the start, so the auto-flush does not spend an entry marking the forward
+    // seam blind and skew the arithmetic below.
     const batches: string[] = [];
     capture.installForwarder((jsonLines) => {
       batches.push(jsonLines);
@@ -123,9 +120,7 @@ describe("the I-am-blind marker", () => {
 
     expect(capture.blindProbes()).toHaveLength(DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount);
     expect(capture.refusedBlindProbeCount).toBe(refusedProbeCount);
-    // ONE record, on the first refusal. The set being full is one fact about the
-    // console, and restating it per refused probe would spend the pending buffer the
-    // capture keeps for the failures it can still carry.
+    // One record, on the first refusal; repeating it per refused probe would fill the buffer.
     const refusalRecords = batches
       .join("\n")
       .split("\n")
@@ -139,12 +134,8 @@ describe("the I-am-blind marker", () => {
   });
 
   it("counts refused probes exactly, and never its own forward seam", () => {
-    // NO forwarder, deliberately. The case above installs one so the auto-flush at the
-    // batch bound cannot spend a refusal on the capture's own forward seam; this is the
-    // case that drives exactly that. `record` flushes at every batch boundary, a flush
-    // with no forwarder marks `DIAGNOSTIC_FORWARD_PROBE` blind, and once the set is
-    // full that marking is itself refused — so a count that included it would report how
-    // often the capture flushed rather than how many probes went blind past the bound.
+    // No forwarder, deliberately: a flush then marks `DIAGNOSTIC_FORWARD_PROBE` blind, and once
+    // the set is full that marking is refused, so counting it would measure flushes.
     const capture = new DiagnosticCapture();
     for (let index = 0; index < DIAGNOSTIC_CAPTURE_BOUNDS.unreadableProbeCount; index += 1) {
       capture.markBlind(`probe-${index}`, "unsupported", AT);
@@ -157,10 +148,7 @@ describe("the I-am-blind marker", () => {
     capture.flush();
     capture.markBlind("another-probe-past-the-bound", "unsupported", AT);
 
-    // TWO, and the number is the whole assertion: two operator probes were refused, and
-    // the flushes around them refused the forward seam repeatedly without moving it. The
-    // second half is its own negative control — a fix that simply stopped counting would
-    // read zero here, and a fix that counted the seam would read more than two.
+    // Exactly two: a count that stopped counting reads zero, one that counted the seam reads more.
     expect(capture.refusedBlindProbeCount).toBe(2);
     expect(capture.isBlind(DIAGNOSTIC_FORWARD_PROBE)).toBe(false);
   });

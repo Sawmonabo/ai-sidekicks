@@ -1,11 +1,6 @@
-// The refusal shape, driven rather than described.
-//
-// `Refusal` gives five producers one vocabulary for three renderers, and the whole
-// value of that is structural: the shape has to be recognizable from OUTSIDE the module
-// that built it, because a refusal crossing a layer boundary arrives as an `unknown`
-// result or a caught error. So the cases below are about recognition and about what
-// survives the trip — the guard, the message an error carries, and the refusal an error
-// still holds after the throw.
+// The refusal shape must be recognizable from outside the module that built it, because a
+// refusal crossing a layer arrives as an `unknown` result or a caught error: the guard, the
+// error message, and the refusal an error still holds after the throw.
 
 import { describe, expect, expectTypeOf, it } from "vitest";
 import { RefusalError, isRefusal, refuse, type Refusal, type NarrowedRefusal } from "./refusal.js";
@@ -21,63 +16,45 @@ describe("refuse — one builder, one field order", () => {
   });
 
   it("names the origin from the argument rather than defaulting one", () => {
-    // The whole point of `origin` is that a refusal surfacing three layers up still
-    // names its author; a builder that filled in a default would make every refusal
-    // claim the same one.
+    // A builder that filled in a default would make every refusal claim the same author.
     expect(refuse("keybindings", "unparseable", "detail").origin).toBe("keybindings");
     expect(refuse("keybindings", "unparseable", "detail").origin).toBe("keybindings");
   });
 });
 
 describe("refuse — the producer's own union survives the call", () => {
-  // The claim these three cases make together is what retired the spreads. Every
-  // producer that owns a closed code union used to write
-  // `{ ...refuse(origin, code, detail), code }`, whose only job was to put back the
-  // narrowing a `string` parameter had widened away. These say the builder carries
-  // it, that it carries the RIGHT one, and that a plain `string` caller is unmoved.
-  //
-  // Each case reads its code out of a PARAMETER rather than a local constant, which
-  // is both the honest instrument and the real shape: assignment narrowing collapses
-  // `const code: "a" | "b" = "a"` to `"a"` at every later use, so a case written that
-  // way would infer one member and prove nothing about the union — and a producer's
-  // constructor is a function taking its vocabulary as a parameter anyway, which is
-  // the call these cases stand in for.
+  // The builder carries the producer's union, carries the right one, and leaves a plain `string`
+  // caller unchanged. Codes come in as parameters, not local constants: assignment narrowing
+  // would collapse `const code: "a" | "b" = "a"` to `"a"` and prove nothing about the union.
 
-  /** A producer that owns a two-member vocabulary. No return annotation: inference is the subject. */
+  /** A producer with a two-member vocabulary; no return annotation, as inference is the subject. */
   function refuseEither(code: "a" | "b") {
     return refuse("producer", code, "detail");
   }
 
-  /** A caller with no vocabulary at all — the many wide sites across the console. */
+  /** A caller with no vocabulary of its own. */
   function refuseAnything(code: string) {
     return refuse("producer", code, "detail");
   }
 
   it("gives back the union it was handed, not `string`", () => {
-    // The fail-first case: against a non-generic `refuse`, `code` here is `string`
-    // and `toEqualTypeOf` reports the mismatch. Nothing about it is a runtime claim
-    // — the spread it replaces was invisible at runtime too, which is exactly why the
-    // duplication it caused could survive as many copies as there were producers.
+    // Against a non-generic `refuse`, `code` here is `string` and `toEqualTypeOf` reports it.
     expectTypeOf(refuseEither("a").code).toEqualTypeOf<"a" | "b">();
     expectTypeOf(refuseEither("a")).toEqualTypeOf<NarrowedRefusal<"a" | "b">>();
   });
 
   it("negative control: a refusal typed to one member refuses another member's value", () => {
-    // Without this, the case above would pass against a builder that answered `any`
-    // on `code` — which narrows nothing and would let every producer's vocabulary
-    // through every producer's boundary. `NarrowedRefusal<"a">` is the target a producer
-    // annotates, and a `"b"` refusal is not one.
+    // Without this, the case above would pass against a builder that answered `any` on `code`,
+    // which narrows nothing.
     // @ts-expect-error TS2322: `"b"` is not assignable to the `"a"` this target holds.
     const mismatched: NarrowedRefusal<"a"> = refuse("producer", "b", "detail");
-    // Read it, so the directive above suppresses an assignment that really happens
-    // rather than one the compiler elided.
+    // Read it, so the directive suppresses an assignment that really happens.
     expect(mismatched.code).toBe("b");
   });
 
   it("leaves a caller that has no union where it was", () => {
-    // The other half of the compatibility claim: `Code` infers as `string` for a
-    // caller holding one, `NarrowedRefusal<string>` reads as `Refusal`, and
-    // the many wide call sites across the console keep compiling untouched.
+    // `Code` infers as `string` for a plain caller, and `NarrowedRefusal<string>` reads as
+    // `Refusal`.
     const wide: Refusal = refuseAnything("whatever-the-seam-said");
     expectTypeOf(refuseAnything("x").code).toEqualTypeOf<string>();
     expect(wide.code).toBe("whatever-the-seam-said");
@@ -98,8 +75,7 @@ describe("RefusalError — a refusal that had to travel as an exception", () => 
   });
 
   it("puts origin, code, and detail in the message, in that order", () => {
-    // A stack trace is where an error is read when nothing rendered it, so the
-    // message has to carry the same three facts the card would have shown.
+    // A stack trace is where an unrendered error is read, so the message carries all three facts.
     expect(new RefusalError(refusal).message).toBe(
       "sessions: session.not_found: No session answers to this id.",
     );
@@ -121,14 +97,13 @@ describe("isRefusal — recognition across a layer boundary", () => {
   });
 
   it("accepts a structurally identical literal, because the shape is the contract", () => {
-    // Deliberate: a producer that widens its own closed union into this shape at its
-    // boundary has not called `refuse`, and its result is still a refusal.
+    // A producer that widens its own union into this shape without calling `refuse` still
+    // yields a refusal.
     expect(isRefusal({ code: "c", detail: "d", origin: "o" })).toBe(true);
   });
 
   it("negative control: rejects the values a constant-true guard would accept", () => {
-    // Without these, a guard whose body was `return true` would pass every case
-    // above and the two positive assertions would prove nothing.
+    // Without these, a guard whose body was `return true` would pass every positive case.
     expect(isRefusal(null)).toBe(false);
     expect(isRefusal(undefined)).toBe(false);
     expect(isRefusal("sessions: session.not_found: detail")).toBe(false);
@@ -144,9 +119,8 @@ describe("isRefusal — recognition across a layer boundary", () => {
   });
 
   it("rejects a refusal whose fields are the right names and the wrong types", () => {
-    // The renderers put `code` in mono verbatim; a number there would render, and a
-    // nested object would render as "[object Object]" in the one field a person is
-    // meant to be able to paste into an issue.
+    // Renderers put `code` in mono verbatim; a number would render and an object would show as
+    // "[object Object]".
     expect(isRefusal({ code: 7, detail: "d", origin: "o" })).toBe(false);
     expect(isRefusal({ code: "c", detail: { text: "d" }, origin: "o" })).toBe(false);
     expect(isRefusal({ code: "c", detail: "d", origin: null })).toBe(false);
@@ -154,7 +128,7 @@ describe("isRefusal — recognition across a layer boundary", () => {
 });
 
 describe("isRefusal — total, because every caller is already on a failure path", () => {
-  /** The unguarded read the guard used to perform, so the counterfactual is runnable. */
+  /** An unguarded read, so the counterfactual is runnable. */
   const readDirectly = (value: unknown): unknown => (value as { readonly code?: unknown }).code;
 
   it("answers false for a value whose property access throws", () => {
@@ -166,17 +140,14 @@ describe("isRefusal — total, because every caller is already on a failure path
         },
       },
     );
-    // The negative control, and it is the whole reason this case exists: a direct read
-    // of this value THROWS. A predicate that throws is not a
-    // guard — it escapes the `catch` that called it and unmounts the component whose
-    // only job was to report the failure.
+    // Negative control: a direct read of this value throws. A throwing predicate escapes the
+    // `catch` that called it and unmounts the component reporting the failure.
     expect(() => readDirectly(hostile)).toThrow();
     expect(isRefusal(hostile)).toBe(false);
   });
 
   it("answers false when only one of the three members is unreadable", () => {
-    // The partial case, which is the realistic one: two members read fine and the
-    // third throws, so a guard that short-circuits on the first two still reaches it.
+    // Two members read fine and the third throws, so a guard must not stop after the first two.
     const partiallyHostile = {
       code: "c",
       detail: "d",
@@ -193,10 +164,8 @@ describe("isRefusal — total, because every caller is already on a failure path
   });
 
   it("accepts a null-prototype carrier, object or function, that holds the three members", () => {
-    // A refusal that crossed a structured clone or arrived from another realm has no
-    // prototype chain left, and it is still a refusal. The function case is the one
-    // the old `typeof value !== "object"` pre-check rejected outright: a function is a
-    // property container too, and `typeof` calls it neither `"object"` nor `null`.
+    // A refusal that crossed a structured clone or another realm has no prototype chain and is
+    // still a refusal; a function is a property container too.
     const nullPrototypeObject = Object.assign(Object.create(null) as object, {
       code: "c",
       detail: "d",

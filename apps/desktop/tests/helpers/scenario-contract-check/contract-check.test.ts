@@ -1,12 +1,8 @@
 // The predicate's beat, queue and caller legs, driven through the aggregate entry.
 //
-// A PER-LEG CONTROL. Each case drives the same imported predicate over a real scenario
-// with one deliberate defect, and never a local copy of the rule.
-//
-// THE OTHER AXES ARE BESIDE THIS FILE, ONE PER MODULE THEY COVER: `run-beats.test.ts`
-// for the run and rollback semantics, and `beat-order.test.ts` for the tick and log
-// position. Every one of them drives the aggregate entry rather than a leg directly,
-// because the aggregate is the only function a feature's scenario is measured through.
+// Each case drives the imported predicate over a real scenario with one deliberate defect, never a
+// local copy of the rule. The other axes are in `run-and-queue-semantics.test.ts`,
+// `beat-order.test.ts` and `reply-checks.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -42,11 +38,10 @@ const CONTROL_QUEUE_ITEM_ID = "019b79ee-0280-7c11-8110-d1a4c1159902";
 const CONCURRENT_STREAMING_USER_ID = CONCURRENT_STREAMING_SCENARIO.userIdsInJoinOrder[0] ?? "";
 
 /**
- * The concurrent-streaming scenario playing exactly ONE beat, built from its own opening beat.
+ * The concurrent-streaming scenario playing exactly one beat, built from its own opening beat.
  *
- * A single beat is what every case below is about, and starting from the shipped scenario's
- * own means the envelope members a case does not touch — the session it travels on,
- * the log position it opens at, the actor — are ones the predicate already accepts.
+ * Starting from the shipped beat keeps every envelope member a case does not touch (session, log
+ * position, actor) one the predicate already accepts.
  */
 function scenarioPlayingOneBeat(
   scenarioId: string,
@@ -63,8 +58,7 @@ function scenarioPlayingOneBeat(
 
 describe("scenario wire truth — the shape a beat's envelope and payload have to hold", () => {
   it("reports a beat whose kind no daemon emits", () => {
-    // `run.started` is the defect this leg was written for: it reads exactly like a
-    // real event, and the census has `run.starting` instead.
+    // `run.started` reads like a real event; the census has `run.starting`.
     const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("plays-an-unregistered-kind", (beat) => ({
         ...beat,
@@ -77,10 +71,8 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
   });
 
   it("reports a registered kind carrying a payload the strict layer rejects", () => {
-    // The quieter half. Without this the payload leg could be skipping every beat and
-    // the case above would still be green: `session.created` registers the session's
-    // shape and its lead and the variant is `.strict()`, so a `title` member is a
-    // payload no daemon sends.
+    // Without this the payload leg could skip every beat and the case above stay green.
+    // `session.created`'s variant is `.strict()`, so a `title` member is a payload no daemon sends.
     const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-an-unregistered-payload", (beat) => ({
         ...beat,
@@ -93,9 +85,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
   });
 
   it("reports an identifier the branded id types do not accept", () => {
-    // A readable identifier renders exactly like a real one and is rejected by every
-    // branded schema the wire declares, so a scenario written from design notes rather
-    // than from the contract fails at the first view that parses it.
+    // A readable identifier renders like a real one but every branded schema rejects it.
     const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-a-readable-identifier", (beat) => ({
         ...beat,
@@ -108,9 +98,8 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
   });
 
   it("reports a beat whose envelope id is empty", () => {
-    // `EventEnvelope.id` is what every later read of an event's body is keyed by, and
-    // an empty one resolves to nothing — a defect exactly as a bad `sessionId` is, and
-    // one the predicate could not see while it minted an envelope id of its own.
+    // `EventEnvelope.id` keys every later read of an event's body, and an empty one resolves to
+    // nothing.
     const defects = findScenarioContractDefects([
       scenarioPlayingOneBeat("carries-no-envelope-id", (beat) => ({
         ...beat,
@@ -123,13 +112,9 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
   });
 
   it("reports a beat the canonical carrier rejects, on a kind the strict layer skips", () => {
-    // The carrier leg's own control, put where only that leg reaches: the run
-    // lifecycle kinds register no payload variant, so the strict layer reports nothing
-    // for them and this beat used to pass silently. The defect is on `actorId`, a
-    // canonical envelope member no run payload carries and no ordering rule reads — an
-    // empty one is neither a user nor the system arm, which omits the key, so
-    // the delivery would be counted unreadable and dropped, which in a fixture reads as
-    // a beat that renders nothing.
+    // The carrier leg's own control, on a kind the strict layer skips (run lifecycle kinds register
+    // no variant). An empty `actorId` is neither a user nor the system arm, so the console would
+    // count the delivery unreadable and drop it.
     const runBeat = CONCURRENT_STREAMING_SCENARIO.beats.find(
       (beat) => beat.event.kind === "run.starting",
     );
@@ -162,7 +147,7 @@ describe("scenario wire truth — the shape a beat's envelope and payload have t
 });
 
 describe("scenario wire truth — the state a queue beat says its row moved to", () => {
-  /** The concurrent-streaming scenario's opening beat, replaced by a queue beat carrying the payload named. */
+  /** The concurrent-streaming scenario's opening beat, replaced by a queue beat with `payload`. */
   function scenarioPlayingQueueBeat(
     scenarioId: string,
     eventKind: string,
@@ -175,11 +160,8 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
   }
 
   it("reports a queue beat that names no state", () => {
-    // Every other leg passes this beat: `queue_item.admitted` is a census row, the
-    // canonical envelope carries it, and no payload variant is registered for any of
-    // the queue kinds — so the omission was invisible, and the stream's projection
-    // would have taken the row's state from the KIND alone and built a valid-looking
-    // summary out of half a payload.
+    // Every other leg passes this beat, and the projection would take the row's state from the
+    // kind alone.
     const defects = findScenarioContractDefects([
       scenarioPlayingQueueBeat("names-no-queue-state", "queue_item.admitted", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
@@ -192,9 +174,8 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
   });
 
   it("reports a queue beat whose kind and payload name different states", () => {
-    // The other half of the same rule, and the one the missing member used to skip
-    // past: `queue_item.admitted` announces `admitted`, so a payload saying `queued` is
-    // a row that moved two ways at once.
+    // `queue_item.admitted` announces `admitted`, so a payload saying `queued` is a row that moved
+    // two ways at once.
     const defects = findScenarioContractDefects([
       scenarioPlayingQueueBeat("names-two-queue-states", "queue_item.admitted", {
         sessionId: CONCURRENT_STREAMING_SCENARIO.sessionId,
@@ -208,10 +189,8 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
   });
 
   it("negative control: the same beat naming the state its kind announces is clean", () => {
-    // Without it, a leg that reported every queue beat would pass both cases above and
-    // no feature could script a queue row at all. `queue_item.created` is the row that
-    // proves the mapping is read and not guessed: its kind says `created` and the state
-    // it announces is `queued`.
+    // Without it a leg reporting every queue beat would pass both cases above. `queue_item.created`
+    // announces `queued`, which proves the mapping is read and not guessed.
     expect(
       findScenarioContractDefects([
         scenarioPlayingQueueBeat("names-the-announced-state", "queue_item.created", {
@@ -226,10 +205,7 @@ describe("scenario wire truth — the state a queue beat says its row moved to",
 
 describe("scenario wire truth — the caller a scenario answers its identity read with", () => {
   it("reports a stated caller who is not in the scenario's own user list", () => {
-    // A caller outside the join order resolves to no user entry, so every
-    // view that attributes a row to this window silently attributes it to nobody —
-    // a defect that renders as a session nobody is looking at rather than as anything
-    // wrong.
+    // A caller outside the join order resolves to no user, so rows are attributed to nobody.
     const defects = findScenarioContractDefects([
       {
         ...CONCURRENT_STREAMING_SCENARIO,
@@ -243,9 +219,7 @@ describe("scenario wire truth — the caller a scenario answers its identity rea
   });
 
   it("accepts a stated caller the scenario actually joins", () => {
-    // The other arm, so the case above is a join-order check rather than a blanket
-    // refusal of the field — which would make every scenario that states its caller
-    // fail and read exactly the same here.
+    // The other arm, so the case above is a join-order check and not a refusal of the field.
     expect(
       findScenarioContractDefects([
         {

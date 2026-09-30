@@ -1,17 +1,10 @@
 // How long a provider import lives, which is not how long its panel is on screen.
 //
-// THE DEFECT, AND WHY NOTHING REPORTED IT. An import panel that held the whole import —
-// the start act in its own subject-scoped cell and the progress drain in its own
-// effect — lost it whenever the panel unmounted mid-import: the cleanup closed the
-// progress subscription while the daemon went on reading, and coming back built a fresh
-// act that had started nothing, which is what "underway" is read from. So the panel
-// offered a second import over a first one still running, and the first one's progress
-// was gone for good. Every part of that is silent.
-//
-// THE CLAIM is that the import survives its panel: the state lives above the condition,
-// so an unmount of the panel costs the reading nothing. It is driven through a host that
-// copies the composition that matters — the model above the condition, the panel below
-// it — and both halves of it are the real modules. The calls are plain stubs.
+// A panel that held the whole import lost it when it unmounted mid-import: the cleanup closed
+// the subscription while the daemon kept reading, and the fresh act that came back read as
+// nothing underway, so a second import was offered over the first. The claim is that the
+// import survives its panel because the model lives above the condition. The host copies that
+// composition with the real model and panel; the calls are stubs.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -34,7 +27,7 @@ const WHILE_READING: ProviderImportProgress = {
   read: 12,
 };
 
-/** A second message, so a case can prove the subscription is still LIVE and not merely held. */
+/** A second message, so a case can prove the subscription is still live and not merely held. */
 const STILL_READING: ProviderImportProgress = { ...WHILE_READING, read: 31 };
 
 /** How the import this case started ended. */
@@ -56,9 +49,8 @@ const FINISHED: ProviderImportProgress = {
 /**
  * A progress stream a case drives by hand, and whose closes it counts.
  *
- * The close is counted rather than flagged: "closed at least once" cannot tell a drain
- * that let go of its handle from one that let go of it twice, and the second is a
- * double release on the live wire.
+ * The close is counted, not flagged, so a drain that closed twice (a double release on the
+ * live wire) is caught.
  */
 class DrivenProgressStream implements ImportProgressStream {
   #pending: ProviderImportProgress | undefined;
@@ -112,8 +104,8 @@ interface ImportCalls {
 /**
  * The import's two calls, answered by the case.
  *
- * The begin settles at once and the progress stream is driven frame by frame, which
- * puts the moment under test — the middle of a reading — where the case says.
+ * The begin settles at once and the stream is driven frame by frame, which puts the middle
+ * of a reading where the case says.
  */
 function callsReading(stream: DrivenProgressStream): ImportCalls {
   return {
@@ -125,9 +117,8 @@ function callsReading(stream: DrivenProgressStream): ImportCalls {
 /**
  * The composition the model exists for: the model above the condition, the panel below it.
  *
- * The calls are PROPS and the case passes the same ones on every render, because the
- * begin call is what the import is addressed by: fresh calls per render would re-mint
- * the act and the case would be watching its own churn rather than a disclosure moving.
+ * The calls are props and the case passes the same ones every render, because the begin call
+ * is what the import is addressed by; fresh calls would re-mint the act.
  */
 function ImportHost(props: {
   readonly calls: ImportCalls;
@@ -138,12 +129,10 @@ function ImportHost(props: {
 }
 
 /**
- * The composition the model replaced: the model minted INSIDE the conditional child.
+ * The composition that loses the import: the model minted inside the conditional child.
  *
- * The one control that makes the case above a claim about PLACEMENT rather than about
- * a stream that happened to stay open. Both compositions use the same real hook and
- * the same real panel and differ in one thing — which side of the condition the model
- * is held on.
+ * The control that makes the case a claim about placement, not about a stream that happened
+ * to stay open; only the side of the condition the model is held on differs.
  */
 function PanelHeldImport(props: { readonly calls: ImportCalls }): React.JSX.Element {
   const providerImport = useProviderImport(props.calls.begin, props.calls.subscribe);
@@ -194,8 +183,8 @@ describe("an import whose panel goes away", () => {
     view.rerender(<ImportHost calls={calls} isPanelMounted={false} />);
     await settle();
     expect(submitControl(view.container)).toBeUndefined();
-    // A frame that arrives while nobody is looking. The subscription is still open —
-    // it was the panel's own cleanup that used to close it — so this one lands.
+    // A frame that arrives while nobody is looking; the subscription is still open, so it
+    // lands.
     await act(async () => {
       stream.emit(STILL_READING);
       await settle();
@@ -204,9 +193,8 @@ describe("an import whose panel goes away", () => {
     view.rerender(<ImportHost calls={calls} isPanelMounted />);
     await settle();
 
-    // The same import, still being read, reporting what happened while the panel was
-    // away rather than starting again from nothing — and the control is still shut,
-    // because the act that started it still exists.
+    // The same import, still being read and reporting what happened while the panel was
+    // away; the control is still shut because the act still exists.
     expect(view.container.textContent).toContain("31");
     expect(submitControl(view.container)?.disabled).toBe(true);
     expect(view.container.textContent).toContain("The last import is still being read.");
@@ -215,9 +203,8 @@ describe("an import whose panel goes away", () => {
   });
 
   it("negative control: an import that SETTLED leaves the form a form again", async () => {
-    // Without this the case above would pass over a panel that reported "still being
-    // read" for every import it had ever seen — the same control stuck in the other
-    // direction, and just as wrong.
+    // Without this the case above would pass over a panel that reported "still being read"
+    // for every import it had seen.
     const stream = new DrivenProgressStream();
     const view = render(<ImportHost calls={callsReading(stream)} isPanelMounted />);
 
@@ -236,9 +223,9 @@ describe("an import whose panel goes away", () => {
   });
 
   it("negative control: minted inside the panel, the same import does not survive it", async () => {
-    // The defect, driven through the real hook and the real panel with one thing
-    // changed — the side of the condition the model is held on. Without this the case
-    // above would pass over a stream that merely happened to stay open, and the fix's
+    // The same real hook and panel with one thing changed, the side of the condition the
+    // model is held on. Without this the case above would pass over a stream that merely
+    // stayed open.
     // claim would rest on nothing.
     const stream = new DrivenProgressStream();
     const calls = callsReading(stream);
@@ -256,9 +243,8 @@ describe("an import whose panel goes away", () => {
     view.rerender(<PanelHeldImportHost calls={calls} isPanelMounted />);
     await settle();
 
-    // A fresh act that started nothing: the panel reads no import underway, so a
-    // second import is offered over the first — and the first reading's subscription
-    // was closed on the way out, which is what leaves nothing to report.
+    // A fresh act that started nothing: no import reads as underway, so a second is offered
+    // over the first, and the first subscription was closed on the way out.
     expect(stream.closeCount).toBe(1);
     expect(view.container.textContent).not.toContain("The last import is still being read.");
     expect(view.container.querySelector(".meridian-session-import__progress")).toBeNull();

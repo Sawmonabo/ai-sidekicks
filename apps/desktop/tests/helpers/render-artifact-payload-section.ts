@@ -1,14 +1,9 @@
-// Mounting the artifact reading: the two artifacts a case is about, a component that
-// binds the reader through `useArtifactList`, and the ways a case puts it on screen.
+// Mounts the artifact reading: the two artifacts a case is about, a component that binds the
+// reader through `useArtifactList`, and the ways a case puts it on screen.
 //
-// THE BOUND SECTION IS THE SMALLEST THING THAT USES THE HOOK. It draws the listed rows, a control
-// that fetches the payload, and the payload section, so a case exercises the real
-// binding and the real section against the calls it scripts rather than against a
-// hand-written reading.
-//
-// EVERYTHING ABOUT WHAT IS SERVED COMES FROM `artifact-list-readers.ts`, which this
-// module imports: a second id or a second manifest here would put the mounted cases and
-// the reader cases on two different fixtures.
+// The bound section draws the listed rows, a control that fetches the payload, and the payload
+// section, so a case exercises the real binding and section against the calls it scripts. What is
+// served comes from `artifact-list-readers.ts`, so mounted and reader cases share one fixture.
 
 import type { ArtifactId } from "@ai-sidekicks/contracts";
 import { render } from "@testing-library/react";
@@ -29,12 +24,11 @@ export const OPENED_ARTIFACT_ID = "artifact-diff-01" as ArtifactId;
 export const OTHER_ARTIFACT_ID = "artifact-attachment-02" as ArtifactId;
 
 /**
- * What the bound section is mounted over: the bridge, the session store, the calls, and
- * the clock the window runs on, which the reader schedules against.
+ * What the bound section is mounted over: the bridge, the session store, the calls, and the
+ * clock the window runs on, which the reader schedules against.
  *
- * ONE OBJECT PER CASE, and the same object across a case's re-renders: the bridge and
- * the calls are the binding's identity, so a second `artifactPayloadSubject` call would
- * remount the reader for that reason instead of the one the case is about.
+ * One object per case and the same across re-renders, since the bridge and calls are the
+ * binding's identity and a second subject would remount the reader.
  */
 export interface ArtifactPayloadSubject {
   readonly bridge: PlatformBridge;
@@ -84,10 +78,8 @@ export function renderArtifactPayloadSection(
 /**
  * Mount the bound section the way React's development double-mount does.
  *
- * `StrictMode` runs every effect's setup, then its cleanup, then its setup again on the
- * same committed value — the sequence that disposes a reader and then calls `start()` on
- * the corpse. A binding that cannot come back from it is inert with nothing on screen to
- * say so, which is why this is a mount of its own rather than a flag.
+ * `StrictMode` runs each effect's setup, cleanup and setup again, which disposes a reader and then
+ * calls `start()` on it. A binding that cannot recover is inert with nothing on screen to say so.
  */
 export function renderArtifactPayloadSectionStrictly(
   subject: ArtifactPayloadSubject,

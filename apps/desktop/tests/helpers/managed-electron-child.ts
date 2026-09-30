@@ -1,32 +1,21 @@
 // The object that owns one spawned child's fate, and how it learns that fate.
 //
-// Split out of `electron-child.ts` rather than left inside it because that
-// module is the SPAWNER — the one file under `tests/` allowed to reach
-// `spawn`, which `apps/desktop/eslint.config.mjs` enforces — and the
-// lifetime object beside it had become a second job in the same file.
+// Split from `electron-child.ts`, the spawner, which is the one file under `tests/` allowed to
+// reach `spawn` (enforced by `apps/desktop/eslint.config.mjs`).
 //
-// `EXIT` IS NOT `CLOSE`, AND THE DIFFERENCE IS THE WHOLE POINT
+// `exit` is not `close`. `exit` says the process ended; `close` also says every inherited stdio
+// stream is released. They differ whenever a descendant inherited one, and here one always does:
+// `node_modules/.bin/electron` is a shim that spawns the browser with the shim's stdout, so the
+// shim can be gone while the browser still holds the pipe and runs. Taking a non-null `exitCode`
+// for "the child is gone" is wrong both ways. Releasing a resource on it races descendants still
+// holding it (on Windows a live handle in a Chromium profile directory makes removal fail).
+// Signaling on it is worse: by `close` the pid is reaped and reissuable, so a kill addressed to
+// it or to its group reaches whatever holds that number now.
 //
-// `exit` says the process has ended. `close` says that AND that every stdio
-// stream inherited from it has been released — a different moment whenever a
-// descendant inherited one, and here a descendant always does:
-// `node_modules/.bin/electron` is a shim that spawns the real browser process
-// with the shim's own stdout, so the shim can be gone, `exitCode` set, while
-// the browser it started still holds that pipe and still runs.
-//
-// A reader that takes a non-null `exitCode` for "the child is gone" is
-// therefore wrong twice over, in opposite directions. RELEASING a resource on
-// it races descendants that still hold the resource — on Windows a live handle
-// inside a Chromium profile directory makes the removal fail outright and the
-// directory survives the run. SIGNALING on it is worse: by `close` the pid has
-// been reaped and the number is the operating system's to hand out again, so a
-// kill addressed to it, or to the group it led, reaches whatever holds it now.
-//
-// One field answers both questions. It is set from this child's own `close`
-// handler, registered in the constructor so it runs ahead of every listener a
-// caller adds, and it is read in exactly two places: `dispose` below, which
-// signals nothing once it is true, and `electron-child-cleanup.ts`, which waits
-// for it to become true before releasing what the child was holding.
+// One field answers both questions. It is set from this child's own `close` handler, registered
+// in the constructor so it runs ahead of every caller's listener, and read in two places:
+// `dispose`, which signals nothing once it is true, and `electron-child-cleanup.ts`, which waits
+// for it before releasing what the child held.
 
 import type { ChildProcessByStdio } from "node:child_process";
 import type { Readable } from "node:stream";
@@ -36,92 +25,50 @@ import { type CapturedTreeMember } from "./process-tree/start-stamps.js";
 import { SpawnedTreeRecord, type SpawnedTreeIdentityCapture } from "./spawned-tree-record.js";
 
 /**
- * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it.
- *
- * The shim forwards SIGTERM, so the graceful pass lets Electron shut its
- * children down in order and close the inherited stdout write end this
- * package's `close` events wait on. SIGKILL is the backstop for a tree that
- * ignores it — Electron does, when it is hung, which is the only case where a
- * deadline fires at all.
+ * Grace between the SIGTERM a deadline issues and the SIGKILL that backs it. The shim forwards
+ * SIGTERM, so the graceful pass lets Electron shut down in order and close the inherited stdout
+ * write end that `close` waits on. SIGKILL backs a hung tree, the only case a deadline fires.
  */
 export const TERMINATION_GRACE_MS = 2_000;
 
 /**
- * How many times a refused disposal asks again before it gives the child up.
- *
- * Small on purpose, and a bound rather than a condition: the first call is the
- * ordinary one, the second is the whole reason the loop exists — a tree that
- * refused one kill and takes the next — and past that the tree is unkillable by
- * this process. A further ask would hold teardown open for the same answer.
- *
- * It lives HERE, beside the class whose `disposeUntilKillDelivered` spends it,
- * because three callers need it and two of them cannot reach the fourth
- * candidate home: `electron-child-cleanup.ts` imports `electron-child.ts`, so a
- * figure declared there and read by the spawner would close an import cycle.
- * `bounded-cleanup.ts` takes it from here rather than restating it,
- * because two `3`s in two files are two bounds that will disagree.
+ * How many times a refused disposal asks again before it gives the child up. The first call is
+ * the ordinary one, the second exists for a tree that refused one kill and takes the next, and
+ * past that the tree is unkillable by this process. It lives beside `disposeUntilKillDelivered`,
+ * which spends it; `bounded-cleanup.ts` and `electron-child-teardown.ts` import it so no second
+ * copy of the bound exists.
  */
 export const DISPOSAL_ATTEMPTS = 3;
 
 /**
- * The child shape every spawn here produces: no stdin, both output streams piped.
- *
- * Named rather than inferred so callers keep the non-null `stdout` / `stderr`
- * the fixed `stdio` triple guarantees — a caller re-declaring the handle as the
- * general `ChildProcess` would have to null-check streams that cannot be null.
+ * The child shape every spawn here produces (no stdin, both outputs piped), named so callers keep
+ * the non-null `stdout` and `stderr` instead of null-checking a general `ChildProcess`.
  */
 export type ManagedChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 /**
- * How a whole tree is signaled, and whether the signal landed.
- *
- * Injected because the case that matters is a tree that REFUSED the kill — a
- * `taskkill` that spawned and exited non-zero against a live Electron — and
- * there is no way to make a real platform refuse on demand. The default is the
- * real one, so every production caller signals a real tree.
+ * How a whole tree is signaled, and whether the signal landed. Injected so a test can make a tree
+ * refuse the kill (a `taskkill` that exits non-zero against a live Electron), which a real
+ * platform cannot do on demand. The default signals a real tree.
  */
 export type ProcessTreeTerminator = (processId: number, signal: NodeJS.Signals) => boolean;
 
 /**
- * A spawned Electron process whose lifetime is bounded by the test that
- * spawned it.
+ * A spawned Electron process whose lifetime is bounded by the test that spawned it.
  *
- * Three mechanisms, deliberately layered rather than alternatives:
+ * Three layered mechanisms. The process-group kill is load-bearing: it alone reaches the browser
+ * behind the launcher shim, and exists because the spawn leads its own group on POSIX. The
+ * `AbortSignal` given to `spawn` is the direct-handle backstop for a child that never received a
+ * pid. The settle-time registration makes either run on an outcome nobody armed a timer for. A
+ * second kill is a no-op: after SIGKILL is delivered, re-signaling a reaped pid on POSIX would
+ * address whatever now holds that number.
  *
- *   • The process GROUP kill is the load-bearing one. It is the only form that
- *     reaches the browser process behind the launcher shim, and it is available
- *     only because the spawn leads its own group on POSIX.
- *   • The `AbortSignal` handed to `spawn` is the direct-handle backstop, for the
- *     one case the group kill cannot answer: a child that never received a pid,
- *     which is a spawn that failed outright.
- *   • The settle-time registration is what makes either of them run on an
- *     outcome nobody armed a timer for.
- *
- * A second kill is a no-op. Once SIGKILL has been delivered there is nothing
- * left to ask, and re-signaling a reaped pid on POSIX addresses whatever has
- * since been given that number.
- *
- * AND THE PID IS CAPTURED, NOT MERELY HELD. The same reissue that makes a second
- * kill wrong makes the FIRST one wrong once the shim has exited — the ordinary
- * shape here, since the shim is reaped while the browser it started holds the
- * inherited stdout. So the tree's identity is taken while the pid is
- * unambiguously this tree's, and the platform arm re-verifies it before it
- * signals anything; `SpawnedTreeIdentity` has the mechanism.
- *
- * The capture is a CALL the owner makes rather than a step of construction: it
- * reads this host with a blocking `spawnSync`, and inside the constructor that
- * put a host query between the spawn and the settle-time registration — a window
- * in which the process exists, nothing has been registered to kill it, and a
- * query that stalls or throws leaves it that way.
- *
- * AND THE DESCENDANT SET IS RECORDED WHILE THE CHILD IS UP, NEVER AT ITS EXIT.
- * It cannot be taken at the spawn — an Electron has no children in the instant
- * it starts — and on the shape this class exists for nothing asks for a reading
- * until the disposal, by which time the root is `gone` and the rootless arm has
- * an empty kill list. So the owner records it through `captureTreeDescendants`
- * at a moment it can vouch for, and the root's own `exit` may only NARROW what
- * was recorded: `spawned-tree-record.ts` has both moments and why the second one
- * can no longer add.
+ * The tree's identity is captured while the pid is unambiguously this tree's, and the platform
+ * arm re-verifies it before signaling (`SpawnedTreeIdentity`). The capture is a call the owner
+ * makes, not part of construction, because it is a blocking `spawnSync` that would otherwise sit
+ * between the spawn and the settle-time registration. The descendant set is recorded through
+ * `captureTreeDescendants` while the child is up, since an Electron has no children at spawn and
+ * by disposal the root is gone; the root's `exit` may only narrow it (`spawned-tree-record.ts`).
  */
 export class ManagedElectronChild {
   readonly #child: ManagedChildProcess;
@@ -141,13 +88,8 @@ export class ManagedElectronChild {
     this.#child = child;
     this.#abortController = abortController;
     this.#treeRecord = new SpawnedTreeRecord(captureRootIdentity);
-    // The RECORD is read inside the closure rather than an identity closed over,
-    // because the root capture is the owner's call and lands after this
-    // constructor returns.
-    //
-    // An injected terminator bypasses the capture entirely, and correctly so:
-    // such a caller is standing in for the platform, and the identity is the
-    // platform's reading rather than this class's decision.
+    // The record is read inside the closure because the root capture lands after the constructor
+    // returns. An injected terminator bypasses the capture: its caller stands in for the platform.
     this.#terminateTree =
       terminateTree ??
       ((treeProcessId, treeSignal) =>
@@ -156,19 +98,14 @@ export class ManagedElectronChild {
           treeSignal,
           this.#treeRecord.identityFor(treeProcessId),
         ));
-    // THE ROOT'S NUMBER STOPS BEING THIS TREE'S HERE, so this may only remove
-    // members from what was recorded while the child was up — a listing taken
-    // from a reaped pid can carry rows a new holder fathered, and no filter over
-    // those rows separates them from ours.
+    // After the root exits its number is no longer this tree's, so this may only remove members
+    // from what was recorded while the child was up: a listing from a reaped pid can carry rows a
+    // new holder fathered.
     child.once("exit", () => {
       this.#treeRecord.narrowAtRootExit();
     });
-    // Registered HERE and not by a caller, for two reasons that are one reason.
-    // It has to be attached before anything can be delivered, and the moment
-    // after the spawn is the only point where that is guaranteed; and it has to
-    // run before every listener a caller adds, which the arrival order of `once`
-    // registrations gives for free — so a caller awaiting its own `close`
-    // observes a `hasClosed` that is already true rather than one about to be.
+    // Registered here so it is attached before anything can be delivered and runs before every
+    // listener a caller adds, so a caller awaiting its own `close` sees `hasClosed` already true.
     child.once("close", () => {
       this.#closeDelivered = true;
     });
@@ -177,14 +114,10 @@ export class ManagedElectronChild {
   /**
    * Take this tree's root identity, now. Idempotent, and a no-op without a pid.
    *
-   * SEPARATE FROM CONSTRUCTION SO OWNERSHIP CAN COME FIRST. It performs a
-   * blocking host query, which must not sit between a spawn and the registration
-   * that kills what was spawned — a stall there blocks the thread vitest's own
-   * timeout runs on, and a worker killed while blocked runs no teardown at all.
-   *
-   * Idempotent because "the identity was taken at the spawn" is the property: a
-   * second call minutes later would replace a capture made when that was true
-   * with one made when it may not be.
+   * Separate from construction so ownership comes first: it is a blocking host query, and a stall
+   * between the spawn and the registration that kills it blocks the thread vitest's timeout runs
+   * on. Idempotent because a later call would replace a capture made at the spawn with one made
+   * when the pid may no longer be this tree's.
    */
   captureTreeIdentity(): void {
     this.#treeRecord.captureRoot(this.#child.pid);
@@ -193,15 +126,10 @@ export class ManagedElectronChild {
   /**
    * Record the tree below this root, once, while this child is still running.
    *
-   * THE OWNER'S CALL BECAUSE THE OWNER IS WHAT KNOWS. A harness learns its child
-   * is up by hearing from it, and that is the one moment at which the descendant
-   * set both exists and is safely readable — `spawned-tree-record.ts` has why the
-   * root's own `exit` is already too late and what an undelivered `exit` proves
-   * about the pid. Costs one blocking host listing per child, which is why it is
-   * taken once and why every enclosing per-test budget reserves it.
-   *
-   * A child that has already reported an exit records nothing rather than
-   * recording whatever now holds its number.
+   * The owner calls it because it learns the child is up by hearing from it, the one moment the
+   * descendant set both exists and is safely readable (`spawned-tree-record.ts`). It costs one
+   * blocking host listing per child, so every enclosing per-test budget reserves it. A child that
+   * already reported an exit records nothing rather than whatever now holds its number.
    */
   captureTreeDescendants(): void {
     this.#treeRecord.captureDescendants(
@@ -210,10 +138,8 @@ export class ManagedElectronChild {
   }
 
   /**
-   * The tree members this child captured while its root was still its own.
-   *
-   * A READING rather than the identity object: a caller can check what the
-   * rootless arm will be handed without being able to mutate it.
+   * The tree members captured while the root was still this child's, as a reading so a caller
+   * cannot mutate the identity.
    */
   get capturedTreeMembers(): readonly CapturedTreeMember[] {
     return this.#treeRecord.members;
@@ -230,41 +156,29 @@ export class ManagedElectronChild {
   }
 
   /**
-   * Whether this child's `close` has been delivered.
-   *
-   * The one reading that means "the process has ended AND every stdio stream
-   * inherited from it has been released", which is what both callers actually
-   * need and what no exit code can say — the module header has the mechanism.
-   * It never goes back to false: `close` is delivered at most once.
+   * Whether this child's `close` has been delivered: the process has ended and every inherited
+   * stdio stream is released, which no exit code can say. It never goes back to false.
    */
   get hasClosed(): boolean {
     return this.#closeDelivered;
   }
 
   /**
-   * Signal this child's whole tree once, and say whether the signal landed.
+   * Signal this child's whole tree once, and say whether the signal landed. `true` also covers
+   * "nothing left to signal" (see `terminateProcessTree`).
    *
-   * `true` also covers "there was nothing left to signal", which is the
-   * ordinary outcome when the process exited between a deadline expiring and
-   * the kill being issued — see `terminateProcessTree` for why that is a
-   * success rather than a silent failure.
-   *
-   * THE MARKER RECORDS THE VERDICT, NEVER THE ATTEMPT. Setting it before the
-   * call made a refused tree kill indistinguishable from a delivered one — the
-   * `taskkill` that spawns, exits non-zero and leaves Electron running is
-   * exactly the case `terminateProcessTree` reports `false` for — and from that
-   * point `dispose` aborted the direct handle alone while every later disposer
-   * returned early on the marker. The retry that settle-time cleanup exists to
-   * perform therefore never ran, on the one path that needed it.
+   * The marker records the verdict, not the attempt. Set before the call, a refused tree kill (a
+   * `taskkill` that exits non-zero and leaves Electron running) would look delivered, `dispose`
+   * would abort the direct handle alone, and later disposers would return early, so the retry
+   * would never run.
    */
   terminate(signal: NodeJS.Signals): boolean {
     if (this.#killDelivered) {
       return true;
     }
     const processId = this.#child.pid;
-    // No pid means the spawn itself failed, so there is no group and no tree —
-    // the direct handle is the only thing that can be addressed, and this is
-    // the one question `terminateProcessTree` cannot be asked.
+    // No pid means the spawn failed: there is no group or tree, so the direct handle is the only
+    // thing addressable.
     const delivered =
       processId === undefined ? this.#child.kill(signal) : this.#terminateTree(processId, signal);
     if (signal === "SIGKILL" && delivered) {
@@ -274,13 +188,9 @@ export class ManagedElectronChild {
   }
 
   /**
-   * Ask the tree to exit, and kill it if it does not.
-   *
-   * The ladder a deadline runs. SIGTERM first because the shim forwards it and
-   * an ordered Electron shutdown closes the inherited stdout write end this
-   * harness's `close` event is waiting on; SIGKILL after the grace because a
-   * hung Electron ignores the first one, and a hung Electron is the only reason
-   * a deadline fires.
+   * Ask the tree to exit, and kill it if it does not. SIGTERM goes first because the shim forwards
+   * it and an ordered shutdown closes the inherited stdout write end `close` waits on; SIGKILL
+   * follows after the grace because a hung Electron ignores the first.
    */
   terminateWithEscalation(graceMs: number = TERMINATION_GRACE_MS): void {
     this.terminate("SIGTERM");
@@ -294,14 +204,10 @@ export class ManagedElectronChild {
   }
 
   /**
-   * Whether the direct-handle backstop has been fired.
-   *
-   * The reading that makes the rule in `dispose` checkable rather than merely
-   * asserted in prose. The abort kills the ROOT and nothing beneath it, and the
-   * root is what a tree kill is addressed THROUGH — on Windows `taskkill /pid
-   * <root> /t` rediscovers the descendants by walking from it, and this process
-   * holds no other handle on them. So a child that has a pid must never see
-   * this become `true`, refused kill or delivered one, and a test can ask.
+   * Whether the direct-handle backstop has fired. The abort kills the root only, and the root is
+   * what a tree kill is addressed through (`taskkill /pid <root> /t` walks descendants from it),
+   * so a child with a pid must never see this become true, whether the kill was refused or
+   * delivered.
    */
   get directHandleReleased(): boolean {
     return this.#abortController.signal.aborted;
@@ -310,47 +216,22 @@ export class ManagedElectronChild {
   /**
    * Release everything this child holds, now. Idempotent.
    *
-   * Registered as the settle-time disposer, and also called by a harness that
-   * has finished with the child before the test has.
+   * It is the settle-time disposer, and a harness that finishes with the child early also calls it.
    *
-   * ONCE `close` HAS FIRED THIS SIGNALS NOTHING, and that is not caution — it
-   * is the only correct answer. Two of this package's harnesses call `dispose`
-   * from the child's OWN `close` handler (`smoke-probe-harness.ts`'s single settle
-   * path, `gc-probe-harness.ts`'s cleanup), and by then the child has been
-   * reaped and its pid is the operating system's to reissue. Asking for a kill
-   * there does not re-signal a dead process: on POSIX it delivers SIGKILL to
-   * `-pid` and `pid`, either of which may by then name a group or a process
-   * this test never started. The escalation timer is still released, the
-   * disposal still completes, and the caller's own resource-removal path still
-   * runs — the wait for that is `electron-child-cleanup.ts`'s, and it is
-   * already satisfied here.
+   * Once `close` has fired it signals nothing. The smoke-probe and gc-probe harnesses call it from
+   * the child's own `close` handler, when the pid is reaped and reissuable, so a kill would deliver
+   * SIGKILL to `-pid` and `pid` and hit a group or process this test never started. The escalation
+   * timer is still released.
    *
-   * THE ABORT IS NOT A SECOND ATTEMPT AT THE TREE, and treating it as one was
-   * the other hole. It reaches the direct handle ALONE, so it can do exactly two
-   * things here and neither is a backstop:
+   * The abort is not a second attempt at the tree; it reaches the direct handle alone. After a
+   * refused tree kill it would destroy the root the retry walks the descendants from, leaving
+   * nothing that can name them. After a delivered one it re-signals a gone pid, and Node emits
+   * `AbortError` on the handle, an unhandled exception for a caller with no `error` listener. So
+   * the group kill is the whole mechanism whenever there is a group, and the abort runs only for a
+   * spawn that never received a pid.
    *
-   *   • After a REFUSED tree kill it destroys the only thing the retry has to
-   *     work with. A tree is addressed THROUGH its root — `taskkill /pid <root>
-   *     /t` walks the descendants from it, and this process holds no other
-   *     handle on them — so answering a refusal by killing the root leaves the
-   *     descendants running with nothing anywhere that can name them. The
-   *     `#killDelivered` marker staying false is what SCHEDULES the retry;
-   *     keeping the root alive is what gives the retry a tree to walk, and a
-   *     marker without the root is a retry that runs, finds nothing, and
-   *     reports success.
-   *   • After a DELIVERED one it re-signals a pid that is already gone, and
-   *     Node answers an abort by emitting `AbortError` on the handle — an
-   *     UNHANDLED exception for any caller that attached no `error` listener,
-   *     which is a failure invented by the cleanup rather than found by it.
-   *
-   * So the group kill is the whole mechanism whenever there is a group, and the
-   * abort runs only in the case the group kill cannot be asked about at all: a
-   * spawn that never received a pid, which leads no tree and has nothing but
-   * the direct handle. That is the same one case the class header names.
-   *
-   * Idempotent in the sense that matters and not in the lazier one: a call
-   * after a DELIVERED kill signals nothing, and a call after a REFUSED one asks
-   * again, because the tree that refused is still there.
+   * A call after a delivered kill signals nothing; after a refused one it asks again, because the
+   * tree that refused is still there.
    */
   dispose(): void {
     if (this.#escalationTimer !== null) {
@@ -368,25 +249,14 @@ export class ManagedElectronChild {
   }
 
   /**
-   * Dispose, and ask again while the platform says the kill was REFUSED.
+   * Dispose, and ask again while the platform says the kill was refused.
    *
-   * THE ONE HOME FOR THE KILL RETRY, and it is here rather than in either
-   * caller because the two callers are otherwise unable to share it. The
-   * settle-time disposal in `electron-child-cleanup.ts` retries around a wait
-   * for `close`; the spawner's misuse recovery has nothing to wait ON and
-   * cannot await anything at all — it is rethrowing a registration refusal out
-   * of a synchronous function — and a second loop written there would be a
-   * second bound that drifts from this one.
-   *
-   * What separates the asks is the ASK's own cost rather than a pause, and that
-   * is the honest bound rather than a compromise: on the arm where a refusal is
-   * transient it is `taskkill` spawning, exiting non-zero and being spawned
-   * again, which is a real second attempt against a real tree; on the arm where
-   * a refusal is `EPERM` nothing will change and the loop costs three syscalls.
-   *
-   * Stops the moment there is nothing further to ask — a delivered kill, a
-   * `close` that arrived, or a child that never received a pid — so an ordinary
-   * disposal stays exactly one call long.
+   * The one home for the kill retry: `electron-child-teardown.ts` retries around a wait for
+   * `close`, while the spawner's misuse recovery is synchronous and cannot await, and a second
+   * loop would be a second bound. What separates the asks is the ask's own cost: where a refusal
+   * is transient it is `taskkill` spawning and failing again, a real second attempt; where it is
+   * `EPERM`, nothing changes and the loop costs three syscalls. It stops when a kill was
+   * delivered, `close` arrived or the child has no pid, so an ordinary disposal is one call.
    */
   disposeUntilKillDelivered(): void {
     for (let attempt = 0; attempt < DISPOSAL_ATTEMPTS; attempt += 1) {

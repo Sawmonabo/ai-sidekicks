@@ -1,13 +1,10 @@
-/* The appearance page's color-scheme choice.
- *
- * A sibling sheet rather than a block in `settings.css`: the three options are this
- * page's control and nothing else draws them. The control is Base UI's radio, so the
- * indicator is the console's own; focus shows the browser's own mark.
+/* The appearance page's color-scheme choice: the page's own sheet, since nothing else draws
+ * these options. The control is Base UI's radio; focus shows the browser's own mark.
  */
 
 /* --- The color-scheme choice ------------------------------------------- */
-/* Three options, no disclosure. The control is Base UI's radio, so the dot is ours to
-   draw and the semantics are the hidden input's. */
+/* Three options, no disclosure. The dot is drawn here and the semantics are the hidden
+   input's. */
 
 .meridian-scheme-choice {
   display: flex;

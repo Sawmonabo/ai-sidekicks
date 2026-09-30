@@ -1,18 +1,15 @@
 // The renderer initial-graph budget gates.
 //
-// One walk of the built `out/renderer` tree, held against two rows of
-// `budgets.json`: `renderer-initial-bundle` over the CODE it emits, gzipped
-// (≤ 450 kB gzip excluding lazy chunks), and `renderer-initial-fonts` over the font files on that same
-// graph, raw. The split is a change of unit rather than an exclusion, and the
-// two negative controls at the bottom are what make that a claim with evidence:
-// one more font file fails the font row, and a font byte never reaches the code one.
+// One walk of the built `out/renderer` tree, held against two rows of `budgets.json`:
+// `renderer-initial-bundle` over the code it emits, gzipped (≤ 450 kB excluding lazy chunks),
+// and `renderer-initial-fonts` over the font files on the same graph, raw. The split is a change
+// of unit, not an exclusion; the two negative controls at the bottom show it: one more font file
+// fails the font row, and a font byte never reaches the code row.
 //
-// THIS TEST NEVER SKIPS ITSELF: a budget gate that turns itself off when its
-// subject is missing reports green for a bundle nobody measured. The console
-// budget Turbo task declares a `dependsOn: ["build"]` edge, so the build is
-// present by construction in CI and in `pnpm test`; a bare `vitest run` in a
-// clean checkout fails with the command that produces one. The measurer's refusals
-// are in `scripts/budget/measure-bundle.test.ts`.
+// This test never skips itself: a gate that turns off when its subject is missing reports green
+// for a bundle nobody measured. The Turbo task depends on `build`, so the build is present in CI
+// and in `pnpm test`; a bare `vitest run` without one fails with the command that produces it.
+// The measurer's refusals are in `scripts/budget/measure-bundle.test.ts`.
 
 import { writeFileSync } from "node:fs";
 import path from "node:path";
@@ -39,14 +36,13 @@ import { plantRendererOutput } from "../helpers/renderer-output-fixture.js";
 
 const registry = BudgetRegistry.load();
 
-/** An escape for measuring an out-of-tree build; NOT an escape from measuring. */
+/** Lets an out-of-tree build be measured; it is not a way to skip measuring. */
 const rendererOutputDirectory: string =
   process.env["CONSOLE_BUDGET_RENDERER_OUT_DIR"] ?? DEFAULT_RENDERER_OUTPUT_DIRECTORY;
 
 /**
- * Compression only shrinks input above roughly a container's worth of bytes; a
- * 60-byte declaration file gzips larger than it started. Assets below this size
- * are asserted to have a compressed reading at all, not a smaller one.
+ * Compression only shrinks input above roughly a container's worth of bytes (a 60-byte file
+ * gzips larger). Smaller assets are asserted to have a compressed reading, not a smaller one.
  */
 const COMPRESSION_ASSERTION_FLOOR_BYTES = 1024;
 
@@ -54,22 +50,15 @@ const COMPRESSION_ASSERTION_FLOOR_BYTES = 1024;
 const fontsBudget: Budget = registry.requireBudget(RENDERER_FONTS_BUDGET_ID);
 
 /**
- * The size the `renderer-initial-fonts` ceiling was derived to refuse ONE MORE font
- * file at — the smallest `woff2` split either IBM Plex variable package publishes at
- * the pinned versions — read off the row itself.
- *
- * The control below plants exactly it: any real additional file is this large or
- * larger, and a control planted at a comfortable size proves only that some larger
- * number is over. Read from the registry rather than restated here, because the row
- * already states the figure in its own derivation and a threshold written twice in a
- * test that also loads the file is the second home the config-single-sourcing rule
- * in `apps/desktop/AGENTS.md` rejects. It is not read out of `node_modules` either: the budget
- * tier weighs the BUILD's output, and a tier that reaches into a package layout to
- * write its own control acquires a second subject.
+ * The size the `renderer-initial-fonts` ceiling was derived to refuse one more font file at:
+ * the smallest `woff2` split either IBM Plex variable package publishes at the pinned versions.
+ * The control plants exactly it, since any real extra file is at least this large. It is read
+ * from the row rather than restated, and not from `node_modules`, because this tier weighs the
+ * build's output.
  */
 const smallestPublishedSplitBytes: number = refusalControlBytesOf(fontsBudget);
 
-/** @throws rather than planting a zero-byte control that every ceiling admits. */
+/** The row's control size; throws rather than plant a zero-byte control every ceiling admits. */
 function refusalControlBytesOf(budget: Budget): number {
   if (budget.refusalControlBytes === null) {
     throw new Error(
@@ -96,7 +85,7 @@ function measureOrFailLoudly(): RendererBundleMeasurement {
   }
 }
 
-/** Every fixture tree the refusal cases plant, removed after each of them. */
+/** Every fixture tree the refusal cases plant, removed after each case. */
 const plantedFixtures = new TemporaryDirectoryTrail();
 
 afterEach(() => {
@@ -109,7 +98,7 @@ function manifestNaming(assetPaths: readonly string[]): unknown {
   return { "index.html": { file: entryFile, isEntry: true, assets: remaining } };
 }
 
-/** One walk, read by both describes below — measuring twice is two readings that can disagree. */
+/** One walk, read by both describes below; two measurements could disagree. */
 const measurement: RendererBundleMeasurement = measureOrFailLoudly();
 
 describe("renderer initial-graph budgets", () => {
@@ -134,9 +123,8 @@ describe("renderer initial-graph budgets", () => {
       expect(asset.gzipByteCount, `${asset.relativePath}: gzip`).toBeGreaterThan(0);
       expect(asset.brotliByteCount, `${asset.relativePath}: brotli`).toBeGreaterThan(0);
       if (asset.assetClass === "code" && asset.rawByteCount >= COMPRESSION_ASSERTION_FLOOR_BYTES) {
-        // Only code compresses. A `woff2` is a Brotli container already, which is
-        // the whole reason the font row is gated raw — asserting it here would be
-        // asserting the opposite of what this split was measured to establish.
+        // Only code compresses: a `woff2` is a Brotli container already, which is why the font
+        // row is gated raw.
         expect(asset.gzipByteCount, `${asset.relativePath}: gzip < raw`).toBeLessThan(
           asset.rawByteCount,
         );
@@ -210,8 +198,8 @@ describe("the two rows bound disjoint bytes", () => {
   });
 
   it("negative control: a font byte never lands in the code row", () => {
-    // Planted: a tree holding one stylesheet and one real face. The code figure
-    // is the sheet's alone, so re-classing `woff2` as code fails this case.
+    // Planted: a tree holding one stylesheet and one real face. The code figure is the sheet's
+    // alone, so re-classing `woff2` as code fails this case.
     const stylesheet = measurement.assets.find((asset) => asset.relativePath.endsWith(".css"));
     const face = fontAssets[0];
     expect(stylesheet, "a stylesheet on the initial graph").toBeDefined();
@@ -236,15 +224,12 @@ describe("the two rows bound disjoint bytes", () => {
   });
 
   it("negative control: one more font file fails the font row", () => {
-    // The property the 232 kB figure was chosen for, driven rather than asserted:
-    // every shipped variable face plus one more file at the SMALLEST size either
-    // foundry package publishes, measured by the real measurer and judged by the
-    // real row. Planted at that size rather than as a copy of a shipped face,
-    // because a copy of the 32 576 B mono face would clear the ceiling and pass a
-    // control a far looser ceiling also passed — it would drive the sign of the
-    // refusal without driving the figure. The bytes are zeros: this gate weighs
-    // files and parses none, so the only property the plant needs is its length,
-    // and a real face would make the control depend on which one.
+    // The property the 232 kB figure was chosen for, driven rather than asserted: every shipped
+    // variable face plus one more file at the smallest size either foundry package publishes,
+    // measured by the real measurer and judged by the real row. It is planted at that size, not
+    // as a copy of a shipped face, because a copy of the 32 576 B mono face would clear the
+    // ceiling and pass a far looser one too. The bytes are zeros: this gate weighs files and
+    // parses none, so only the length matters.
     const additionalFacePath = "assets/additional-face-planted.woff2";
     const emittedFaces = new Map(
       fontAssets.map((asset) => [

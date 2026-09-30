@@ -1,34 +1,26 @@
 // The Runtime page: the supervisor's detail, one click behind the frame's chip.
 //
-// The daemon's state belongs in the frame as a chip, with its DETAIL (the attempt count
-// and the last heartbeat) one click away, diagnostic only and never editable. This is
-// that click. Starting a stopped runtime is a main-process spawn rather than a call, and that
-// control lives on the frame's own offline banner, beside the state that makes it the
-// right thing to press.
+// The frame shows the daemon's state as a chip; this page shows its detail (the attempt count
+// and the last heartbeat), diagnostic only and never editable. Starting a stopped runtime is
+// a main-process spawn, not a call, so that control lives in the app frame
+// (`layout/AppShell/hooks/useDaemonStartAction.ts`), beside the state that makes it right.
 //
-// The page draws the supervisor's facts, which arrive on its context. What calls the
-// daemon is `DaemonOperationsBlocks`, passed to the page as `children`: the daemon's own
-// reported status line, and two controls, stop and restart, which are calls to a runtime
-// that is running. The two readings answer different questions and are rendered apart,
-// but a stop the blocks dispatched and a supervisor transition they merely watched both
-// make the status line old, so the state on the context is half of what says when to put
-// it again. Nothing here polls to find that out.
+// The page draws the supervisor's facts from its context. `DaemonOperationsBlocks`, passed
+// as `children`, calls the daemon: its own reported status line, and the stop and restart
+// controls. The two readings answer different questions and render apart, but a dispatched
+// control and a supervisor transition both make the status line old, so the blocks re-put it
+// on either. Nothing polls.
 //
-// EVERY CONTROL CONFIRMS, and the confirmation names what it will interrupt rather than
-// asking "are you sure": stopping the runtime ends every run on this machine, and a
-// person who reads only the verb has not been told that.
+// Every control confirms, and the confirmation names what it will interrupt: stopping ends
+// every run on this machine, and a person who reads only the verb has not been told that. A
+// confirmation is one intended act, so once answered both actions are refused until the
+// dispatch settles, or a double-click on a destructive verb would send two. The handler's
+// tick decides the refusal (`hooks/useDaemonControl.ts`); this file says so on screen.
 //
-// AND IT CONFIRMS ONCE. A confirmation is the record of one intended act, so once it has
-// been answered both of its actions are refused until the dispatch settles; otherwise a
-// double-click on a destructive verb sends two of them. The refusal itself is decided in
-// the handler's own tick by `hooks/useDaemonControl.ts`; what this file owns is saying so on
-// screen rather than leaving a control that quietly does nothing.
-//
-// THE BLOCKS DERIVE NO ELIGIBILITY. They offer both controls in every state: no field
-// reports whether an operation would be permitted, so a page that grayed one out would be
-// inventing the answer. Disabling both confirmation actions
-// while a dispatch is outstanding is not that: whether the blocks have a dispatch
-// outstanding is a fact they hold rather than a permission they guessed.
+// The blocks derive no eligibility: no field reports whether an operation would be
+// permitted, so graying one out would invent the answer. Disabling both confirmation actions
+// while a dispatch is outstanding is not that, since the outstanding dispatch is a fact they
+// hold.
 
 import { useCallback, useState, type ReactNode } from "react";
 
@@ -56,11 +48,10 @@ import { MountedFoldersBlock } from "./mounted-folders/MountedFoldersBlock.js";
 /**
  * Why both confirmation actions are refused once one dispatch has gone out.
  *
- * A SENTENCE AND NEVER A BARE DISABLE, on the rule the join form states: a control
- * grayed out with no cause reads as broken. Cancel is disabled beside the primary
- * rather than left live, because nothing behind the bridge is cancelable — a Cancel
- * offered after the call went out would read as retracting it, and it retracts
- * nothing. Both actions leave together when the settlement clears the confirmation.
+ * A sentence, never a bare disable: a control grayed out with no cause reads as broken.
+ * Cancel is disabled too because nothing behind the bridge is cancelable, and a Cancel
+ * offered after the call went out would read as retracting it. Both actions leave together
+ * when the settlement clears the confirmation.
  */
 const DISPATCHED_REASON =
   "Sent. It cannot be taken back, so both actions wait until the runtime answers.";
@@ -127,9 +118,8 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
     setConfirming(undefined);
   }, []);
   const control = useDaemonControl(props.context.bridge, props.operations, onSettled);
-  // Read AFTER the controls, because what stales its answer is partly theirs. This
-  // supplies the two facts `hooks/useDaemonStatus.ts` names: the supervisor's reported state,
-  // and the settlements this page's own dispatches produced.
+  // Read after the controls: their settlements are one of the two facts that stale the
+  // answer (see `hooks/useDaemonStatus.ts`).
   const status = useDaemonStatus(
     props.context.bridge,
     { connection: mainProcessState.connection, settledControlCount: control.settledCount },
@@ -190,9 +180,8 @@ export function DaemonOperationsBlocks(props: DaemonOperationsBlocksProps): Reac
 /**
  * The supervisor's own numbers.
  *
- * The attempt count appears only on the two arms that HAVE one, which is the whole
- * reason the connection is a union: a row reading "attempt — of 5" on a connected
- * window would be a field with nothing in it pretending to be a measurement.
+ * The attempt count appears only on the two arms that have one, which is why the connection
+ * is a union.
  */
 function renderSupervisorFacts(state: MainProcessState): ReactNode {
   const { connection, lastHeartbeatAt, negotiation } = state;
@@ -310,9 +299,8 @@ function renderStatusRegion(reading: DaemonStatusReading): ReactNode {
 /**
  * The confirm step: the question, the verb, and the two ways out of it.
  *
- * `dispatchedReason` is `undefined` while the confirmation is still a question and a
- * sentence once it has been answered — one value carrying both the disable and its
- * cause, so no arm of this markup can offer a control it cannot explain.
+ * `dispatchedReason` is `undefined` while the confirmation is a question and a sentence once
+ * it has been answered, so one value carries both the disable and its cause.
  */
 function renderControlConfirm(
   control: DaemonControl,
@@ -353,8 +341,8 @@ function renderControlConfirm(
 /**
  * What came back from the last control.
  *
- * "Sent" and never "stopped": the call answers that the runtime accepted the request,
- * and the supervisor's own report above is what says what happened to it.
+ * "Sent", never "stopped": the call answers that the runtime accepted the request, and the
+ * supervisor's own report says what happened to it.
  */
 function renderControlSettlement(settlement: DaemonControlSettlement | undefined): ReactNode {
   if (settlement === undefined) {

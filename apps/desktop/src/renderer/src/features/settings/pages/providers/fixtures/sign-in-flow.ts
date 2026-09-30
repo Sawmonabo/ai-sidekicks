@@ -1,19 +1,9 @@
-// The brokered sign-in and the non-interactive token registration: what each call
-// answers, and what the page holds while it is in flight.
+// The brokered sign-in and the non-interactive token registration: what each call answers,
+// and what the page holds while it is in flight.
 //
-// WHY A FLOW STATE AND NOT A BOOLEAN. A sign-in has outcomes a person can act on and
-// they are not degrees of one thing: nothing has been started; a request is out; a flow
-// is live and the operator is at the provider's own page with a code and a deadline.
-//
-// COMPLETION IS NOT A VERDICT, AND THIS MODULE CANNOT MINT ONE. A brokered flow ending
-// means the flow ended — never that the account is authenticated — so nothing here
-// answers `authenticated`, and the only way this fixture body learns what became of an
-// account is to read the registry again. That is why every settled arm below is a
-// state of the FLOW and not a state of the account.
-//
-// AND NOTHING HERE HOLDS A TOKEN. The registration call takes one on its request and
-// the reply carries none, so a token exists in this module for exactly the length of
-// one call and is never a member of any state a devtools inspection could read.
+// A flow ending is never a verdict that the account is authenticated, so every settled arm
+// is a state of the flow and the page learns the account's fate by re-reading the registry.
+// A token exists here only for the length of one registration call, never in a state.
 
 import {
   BILLING_MODES,
@@ -32,11 +22,8 @@ import { refuse, type Refusal } from "@renderer/lib/refusal.js";
 /**
  * Where a brokered sign-in has got to.
  *
- * THE THREE HELD ARMS CARRY THE ACCOUNT, and that is what lets a disabled row say why. A
- * flow that recorded only its own progress could tell a page that something was
- * running and never which account was running it — so a second row's control could be
- * disabled with no reason a person could act on, which is worse than one that stays
- * pressable and refuses.
+ * The three held arms carry the account, so a disabled row can say which account holds
+ * the flow.
  */
 export type SignInFlowState =
   | { readonly kind: "idle" }
@@ -59,12 +46,8 @@ export const IDLE_PROVIDER_SIGN_IN_FLOW: SignInFlowState = { kind: "idle" };
 /**
  * What a flow ending on the registry's own tail says.
  *
- * A SENTENCE OF ITS OWN, because this ending is not a cancellation and not a reply to
- * anything this window asked. `providerAccount.subscribe` carries `login_completed`
- * correlated on the attempt id, and the registered contract is explicit that it is a
- * report FROM THE PROVIDER that its flow finished and never a verdict about the
- * account — so the words say exactly that and send the reader to the registry, which is
- * the same thing every other settled arm of this flow does.
+ * Its own sentence: this ending is neither a cancellation nor a reply to a call. The
+ * report comes from the provider and is not a claim the account is authenticated.
  */
 export const SIGN_IN_ENDED_BY_REGISTRY =
   "This machine reports the provider's sign-in finished. That is not a claim the account is authenticated — the registry is being read again to see what became of it.";
@@ -72,12 +55,8 @@ export const SIGN_IN_ENDED_BY_REGISTRY =
 /**
  * Whether the daemon is running a flow of this window's making, per kind.
  *
- * THE CLOSED SET, DECLARED ONCE. A `Record` over the union's own discriminant rather
- * than a list of the three kinds that hold: the compiler refuses a missing key and
- * refuses an unknown one, so an arm added to the state above is a compile error here
- * rather than a control that silently stays pressable through it. A predicate
- * spelled at each call site is how two views come to disagree about what "running"
- * means, which for a brokered sign-in is the difference between one flow and two.
+ * A `Record` over the union's discriminant, so a new arm is a compile error here rather
+ * than a control that silently stays pressable.
  */
 const SIGN_IN_RUNNING_BY_KIND: Readonly<Record<SignInFlowState["kind"], boolean>> = {
   idle: false,
@@ -139,9 +118,7 @@ export function isSignInRunning(flow: SignInFlowState): boolean {
 /**
  * The account this flow is about, where the arm carries one.
  *
- * Reads the union's own arms rather than a second list of which kinds have an account:
- * the three that do are the three that hold, and stating that twice is how the two
- * come apart. A caller wanting "held, and by whom" asks both questions.
+ * Reads the union's own arms, so the set of kinds that carry an account is stated once.
  */
 export function readSignInAccountId(flow: SignInFlowState): ProviderAccountId | undefined {
   return "accountId" in flow ? flow.accountId : undefined;
@@ -158,11 +135,9 @@ export async function startProviderSignIn(
 /**
  * Cancel a sign-in that is still in flight.
  *
- * The reply's two statuses are kept apart on purpose. `canceled` is the daemon
- * stopping a flow it was running; `notFound` is the daemon saying there was nothing to
- * stop, which is a real answer when the flow completed or expired between the press and
- * the call — and reporting it as a cancellation would tell an operator the console
- * stopped something it did not.
+ * `canceled` is the daemon stopping a running flow; `notFound` means there was nothing to
+ * stop because it finished or expired first. Reporting that as a cancellation would claim
+ * the console stopped something it did not.
  */
 export async function cancelSignIn(
   cancel: ProviderAccountLoginCancelCall,
@@ -199,22 +174,10 @@ export type RegistrationFieldReading =
 /**
  * Read the form's ordinary fields, before anything is sent and before the token is read.
  *
- * WHY THIS IS A FUNCTION AND NOT THREE CHECKS INSIDE THE SUBMIT HANDLER. The handler
- * used to read the token first, clear it, and only then decide whether the rest of the
- * form was sendable — so a label of nothing but spaces, which the browser's own
- * `required` check accepts, threw away a credential the person had typed and returned
- * with no submission and nothing on screen. Reading the fields is therefore a step that
- * happens BEFORE the token exists in the handler at all, and its refusal arm is the
- * form's evidence that a press was received.
- *
- * IT REFUSES ON EVERY ARM RATHER THAN RETURNING SILENTLY. The two selects offer closed
- * vocabularies the wire publishes, so an unadmitted value is not reachable by pressing
- * anything — but a narrowing that answers `undefined` on the impossible arm is a
- * control that goes quiet when it is surprised, and the whole point of the refusal
- * shape is that a press is answered.
- *
- * NO REFUSED VALUE IS ECHOED. A label is user content, and `detail` says what
- * would change the answer rather than repeating what was typed.
+ * Runs before the token exists in the submit handler, so a refused label cannot discard a
+ * typed credential; a label of only spaces passes the browser's `required` check and is
+ * refused here. Every arm answers with a refusal rather than going quiet, and a refusal
+ * never echoes the label, which is user content.
  */
 export function readRegistrationFields(typed: {
   readonly displayLabel: string;
@@ -249,10 +212,8 @@ export function readRegistrationFields(typed: {
 /**
  * Submit a registration, optionally carrying the one write-only token member.
  *
- * The request is composed by the CALLER and handed here whole, which is what keeps the
- * token's lifetime inside the caller's own submit handler: this function never reads a
- * field, never keeps one, and the outcome it answers with carries the account and
- * nothing else — which is all the reply carries either.
+ * The caller composes the whole request, which keeps the token's lifetime inside its submit
+ * handler; the outcome carries the account only, as the reply does.
  */
 export async function submitTokenRegistration(
   register: ProviderAccountRegisterCall,

@@ -1,8 +1,6 @@
-/* The settings screen's own styles: the rail, the search field, and the pane.
- *
- * A page body's chrome is `shared/settings-page.css` and a page's own controls are
- * that page's sibling sheet, so this file holds only what `SettingsScreen` itself
- * draws. Every value is a Meridian token.
+/* The settings screen's own styles: the rail, the search field and the pane. A page body's
+ * chrome is in `settings-page.css` and a page's own controls are in that page's sibling
+ * sheet. Every value is a Meridian token.
  */
 
 .meridian-settings {
@@ -22,18 +20,15 @@
   top: var(--meridian-space-6);
 }
 
-/* The two panes become one column before the reflow floor, because they cannot
- * both hold a measure there: the rail's fixed 216px, the 2rem gutter, and the
- * screen's own 2rem padding on each side already come to 312px, and the whole
- * viewport at the floor is 320px minus the frame's 52px rail. Stacking is what
- * keeps WCAG 2.2 SC 1.4.10 true at that width; the rail stops sticking with it,
- * since a sticky rail above a stacked pane would hold the narrowest screen's
- * scarcest resource — vertical room — for a list a person has finished with.
+/* The two panes become one column before the reflow floor, because they cannot both hold a
+ * measure there: the rail's fixed 216px, the 2rem gutter and the screen's own 2rem padding on
+ * each side already come to 312px, and the whole viewport at the floor is 320px minus the
+ * frame's 52px rail. Stacking keeps WCAG 2.2 SC 1.4.10 true at that width; the rail stops
+ * sticking with it, since a sticky rail above a stacked pane would hold scarce vertical room
+ * for a list a person has finished with.
  *
- * 60rem is the point `features/agents/library/agent-library.css` already
- * collapses at. This screen joins it rather than declaring a second one: the
- * console's breakpoint story is one floor and one collapse point, and a third
- * number here would make it neither.
+ * 60rem is the collapse point `features/agents/library/agent-library.css` already uses; the
+ * console has one floor and one collapse point.
  */
 @media (width <= 60rem) {
   .meridian-settings {
@@ -105,9 +100,9 @@
   color: var(--meridian-text);
 }
 
-/* The current section carries a hairline in the accent rather than a fill: the
-   rail sits beside a pane that already has a filled background, and a filled row would read
-   as a second panel rather than as a selection. */
+/* The current section carries a hairline in the accent rather than a fill: the rail sits
+   beside a pane that already has a filled background, and a filled row would read as a
+   second panel rather than as a selection. */
 .meridian-settings__section[aria-current="page"] {
   background: var(--meridian-surface);
   color: var(--meridian-text);
@@ -149,12 +144,10 @@
 
 /* --- The settle a search hit leaves behind -------------------------------- */
 
-/* One brief highlight, and no second state to clear: the animation's own end is
-   what removes the class, so nothing schedules a timer. The generated sheet's
-   reduced-motion rule collapses the duration to 1ms rather than removing the
-   animation, so `animationend` still fires and the class still comes off — a
-   reader who asked for no motion gets a page that settles instantly rather than a
-   page that stays highlighted for ever. */
+/* One brief highlight, and no second state to clear: the animation's end removes the
+   class, so nothing schedules a timer. The generated sheet's reduced-motion rule collapses
+   the duration to 1ms rather than removing the animation, so `animationend` still fires and
+   a reader who asked for no motion gets a page that settles instantly. */
 @keyframes meridian-settings-settle {
   from {
     background: color-mix(in oklch, var(--meridian-accent) 18%, transparent);

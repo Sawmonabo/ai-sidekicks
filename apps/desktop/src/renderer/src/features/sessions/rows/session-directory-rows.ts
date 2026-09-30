@@ -1,41 +1,17 @@
-// What the all-sessions destination may list, composed from the two sources that
-// can honestly answer "which sessions are there".
+// What the all-sessions destination may list, merged from two sources: the node's directory
+// (the only one that can name a session this window never opened) and `SessionStoreRegistry`
+// (every session this window holds a store for, including one created a moment ago). Neither
+// subsumes the other, so they are merged, directory first, and a row the local store can describe
+// in full replaces the thin directory row for the same session.
 //
-// TWO SETS, AND NEITHER SUBSUMES THE OTHER
-//
-// The node's directory is the daemon's own answer, and the only one that can name a
-// session this window has never opened.
-// The window's own set is `SessionStoreRegistry`, which names every session this
-// renderer holds a store for and nothing else. A session created a moment ago is on
-// the second and not yet on the first; a session six other windows are working in is
-// on the first and never on the second. Dropping either would make a real session
-// vanish from a list a person is reading to find it.
-//
-// So the two are merged rather than chosen between, directory first, and the rows
-// the local store can describe in full — lifecycle state, when it was last touched,
-// who is in it — overwrite the thin directory row for the same session rather than
-// appearing beside it.
-//
-// THE ABSENCE FOLLOWS THE READ, NEVER THE ROW COUNT
-//
-// An empty list has two different causes and they are two different sentences.
-// A read in flight is `not-loaded`. A read that came back with no rows is `empty` —
-// the node was asked and it has none.
-//
-// Deciding either from `rows.length === 0` collapses them, which is exactly the
-// conflation the console's five kinds of nothing exist to prevent — so the decision
-// is a function of the directory state and the row count cannot reach it.
+// The absence follows the read, never the row count: a read in flight is `not-loaded`, a read
+// that returned no rows is `empty`. Deciding from `rows.length === 0` would conflate them.
 
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
 import type { AttentionSeverity } from "@ai-sidekicks/contracts";
 import type { SessionListRow } from "./session-rows.js";
 
-/**
- * The kind of nothing the destination renders when it has no row.
- *
- * A subset of the primitive's five kinds, because only two of them are reachable
- * here: nothing on this screen is filtered.
- */
+/** The kind of nothing the destination renders when it has no row: two of the five kinds. */
 export type SessionListNothingKind = "not-loaded" | "empty";
 
 /** What a caller hands in for the sessions only this window can describe. */
@@ -48,13 +24,7 @@ export interface SessionRowSources {
   readonly projectedRows: readonly SessionListRow[];
 }
 
-/**
- * Which absence a directory state means.
- *
- * Total over the two states rather than defaulting, so a third state added to the
- * read would fail to compile here instead of silently landing in whichever arm the
- * `else` happened to be.
- */
+/** Which absence a directory state means. Total, so a new state fails to compile here. */
 export function sessionListNothingKindFor(
   directory: SessionDirectoryState,
 ): SessionListNothingKind {
@@ -69,10 +39,8 @@ export function sessionListNothingKindFor(
 /**
  * The rows to list, directory first and this window's own appended.
  *
- * Attention is deliberately NOT read here: it is one projection for the whole
- * destination and it is applied once, over the merged list, by the caller. Reading
- * it per source would give a directory row and a projected row for one session two
- * severities, and the row that survived the merge would decide which a person saw.
+ * Attention is not read here: the caller applies it once over the merged list, so two rows
+ * for one session never carry two severities.
  */
 export function mergeSessionRows(sources: SessionRowSources): readonly SessionListRow[] {
   const rowsBySessionId = new Map<string, SessionListRow>();
@@ -102,9 +70,7 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
     const directoryRow = rowsBySessionId.get(projected.sessionId);
     rowsBySessionId.set(projected.sessionId, {
       ...projected,
-      // The directory's lifecycle state stands in where the projection has none: a
-      // store that has seen no session event carries no state, and the node's answer
-      // is a fact this console did establish.
+      // A store that has seen no session event has no state; the node's answer stands in.
       state: projected.state ?? directoryRow?.state,
     });
   }
@@ -112,12 +78,8 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
 }
 
 /**
- * Stamp each row with what the attention projection says about it.
- *
- * Separate from the merge because it is the SECOND read this destination performs
- * and it applies to every row regardless of which source produced it. A row the
- * projection did not mention carries `undefined`, which is not the same as carrying
- * "clear" — the ordering rule reads it that way and the row renders no badge.
+ * Stamps each row with what the attention projection says about it. A row the projection did not
+ * mention carries `undefined`, which the ordering rule reads differently from "clear".
  */
 export function withAttentionSeverity(
   rows: readonly SessionListRow[],

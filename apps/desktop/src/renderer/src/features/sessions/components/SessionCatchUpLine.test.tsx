@@ -1,8 +1,6 @@
-// The catching-up line: when it shows, what a press on `Try again` asks for, and where
-// the cause goes.
-//
-// Every case drives a REAL store on a manual clock handed to the window, so the dwell is
-// the clock's and a case moves time rather than waiting on it.
+// The catching-up line: when it shows, what a press on `Try again` asks for, and where the
+// cause goes. Every case drives a real store on a manual clock handed to the window, so a case
+// moves time instead of waiting on it.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,8 +82,7 @@ describe("SessionCatchUpLine", () => {
   it("says it couldn't catch up when the repair read of a gap fails", async () => {
     const clock = new ManualClock(0);
     let readRejects = false;
-    // Its own session, so the capture case below reads only its own records from the
-    // window's one capture.
+    // Its own session, so the capture case below reads only its own records.
     const entry = new OpenSessionEntry("session-gap-repair", {
       read: () =>
         readRejects

@@ -40,8 +40,7 @@ function switchesIn(root: HTMLElement): readonly HTMLElement[] {
 describe("browser policy rows — the closed pair", () => {
   it("renders exactly the switches the set declares", () => {
     const rows = renderPolicy({ positions: positions(false, true) });
-    // Non-empty and exact: a count assertion alone would pass over a component
-    // that rendered one row twice.
+    // Exact, not just a count: a count alone would pass over one row rendered twice.
     expect(BROWSER_POLICY_SWITCHES).toHaveLength(2);
     expect(switchesIn(rows)).toHaveLength(BROWSER_POLICY_SWITCHES.length);
   });
@@ -79,8 +78,8 @@ describe("browser policy rows — the position drawn", () => {
   });
 
   it("negative control: no main-process config key string reaches the screen", () => {
-    // The preference keys are not the renderer's to name. A row that rendered one would
-    // publish a wire vocabulary the renderer does not own.
+    // The preference keys are not the renderer's to name; a row rendering one would publish a
+    // wire vocabulary it does not own.
     const text = renderPolicy({ positions: positions(false, true) }).textContent ?? "";
     expect(text).not.toContain("browser.");
   });

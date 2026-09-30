@@ -1,34 +1,22 @@
-// The console's one place that shadows `offsetHeight`, and the only thing it decides is
-// install-and-restore.
+// The console's one place that shadows `offsetHeight`; it decides only install and restore.
 //
-// The console's unit tier runs under happy-dom, which has no layout engine and reports
-// every box as zero. A virtualized list reads exactly two boxes — the scroller's, which
-// is the viewport it windows against, and each rendered row's — and
-// `@tanstack/react-virtual` reads both through `offsetHeight`. Against a zero-height
-// scroller it answers with an empty range, which is correct and is not a bug to route
-// around: a scroller with no height shows no rows. So a happy-dom case that asserts
-// anything about a rendered row has to say how tall its container is.
+// The unit tier runs under happy-dom, which has no layout engine and reports every box as zero,
+// and `@tanstack/react-virtual` reads the scroller's viewport and each row's height through
+// `offsetHeight`. A zero-height scroller correctly shows no rows, so a happy-dom case that asserts
+// about a rendered row must say how tall its container is.
 //
-// PARAMETERIZED BY THE MEASUREMENT AND BY NOTHING ELSE. Windowed lists differ in their
-// scroller class names, row elements and heights, and the diff additionally grows one row
-// when the wrap toggle is on — so the RULE is each caller's. What is not each caller's is
-// the shadow: this class writes a property on `HTMLElement.prototype`, which is global to
-// the environment, and two independent copies of that write are two chances for one of
-// them to leak a shadow into every later file in the same worker.
-//
-// IT IS IMPORTED BY NO RENDERING PATH. A shim of this reach called from a rendering path
-// would be production code monkey-patching the DOM, so it lives under `tests/`, beside the
-// suites that install it.
+// It is parameterized by the measurement alone: each caller owns its rule (scroller class names,
+// row elements, heights), but the write to `HTMLElement.prototype` is global to the environment,
+// and two copies of it are two chances to leak a shadow into every later file in the same worker.
+// No rendering path imports it, since a DOM monkey-patch there would be production code.
 
 /** What one element measures, in CSS pixels. Zero is what happy-dom answers anyway. */
 export type ElementHeightRule = (element: HTMLElement) => number;
 
 /**
- * Report the heights a browser would have laid out.
+ * Reports the heights a browser would have laid out.
  *
- * Installing twice replaces the reading rather than stacking a second shadow, so a case
- * that wants a different rule says so in one line and the hook that installed the first
- * stays where it is.
+ * Installing twice replaces the reading instead of stacking a second shadow.
  */
 export class ElementHeightShim {
   #restore: (() => void) | undefined;

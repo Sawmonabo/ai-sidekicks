@@ -10,33 +10,22 @@ import type { AccountQuotaRow } from "../quota-rows.js";
 /**
  * The full-scale value a utilization bar is drawn against, and the clamp on its fill.
  *
- * A quota reading can exceed its own limit, and an unclamped `<progress>` fill past its
- * `max` renders differently across engines. So the bar is clamped and the figure beside it
- * is not: the bar answers "how full", which saturates, and the percentage answers "how
- * much", which does not. One rather than a hundred because the fraction is what `Intl`
- * takes for a percent.
+ * A reading can exceed its limit and an over-full `<progress>` renders differently across
+ * engines, so the bar is clamped and the figure beside it is not: the bar answers "how full",
+ * which saturates, and the percentage answers "how much". One, because `Intl` takes a fraction.
  */
 const UTILIZATION_BAR_FULL_SCALE = 1;
 
 /**
  * One account's per-limit quota table, one row per limit the provider publishes.
  *
- * KEYED BY LIMIT AND NEVER BY WINDOW LENGTH. Three of a pinned provider's limits share
- * one 10080-minute window, so the limit identifier is the row's key and the window
- * length is an attribute of the reading. The identifier is a wire spelling and is never
- * drawn: a row is named by the provider's own label, or by its window length where the
- * provider published none.
- *
- * THE PERCENTAGE IS CLAMPED FOR DISPLAY AND THE WIRE FIGURE IS NOT. A provider may
- * report over-consumption against a soft limit, so the bar stops at full while the
- * figure beside it says what was actually reported. Clamping the number too would
- * silently misreport it.
- *
- * A READING TAKEN UNDER AN OLDER CREDENTIAL GENERATION SAYS SO. A credential-home
- * rebuild does not clear stored readings — the provider-side allowance keeps running
- * while the home is empty — so such a row is true about the provider and behind this
- * account, and a table that hid the difference would show a fresh account as nearly
- * spent.
+ * Keyed by limit, never by window length: three of a pinned provider's limits share one
+ * 10080-minute window. The limit identifier is a wire spelling and is never drawn; a row is
+ * named by the provider's label, or by its window length where none was published. The
+ * percentage is clamped for display and the wire figure is not, so over-consumption against a
+ * soft limit is still reported. A reading taken under an older credential generation says so:
+ * a credential-home rebuild does not clear stored readings, so such a row is true about the
+ * provider and behind this account.
  */
 export function QuotaTable(props: { readonly rows: readonly AccountQuotaRow[] }): ReactNode {
   if (props.rows.length === 0) {

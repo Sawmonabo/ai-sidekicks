@@ -6,11 +6,11 @@ import { formatDate, formatPercent } from "@renderer/lib/wire-figures.js";
 import { LastCheckedLine } from "./LastCheckedLine.js";
 import { type UpdateReading } from "./updater-reading.js";
 
-/** Each arm of the updater's state, plus the read not having landed. One render per arm. */
+/** Renders each arm of the updater's state, plus the read not having landed. */
 export function UpdateReadOut(props: { readonly reading: UpdateReading }): React.JSX.Element {
   const { reading } = props;
-  // Generated rather than written: two windows can render this block at once, and a
-  // hardcoded id would associate one window's label with the other's bar.
+  // Generated, since two windows can render this block and a fixed id would tie one window's
+  // label to the other's bar.
   const progressId = useId();
   if (reading.kind === "not-read") {
     return <Nothing kind="not-loaded" placement="inline" title="Reading the updater’s state." />;
@@ -64,8 +64,7 @@ export function UpdateReadOut(props: { readonly reading: UpdateReading }): React
         </p>
       );
     case "error":
-      // The updater's own message, verbatim. The retry is the Check now control
-      // beside this read-out, which is the one path back.
+      // The updater's own message, verbatim; the retry is the Check now control beside this.
       return (
         <p
           className="meridian-settings-page__state meridian-settings-page__state--failed"

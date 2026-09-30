@@ -1,51 +1,28 @@
-// The sessions whose stream would not open, and what one returning edge is worth.
+// The sessions whose stream would not open, and what one returning edge is worth. Split from
+// `session-event-subscriber.ts`, which owns which sessions are bound; this owns which opens
+// failed and what the window does about them when the wire comes back.
 //
-// SPLIT OUT OF `session-event-binder.ts`, WHICH OWNS WHICH SESSIONS ARE BOUND. That
-// module answers for a subscription's whole life — taken on the registry's `opened`
-// change, released on its `closed` one, filtered at the delivery boundary. This one
-// answers a different question that had grown up inside it: which OPENS FAILED, and
-// what the window does about them when the wire comes back. Two subjects, and one
-// class was carrying both.
+// A failed `daemon.subscribe` leaves a session with no stream and no base state, and the
+// registry's `opened` change has already been delivered, so nothing would name that session again
+// until it is closed and reopened. Retaining the id gives the transport's returning edge something
+// to re-attempt. The edge is not produced by this retry's caller: the signal is moved by
+// `services/transport/observed-subscription.ts`, so a window holding one session whose open threw
+// can still emit the edge that retries it.
 //
-// WHY A FAILED OPEN HAS TO BE REMEMBERED AT ALL. A `daemon.subscribe` that throws
-// leaves the session with no stream and no base state, and the registry's `opened`
-// change for it has already been delivered — so nothing is going to say that session's
-// name again until somebody closes and reopens it. Retaining the id is what gives the
-// transport's returning edge something to re-attempt.
-//
-// AND THE EDGE IS NOT ONE THE RETRY'S OWN CALLER PRODUCES. The binder used to report
-// the transport signal from the same open it retried, so it was both the only producer
-// of the returning edge and its only consumer: a window holding ONE session whose open
-// threw could never emit the edge that would retry it. The observation belongs to
-// `services/transport/observed-subscription.ts`, which every subscription in the window
-// passes through, and this class subscribes to the result rather than causing it.
-//
-// THE SET IS BOUNDED BY THE OPEN SET, not by a cap, which is what makes a plain `Set`
-// the right holder: an id joins on a failed open and leaves on the session's close or
-// on a retry that took a subscription, so nothing accumulates across a window's life.
-// A retained id is also the honest reading of the state — the window holds a store for
-// that session and no stream feeding it.
-//
-// THERE IS NO BACKOFF HERE BECAUSE THERE IS NO TIMER HERE. A retry that fails again
-// reports `unreachable` through the same `openObservedSubscription` call, which puts the
-// signal back where it was: the wire is away, and the NEXT returning edge is another
-// attempt. That is the whole retry ladder, and it is the signal's rather than this
-// class's.
+// The set is bounded by the open set, not a cap: an id joins on a failed open and leaves on the
+// session's close or a retry that took a subscription. There is no backoff and no timer: a retry
+// that fails again reports `unreachable` through `openObservedSubscription`, and the next
+// returning edge is another attempt.
 
 /**
- * What a pass needs of the binder around it, in the three questions it asks.
- *
- * Callbacks rather than a reference to the binder, so this class cannot reach a
- * subscription map, a store, or a bridge — the retained set is all it holds, and what
- * it may do about an id is exactly these three things.
+ * What a pass needs of the subscriber around it, as callbacks so this class cannot reach a
+ * subscription map, a store or a bridge.
  */
 export interface FailedSubscriptionRetryOptions {
   /**
-   * Whether the owner is gone. Asked BEFORE every attempt, not once per pass.
-   *
-   * A returning edge reaches a snapshot of the signal's sinks, so a teardown running
-   * while one is being delivered leaves the rest of a pass walking against an owner
-   * that holds no subscriptions and no promise to re-attempt.
+   * Whether the owner is gone. Asked before every attempt, because a returning edge reaches a
+   * snapshot of the signal's sinks and a teardown mid-delivery leaves the rest of a pass walking
+   * an owner that holds nothing.
    */
   readonly isRetired: () => boolean;
   /** Whether this session is still one the window holds open. */
@@ -54,6 +31,7 @@ export interface FailedSubscriptionRetryOptions {
   readonly rebind: (sessionId: string) => void;
 }
 
+/** Remembers open sessions whose stream failed to open and re-attempts them on a returning edge. */
 export class FailedSubscriptionRetry {
   readonly #isRetired: () => boolean;
   readonly #isStillOpen: (sessionId: string) => boolean;
@@ -69,63 +47,47 @@ export class FailedSubscriptionRetry {
   }
 
   /**
-   * Open sessions whose stream could not be opened, in the order they failed.
-   *
-   * The reading that makes a failed open observable rather than merely counted: a
-   * session named here has a store the window is holding and no wire feeding it, and
-   * it leaves this set on the next returning edge or when it closes.
+   * Open sessions whose stream could not be opened, in the order they failed. A session named
+   * here has a store the window holds and no wire feeding it.
    */
   public get retainedSessionIds(): readonly string[] {
     return [...this.#retainedSessionIds];
   }
 
   /**
-   * Binds re-attempted on a returning edge, whether or not they took.
-   *
-   * Counted because the retry is correct and a window that keeps re-attempting the
-   * same session on every reconnect is a wire fault upstream that only a count makes
-   * visible.
+   * Binds re-attempted on a returning edge, whether or not they took. A count makes visible a
+   * window that keeps re-attempting the same session on every reconnect, a wire fault upstream.
    */
   public get retriedBindCount(): number {
     return this.#retriedBindCount;
   }
 
-  /** This session's open threw. Remember it for the next returning edge. */
+  /** Remembers a session whose open threw, for the next returning edge. */
   public retain(sessionId: string): void {
     this.#retainedSessionIds.add(sessionId);
   }
 
   /**
-   * Stop expecting to re-attempt this session.
-   *
-   * Called on a retry that took a subscription AND on a session that closed —
-   * whether or not one was ever taken for it, which is what bounds the set by the
-   * open set rather than by the window's life.
+   * Stops expecting to re-attempt this session. Called after a retry that took a subscription and
+   * on a session close, taken or not, which bounds the set by the open set.
    */
   public forget(sessionId: string): void {
     this.#retainedSessionIds.delete(sessionId);
   }
 
-  /** Drop every promise to re-attempt. A retired owner makes none. */
+  /** Drops every promise to re-attempt; a retired owner makes none. */
   public clear(): void {
     this.#retainedSessionIds.clear();
   }
 
   /**
-   * Re-attempt every retained session once, on the transport's returning edge.
+   * Re-attempts every retained session once, on the transport's returning edge. A snapshot of the
+   * set is walked because a re-attempt writes into it (forgets on success, re-retains on failure).
    *
-   * A SNAPSHOT of the set is walked rather than the set itself, because a re-attempt
-   * writes into it on both arms — it forgets on success and re-retains on a second
-   * failure — and iterating a `Set` being written during the walk is where a re-added
-   * id gets visited twice.
-   *
-   * AND THE PASS DOES NOT RE-ENTER ITSELF. Two retained sessions where the first open
-   * fails and the second succeeds drive the signal `unreachable` and then `reachable`
-   * INSIDE this walk, which is a returning edge and therefore delivers back into this
-   * method mid-pass. One pass over the retained set is what a returning edge is worth,
-   * so the flag turns the nested delivery into a no-op rather than a second walk that
-   * re-attempts the same sessions and double-counts them; the sessions still failing
-   * keep their ids and take the next real edge.
+   * The pass does not re-enter itself: a failed open then a successful one drives the signal
+   * `unreachable` then `reachable` inside the walk, a returning edge that delivers back here
+   * mid-pass. The flag makes that nested delivery a no-op instead of a second walk that
+   * double-counts attempts; still-failing sessions keep their ids for the next real edge.
    */
   public runOnePass(): void {
     if (this.#isRetired() || this.#passRunning) {
@@ -140,14 +102,9 @@ export class FailedSubscriptionRetry {
   }
 
   /**
-   * One walk, discarding whatever the walk itself retired.
-   *
-   * A session that CLOSED since it failed is dropped without an attempt — the
-   * registry's `closed` change already forgot it, and asking rather than trusting the
-   * snapshot is the belt on that. And a retirement part-way through stops the walk,
-   * which is what makes "a retired owner re-attempts nothing" true of the whole pass
-   * rather than of its first entry, and keeps the count a count of attempts the owner
-   * actually made.
+   * One walk, discarding whatever the walk itself retired. A session that closed since it failed
+   * is dropped without an attempt, and a retirement part-way stops the walk, so the count is of
+   * attempts the owner actually made.
    */
   #attemptEachRetainedSession(): void {
     for (const sessionId of this.retainedSessionIds) {

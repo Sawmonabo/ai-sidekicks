@@ -1,14 +1,8 @@
 // One policy row: the control, its label, its consequence, and its default.
 //
-// A module of its own because this package holds every `.tsx` to one component: two
-// components in one file are two things a
-// reviewer has to separate by eye, and the second one is the one that quietly grows.
-// The switch TRAITS travel with it rather than staying beside the list, because the
-// row is their only reader — the list composes rows and decides nothing about what a
-// switch says about itself.
-//
-// Not exported through the feature's public entry. It is the list's own composition, and a row
-// rendered outside that list would be a policy row placed somewhere it does not belong.
+// The switch traits travel with the row because it is their only reader; the list composes
+// rows and decides nothing about what a switch says about itself. The row is the list's own
+// composition and is not exported through the feature's entry.
 
 import { Switch } from "@base-ui/react/switch";
 
@@ -23,10 +17,7 @@ interface BrowserPolicySwitchTraits {
   readonly defaultLabel: string;
 }
 
-/**
- * Total over `BrowserPolicySwitchId` by construction — a third switch fails to
- * compile here before it can reach a row that renders a nameless control.
- */
+/** Total over `BrowserPolicySwitchId`, so a third switch fails to compile until it has traits. */
 const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
   Record<BrowserPolicySwitchId, BrowserPolicySwitchTraits>
 > = {
@@ -46,8 +37,7 @@ const BROWSER_POLICY_SWITCH_TRAITS: Readonly<
 
 /**
  * One row: the control, its label, its consequence, and the default the node ships with.
- *
- * Exported to its list and to nothing else — the feature's index does not re-export it.
+ * Used by the list only; the feature's index does not re-export it.
  */
 export function PolicyRow(props: PolicyRowProps): React.JSX.Element {
   const traits = BROWSER_POLICY_SWITCH_TRAITS[props.switchId];

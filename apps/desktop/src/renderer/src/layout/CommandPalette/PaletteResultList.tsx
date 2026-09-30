@@ -1,11 +1,5 @@
-// The palette's rows — how ranked results become categories, and each row.
-//
-// Split from `CommandPalette.tsx` because the overlay composes (combobox +
-// dialog + the open chord) and this renders (a group, a title with its matched
-// runs, the provenance mark, the chord). Both halves stay inside one
-// `Combobox.Root`: `Combobox.List` reads the items from that root's context, so
-// this component renders the list element itself rather than taking the groups as
-// a prop — the grouping function that feeds the root is `group-results.ts` beside it.
+// The palette's rows: ranked results grouped by category, and each row. It renders the
+// `Combobox.List` itself because the list reads its items from the enclosing `Combobox.Root`.
 
 import { Combobox } from "@base-ui/react/combobox";
 import type { ReactNode } from "react";
@@ -24,18 +18,14 @@ export interface PaletteResultListProps {
   /** Which chord convention to print. Passed in so a fixture can pin it. */
   readonly platform: ChordPlatform;
   /**
-   * Supplies each row's chord. Rows print no chord rather than a wrong one when
-   * it is absent. Required-but-`undefined` rather than optional, because
-   * `exactOptionalPropertyTypes` makes those two different types and the overlay
-   * forwards a value that may genuinely be undefined.
+   * Supplies each row's chord; rows print none when absent. Required-but-`undefined` because
+   * `exactOptionalPropertyTypes` makes it a different type from optional, and the overlay
+   * forwards a value that may be undefined.
    */
   readonly bindings: KeybindingTable | undefined;
   /**
-   * Run the row's command, and say whether it ran.
-   *
-   * The answer is load-bearing rather than informational: selecting an item is what
-   * closes the combobox, and a command that refused must leave the palette exactly as
-   * it was — so a row that did not run is never selected. See the call site below.
+   * Runs the row's command and says whether it ran. A row that did not run must never be
+   * selected, because selecting closes the combobox and a refusal must leave the palette as it was.
    */
   readonly onRunResult: (result: CommandSearchResult) => PaletteRowPressOutcome;
 }
@@ -55,35 +45,19 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
             {(result: CommandSearchResult) => {
               const chord = bindings?.chordFor(result.command.id, context);
               return (
-                // No `index` prop. `Combobox.Collection` inside a
-                // `Combobox.Group` maps over THAT GROUP's items, so the
-                // index it hands out is group-relative, while
-                // `Combobox.Item.index` is an index into the flat
-                // composite list. Passing the former would have every
-                // group's first row claim position 0 — colliding option ids
-                // (`aria-activedescendant` breaks) and a composite list
-                // whose later groups overwrite the earlier ones' element
-                // refs. Omitted, the item derives its flat index from DOM
-                // order, which is correct by construction.
+                // No `index` prop: inside a group the collection's index is group-relative, while
+                // `Combobox.Item.index` is flat. Passing it would collide option ids and refs
+                // across groups; omitted, the item derives the flat index from DOM order.
                 <Combobox.Item
                   key={result.command.id}
                   value={result.command.id}
                   className="command-palette__item"
-                  // `aria-disabled` and not `disabled`: the row stays listed, stays
-                  // reachable by arrow key, and stays readable, because its reason is
-                  // the thing a person came here to find out. The press below still
-                  // refuses it, so the closed state is enforced by the registry rather
-                  // than by the attribute.
+                  // `aria-disabled`, not `disabled`: the row stays listed and reachable by arrow
+                  // key so its reason can be read; the press below still refuses it.
                   aria-disabled={result.command.unavailable !== undefined}
                   onClick={(event) => {
-                    // A REFUSED ROW IS NEVER SELECTED, and `preventBaseUIHandler` is
-                    // the library's own way to say so: merged handlers run ours first,
-                    // and this one skips Base UI's selection for this event. Selection
-                    // is what asks the combobox to close, so without it a refusal would
-                    // flash and the palette would dismiss itself — reporting a command
-                    // that never ran exactly as it reports one that did. This also
-                    // fires for Enter on the highlighted row, which is the same act by
-                    // the other input.
+                    // A refused row is never selected: skipping Base UI's selection keeps the
+                    // palette open, and it also covers Enter on the highlighted row.
                     if (onRunResult(result) === "refused") {
                       event.preventBaseUIHandler();
                     }
@@ -115,13 +89,7 @@ export function PaletteResultList(props: PaletteResultListProps): React.JSX.Elem
   );
 }
 
-/**
- * Split a title into matched and unmatched runs.
- *
- * Emphasis is by weight and luminance, never hue: the two-hue rule reserves
- * color for "a person is needed" and "something failed", and a search hit is
- * neither.
- */
+/** Splits a title into matched and unmatched runs; emphasis is weight and luminance, not hue. */
 function renderTitle(title: string, matchedIndices: readonly number[] | undefined): ReactNode {
   if (matchedIndices === undefined || matchedIndices.length === 0) {
     return title;

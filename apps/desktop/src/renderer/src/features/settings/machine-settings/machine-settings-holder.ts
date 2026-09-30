@@ -1,63 +1,45 @@
 // Who owns this window's machine-settings store, and for how long.
 //
-// The store is the window's and not a page's: more than one page reads these keys, and
-// a store built per calling component would die with its page. Module scope is window
-// scope here, because an auxiliary window is its own renderer process and no channel
-// joins two windows' module graphs.
+// The store is the window's, not a page's: several pages read these keys. Module scope is
+// window scope because an auxiliary window is its own renderer process.
 
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { MachineSettingsStore } from "./machine-settings-store.js";
 
 /**
- * Who owns this window's preference store.
+ * Owns this window's preference store, keyed by bridge.
  *
- * A holder rather than a bare module-level `let`, which `apps/desktop/AGENTS.md`
- * rejects: the supersession rule below is an invariant over two fields moving
- * together, and an invariant is only checkable when the state has one owner.
- *
- * EXACTLY ONE STORE IS LIVE, AND THE BRIDGE IS STILL THE KEY. The fixture's
- * scenario swap replaces the bridge, and a store built against the old one would
- * keep answering with the old one's reading — so a different bridge disposes the
- * store before it, and the disposed one is dropped rather than kept: asking again
- * for a bridge that has been superseded mints a fresh store instead of handing back
- * a terminal one whose replies write nothing.
- *
- * READING AND ACQUIRING ARE TWO METHODS, so a render React replays or abandons never
- * disposes the store the committed tree is subscribed to. {@link storeIfCurrent} is
- * what a render body calls and mutates nothing; {@link acquire} is what an effect or an
- * event handler calls and is the only place a store is minted or disposed.
+ * A class so the two fields move together under one owner. At most one store is live: a
+ * different bridge (a fixture scenario swap) disposes the old store and mints a new one, and a
+ * superseded bridge never gets its disposed store back. `storeIfCurrent` is pure and safe in
+ * render; `acquire` mints or disposes and belongs in an effect or event handler.
  */
 class MachineSettingsStoreHolder {
   #bridge: PlatformBridge | undefined;
   #store: MachineSettingsStore | undefined;
 
   /**
-   * The live store for `bridge`, or `undefined` when this holder is on another
-   * bridge or has not been asked for one yet.
-   *
-   * PURE — a field read and a comparison, nothing else — because this is the call a
-   * render body makes, and a render body may run for a pass React discards.
+   * The live store for `bridge`, or `undefined` when the holder is on another bridge or has not
+   * been asked yet. Pure, because a render body calls it and may be discarded.
    */
   public storeIfCurrent(bridge: PlatformBridge): MachineSettingsStore | undefined {
     return this.#bridge === bridge ? this.#store : undefined;
   }
 
   /**
-   * The store for this bridge, minting one over its `machineSettings` on first ask and on
-   * a bridge change.
+   * The store for this bridge, minted over its `machineSettings` on first ask and on a bridge
+   * change.
    *
-   * MUTATES, so it is reached from an effect or from an event handler and never
-   * from a render body. Idempotent for one bridge, which is what lets strict mode
-   * invoke the acquiring effect twice without the second invocation superseding
-   * what the first one minted.
+   * Mutates, so call it from an effect or event handler. Idempotent for one bridge, so strict
+   * mode can run the acquiring effect twice.
    */
   public acquire(bridge: PlatformBridge): MachineSettingsStore {
     const held = this.storeIfCurrent(bridge);
     if (held !== undefined) {
       return held;
     }
-    // The only disposal there is: the store a DIFFERENT bridge supersedes. A page
-    // unmounting disposes nothing, because this store's lifetime is the window's.
+    // The only disposal: a different bridge supersedes the store. A page unmounting disposes
+    // nothing.
     this.#store?.dispose();
     const minted = new MachineSettingsStore(bridge.machineSettings);
     this.#bridge = bridge;
@@ -66,12 +48,5 @@ class MachineSettingsStoreHolder {
   }
 }
 
-/**
- * This window's machine settings.
- *
- * Module scope IS window scope here, for the reason
- * `registries/keybindings/keybinding-override-store.ts` gives about the overrides it holds the same
- * way: an auxiliary window is its own renderer process, so no channel joins two
- * windows' module graphs.
- */
+/** This window's machine settings; module scope is window scope. */
 export const machineSettingsHolder: MachineSettingsStoreHolder = new MachineSettingsStoreHolder();

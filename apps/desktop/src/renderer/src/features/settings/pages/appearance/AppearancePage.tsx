@@ -1,16 +1,10 @@
 // The appearance page: light, dark, or whatever this machine is doing.
 //
-// The page chooses through the window's own scheme act, which it is handed, and reads the
-// scheme applied on the document root. It holds no scheme of its own and writes nothing
-// durable itself, so it cannot disagree with what the window is painting, including just
-// after the palette's `Color scheme` row has moved it.
-//
-// The document root is the read because it is the one place the preference is applied;
-// `"system"` is represented there by the attribute's absence, exactly as the window writes
-// it.
-//
-// No theme editor and no accent picker: every color a person could pick would have to
-// clear the contrast check the token registry applies when the palette is generated.
+// It chooses through the window's scheme act and reads the scheme applied on the document
+// root, holding no scheme of its own, so it cannot disagree with what the window paints
+// (including after the palette's `Color scheme` row moves it). `"system"` is the attribute's
+// absence, as the window writes it. There is no theme editor or accent picker: every color
+// must clear the contrast check the token registry applies when the palette is generated.
 
 import "./appearance.css";
 
@@ -61,6 +55,7 @@ export interface AppearancePageProps {
   readonly chooseScheme: (preference: SchemePreference) => void;
 }
 
+/** The appearance settings page: the color-scheme choice, read from the document root. */
 export function AppearancePage(props: AppearancePageProps): ReactNode {
   const appliedScheme = useSyncExternalStore(
     subscribeToAppliedScheme,
@@ -129,9 +124,8 @@ export function AppearancePage(props: AppearancePageProps): ReactNode {
 /**
  * Watch the applied scheme attribute.
  *
- * A `MutationObserver` and never a poll: the attribute changes exactly when
- * something writes it, and the console's budget forbids a timer on a question the
- * platform will answer by event.
+ * A `MutationObserver` rather than a poll: the attribute changes exactly when something
+ * writes it.
  */
 function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
   if (typeof document === "undefined") {
@@ -148,14 +142,11 @@ function subscribeToAppliedScheme(onSchemeChange: () => void): () => void {
 }
 
 /**
- * What the document is carrying, or `undefined` when it is carrying something this
- * console does not recognize.
+ * What the document is carrying, or `undefined` for a scheme this console does not define.
  *
- * The absent attribute is `"system"` — that is the frame's own encoding, stated in
- * `app/token-installation.ts`, and reading it any other way would make this page
- * disagree with the module that wrote it. An unrecognized VALUE is neither a
- * preference nor the system choice, so it answers `undefined` and the page says so
- * rather than lighting up an option nobody chose.
+ * The absent attribute is `"system"`, the frame's own encoding in `app/token-installation.ts`.
+ * An unrecognized value is neither a preference nor the system choice, so the page says so
+ * instead of lighting up an option nobody chose.
  */
 function readAppliedScheme(): SchemePreference | undefined {
   if (typeof document === "undefined") {

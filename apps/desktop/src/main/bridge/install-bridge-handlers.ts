@@ -1,9 +1,5 @@
-// Main's answers to the bridge members it serves, registered on their IPC channels.
-//
-// Every channel answers only a console document: the frame that asked must be on an origin a
-// console window may navigate within, the same classification the navigation policy applies.
-// A frame on any other origin, which only a navigation the policy failed to stop could put in
-// a console window, is refused before its request is read.
+// Every channel answers only a console document: the asking frame must be on an origin a
+// console window may navigate within. Any other frame is refused before its request is read.
 
 import path from "node:path";
 

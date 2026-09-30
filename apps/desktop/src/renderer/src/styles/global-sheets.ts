@@ -1,7 +1,6 @@
-// The global sheets: a utility class and the treatments several features' controls
-// compose. `main.tsx` imports this module, and so do the browser-mode test tiers, which
-// mount components without the entry, so a component under test is drawn with the same
-// global rules the window draws it with.
+// The global sheets: a utility class and the treatments several features' controls compose.
+// `main.tsx` and the browser-mode test tiers import this module, so a component under test is
+// drawn with the same global rules as the window.
 
 import "./visually-hidden.css";
 import "./figure.css";

@@ -8,15 +8,13 @@ import { DefinitionGrid, type DefinitionGridEntry } from "../../components/Defin
 import { estimatedReloginDaysAfterSignIn } from "../quota-rows.js";
 
 /**
- * The selected row's identity axes: the opaque account handle, its generation, when it
- * was signed in, whether the background observer runs for it, and roughly how long a
- * credential of its kind lasts.
+ * The selected row's identity axes: the opaque account handle, its generation, when it was
+ * signed in, whether the background observer runs for it, and roughly how long a credential of
+ * its kind lasts.
  *
- * THE RE-LOGIN HORIZON IS OMITTED ENTIRELY WHERE THE REGISTRY CARRIES NONE, rather
- * than rendered as an absence with a dash. An estimate with no anchor is a fabrication
- * and a row saying "unknown" invites a reader to treat the ones that ARE present as
- * known — so the entry is simply not built. Where it is present it renders as an
- * approximate day count after sign-in, never as a date the daemon can vouch for.
+ * The re-login horizon is omitted where the registry carries none: an estimate with no anchor
+ * is a fabrication, and an "unknown" row would invite treating the present ones as known. Where
+ * present it renders as an approximate day count after sign-in, never as a date.
  */
 export function AccountDetail(props: { readonly account: ProviderAccount }): ReactNode {
   const { account } = props;
@@ -24,9 +22,8 @@ export function AccountDetail(props: { readonly account: ProviderAccount }): Rea
     {
       key: "accountId",
       term: <span>Account</span>,
-      // The daemon-minted handle, verbatim and in mono. It is opaque and immutable and
-      // is what every other view names this account by, so it is shown rather than
-      // hidden behind the operator's label.
+      // The daemon-minted handle, verbatim and in mono; opaque and immutable, and what every
+      // other view names this account by.
       definition: <WireFigure value={account.accountId} />,
     },
     {

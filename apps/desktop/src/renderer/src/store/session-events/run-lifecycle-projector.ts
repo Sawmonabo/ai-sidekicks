@@ -1,111 +1,27 @@
-// The `run` partition's projector: run-lifecycle events folded into run entities.
+// The `run` partition's projector: run-lifecycle events folded into run entities. It lives in
+// `store/session-events/`, below every feature, because it reads wire member names (which the
+// session store's entities do not) and the composition root registers it.
 //
-// `SessionStoreRegistry` has taken a projector registry since it was written and
-// the composition root registered NONE, so `useSessionPartition(store, "run")`
-// answered an empty map on every session however many `run.*` events had landed —
-// a sidebar that renders a live session's runs as "no runs", indistinguishable
-// from a session that has none.
+// The claimed kinds come from `SESSION_EVENT_CATEGORY_BY_TYPE` filtered to `run_lifecycle`, so a
+// new run event cannot silently stop projecting. The body's members are derived, not hand-kept:
+// `DurableRunMemberName` (`run-entity-body.ts`) is the key union of `RunStateChangeEvent` and
+// `RunRolledBackEvent` (`packages/contracts/src/run-control.ts`) minus `runId`, `sessionId` and
+// `timestamp`, plus `agentId`; a new member fails the reader table's `satisfies` until
+// classified. Those are `run.subscribeState` shapes while this folds the durable rows off
+// `session.subscribe`, so `PER_TYPE_RUN_BODY_MEMBER_READERS` holds the per-kind members neither
+// declares, keyed by kind so a member is never read off another.
 //
-// WHY IT LIVES IN `store/session-events/` AND NOT IN A FEATURE
+// `state` is written only where the payload names `newState`: a non-state event must not
+// rewrite it, and `undefined` would erase it through the store's spread merge. A recognized
+// transition must supply exactly the state it announces (`statedStateFailsKind`, using
+// `runStateForTransitionKind`); the creation kind and forward, non-state rows announce none.
 //
-// Two constraints meet, and only one home satisfies both. It reads WIRE member
-// names off an event payload, which the session store's entities deliberately do not —
-// `store/session/entities/entities.ts` frames `ProjectedSessionEvent` as a renderer-local
-// projection contract precisely so the entities hold no wire knowledge. And it is
-// REGISTERED by the composition root, and no feature imports another, so a projector
-// owned by one feature is one the others could not import. `store/session-events/`
-// holds the folds that read the wire into the session store, below every feature.
+// The payload's `sessionId` is held to the envelope's once at entry, for every kind
+// (`lib/wire-session-attribution.ts`); the durable row registers it, so omitting it is malformed.
 //
-// WHAT IT DERIVES RATHER THAN DECLARES
-//
-// The kinds it claims are read from `SESSION_EVENT_CATEGORY_BY_TYPE` filtered to
-// `run_lifecycle`, never from a list written here. A hand list is how a console
-// silently stops projecting the day the taxonomy grows a fourteenth run event: the
-// new kind lands in the timeline, contributes no entity, and nothing fails.
-//
-// WHAT IT READS OFF A PAYLOAD, AND WHERE THAT LIST COMES FROM
-//
-// The body used to keep four members — `runVersion`, the two state strings, and
-// `agentId` — while claiming every kind in the `run_lifecycle` category. Everything else the
-// registered payloads carry was dropped on the floor: `executionPosture` off
-// `run.running`, the stop-condition `trigger`, the orchestration linkage, the
-// admission stamps, and the rollback `targetPosition`. Those values stayed in the
-// raw timeline and never reached the `run` partition, so a component reading the
-// run body — the composer's posture chip among them — found nothing and rendered
-// as though the run had never carried one.
-//
-// So the member list is DERIVED rather than hand-kept. `RunStateChangeEvent` and
-// `RunRolledBackEvent` (`packages/contracts/src/run-control.ts`) are the two
-// registered run shapes, and `DurableRunMemberName` in `run-entity-body.ts` is their
-// key union minus the members the durable row does not carry under those names, plus
-// `agentId`, which the durable payload carries alone. A member added to either registered
-// shape lands in that union and fails the reader table's `satisfies` until
-// someone classifies it, which is the whole point: a hand list is how a body
-// silently stops carrying the member a component was built to read.
-//
-// AND THE DERIVATION IS NOT THE WHOLE PAYLOAD, WHICH IS THE SECOND TABLE'S
-// SUBJECT. Those two shapes are both `run.subscribeState` projections, and this
-// projector folds the DURABLE rows off `session.subscribe`. Some kinds carry
-// per-type members that neither projection declares: the run's creation carries its
-// `reachedBy` provenance, its admission-resolved `effectiveRunConfig` and the account
-// it was admitted against, which the contract's `RunQueuedPayload` declares; the
-// forward, non-state rows carry the provider and model an initialization reports,
-// the position a turn opened at and the reason a worker shut down, which no
-// contracts schema holds. Treating the two subscription shapes as exhaustive would
-// drop every one of them from the `run` partition a pane reads.
-// `PER_TYPE_RUN_BODY_MEMBER_READERS` holds those rows, keyed by the kind that
-// carries them so the parse is PER TYPE — a member registered on one kind is never
-// read off another — and typed against the census so a misspelled kind fails to
-// compile rather than reading a payload no daemon sends. The day a stream shape
-// declares one of these members, it enters `DurableRunMemberName`, the base table
-// classifies it, and the co-located test's no-second-spelling case fails until the
-// entry here is deleted.
-//
-// THE TWO SHAPES ARE NOT ONE SHAPE, and the exclusions are where that is stated. That
-// module says so itself: the `run.subscribeState` projection carries no `sessionId`,
-// which its subscription's scope names, while the durable run-lifecycle payload
-// (`{sessionId, runId, runVersion, previousState, newState, ...}`) does; both spell
-// the state the run entered `newState`. `sessionId` and `timestamp` are excluded because the envelope already carries both —
-// `event.sessionId` and `event.occurredAt`, the latter stored as `touchedAt` — and
-// `runId` because it is the entity's own id. `agentId` is the one member no registered
-// shape names: `run.queued` carries it for orchestration-created runs.
-//
-// `state` is written only where the payload names `newState`: writing one for a
-// non-state event would have a turn boundary silently rewrite the run's state,
-// and writing `undefined` would be worse still — the store's entity merge is a
-// spread, so a present-but-undefined key ERASES what the last transition
-// established.
-//
-// AND A RECOGNIZED TRANSITION MUST SUPPLY THE STATE IT ANNOUNCES — equality, not
-// merely non-contradiction. `statedStateFailsKind` below states the rule and the
-// two readings it refuses to choose between: the loud one, a `run.running` beat
-// carrying `newState: "failed"`, and the quiet one, the same beat carrying no
-// readable state at all, which upserted the run while PRESERVING the state its last
-// transition established. Nothing above the fold catches either.
-//
-// The kind's announced state is `services/daemon/session-event-streams.ts`'s
-// `runStateForTransitionKind`, read rather than re-derived — that module is the
-// one authority on which kind announces which state, and a second copy here is
-// exactly the drift it was written to end. Its domain is the eight transitions the
-// state stream carries, so the requirement is scoped to those: the creation kind and
-// the three forward, non-state rows are not transitions, that mapping deliberately
-// claims none of them, and inventing a state for them here to widen the check
-// would be minting the second mapping this reads one to avoid.
-//
-// AND THE PAYLOAD IS HELD TO THE ENVELOPE'S SESSION, once at the fold's entry and
-// for every kind at once, because they all key one partition off one envelope and a
-// per-arm check is how the fourteenth kind arrives without one. `sessionId` is a
-// registered member of the durable `run_lifecycle` row, so the REQUIRED arm is the
-// right one: a beat that omits it is malformed rather than terse. The rule itself is
-// `lib/wire-session-attribution.ts`'s: several folds make the same claim, and its header
-// states why the rule lives there, below all of them.
-//
-// A PROJECTOR IS PURE, AND THAT DECIDES THE MALFORMED CASE. It may read the event
-// and nothing else — no store, no clock, no tripwire — because the apply path
-// replays prefixes and a side effect there would fire twice. A run event whose
-// payload names no `runId` therefore yields NO mutation rather than a throw or a
-// report: it names no entity to key on, the event is still admitted, and the
-// timeline is the ledger that records it arrived.
+// A projector is pure, because the apply path replays prefixes and a side effect would fire
+// twice. A run event naming no `runId` yields no mutation rather than a throw; the timeline
+// still records that it arrived.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { runStateForTransitionKind } from "@renderer/store/session-events/run-state-kinds.js";
@@ -119,31 +35,21 @@ import type {
 } from "../session/entities/entities.js";
 import { readRunEntityBody } from "./run-entity-body.js";
 
-/**
- * The event kinds this projector claims, derived from the shipped taxonomy.
- *
- * Filtered from the census rather than restated, so the set is whatever the
- * contract says it is at build time.
- */
+/** The event kinds this projector claims, derived from the shipped event-type taxonomy. */
 export const RUN_LIFECYCLE_EVENT_KINDS: readonly string[] = [...SESSION_EVENT_CATEGORY_BY_TYPE]
   .filter(([, category]) => category === "run_lifecycle")
   .map(([eventType]) => eventType);
 
 /**
- * Fold one run-lifecycle event into the run it names.
- *
- * Pure and total: it reads the event and answers with mutations, and every path
- * through it answers — a payload naming another session, a payload it cannot key
- * on, and a payload that does not carry the state its kind announces, each answer
- * with none.
+ * Fold one run-lifecycle event into the run it names. Pure and total: a payload naming another
+ * session, one it cannot key on, or one missing the state its kind announces yields no
+ * mutations.
  */
 export const projectRunLifecycleEvent: EntityProjector = (
   event: ProjectedSessionEvent,
 ): readonly EntityMutation[] => {
   const payload = event.payload;
-  // First, and for every kind at once: the beat is folded into the store it was
-  // delivered into, so a payload that names another session names an entity this
-  // store must not hold.
+  // The beat folds into the store it was delivered into, so another session's entity is refused.
   if (!payloadNamesSession(payload, event.sessionId)) {
     return [];
   }
@@ -162,8 +68,7 @@ export const projectRunLifecycleEvent: EntityProjector = (
       entity: {
         kind: "run",
         id: runId,
-        // Present only where the payload names one. A spread merge treats a
-        // present `undefined` as an erasure, so absence has to be absence.
+        // A spread merge treats a present `undefined` as an erasure, so leave `state` off.
         ...(newState === undefined ? {} : { state: newState }),
         touchedAt: event.occurredAt,
         ...(event.actorId === undefined ? {} : { attributedTo: event.actorId }),
@@ -173,20 +78,10 @@ export const projectRunLifecycleEvent: EntityProjector = (
   ];
 };
 
-/**
- * The projector registry the composition root hands `SessionStoreRegistry`.
- *
- * One function under every run-lifecycle kind rather than one function per kind:
- * the fold is the same for all thirteen, and thirteen near-copies is how the
- * fourteenth gets a subtly different one.
- */
+/** The projector table the composition root gives `SessionStoreRegistry`: one fold per kind. */
 export const RUN_LIFECYCLE_PROJECTORS: EntityProjectorTable = buildRunLifecycleProjectors();
 
-/**
- * The owner the run-lifecycle kinds are registered under, so a conflicting claim names
- * the folder that projects them. The composition registers {@link RUN_LIFECYCLE_PROJECTORS}
- * under it.
- */
+/** The owner the run-lifecycle kinds are registered under, so a conflicting claim names it. */
 export const RUN_LIFECYCLE_PROJECTOR_OWNER = "session-events";
 
 function buildRunLifecycleProjectors(): EntityProjectorTable {
@@ -200,26 +95,10 @@ function buildRunLifecycleProjectors(): EntityProjectorTable {
 /**
  * Does this payload fail to carry the run state its own kind announces?
  *
- * The one cross-member rule in the fold, and it is here because nothing above it
- * can be: `SessionEventSchema` registers no run-lifecycle payload variant, so the
- * strict layer never sees the pair at all, and the envelope schema is
- * payload-tolerant by design. A `run.running` beat carrying `newState: "failed"`
- * therefore arrives well-formed and reports two states at once.
- *
- * EQUALITY, NOT NON-CONTRADICTION. A missing or wrong-typed `newState` reaches this
- * function as absence, and absence used to pass — which let a `run.running` beat
- * carrying no state at all upsert the run with the state its LAST transition
- * established. That is the same disagreement as the loud case and harder to see: the
- * timeline reports the new kind while the partition still reports the old state, and
- * a preserved reading is indistinguishable from a fresh one. So a recognized kind
- * demands its own state, spelled as a string and equal to what the kind announces.
- *
- * SCOPED TO THE KINDS THE MAPPING CLAIMS, which is the eight transitions
- * `run.subscribeState` carries. A kind it answers nothing for announces no
- * transition — the creation row and the three forward, non-state rows — and
- * deciding what those "should" say would mean minting the second kind-to-state
- * mapping this function reads one to avoid. Those kinds still carry whatever state
- * they spell, or none, exactly as before.
+ * The payload schemas are tolerant, so a `run.running` beat carrying `newState: "failed"`, or
+ * no readable state at all, arrives well-formed; the second would upsert the run while keeping
+ * its previous state. A recognized kind therefore demands a string equal to what it announces.
+ * Kinds that announce no transition are not checked.
  */
 function statedStateFailsKind(eventKind: string, statedState: string | undefined): boolean {
   const announcedState = runStateForTransitionKind(eventKind);

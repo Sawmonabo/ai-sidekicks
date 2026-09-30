@@ -23,8 +23,7 @@ const BINDING_THE_COMPILER_REJECTS: FrameKeybinding = {
 
 describe("navigation commands — the chords the rail binds", () => {
   it("binds one chord per rail destination, in rail order", () => {
-    // A chord table hand-written beside the destination set once kept a chord for a
-    // destination the rail does not draw and left one it does draw with none.
+    // A hand-written chord table could keep a chord for a destination the rail does not draw.
     expect(RAIL_KEYBINDINGS.map((binding) => binding.commandId)).toStrictEqual(
       RAIL_DESTINATIONS.map((destination) => RAIL_NAVIGATION_DETAILS[destination].commandId),
     );
@@ -41,8 +40,7 @@ describe("navigation commands — the chords the rail binds", () => {
   });
 
   it("negative control: no two destinations answer to one chord", () => {
-    // Two destinations on one chord would pass the order case above, and the
-    // keybinding table would refuse the install at mount.
+    // Two destinations on one chord would pass the order case above; the table refuses it.
     const chords = RAIL_KEYBINDINGS.map((binding) => binding.chord);
     expect(new Set(chords).size).toBe(chords.length);
   });

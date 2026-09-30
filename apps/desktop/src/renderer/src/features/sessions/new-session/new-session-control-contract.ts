@@ -1,16 +1,10 @@
 // The props the composed new-session draft control takes, and what it hands back.
 //
-// The control composes a draft, holds it on the bridge it would send through, and issues
-// the calls a first send coalesces. The sessions destination that mounts it hands it these
-// props.
-//
-// THE CALLBACK CARRIES A SESSION ID AND NOTHING ELSE, and that is the seam's whole
-// shape. What the console DOES with a session it just started — open its store, stamp
-// the origin only this window can report, declare the node's directory stale, navigate
-// — is `features/sessions/start/session-start.ts`, because every one of those four steps
-// names a store or a route the draft does not hold.
-// The draft knows the id and stops there; a control that carried the settlement itself
-// would be a second copy of an act that already has one home.
+// The callback carries a session id and nothing else. What the console does with a session it
+// just started (open its store, stamp its origin, declare the node's directory stale,
+// navigate) is `features/sessions/start/session-start.ts`, because each step names a store or
+// a route the draft does not hold.
+
 import type { AgentProviderBinding } from "@ai-sidekicks/contracts";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
@@ -27,11 +21,8 @@ export type FirstTurnQueueCall = (request: {
 /** What the sessions destination hands the composed draft control. */
 export interface NewSessionControlProps {
   /**
-   * The transport the draft composes against, and sends through.
-   *
-   * The draft is held ON this bridge, so a replacement discards it: a send addressed
-   * to a transport that has been retired either never lands or lands somewhere this
-   * console will not read again.
+   * The transport the draft composes against and sends through. The draft is held on this
+   * bridge, so a replacement discards it rather than sending through a retired transport.
    */
   readonly bridge: PlatformBridge;
   /** The call the send makes once the session exists, to queue the first message. */
@@ -43,29 +34,17 @@ export interface NewSessionControlProps {
    */
   readonly lead: AgentProviderBinding;
   /**
-   * The session a completed send produced, told once, at the moment it completed.
-   *
-   * ON THE COMPLETED ARM ALONE. A send that stopped part way created a session too,
-   * and the draft deliberately stays on screen for it — the refusal names what could
-   * not be done and the person presses Send again, which resumes at the first call
-   * that has not been made. Settling there would navigate away from the sentence that
-   * says what to do next, and would stamp a start that has not happened yet.
-   *
-   * Needs no stable identity: the control reads the callback that was committed at
-   * the moment it settles rather than the one an effect closed over.
+  /**
+   * The session a completed send produced, told once when it completed. Not called for a
+   * partial send: the draft stays for it, and navigating away would hide the refusal that
+   * says what to do next. Needs no stable identity; the control reads the committed callback
+   * when it settles.
    */
   readonly onSessionCreated: (sessionId: string) => void;
   /**
-   * Ask the destination to re-read the node's session directory.
-   *
-   * The one act a draft can still offer after a create whose reply this build could
-   * not read: a session may exist under a name nothing here holds, and the directory
-   * is what would answer. It is the destination's act for the same reason the settlement
-   * above is: the read is addressed at the node's session directory, which the draft does
-   * not hold.
-   *
-   * Needs no stable identity, on `onSessionCreated`'s own terms: it is read from a
-   * press rather than from a dependency array.
+   * Ask the destination to re-read the node's session directory. It is the one act left
+   * after a create whose reply this build could not read, and the destination's because the
+   * directory is not held by the draft. Needs no stable identity, since a press reads it.
    */
   readonly onSessionDirectoryRecheck: () => void;
 }

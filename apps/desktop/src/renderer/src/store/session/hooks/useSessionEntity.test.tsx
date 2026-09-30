@@ -1,14 +1,7 @@
-// What the partitioned store buys, measured in renders.
-//
-// The whole reason `SessionStoreState` is a map per entity KIND rather than one
-// flat map is that a row must re-render when its own entity changes and NOT when
-// its neighbor does. That is a property nothing else in the tree can check: it is
-// invisible to a snapshot assertion, invisible to a type, and it degrades silently
-// — a selector that started building a value instead of returning a stored one
-// still renders the right thing, just on every event in the session.
-//
-// So this file counts renders. Every count has its opposite asserted in the same
-// case, because "row two did not re-render" is worthless unless row one did.
+// What the partitioned store buys, measured in renders: a row re-renders when its own entity
+// changes and not when its neighbor does. Snapshots and types cannot see this, and it degrades
+// silently (a selector that builds a value still renders correctly, just on every event), so
+// each count has its opposite asserted in the same case.
 
 import { act, render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -161,9 +154,7 @@ describe("useSessionEntity — a row re-renders for its own entity and no other"
       clock.runFrame();
     });
 
-    // The partition subscriber re-rendered — which is the negative control that
-    // makes the row's silence meaningful rather than a store that stopped
-    // notifying anybody.
+    // The partition subscriber re-rendered, so the row's silence is not a store gone quiet.
     expect(tally.countFor("artifact-list")).toBe(listRenders + 1);
     expect(view.getByTestId("artifact-count").textContent).toBe("1");
     expect(tally.countFor("row-run-1")).toBe(rowRenders);

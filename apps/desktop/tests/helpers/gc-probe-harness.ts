@@ -1,69 +1,28 @@
 // The Electron spawn-and-probe harness for the BrowserWindow GC probe.
 //
-// Extracted from `../lifecycle.gc.test.ts`, which had grown past this package's
-// split threshold with its spawner taking more of the file than its assertions.
-// The split is by ROLE and not by size, the same cut `smoke-probe-harness.ts` records
-// for the smoke probe: everything here is about GETTING a probe reading out of a
-// real Electron process — isolating a profile, arranging the activation gates,
-// spawning through the one owner, scanning the tagged line, and releasing what
-// the spawn was holding — and none of it decides whether a reading is
-// acceptable. That decision is the suite's, and it stayed there.
+// Everything here gets a probe reading out of a real Electron process: isolating a profile,
+// arranging the activation gates, spawning through the one owner, scanning the tagged line, and
+// releasing what the spawn held. Whether a reading is acceptable is the suite's decision. It is a
+// sibling of `smoke-probe-harness.ts` and shares its bundle paths and spawner; the two probes read
+// different things and carry different diagnostics. The harness asserts nothing, so a probe
+// failure has one origin.
 //
-// It is a SIBLING of `smoke-probe-harness.ts` rather than a second copy of it. Those
-// two probes read different readings, arrange different activation gates, and
-// carry different diagnostics, so one function could not serve both without a
-// mode flag; what they genuinely share they take from one home — the bundle
-// entry paths and the package root below, and the spawner itself, the one module
-// `apps/desktop/eslint.config.mjs` lets any file under `tests/` reach `spawn` through.
+// The GC probe in `src/main/probes/gc-probe.ts` runs 20 cycles of two `gc()` calls, an 8 MB
+// allocation, two more `gc()` calls, a 50 ms wait and a `v8.queryObjects(BrowserWindow)` count. It
+// records whether `window-all-closed` fired, prints one `[SIDEKICKS_GC_PROBE]` JSON line and
+// calls `app.exit(0)`. Bare `gc()` is used because `gc(true)` is a minor scavenge in V8.
 //
-// The harness asserts nothing, deliberately. A helper that could fail a test
-// would be a second place a probe failure can come from; the one test-framework
-// symbol it reaches is a teardown registrar, and only through
-// `electron-child.ts`.
+// The probe runs only when:
+//   1. The bundle was built with `electron-vite build --mode=smoke`. A release bundle has the
+//      probe tree-shaken out and the suite would time out.
+//   2. The spawn environment has `SIDEKICKS_GC_PROBE=1` and not `SIDEKICKS_SMOKE_PROBE=1`; the
+//      smoke branch is checked first in `src/main/index.ts`.
+//   3. Electron starts with `--js-flags=--expose-gc`. Without it `globalThis.gc()` is unwired and
+//      the reading carries `globalGcAvailable` false for the suite to gate on.
 //
-// MECHANISM
-//   The main entrypoint exposes a second compile-time-gated probe path
-//   (`SIDEKICKS_GC_PROBE=1`) that does NOT exit immediately. Instead it
-//   schedules `runGcProbe` on a fresh event-loop tick (so the `.then(...)`
-//   arrow's locals can unwind first) and the probe iterates K=20 cycles of:
-//     1. Two bare `globalThis.gc()` calls (precise major collection —
-//        `gc(true)` is rejected because that signature is a MINOR scavenge
-//        per V8's `gc-extension.cc`, leaving old-generation objects
-//        intact).
-//     2. An 8 MB Uint8Array allocation to pressure old-generation promotion
-//        of the throwaway buffer + reclaim of the prior iteration's buffer.
-//     3. Two more `globalThis.gc()` calls.
-//     4. A 50 ms wait so any C++ destructor task posted by a V8 weak
-//        callback can run.
-//     5. A `v8.queryObjects(BrowserWindow, { format: "count" })` sample.
-//   The branch also registers a probe-scoped `window-all-closed` listener
-//   that toggles a module-scope flag — the listener fires before the
-//   pre-existing `app.quit()` handler (EventEmitter listener order is
-//   registration order), so the flag captures the event even if the probe's
-//   `console.log` would otherwise lose the race against process exit. On
-//   completion the probe emits a single `[SIDEKICKS_GC_PROBE]` JSON line
-//   to stdout (including `allClosedFired` from the flag) and calls
-//   `app.exit(0)`.
-//
-// ACTIVATION REQUIREMENTS (the production-safety multi-gate):
-//   1. Bundle built with `electron-vite build --mode=smoke` (sets
-//      `__SIDEKICKS_SMOKE_BUILD__` to `true` via Vite `define`). A release
-//      bundle has the entire probe body tree-shaken out — running the suite
-//      against a release bundle would silently time out.
-//   2. Spawn environment carries `SIDEKICKS_GC_PROBE=1` AND does NOT
-//      carry `SIDEKICKS_SMOKE_PROBE=1` (the smoke branch is checked first
-//      in the if/else if cascade in `apps/desktop/src/main/index.ts`).
-//   3. Electron started with `--js-flags=--expose-gc` so `globalThis.gc()`
-//      is wired. Without this flag the probe's GC-pressure loop is a
-//      no-op (V8 will collect on its own schedule) and the suite becomes
-//      non-deterministic — which is why the reading carries
-//      `globalGcAvailable` for the suite to gate on explicitly.
-//
-// LINUX CI HANDLING — same posture as the smoke harness. CI stands up ONE
-// Xvfb for the whole job and exports `$DISPLAY` before any test runs (see
-// `.github/workflows/ci.yml`), so `needsXvfb()` is false there and this spawns
-// the binary directly. The `xvfb-run -a` arm below remains the fallback for a
-// Linux contributor running with no display server of their own.
+// On Linux CI one Xvfb serves the whole job with `$DISPLAY` exported (see
+// `.github/workflows/ci.yml`), so `needsXvfb()` is false and the binary is spawned directly. The
+// `xvfb-run -a` arm is the fallback for a contributor with no display server.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -80,30 +39,19 @@ import { needsXvfb } from "./display-readiness.js";
 import { TERMINATION_GRACE_MS } from "./managed-electron-child.js";
 import { SPAWNED_TREE_HOST_QUERY_CEILING_MS } from "./process-tree/budget.js";
 
-// K=20 iterations × ~150 ms each ≈ 3 s probe runtime. Plus Electron boot
-// (typically 1-2 s on Linux runners). 30 s is a generous backstop.
+/**
+ * The spawn deadline: 20 cycles of about 150 ms plus Electron boot (1-2 s on Linux runners),
+ * with a generous backstop.
+ */
 export const SPAWN_TIMEOUT_MS = 30_000;
 
 /**
- * The enclosing vitest budget, DERIVED from the phases it must contain rather
- * than written down: the spawn's own blocking host queries, then the spawn
- * budget, then the SIGTERM-to-SIGKILL grace, then the shared reserve. Those
- * queries lead because they are a phase no spawn deadline contains — the root
- * capture runs inside `spawnManagedElectronChild`, before the deadline below is
- * armed, and the descendant readings sit inside nobody's deadline at all — and
- * omitting them left the worst legal run outside this enclosure by exactly their
- * ceiling. The relation is the one `TEST_TIMEOUT_SLACK_MS` states —
- * the suite's own deadline has to fire first, because a vitest timeout tears
- * the worker down and every pending timer in it, and the Electron that timer
- * was going to kill is then reparented to init. That is not hypothetical here:
- * four such orphans, carrying this harness's own `sidekicks-gc-test-` profile
- * prefix, were found 25 minutes after the run that spawned them.
- *
- * The settle-time kill registered by `spawnManagedElectronChild`, and the
- * settle-time profile removal registered beside it, are what make the spawn
- * survivable even if this arithmetic is ever wrong again. Both, not either: the
- * derivation keeps the diagnostic path reachable, and the hooks keep the process
- * and its directory bounded when it is not.
+ * The enclosing vitest budget, derived from the phases it must contain: the spawn's blocking host
+ * queries, the spawn budget, the SIGTERM-to-SIGKILL grace, then the shared reserve. The queries
+ * lead because no spawn deadline contains them. The suite's own deadline must fire first (see
+ * `TEST_TIMEOUT_SLACK_MS`): a vitest timeout tears the worker down with its timers and leaves
+ * the Electron reparented to init. The settle-time kill and profile removal keep the process and
+ * its directory bounded even if this arithmetic is wrong.
  */
 export const GC_TEST_TIMEOUT_MS: number =
   SPAWNED_TREE_HOST_QUERY_CEILING_MS +
@@ -124,80 +72,44 @@ interface GcProbeSpawnResult {
 /**
  * Spawn Electron on the GC probe path and resolve with what it emitted.
  *
- * Resolves rather than rejects on every outcome — a missing reading, a spawn
- * error, a deadline kill — because the suite's Shape-C diagnosis needs the
- * stdout, stderr and exit code that explain which of those happened, and a
- * rejection here would replace them with a stack.
+ * It resolves on every outcome (a missing reading, a spawn error, a deadline kill) because the
+ * suite's diagnosis needs the stdout, stderr and exit code that explain which happened.
  */
 export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
   const startedAt = Date.now();
 
-  // Per-spawn userData dir isolates this probe's Electron instance from every
-  // other Electron running on the default profile — a sibling suite in a
-  // parallel vitest worker, a second checkout, a developer's unrelated
-  // Electron app, an orphan from an earlier terminated run. They would
-  // otherwise race on `~/Library/Application Support/Electron/SingletonLock`
-  // (or its $XDG_CONFIG_HOME equivalent on Linux): whichever starts
-  // second sees `gotTheLock === false`, calls `app.quit()`, and exits
-  // with code 0 before the probe runs — a Shape-C failure that has nothing
-  // to do with BrowserWindow GC reachability.
-  // `mkdtempSync` returns a unique path; `removeProfileDirectory` below is what
-  // takes it off disk, from both of the paths that can reach it.
-  // `smoke-probe-harness.ts` isolates its own profile the same way, for the
-  // same reason.
+  // A per-spawn userData dir keeps this Electron off the default profile's `SingletonLock`: a
+  // second instance sees `gotTheLock === false` and exits 0 before the probe runs.
+  // `removeProfileDirectory` below takes it off disk from both paths that can reach it.
   const userDataDir = mkdtempSync(path.join(tmpdir(), "sidekicks-gc-test-"));
 
-  /**
-   * The ONE remover of this spawn's profile, reached from both paths.
-   *
-   * The settlement after a terminal event and the settle-time disposer
-   * registered below call this same function rather than each spelling `rmSync`
-   * for itself, and `force: true` is what lets both run on one spawn — the
-   * settlement having already removed the directory before the disposer asks
-   * again. Best-effort, because a leftover temporary profile is a housekeeping
-   * fact and raising it would replace the result the reader came for.
-   */
+  // The one remover of this spawn's profile, called from the close and error path and from the
+  // settle-time disposer; `force: true` lets both run. Best-effort, since a leftover temporary
+  // profile must not replace the result the reader came for.
   const removeProfileDirectory = (): void => {
     try {
       rmSync(userDataDir, { recursive: true, force: true });
     } catch {
-      // See above: the test's own result is the one that explains the run.
+      // Best-effort; see above.
     }
   };
 
-  // `--js-flags=--expose-gc` MUST precede the entry script so Electron
-  // forwards it to the underlying Chromium/V8 child. The probe's GC-pressure
-  // loop is a no-op without it; the suite asserts `globalGcAvailable === true`
-  // to fail loudly rather than silently produce non-deterministic results.
+  // `--js-flags=--expose-gc` must precede the entry script so Electron forwards it to V8; the
+  // suite asserts `globalGcAvailable` to fail loudly without it.
   const electronArgs = ["--js-flags=--expose-gc", `--user-data-dir=${userDataDir}`, MAIN_ENTRY];
   const spawnCommand = needsXvfb() ? "xvfb-run" : ELECTRON_BIN;
   const spawnArguments = needsXvfb() ? ["-a", ELECTRON_BIN, ...electronArgs] : electronArgs;
 
-  // Strip SIDEKICKS_SMOKE_PROBE from the spawn env so the smoke branch
-  // (checked first in the if/else if cascade in the main entrypoint) does
-  // NOT fire ahead of the GC probe. This guards against a developer's
-  // shell having SIDEKICKS_SMOKE_PROBE exported, or a future CI matrix
-  // that runs both probes back-to-back.
+  // Strip SIDEKICKS_SMOKE_PROBE so the smoke branch, checked first in the main entrypoint,
+  // cannot fire ahead of the GC probe.
   const { SIDEKICKS_SMOKE_PROBE: _smokeProbeSwitch, ...envWithoutSmoke } = process.env;
 
   return new Promise<GcProbeSpawnResult>((resolve) => {
-    // Through the shared owner, which is what makes this spawn survivable.
-    // Two things it supplies that the superseded shape could not: the child
-    // leads its own process group, so the kill reaches the browser process
-    // behind the `node_modules/.bin/electron` shim rather than orphaning it —
-    // SIGKILL is unforwardable, so signaling the shim alone was how the
-    // measured orphans were made — and the kill is registered on
-    // `onTestFinished`, so it runs on every outcome the test has rather than
-    // only on the one a timer was armed for.
-    //
-    // The profile outlives the child unless something removes it on the paths
-    // the child's own events do not reach, so the same call binds the REMOVAL to
-    // the test after the kill has landed. Without it a vitest timeout — the one
-    // outcome that runs neither `close` nor `error` — left the
-    // `sidekicks-gc-test-` profile on disk for the rest of the run to
-    // accumulate, which is how four of them were found beside four orphans; and
-    // a settle-time registration that itself REFUSES is the path where there is
-    // no child to wait for at all, which the same spawner releases outright.
+    // The shared owner makes the spawn survivable: the child leads its own process group, so the
+    // kill reaches the browser behind the `node_modules/.bin/electron` shim (SIGKILL cannot be
+    // forwarded), and the kill runs on `onTestFinished`, so it covers every outcome. The same call
+    // binds profile removal to the test after the kill, covering a vitest timeout, which runs
+    // neither `close` nor `error`.
     const managed = spawnChildCleanedUpAtSettleTime(
       {
         command: spawnCommand,
@@ -206,7 +118,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         env: {
           ...envWithoutSmoke,
           SIDEKICKS_GC_PROBE: "1",
-          // No focus steal on the operator's machine; see `src/main/window-reveal.ts`.
+          // No focus steal on the operator's machine; see `src/main/windows/window-reveal.ts`.
           [UNOBTRUSIVE_WINDOWS_ENV]: "1",
         },
       },
@@ -221,20 +133,14 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
     let pending = "";
 
     const spawnDeadline = setTimeout(() => {
-      // SIGTERM first so the shim forwards it and Electron closes the inherited
-      // stdout write end this promise's `close` is waiting on; SIGKILL to the
-      // whole group after the grace, because a hung Electron ignores the first
-      // and a hung Electron is the only reason this fires.
+      // SIGTERM first so the shim forwards it and Electron closes the stdout write end `close`
+      // waits on; SIGKILL to the whole group after the grace.
       managed.terminateWithEscalation(TERMINATION_GRACE_MS);
     }, SPAWN_TIMEOUT_MS);
 
     child.stdout.on("data", (chunk: Buffer) => {
-      // OUTPUT IS THIS HARNESS'S EVIDENCE THAT THE TREE IS UP, and the tree is
-      // what a rootless kill has to be addressed by once the launcher shim is
-      // reaped. Recording it once, here, is the whole reason the shape this
-      // probe leaks behind — a browser holding the inherited stdout after its
-      // shim exits — is nameable at all; `spawned-tree-record.ts` has why the
-      // root's own `exit` is too late and why this costs one listing per child.
+      // Output proves the tree is up, so record its descendants now: a rootless kill needs them
+      // once the shim is reaped (`spawned-tree-record.ts` says why the root's `exit` is too late).
       managed.captureTreeDescendants();
       const text = chunk.toString("utf8");
       stdout += text;
@@ -249,7 +155,7 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
         try {
           probe = JSON.parse(payload) as GcProbeReading;
         } catch {
-          // Tagged but malformed — keep scanning subsequent lines.
+          // Tagged but malformed; keep scanning.
         }
       }
     });
@@ -259,12 +165,9 @@ export function spawnElectronGcProbe(): Promise<GcProbeSpawnResult> {
     });
 
     const cleanup = (): void => {
-      // Releases the escalation timer and, on the ordinary `close` path, signals
-      // NOTHING: by then the child is reaped and its pid — and the group it led
-      // — are the operating system's to reissue, which is why disposal reads the
-      // `close` `ManagedElectronChild` recorded rather than asking for a kill.
-      // On the spawn-`error` path it is the only kill there is, and the pid it
-      // would need does not exist, so the direct handle is what it reaches.
+      // Releases the escalation timer. On the ordinary `close` path it signals nothing, since the
+      // pid and its group are the OS's to reissue by then. On a spawn `error` it is the only kill,
+      // aimed at the direct handle.
       managed.dispose();
       removeProfileDirectory();
     };

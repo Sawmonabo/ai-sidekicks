@@ -1,31 +1,11 @@
-// The capture refusal's own controls.
-//
-// A CLEAN RESULT IS WORTH NOTHING WITHOUT A PLANTED FAILURE, which is the package's
-// rule and is doubly true here: the whole point of `assertNoPendingPaneBodies` is that
-// it fires on a state the tier is otherwise green under, so a suite that only ever
-// handed it an empty list would prove exactly what a function returning `undefined`
-// unconditionally proves.
-//
-// THE PURE HALF IS WHAT IS DRIVEN. `captureSettled` composes the DOM read with this
-// refusal; the read has its own controls beside the marker it reads
-// (`components/LazyBody/pending-body-marker.test.ts`), and driving the composed function here
-// would mean minting a real half-loaded capture, which is the thing it exists to
-// prevent.
-//
-// AND THE WINDOW BOOKKEEPING IS DRIVEN THROUGH THE REAL CLASS. The second suite below
-// runs `CaptureWindow` itself against the real DOM read, and fakes exactly one
-// collaborator: the tester window. A settle rejects when an effect throws while React
-// flushes the layout a resize caused — a state no capture can produce on demand — and
-// that is the state the restore ordering exists for, so it is handed to the class
-// rather than waited for.
-//
-// AND THE THIRD SUITE IS THE STABILITY WAIT, END TO END OVER THE SAME CLASS. What a
-// capture is given to settle in is decided by what its window ended up holding, so the
-// claim spans two modules — the ratio this class reports and the budget
-// `capture-viewport.ts` derives from it — and driving them together is the only way to
-// see the number a real capture would actually be handed. The arithmetic's own arms
-// are `capture-viewport.test.ts`'s; what is proved here is that the tall probe's own
-// geometry reaches this seam and comes back with more than one window's wait.
+// The capture refusal's own controls. A clean result is worth nothing without a planted failure:
+// `assertNoPendingPaneBodies` fires on a state the tier is otherwise green under. The first suite
+// drives that pure half (`captureSettled` composes it with a DOM read that has its own controls
+// in `components/LazyBody/pending-body-marker.test.ts`). The second runs the real `CaptureWindow`
+// against the real DOM read and fakes only the tester window, so the restore ordering can be
+// driven through a settle that rejects. The third is the stability wait end to end: the ratio
+// this class reports and the budget `capture-viewport.ts` derives from it, with the arithmetic's
+// arms in `capture-viewport.test.ts`.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -50,15 +30,10 @@ const RESIZE_REJECTION = "the tester window could not be resized";
 const PROBE_WINDOWS_TALL = 2;
 
 /**
- * The height of the element `tall-capture.test.ts` holds whole, which is the failure.
- *
- * That probe photographs a 1 200 × 2 400 box, and on a loaded runner the capture of it
- * reported "Could not capture a stable screenshot within 5000ms" against a diff that
- * touched no renderer file. Its WIDTH is deliberately not reproduced here: a capture
- * never widens its window — `captureWindowStep` carries `applied.width` into every
- * grow it returns — so the window a hold ends on differs from the tier's in height
- * alone, and a width restated in this file would be a number that cannot change the
- * answer sitting in a case that looks like it depends on one.
+ * The height of the element `tall-capture.test.ts` holds whole, which failed with "Could not
+ * capture a stable screenshot within 5000ms" on a loaded runner. Its width is not restated: a
+ * capture never widens its window, so the window a hold ends on differs from the tier's in height
+ * alone.
  */
 const TALL_CAPTURE_PROBE_HEIGHT_PX = 2400;
 
@@ -69,12 +44,9 @@ interface WindowDriverRejections {
 }
 
 /**
- * The tester window, recorded rather than moved.
- *
- * A stand-in for the WINDOW and not for the module under test: `CaptureWindow` is the
- * real class, the sizing rule it consults is the real one, and the box it measures is a
- * real element in this page. What is faked is the one collaborator whose failure cannot
- * be arranged — `page.viewport` and the act-wrapped settle behind it.
+ * The tester window, recorded rather than moved. A stand-in for the window only: `CaptureWindow`,
+ * the sizing rule and the measured element are real, and what is faked is `page.viewport` and the
+ * act-wrapped settle behind it, whose failure cannot be arranged.
  */
 class RecordingWindowDriver implements CaptureWindowDriver {
   readonly #rejections: WindowDriverRejections;
@@ -115,12 +87,10 @@ function testerWindow(): CaptureViewport {
 }
 
 /**
- * An element of a stated height at the document's origin.
- *
- * Anchored at the origin and half the window wide so its measured box is its own size:
- * `requiredViewportFor` reads the DOCUMENT-space bottom-right corner, and a probe that
- * was inset or full-width would be asserting the clip arithmetic that
- * `tall-capture.test.ts` already reads out of the captured pixels.
+ * An element of a stated height at the document's origin, half the window wide so its measured
+ * box is its own size: `requiredViewportFor` reads the document-space bottom-right corner, and an
+ * inset or full-width probe would assert clip arithmetic that `tall-capture.test.ts` reads from
+ * the captured pixels.
  */
 function mountElementOfHeightPx(heightPx: number, startedAt: CaptureViewport): HTMLElement {
   const element = document.createElement("div");
@@ -133,9 +103,7 @@ function mountElementOfHeightPx(heightPx: number, startedAt: CaptureViewport): H
   return element;
 }
 
-// One home for the mounted-probe cleanup, at file scope rather than repeated per
-// suite: two suites below mount elements into the same document, and a second copy of
-// this hook is the shape that goes stale the first time only one of them is edited.
+// One cleanup hook at file scope for the two suites that mount elements into the same document.
 afterEach(() => {
   for (const leftOver of document.body.querySelectorAll("div")) {
     leftOver.remove();
@@ -149,15 +117,14 @@ describe("the screenshot tier's pending-body refusal", () => {
     }).not.toThrow();
   });
 
-  // The planted failure. One pending kind, which is the smallest bad input there is.
+  // The planted failure: one pending kind, the smallest bad input.
   it("refuses a capture with one pending pane body, and names the kind", () => {
     expect(() => {
       assertNoPendingPaneBodies(["workflow-run"], "workflows-run-pane-light");
     }).toThrowError(/workflow-run/u);
   });
 
-  // The capture name is in the message because a tier that pins fourteen captures
-  // reports a failure with no other way to say which one was being taken.
+  // The capture name is in the message so a failure says which of the tier's captures was taken.
   it("names the capture it refused", () => {
     expect(() => {
       assertNoPendingPaneBodies(["diff"], "repos-diff-pane-dark");
@@ -173,10 +140,9 @@ describe("the screenshot tier's pending-body refusal", () => {
 
 describe("the tester window a capture opens", () => {
   it("puts the window back when the settle after a resize rejects", async () => {
-    // The failure the ordering exists for. The resize lands, the element throws while
-    // React flushes the layout it caused, and the window is left open — so a `restore`
-    // gated on a flag written AFTER that settle returns early, and every later capture
-    // in the run is taken in a console this one enlarged.
+    // The resize lands, the element throws while React flushes the layout it caused, and the
+    // window is left open; a `restore` gated on a flag written after that settle returns early,
+    // and every later capture is taken in an enlarged console.
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver({ settleRejectsOnCall: 1 });
     const captureWindow = new CaptureWindow(startedAt, driver);
@@ -194,8 +160,8 @@ describe("the tester window a capture opens", () => {
   });
 
   it("puts the window back when the resize itself rejects part-way", async () => {
-    // The same claim one step earlier: a resize that throws has left the window at no
-    // size anyone can name, so the flag is raised before the call rather than after it.
+    // One step earlier: a resize that throws leaves the window at no nameable size, so the flag
+    // is raised before the call.
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver({ resizeRejectsOnCall: 1 });
     const captureWindow = new CaptureWindow(startedAt, driver);
@@ -212,10 +178,8 @@ describe("the tester window a capture opens", () => {
     ]);
   });
 
-  // The planted control. Both cases above are satisfied by a `restore` that resizes
-  // unconditionally, which is the lazy way to make them pass and which would put the
-  // window back for every capture that never touched it — one resize and one settle
-  // charged to each of the tier's captures. A capture that fits moves nothing.
+  // The planted control: a `restore` that resizes unconditionally satisfies both cases above but
+  // would charge one resize and one settle to every capture that never moved the window.
   it("leaves the window alone when the capture never moved it", async () => {
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver();
@@ -231,9 +195,8 @@ describe("the tester window a capture opens", () => {
 
 describe("the stability wait a capture is given for the window it held", () => {
   it("gives a capture that fitted the tier's own wait", async () => {
-    // The unchanged capture, which is most of the committed set: an element inside the
-    // window opens nothing, holds one window, and is compared under exactly the five
-    // seconds this tier has always given it.
+    // The unchanged capture, most of the set: an element inside the window opens nothing, holds
+    // one window, and gets the five seconds the tier has always given.
     const startedAt = testerWindow();
     const captureWindow = new CaptureWindow(startedAt, new RecordingWindowDriver());
     const element = mountElementOfHeightPx(Math.floor(startedAt.height / 2), startedAt);
@@ -245,9 +208,8 @@ describe("the stability wait a capture is given for the window it held", () => {
     );
   });
 
-  // The measured failure, driven end to end. Before the wait was sized to the hold,
-  // this capture was raced against the same five seconds as one a quarter its size,
-  // and a static element came back reported as unstable on a loaded runner.
+  // The measured failure, end to end: raced against a flat five seconds, this capture read a
+  // static element as unstable on a loaded runner.
   it("gives the tall probe's own geometry more than one window's wait", async () => {
     const startedAt = testerWindow();
     const driver = new RecordingWindowDriver();
@@ -256,9 +218,8 @@ describe("the stability wait a capture is given for the window it held", () => {
 
     await captureWindow.holdWhole(element, "tall-capture-probe");
 
-    // The hold is asserted first, so a wait that came back large because the window
-    // was never opened at all fails here with the sizes rather than there with a
-    // number that looks right for the wrong reason.
+    // The hold is asserted first, so a large wait from a window that was never opened fails here
+    // with the sizes.
     expect(driver.resizedTo).toStrictEqual([
       { width: startedAt.width, height: TALL_CAPTURE_PROBE_HEIGHT_PX },
     ]);
@@ -267,10 +228,9 @@ describe("the stability wait a capture is given for the window it held", () => {
     );
   });
 
-  // The planted control on the other side of the same seam. A ratio read off the
-  // window a hold CLIMBED to rather than the one it left applied would still report
-  // the tall probe's several windows here, and would go on charging every later
-  // capture in the run for a window this one has already given back.
+  // The control on the other side of the seam: a ratio read off the window the hold climbed to,
+  // not the one left applied, would still report the tall probe's windows and overcharge every
+  // later capture.
   it("reports one window again once the capture has put the window back", async () => {
     const startedAt = testerWindow();
     const captureWindow = new CaptureWindow(startedAt, new RecordingWindowDriver());

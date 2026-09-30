@@ -1,9 +1,6 @@
-// What every session screen suite needs to mount one: the session, the registry, and the shape
-// `AppFrame` mounts the screen in.
-//
-// ONE HOME RATHER THAN A COPY PER SUITE. The suites split by subject — what the screen
-// composes and the arrangement it persists — and every one of them renders the same
-// component against the same fixture session. The mount shape is what they share.
+// What every session screen suite needs to mount one: the session, the registry, and the
+// shape `AppFrame` mounts the screen in. One home, since every suite renders the same
+// component against the same fixture session.
 
 import { render } from "@testing-library/react";
 import { expect } from "vitest";
@@ -28,8 +25,10 @@ import { PaneLayoutStore } from "./pane-layout/pane-layout-store.js";
 import { PANE_LAYOUT_RECORD_KEY } from "./pane-layout/layout-persistence.js";
 import { SessionScreen } from "./SessionScreen.js";
 
+/** The fixture session's id. */
 export const SESSION_ID = "session-screen";
 
+/** The fixture scenario the screen is mounted against. */
 export const SCENARIO: Scenario = {
   id: "session-screen",
   label: "Session screen",
@@ -61,10 +60,7 @@ export function testRegistry(): PaneRegistry {
 }
 
 /**
- * One opened session store — the sessions feature's one home for this role.
- *
- * The test rules in `apps/desktop/AGENTS.md` put one home per ROLE: two spellings of "an
- * opened session" is two fixtures that agree until one of them is corrected.
+ * One opened session store, so every suite spells "an opened session" the same way.
  */
 export function sessionStore(sessionId: string = SESSION_ID): SessionStore {
   const store = new SessionStore({ sessionId });
@@ -77,6 +73,7 @@ function TestPaneBody(props: { readonly kind: string }): React.JSX.Element {
   return <p data-body={props.kind}>{props.kind} body</p>;
 }
 
+/** A second session's id. */
 export const SESSION_B_ID = "session-screen-b";
 
 /** One gate a test opens and closes. Open by default, so nothing waits by accident. */
@@ -102,14 +99,11 @@ class SettlementGate {
 }
 
 /**
- * The memory adapter, plus a gate a test closes and a ledger of what was asked.
- *
- * Two things the plain adapter cannot give. The GATE holds a write open, which is
- * what puts a second arrangement in the writer's pending request — the state a coalescing
- * writer spends a whole resize drag in, and the only state in which the partition it
- * files under can disagree with the one that asked. The LEDGER records the partition
- * every write NAMED, so the assertion is about where an arrangement was filed rather
- * than about which record happened to be written last.
+ * The memory adapter, plus a gate a test closes and a ledger of what was asked. The gate holds
+ * a write open, which puts a second arrangement in the writer's pending request (the state a
+ * resize drag spends its time in, where the partition it files under can disagree with the
+ * one that asked). The ledger records the partition every write named, so the assertion is
+ * about where an arrangement was filed and not which record was written last.
  */
 export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
   readonly asked: { readonly partition: string; readonly value: unknown }[] = [];
@@ -146,11 +140,9 @@ export class GatedPersistenceAdapter extends MemoryPersistenceAdapter {
 }
 
 /**
- * The session screen under the window's providers, which is where `AppFrame` mounts it.
- *
- * The pane layout inside reads `useAnnounce` to say what a pane drop settled on, and that
- * hook throws outside the provider by design — so this wrapper is the production
- * mount shape rather than test scaffolding.
+ * The session screen under the window's providers, where `AppFrame` mounts it. The pane
+ * layout reads `useAnnounce`, which throws outside the provider by design, so this wrapper is
+ * the production mount shape.
  */
 export function renderSessionScreen(
   uiStateStore: UiStateStore,
@@ -162,7 +154,7 @@ export function renderSessionScreen(
   return { container, uiStateStore };
 }
 
-/** One in-memory `UiStateStore` — the sessions feature's one home for this role. */
+/** One in-memory `UiStateStore`, the one home for this role. */
 export function memoryStore(): UiStateStore {
   return new UiStateStore({ adapter: new MemoryPersistenceAdapter() });
 }
@@ -175,11 +167,9 @@ export function otherSession(): SessionWithStore {
 }
 
 /**
- * The session screen for one session, in the shape `AppFrame` mounts it in.
- *
- * The provider carries the SAME bridge the screen is handed, because that is what the
- * frame does: one window, one transport, and the scenario's frozen clock resolved beside it —
- * the pane layout reads that clock for its rect tracker.
+ * The session screen for one session, in the shape `AppFrame` mounts it. The provider carries
+ * the same bridge the screen is handed, as the frame does: one window, one transport, with
+ * the scenario's frozen clock resolved beside it for the pane layout's rect tracker.
  */
 export function workspaceFor(
   session: SessionWithStore,

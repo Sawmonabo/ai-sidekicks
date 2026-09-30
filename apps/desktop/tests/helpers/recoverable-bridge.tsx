@@ -1,14 +1,6 @@
-// What the reasoning-read and question-answer hooks are driven over: one bridge, one
-// wrapper, one count.
-//
-// HOISTED ON THE SECOND USE, which is the split that put the reasoning read and the
-// ask answer in modules of their own. Their suites moved apart with them and both need
-// the same three things — a bridge that fails until the case says otherwise, the count
-// of what actually reached the wire, and the provider `renderHook` mounts a hook
-// under — so the shapes live here once rather than being written twice and drifting.
-//
-// It lives in `tests/helpers/` because its two readers sit in different features, the
-// transcript's reasoning read and the composer's question answer.
+// A bridge that fails until a case says otherwise, the count of what reached the wire, and the
+// provider `renderHook` mounts a hook under.
+
 import { PlatformBridgeProvider } from "@renderer/services/platform/PlatformBridgeProvider.js";
 import { bridgeAnswering, type BridgeUnderTest } from "./fixture-bridge.js";
 
@@ -22,9 +14,8 @@ export interface RecoverableBridge {
 /**
  * A bridge that answers one method as the case says, and rejects it while a flag is set.
  *
- * The flag is read at CALL time rather than closed over at build time, because the
- * cases these serve are about a second press: the first call has to be able to fail
- * and the second to succeed without the case rebuilding the bridge between them.
+ * The flag is read at call time, so the first call can fail and the second succeed without the
+ * case rebuilding the bridge.
  */
 export function bridgeFailingUntilCleared(
   method: string,
@@ -53,7 +44,7 @@ export function callsTo(held: BridgeUnderTest, method: string): number {
   return held.calls.filter((call) => call.method === method).length;
 }
 
-/** A wrapper mounting a hook under one bridge, which is what both hooks resolve. */
+/** A wrapper mounting a hook under one bridge. */
 export function inBridge(held: BridgeUnderTest) {
   return function BridgeWrapper(props: { readonly children: React.ReactNode }): React.JSX.Element {
     return <PlatformBridgeProvider bridge={held.bridge}>{props.children}</PlatformBridgeProvider>;

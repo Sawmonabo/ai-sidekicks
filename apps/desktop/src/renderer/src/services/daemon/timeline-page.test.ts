@@ -1,8 +1,5 @@
-// The backward window's decode, over the registered response shape.
-//
-// Asserted against the CONTRACT's own types rather than against a hand-written record,
-// so a row the daemon may send and this boundary drops fails here rather than at the
-// first view that looks for it.
+// The backward window's decode, asserted against the contract's own types rather than a
+// hand-written record, so a row the daemon may send and this boundary drops fails here.
 
 import { describe, expect, it } from "vitest";
 
@@ -90,10 +87,8 @@ describe("readEarlierTimelinePage — one window, read as the store's own log", 
   });
 
   it("does not read a terminal page's cursor as more rows", () => {
-    // The negative control for the discriminant. `nextCursor` is PERMITTED on the
-    // terminal arm — it is where the window ended, which a resuming subscriber needs —
-    // so a boundary reading its presence would report earlier rows behind every final
-    // page and the control would never retire.
+    // Negative control for the discriminant: `nextCursor` is permitted on the terminal arm, so a
+    // boundary reading its presence would report earlier rows behind every final page.
     const terminal = TimelineReadResponseSchema.parse({
       entries: [rowAt(7)],
       hasMore: false,

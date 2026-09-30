@@ -1,17 +1,14 @@
-// The windowed list the roving-index cases drive.
+// The windowed list the roving-index suites drive.
 //
-// Not a test file — no `include` glob reaches it; the three co-located suites import
-// it, the way `primitives/announce/live-region.test-support.ts` is imported. One list for all of them: two
-// lists differing in which element carries the stop would let one suite pass on a
-// shape the other rejects. The scans that read it live in
-// `windowed-row-index.test-support.ts`; the list with a neighbor to tab to is
-// `ListWithNeighbor.test-support.tsx`.
+// Not a test file: no `include` glob reaches it. One list serves every suite, so two lists
+// differing in which element carries the stop cannot let one suite pass on a shape another
+// rejects. The scans that read it are in `useWindowedRovingIndex.test-support.ts`; the list
+// with a neighbor to tab to is `ListWithNeighbor.test-support.tsx`.
 //
-// THE FIXTURE HANDS THE HOOK THE SHAPE A VIRTUALIZER HANDS BACK: the mounted row
-// array itself, rebuilt every render. A stable derivation of it — a joined string —
-// makes the expiry cases pass against an implementation that compares the option's
-// identity, which is a property of the fixture and not of the hook. The array is the
-// harder value and the real one.
+// It hands the hook what a virtualizer hands back: the mounted row array itself, rebuilt
+// every render. A stable derivation of it (a joined string) would let the expiry cases pass
+// against an implementation that compares the option's identity, a property of the fixture
+// and not of the hook.
 
 import { useRef } from "react";
 
@@ -28,9 +25,8 @@ export function RovingList(props: {
   /**
    * The drawn sequence's identity. Absent unless a case is about a redrawn set.
    *
-   * Passed through untouched rather than derived from `rowCount`, so a case decides
-   * for itself whether two renders are the same sequence — which is the property
-   * under test and must not be a property of this fixture.
+   * Passed through untouched rather than derived from `rowCount`, so a case decides for
+   * itself whether two renders are the same sequence.
    */
   readonly rowSetIdentity?: unknown;
   readonly onReveal: (rowIndex: number) => void;

@@ -1,36 +1,15 @@
-// Route in, screen out — and two ways of having nothing to show.
+// Route in, screen out, and the two ways of having nothing to show.
 //
-// Resolution happens DURING RENDER, deliberately: the registry is composed at module
-// scope by the console's entry point, so a descriptor is there to be looked up on the
-// first pass. Resolving in an effect instead would mean the first paint has already
-// said the screen does not exist.
+// Resolution happens during render, since the registry is composed at module scope and an
+// effect would let the first paint say the screen does not exist. A not-found address and a
+// session still opening are kept apart because a person's next move differs. A route whose
+// screen has no registration is a composition defect and throws; the exception is the pane
+// harness, which only a fixture launch registers, so elsewhere its address renders as not-found.
 //
-// The absences are kept apart because a person's next move differs for each of them:
-//
-//   • **Not-found** — the address names nothing. The way back is the sessions list.
-//   • **A session still opening** — the route named a session and its store is not
-//     open yet, which is a read in flight and renders as one.
-//
-// A route whose screen name has no registered screen is a composition defect, not an
-// absence a person can act on, so it throws. One route is the exception: only a fixture launch's
-// composition registers the pane harness, so in any other window its address names
-// nothing and renders as not-found.
-//
-// AND THE SCREEN THAT DOES MOUNT IS KEYED ON THE ADDRESS IT WAS MOUNTED AT. Two
-// routes can resolve to ONE screen name — a second session's screen, a second pane kind
-// in the fixture harness — and React reconciles the same component in the same
-// position, so whatever state that screen holds survives a move to a subject it was
-// never about. The fixture pane harness is where that was first observed: a hash
-// change from one `#/pane-harness/…` address to another left its open-pane count
-// standing, so the replacement route mounted the previous route's number of panes
-// with no Open action, and on a same-kind session change React reused the pane
-// instances themselves against the new session. The key is `formatRoute`'s own
-// output rather than a second reading of the route, so there is one grammar deciding
-// what "a different address" means.
-//
-// Both reach the screen through the `ScreenNotice` primitive, which is the
-// console's one centering wrapper; the transcript and the pending screen body draw
-// through the same component, which is why it is a module and not a block in here.
+// The mounted screen is keyed on `formatRoute(route)`. Two routes can resolve to one screen
+// name (a second session, a second pane kind in the harness), and without the key React would
+// hand the first route's state, such as the harness's open-pane count, to the second. Both
+// absences draw through `ScreenNotice`, the console's one centering wrapper.
 
 import { Fragment } from "react";
 
@@ -43,11 +22,16 @@ import {
 } from "@renderer/registries/screens/screen-registry.js";
 import { type ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
+/** The screen context the router resolves the current route against. */
 export interface AppRouterProps {
   readonly context: ScreenContext;
 }
 
-/** Resolve a route to a screen. */
+/**
+ * Resolve the context's route to its screen, or to a not-found notice.
+ *
+ * Throws when a route has no registered screen, which is a composition defect.
+ */
 export function AppRouter(props: AppRouterProps): React.JSX.Element {
   const { context } = props;
   const { route } = context;
@@ -56,10 +40,8 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
     return <AddressNamesNothing attempted={route.attempted} />;
   }
 
-  // A route that names a session shows nothing of that session until its store is
-  // open, and the open rides an effect rather than this render (`app/hooks/useSessionStoreRegistry.ts`
-  // says why). So there is one frame where the store is absent, and the honest
-  // rendering of that frame is a read in flight.
+  // The session's store opens from an effect, so there is one frame where it is absent; that
+  // frame is a read in flight.
   if (context.frameStore.activeSessionId !== undefined && context.sessionStore === undefined) {
     return (
       <ScreenNotice>
@@ -77,9 +59,7 @@ export function AppRouter(props: AppRouterProps): React.JSX.Element {
     }
     throw new Error(`no screen is registered for the ${route.kind} route`);
   }
-  // Keyed, not bare: the fragment IS the mount, so a different address is a
-  // different element in this position and React unmounts what the previous one
-  // built rather than handing it to a subject it was not addressed at.
+  // Keyed so a different address unmounts the previous screen's state.
   return <Fragment key={formatRoute(route)}>{descriptor.render(context)}</Fragment>;
 }
 

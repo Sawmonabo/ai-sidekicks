@@ -1,9 +1,6 @@
-// The five rules the shared read discipline exists to hold.
-//
-// Each one is driven against the real module on a frozen clock: the class takes the
-// clock as a dependency precisely so a test never needs a real timer, and
-// `ManualClock.pendingCount` after teardown is how "no timer outlives the view"
-// is checked rather than asserted.
+// The five rules of the shared read discipline, each driven against the real module on a
+// frozen clock. `ManualClock.pendingCount` after teardown is how "no timer outlives the view"
+// is checked.
 
 import { describe, expect, it, vi } from "vitest";
 
@@ -174,10 +171,9 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
   });
 
   it("keeps a daemon envelope's own code rather than flattening it", async () => {
-    // Most rejections reach this console as a wire envelope rather than as a
-    // `RefusalError`. Rendered as `read-failed`, a permission denial, a
-    // missing session and a dead transport all read identically — and the code is
-    // the one part of a refusal a person pastes into a search.
+    // Most rejections arrive as a wire envelope, not a `RefusalError`. As `read-failed`, a
+    // permission denial, a missing session and a dead transport would read identically, and the
+    // code is what a person pastes into a search.
     const clock = new ManualClock();
     const harness = buildRead({
       clock,
@@ -201,9 +197,8 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
   });
 
   it("negative control: a rejection with no string code still takes this module's own", async () => {
-    // Guards the envelope arm from over-reaching: a value carrying a `code` that is
-    // not a wire code is not an envelope, and treating it as one would render a
-    // number as the machine-readable reason and retire both fallback codes.
+    // Guards the envelope arm from over-reaching: a `code` that is not a wire code is not an
+    // envelope, and treating it as one would render a number as the reason.
     const clock = new ManualClock();
     const harness = buildRead({ clock, read: () => Promise.reject({ code: 7, message: "no" }) });
     harness.model.start();
@@ -214,12 +209,10 @@ describe("push-driven read — no flicker and no swallowed failure", () => {
   });
 
   it("says what the rejection was when it cannot be converted to a string at all", async () => {
-    // `String(value)` runs ToPrimitive, which THROWS for a null-prototype object
-    // carrying no `toString`. The throw escapes the `catch` that was converting it
-    // and lands in the scheduler's error handler, which converts it AGAIN — so the
-    // view used to render the console's own TypeError as though it were the
-    // daemon's answer. The detail is the assertion, not the arm: settling `failed`
-    // was already true of the wrong sentence.
+    // `String(value)` runs ToPrimitive, which throws for a null-prototype object with no
+    // `toString`. That throw would land in the scheduler's error handler and convert again, so
+    // the view rendered the console's own TypeError as the daemon's answer. The detail is the
+    // assertion, since settling `failed` was already true of the wrong sentence.
     const clock = new ManualClock();
     const hostile = Object.create(null) as object;
     const harness = buildRead({ clock, read: () => Promise.reject(hostile) });
@@ -267,16 +260,14 @@ describe("push-driven read — teardown is terminal", () => {
 
 describe("push-driven read — a subscription that cannot be opened", () => {
   it("names the two failure codes it mints and no third", () => {
-    // The read arm and the subscribe arm are acted on differently, so the set is
-    // asserted by name rather than described.
+    // The read and subscribe arms are acted on differently, so the set is asserted by name.
     expect([...PUSH_DRIVEN_READ_FAILURE_CODES]).toStrictEqual(["read-failed", "subscribe-failed"]);
   });
 
   it("settles failed with the thrower's own words when subscribe throws synchronously", async () => {
     const clock = new ManualClock();
     const read = vi.fn(async () => "value");
-    // The installed stub preload bridge throws exactly this way from every daemon
-    // method, and the device-presence read's subscribe is that call.
+    // The installed stub preload bridge throws exactly this way from every daemon method.
     const model = new PushDrivenRead<string>({
       clock,
       origin: "presence-roster",
@@ -298,8 +289,7 @@ describe("push-driven read — a subscription that cannot be opened", () => {
         origin: "presence-roster",
       },
     });
-    // No read behind a subscription that never opened, and no timer left armed for
-    // one — a value fetched here could never be refreshed.
+    // No read behind a subscription that never opened, and no timer armed for one.
     expect(read).not.toHaveBeenCalled();
     expect(model.isSubscribed).toBe(false);
     expect(clock.pendingCount).toBe(0);
@@ -354,8 +344,7 @@ describe("push-driven read — a subscription that cannot be opened", () => {
   });
 
   it("negative control: a subscribe that returns instead of throwing reads normally", async () => {
-    // Without this, the cases above would pass over a `start()` that had stopped
-    // reading altogether.
+    // Guards against a `start()` that had stopped reading altogether.
     const clock = new ManualClock();
     const harness = buildRead({ clock, read: async () => "value" });
     harness.model.start();

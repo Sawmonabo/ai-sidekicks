@@ -1,23 +1,8 @@
-// The four rules the settings screen is the enforcement of.
-//
-// Two of them are invisible to the type system and would go wrong quietly: a rail
-// that shrinks when a wire is unavailable teaches a person the setting does not
-// exist, and a pane that swallows an unknown address leaves a bad deep link looking
-// like a working one. The third — that the open section lives in the route and not
-// in a local — is what makes a deep link and a rail click the same act.
-//
-// The fourth is the session a page is handed. Every settings address is
-// `kind: "settings"` and names no session, so the frame store's ROUTE PROJECTION is
-// `undefined` on all of them; a page handed that would render its no-session arm in
-// every window that had ever opened a session, which is a constant dressed as an
-// absence. The pane is handed the RETAINED session instead, subscribed rather than
-// snapshotted.
-//
-// WHEN THIS SCREEN'S DEFERRED PAGES ARE FETCHED is a fifth claim and is not here: it is
-// about a board rather than about what the rail and the pane render, and it needs the idle
-// scheduler pinned, which none of the four below wants. `SettingsScreen.page-warm.test.ts`
-// holds it, and the window, the mount, and the keystroke both suites drive are hoisted
-// into `SettingsScreen.test-support.tsx`.
+// What the settings screen enforces: the rail always lists every section, the pane names an
+// unknown address, the open section lives in the route, and the pane is handed the retained
+// session, subscribed, and never the route's projection (which is `undefined` on every
+// settings address). When deferred pages are fetched is covered in
+// `SettingsScreen.page-warm.test.ts`.
 
 import { act } from "@testing-library/react";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -33,19 +18,16 @@ import {
 } from "./SettingsScreen.test-support.js";
 import type { ScreenContext } from "@renderer/registries/screens/screen-context.js";
 
-// The settings chunk, warmed in a hook rather than inside whichever case reached it
-// first — the reason the holder it goes through records.
+// Warm the settings chunk in a hook so no case pays for it.
 beforeAll(async () => {
   await shippedScreenRender();
 }, CHUNK_WARM_TIMEOUT_MS);
 
 /**
- * One page that renders the retained session id and nothing else.
+ * Class of the probe page's echo of the retained session id.
  *
- * A probe rather than a shipped page, because the claim under test is the SCREEN's:
- * which session it hands down. Driving it through a real page would make the case
- * fail for that page's own wire instead, and asserting on a recorded callback would
- * let a snapshot read pass — the DOM is what a person sees, so the DOM is asserted.
+ * The probe is a page that renders only that id: the claim is the screen's handoff, not a
+ * real page's wire, and the DOM is asserted because it is what a person sees.
  */
 const SESSION_ECHO_CLASS = "settings-screen-test__session";
 
@@ -67,15 +49,10 @@ function echoedSession(container: HTMLElement): string | undefined {
   return container.querySelector(`.${SESSION_ECHO_CLASS}`)?.textContent ?? undefined;
 }
 
-/** What the probe page below renders, and nothing else in this file says. */
+/** Text the probe page renders. */
 const PROBE_PAGE_MARKER = "settings-screen-test probe page";
 
-/**
- * One page registered for the section the reservation case leaves empty.
- *
- * The two cases are one pair over one branch: the same address against a registry
- * holding no page and against a registry holding this one.
- */
+/** One page registered for the section the reservation case leaves empty. */
 function registeredProbePage(): SettingsPageRegistry {
   const pages = new SettingsPageRegistry();
   pages.register({
@@ -88,7 +65,7 @@ function registeredProbePage(): SettingsPageRegistry {
   return pages;
 }
 
-/** The four fields this screen reads, and nothing else. */
+/** A context parked on the given settings address. */
 function contextFor(page: string | undefined): ScreenContext {
   return windowAt(page).context;
 }
@@ -101,9 +78,8 @@ function railLabels(container: HTMLElement): readonly string[] {
 
 describe("settings rail — every section, always", () => {
   it("renders one entry per declared section", async () => {
-    // The claim is about a SET, so the case drives the set. A rail assembled from
-    // the registry instead would shrink to whatever has been built, which is the
-    // "never hides an entry because its wire is unavailable" rule inverted.
+    // Driven from the declared set: a rail built from the registry would shrink to whatever
+    // is built.
     const { container } = await renderSettingsScreen(contextFor(undefined));
     expect(railLabels(container)).toHaveLength(SETTINGS_PAGE_IDS.length);
   });
@@ -116,16 +92,13 @@ describe("settings rail — every section, always", () => {
   });
 
   it("negative control: an address naming no section marks nothing", async () => {
-    // Without this, the case above would pass over a rail that marked its first
-    // entry whenever nothing else was selected — which would make `#/settings`
-    // look like a section had been chosen.
+    // Guards against a rail that marks its first entry when nothing is selected.
     const { container } = await renderSettingsScreen(contextFor(undefined));
     expect(container.querySelectorAll('[aria-current="page"]')).toHaveLength(0);
   });
 
   it("navigates rather than holding the selection in a local", async () => {
-    // The open section lives in the route. A local would make a rail click and a
-    // deep link two different acts, and the back button would stop working.
+    // A local would make a rail click and a deep link different acts and break back.
     const settingsWindow = windowAt(undefined);
     const { container } = await renderSettingsScreen(settingsWindow.context);
     const entry = container.querySelector(".meridian-settings__section");
@@ -173,8 +146,7 @@ describe("settings search — one field above the rail", () => {
   });
 
   it("negative control: clearing the query restores every section", async () => {
-    // Without this, the first case would pass over a screen that filtered the rail
-    // permanently on the first keystroke.
+    // Guards against a screen that filters the rail permanently after the first keystroke.
     const { container } = await renderSettingsScreen(contextFor(undefined));
     searchFor(container, "mcp");
     searchFor(container, "");
@@ -182,14 +154,10 @@ describe("settings search — one field above the rail", () => {
   });
 
   /**
-   * Where a hit LANDS the reader.
+   * Presses the hit row named `label`.
    *
-   * The design asks for three things from a match — that it name where it landed,
-   * that it reach the pane, and that it settle there with one brief highlight. The
-   * first is the hit row's own text and is covered above; these cases cover the other
-   * two. The reach is asserted as FOCUS rather than as a scroll because focus is what
-   * this module writes: the viewport following it is the platform's own behavior, and
-   * a case asserting a scroll offset in a layout-free DOM would be asserting nothing.
+   * Reach is asserted as focus: the viewport following focus is the platform's, and a scroll
+   * offset in a layout-free DOM asserts nothing.
    */
   function pressHit(container: HTMLElement, label: string): void {
     const hits = [...container.querySelectorAll(".meridian-settings__section--result")];
@@ -216,15 +184,12 @@ describe("settings search — one field above the rail", () => {
   });
 
   it("settles again on a second hit into the section already open", async () => {
-    // The case a boolean could not express: the state is already true, so a second
-    // press would change nothing downstream and the reader would be told nothing.
+    // A boolean would already be true, so a second press would change nothing.
     const { container } = await renderSettingsScreen(contextFor("runtime"), sessionEchoPages());
     searchFor(container, "runtime");
     pressHit(container, "Runtime");
     const page = container.querySelector(".meridian-settings__page");
-    // The animation's end is what clears it, and jsdom runs no animation — so the
-    // case fires the event the browser would, and then asserts the second press
-    // brings the highlight back.
+    // jsdom runs no animation, so fire the `animationend` the browser would.
     act(() => {
       page?.dispatchEvent(new Event("animationend", { bubbles: true }));
     });
@@ -237,8 +202,7 @@ describe("settings search — one field above the rail", () => {
   });
 
   it("negative control: opening a section from the rail settles nothing", async () => {
-    // Without this, the two cases above would pass over a page that flashed on every
-    // arrival — which would say "you landed here" to someone who navigated by hand.
+    // Guards against a page that flashes on every arrival, not only on a search hit.
     const { container } = await renderSettingsScreen(contextFor("runtime"), sessionEchoPages());
     const railEntry = container.querySelector(".meridian-settings__section");
     act(() => {
@@ -258,10 +222,8 @@ describe("the session a settings page is handed", () => {
     const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSettingsScreen(settingsWindow.context, sessionEchoPages());
     expect(echoedSession(container)).toBe("session-alpha");
-    // The negative control on the frame store's route projection: it is
-    // `undefined` on this very address, so a page fed from it could never see a
-    // session at all. Asserted here rather than in a case of its own, because the
-    // two readings have to be taken of ONE window for the contrast to hold.
+    // The route projection is `undefined` on this address, so a page fed from it would never
+    // see a session; both readings are taken of one window for the contrast.
     expect(settingsWindow.frameStore.activeSessionId).toBeUndefined();
   });
 
@@ -274,9 +236,7 @@ describe("the session a settings page is handed", () => {
   });
 
   it("follows the retained session rather than the value it read at mount", async () => {
-    // The subscription is the claim. A getter read during render answers whatever
-    // the store held on that pass and notifies nobody afterwards, so this case
-    // fails on a snapshot and passes only on a store subscription.
+    // Fails on a snapshot read at mount; passes only on a store subscription.
     const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSettingsScreen(settingsWindow.context, sessionEchoPages());
     act(() => {
@@ -286,9 +246,8 @@ describe("the session a settings page is handed", () => {
   });
 
   it("negative control: an unrelated frame change does not rewrite the session", async () => {
-    // Without this, the case above would pass over a screen that re-read the store
-    // on every notification and reported whatever it found — the palette opening is
-    // a frame change that says nothing about which session this window is in.
+    // Guards against a re-read on every notification; opening the palette says nothing about
+    // the session.
     const settingsWindow = windowAt("runtime", ["session-alpha"]);
     const { container } = await renderSettingsScreen(settingsWindow.context, sessionEchoPages());
     act(() => {

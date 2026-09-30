@@ -1,13 +1,8 @@
-// Applies go through the queue, reads through the scheduler.
-//
-// Frozen clock throughout, so "one drain per frame", "one read per burst", and "no
-// timer outlived the pane" are counts rather than hopes. The registry owns both
-// schedulers, so it is the only place their composition — a burst coalescing into
-// one transition while a window-level reason still reaches every open session — can
-// be driven at all.
-//
-// The lifecycle those schedulers hang off is `session-store-registry.test.ts`; the
-// repair a lossy delivery arms is `session-store-registry.gap-repair.test.ts`.
+// Applies go through the queue, reads through the scheduler. The frozen clock makes "one drain
+// per frame", "one read per burst" and "no timer outlived the pane" counts. The registry owns
+// both schedulers, so only here can their composition be driven. The lifecycle is
+// `session-store-registry.test.ts`; the lossy-delivery repair is
+// `session-store-registry.gap-repair.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -44,6 +39,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
 
     clock.runFrame();
 
+    // Three events, one revision: four streaming lanes cost one render.
     // Three events, ONE revision. Four streaming lanes cost one render.
     expect(store.snapshot().revision).toBe(revisionBefore + 1);
     expect(registry.applyDrainCountFor("session-1")).toBe(1);
@@ -57,8 +53,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
   });
 
   it("negative control: two frames are two transitions", () => {
-    // Without this, a store frozen after its first transition would pass the
-    // "one revision" case above by never transitioning again.
+    // Guards a store frozen after its first transition passing the one-revision case above.
     const clock = new ManualClock(0);
     const registry = new SessionStoreRegistry({
       read: readsNothing,
@@ -105,8 +100,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
 
     expect(readCalls).toStrictEqual([["subscribe", "window-focus", "reconnect"]]);
     expect(registry.refreshCountFor("session-1")).toBe(1);
-    // The read is what establishes the store; the registry does not make the
-    // caller remember to call `initialize` afterwards.
+    // The read establishes the store; the caller need not call `initialize`.
     expect(store.snapshot().initialized).toBe(true);
     expect(store.snapshot().cursor).toBe(7);
     expect(store.snapshot().partitions.run["session-1-run"]?.state).toBe("queued");
@@ -127,6 +121,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
     clock.advance(20);
     await settleMicrotasks();
 
+    // Stale rows that look current are the failure this prevents.
     // Stale rows that look current are the failure this prevents.
     expect(store.snapshot().degradedCause).toBe("read-failed");
     registry.disposeAll();
@@ -165,8 +160,7 @@ describe("SessionStoreRegistry — applies go through the queue, reads through t
 
     registry.requestRefreshOfEverySession("window-focus");
 
-    // Window focus is a refresh reason for everything open, and it still costs one
-    // armed timeout per session rather than a poll.
+    // Window focus reaches everything open at one armed timeout per session, not a poll.
     expect(clock.pendingCount).toBe(2);
     registry.disposeAll();
     expect(clock.pendingCount).toBe(0);

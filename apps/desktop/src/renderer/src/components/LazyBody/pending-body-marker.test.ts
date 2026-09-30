@@ -1,9 +1,5 @@
-// The pending marker: what carries it, and what reads it back.
-//
-// Both halves of one seam in one suite, which is what the package's rule asks for: the
-// attribute is written by `PendingPaneBody.tsx` and read by this module, and a suite
-// that spelled the string itself would go green over a fallback the day the attribute
-// was renamed.
+// The pending marker: what carries it and what reads it back, in one suite so the attribute
+// is not spelled twice.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,8 +29,7 @@ describe("the pending pane-body marker", () => {
     expect(PENDING_BODY_SELECTOR).toBe(`[${PENDING_BODY_ATTRIBUTE}]`);
   });
 
-  // The negative control the reader's clean results rest on: a tree with no marker
-  // must report none, or every positive result below is vacuous.
+  // Negative control: a tree with no marker reports none.
   it("reports nothing for a tree with no pending body", () => {
     expect(findPendingBodies(treeWithPendingKinds())).toHaveLength(0);
     expect(listPendingBodyNames(treeWithPendingKinds())).toEqual([]);
@@ -52,9 +47,7 @@ describe("the pending pane-body marker", () => {
     ]);
   });
 
-  // The root itself, which `querySelectorAll` alone would miss: a caller capturing one
-  // pane hands this the pane's own element, and reporting that as settled is exactly
-  // the failure the marker exists to prevent.
+  // The root itself counts, since a capture may hand over one pane's element.
   it("includes the root when the root is itself the marker", () => {
     const marker = document.createElement("span");
     marker.setAttribute(PENDING_BODY_ATTRIBUTE, "terminal");
@@ -67,8 +60,7 @@ describe("the pending pane-body marker", () => {
     expect(listPendingBodyNames(root)).toEqual(["browser", "diff"]);
   });
 
-  // A marker with no value is a marker somebody stamped wrong, and a reader that
-  // dropped it would report a pending pane as settled.
+  // A marker with no value must still be reported as pending.
   it("reports an unnamed marker rather than dropping it", () => {
     const root = document.createElement("section");
     const marker = document.createElement("span");

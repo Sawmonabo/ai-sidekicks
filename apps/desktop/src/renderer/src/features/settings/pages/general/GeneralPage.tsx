@@ -1,12 +1,7 @@
 // The General page: the facts about this build.
 //
-// `app` is the one bridge namespace that carries values rather than calls, and every one
-// of them is a string the main process chose. They render through `WireFigure`, which is the
-// console's rule for a value it did not compute: verbatim, in mono, never re-cased and
-// never abbreviated.
-//
-// `updates/UpdatesBlock.tsx` and `components/CrashReportingBlock.tsx` are the two blocks
-// that sit beside these facts; each is its own component.
+// Each `app` value is a string the main process chose, so it renders through `WireFigure`:
+// verbatim, in mono, never re-cased or abbreviated.
 
 import type { ReactNode } from "react";
 

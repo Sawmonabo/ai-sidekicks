@@ -1,16 +1,11 @@
-/* The accounts fixture body's own styles: a registry list, a quota table, and two cards.
+/* The accounts fixture body's styles: a registry list, a quota table, and two cards.
  *
- * A page-local sheet: these rules serve one body, and a shared settings sheet would carry
- * every page's rules at once. `AccountsFixtureBody.tsx` imports it, so the rules load
- * only with a composition that mounts the body.
- *
- * Nothing outside `meridian-accounts__` appears here: a rule this sheet added to a shared
- * class would outlive the fixture body.
- *
- * Every color is a Meridian custom property and every space a step on the scale.
- * The two dimensions named outright are the quota bar's width, sized so a column of
- * bars shares one right edge rather than reflowing per row, and the register form's
- * label column, sized to its longest label so the inputs line up.
+ * Page-local, since a shared settings sheet would carry every page's rules;
+ * `AccountsFixtureBody.tsx` imports it. Nothing outside `meridian-accounts__` appears, so no
+ * rule outlives the body. Every color is a Meridian custom property and every space a step on
+ * the scale. The two dimensions named outright are the quota bar's width, so a column of bars
+ * shares one right edge, and the register form's label column, sized to its longest label so
+ * the inputs line up.
  */
 
 .meridian-accounts__rows {
@@ -42,9 +37,8 @@
   background: var(--meridian-surface-raised);
 }
 
-/* The selected row is marked by its edge and never by color alone: the detail
-   section below it names the same account in its heading, so the pairing is
-   legible without relying on a hue anyone might not distinguish. */
+/* The selected row is marked by its edge and not by color alone; the detail section below
+   names the same account in its heading. */
 .meridian-accounts__row[aria-pressed="true"] {
   border-color: var(--meridian-accent);
   background: var(--meridian-surface-raised);
@@ -162,9 +156,8 @@
   font: inherit;
 }
 
-/* The prose and the button each span both columns: neither is a field, and a control
-   sitting in the value column would read as one. The outcome line spans with them
-   through a class `settings-page.css` declares, rather than by redeclaring it here. */
+/* The prose and the button each span both columns, since neither is a field. The outcome line
+   spans with them through a class `settings-page.css` declares. */
 .meridian-accounts__register > p,
 .meridian-accounts__register > button {
   grid-column: 1 / -1;

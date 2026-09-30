@@ -1,17 +1,7 @@
-// The Electron seam: scheme registration and the response policy the handler
-// answers with.
-//
-// Scoped to what needs `electron`. The verdicts this policy is built on are
-// asserted without a mock in `./renderer-assets.test.ts`, and the failure
-// document's own text in `./load-failure-document.test.ts`; what is left here is
-// the part that cannot be tested without the module that imports `electron`:
-// the statuses, the empty refusal bodies, and the locked headers riding EVERY
-// response — refusals included, because a refusal is still a document a renderer
-// can be pointed at.
-//
-// `electron` is mocked: the package's real entry point exports a binary-path
-// string outside an Electron process, so a bare import would fail to resolve the
-// named `net` / `protocol` bindings at all.
+// Scheme registration and the response policy: statuses, empty refusal bodies, and the locked
+// headers on every response, refusals included. Verdicts are tested in
+// `./renderer-assets.test.ts`. `electron` is mocked because its real entry point exports a
+// binary-path string outside an Electron process.
 
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -19,15 +9,9 @@ import path from "node:path";
 
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
-// This suite keeps a LOCAL `electron` stub rather than the shared
-// `tests/helpers/electron-mock.ts`, and the reason is mechanical rather than
-// stylistic: it imports the module under test STATICALLY, so `electron` is
-// resolved during this file's own import phase — before a top-level
-// `const electronMock = createElectronMock(...)` would have initialized, which
-// would leave the hoisted `vi.mock` factory reading a binding in its temporal
-// dead zone. The stub also carries every `electron` member this file needs, and
-// it constructs no window, so it is not a second copy of the shared harness's
-// `BrowserWindow` machinery.
+// A local stub rather than the shared `tests/helpers/electron-mock.ts`: the module under test
+// is imported statically, so `electron` resolves before a top-level `createElectronMock(...)`
+// would initialize, leaving the hoisted `vi.mock` factory in its temporal dead zone.
 const electronMock = vi.hoisted(() => ({
   registerSchemesAsPrivileged: vi.fn(),
   handle: vi.fn(),
@@ -54,8 +38,7 @@ beforeAll(async () => {
   rendererRoot = path.join(sandboxRoot, "out", "renderer");
 
   await mkdir(rendererRoot, { recursive: true });
-  // Planted on disk exactly as a dev tree has it, so the 404 below is the guard
-  // refusing a readable file and not the filesystem answering for it.
+  // Planted on disk as a dev tree has it, so the 404 below is the guard refusing a readable file.
   await writeFile(path.join(rendererRoot, "bundle.js.map"), '{"sources":["secret.ts"]}', "utf8");
 });
 
@@ -114,9 +97,7 @@ describe("the load-failure document over the handler", () => {
     expect(body).toContain("ERR_FILE_NOT_FOUND (-6)");
   });
 
-  // Answered without touching the filesystem — the whole reason this document
-  // is servable when the tree is not. `rendererRoot` here is a path that does
-  // not exist at all, and the response is still a 200.
+  // Answered without touching the file system, so it is servable when the tree is not.
   it("is served even when the renderer root is gone", async () => {
     const response = await handleRendererRequest(
       path.join(sandboxRoot, "no-such-tree"),
@@ -147,9 +128,7 @@ describe("the load-failure document over the handler", () => {
   });
 });
 
-// Registration is process-global state, so this block runs last and owns both
-// calls. Splitting it across files would leave the second call's verdict
-// dependent on file ordering.
+// Registration is process-global state, so this block runs last and owns both calls.
 describe("registerRendererScheme", () => {
   it("registers the scheme as standard and secure, then refuses a second call", () => {
     registerRendererScheme();
@@ -158,9 +137,8 @@ describe("registerRendererScheme", () => {
     expect(electronMock.registerSchemesAsPrivileged).toHaveBeenCalledWith([
       {
         scheme: RENDERER_SCHEME,
-        // `standard: true` is what gives the origin IndexedDB and localStorage;
-        // `secure: true` is what keeps the document out of
-        // Chromium's mixed-content and insecure-origin restrictions.
+        // `standard` gives the origin IndexedDB and `localStorage`; `secure` keeps the document
+        // out of Chromium's mixed-content and insecure-origin restrictions.
         privileges: { standard: true, secure: true, supportFetchAPI: true },
       },
     ]);

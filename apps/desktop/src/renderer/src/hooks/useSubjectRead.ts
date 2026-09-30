@@ -1,13 +1,12 @@
 // One read per subject, held against that subject.
 //
-// The workflows readers, the session directory and the session header each put a
-// question about one subject that can change under a mounted caller. The state lives in
-// `store/subject-scoped/`, and a read that loses a race with a re-address is abandoned
-// through `read-cancellation.ts`; this is the one effect that ties the two together, so
-// a fix to how a discarded answer is dropped is made once.
+// The workflows readers, the session directory and the session header each ask a question
+// about one subject that can change under a mounted caller. The state lives in
+// `lib/subject-scoped/`, and a read that loses a race with a re-address is abandoned through
+// `lib/reads/read-scope.ts`; this is the one effect that ties the two together.
 //
 // A rejected call is not caught here: the rejection surfaces unhandled from the effect
-// rather than being turned into a state.
+// rather than becoming a state.
 
 import { useEffect } from "react";
 
@@ -54,8 +53,8 @@ export function useSubjectRead<TValue, TState>(
   const { settled } = project;
   useEffect(() => {
     const round = readScope.openRound();
-    // A round that is already over: React's double mount abandons the scope this
-    // render captured before the effect replays.
+    // A round that is already over: React's double mount abandons the scope this render
+    // captured before the effect replays.
     if (isReadAbandoned(round.signal)) {
       return;
     }
@@ -71,8 +70,8 @@ export function useSubjectRead<TValue, TState>(
         publish(settled(settlement.value));
       });
     });
-    // `read` and `settled` are closures rebuilt every render over the subject and key
-    // already named here, so listing them would re-read on every render.
+    // `read` and `settled` are closures rebuilt every render over the subject and key already
+    // named here, so listing them would re-read on every render.
   }, [subject, key, publish, readRevision, readScope]);
   return { value, publish };
 }

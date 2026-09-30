@@ -1,15 +1,4 @@
-/*
- * The three refusal shapes: inline, card, and banner.
- *
- * Imported by each refusal component beside it, so importing the component brings its styles.
- *
- * Hand-authored, unlike `meridian.css` — that file is generated from
- * `styles/palette.ts` and carries only VALUES; this carries only COMPOSITION
- * and reads every value back out as a custom property.
- *
- * Design-language rules that govern this sheet: the refusal grammar (the code in mono,
- * the message verbatim) and red, which means something failed.
- */
+/* The three refusal shapes: inline, card and banner. Red means something failed. */
 
 .meridian-refusal__message {
   margin: 0;
@@ -18,24 +7,20 @@
   line-height: 1.55;
 }
 
-/* The code is the one red thing in a refusal: it is what the operator quotes, and the
-   mark beside it carries the same hue. Both are asked for through the color properties
-   those components expose: this sheet does not declare `.meridian-figure--wire` or
-   `.meridian-glyph`, which belong to `styles/figure.css` and `components/Glyph/Glyph.css`. */
+/* The code and its mark are the red things in a refusal, set through the color properties
+   `styles/figure.css` and `Glyph.css` expose rather than by redeclaring their classes. */
 .meridian-refusal {
   --meridian-figure-wire-color: var(--meridian-red-text);
   --meridian-glyph-color: var(--meridian-red-mark);
 }
 
-/* inline: nothing changed. It sits beside the control, and the control stays. */
+/* inline: nothing changed; it sits beside the control. */
 .meridian-refusal--inline {
   display: inline-flex;
   flex-wrap: wrap;
   align-items: center;
   gap: var(--meridian-space-2);
-  /* A refusal that follows prose needs the leading; one that follows a control on the
-     same line does not. The container zeroes it through this property rather than
-     redeclaring `--inline` in its own sheet. */
+  /* A refusal after prose needs the leading; a container zeroes it through this property. */
   margin-block-start: var(--meridian-refusal-inline-margin-block-start, var(--meridian-space-2));
   font-size: var(--meridian-text-sm);
 }
@@ -63,11 +48,9 @@
 }
 
 /*
- * banner: what the whole room can do has changed, so it spans the frame.
- *
- * The span comes from being a block-level flex container, deliberately NOT from
- * `inline-size: 100%` — with no global `border-box` reset that width plus the
- * padding below overflows every container the banner is ever placed in.
+ * banner: what the whole room can do has changed, so it spans the frame. The span comes from
+ * being a block-level flex container, not `inline-size: 100%`, which plus padding would overflow
+ * without a global `border-box` reset.
  */
 .meridian-refusal--banner {
   box-sizing: border-box;
@@ -108,8 +91,7 @@
   border-radius: var(--meridian-radius-sm);
   background: transparent;
   color: var(--meridian-text-muted);
-  /* The dismiss glyph is chrome, not the refusal's own red mark, so this control
-     takes the surrounding red back off the glyph's color property for its own subtree. */
+  /* The dismiss glyph is chrome, not the red mark, so it takes the red back off. */
   --meridian-glyph-color: currentcolor;
   cursor: pointer;
   transition:
@@ -123,16 +105,8 @@
 }
 
 /*
- * ------------------------------------------------------ the remedy region
- *
- * What the `action` prop receives, from whichever feature's table answered. Muted and a
- * size down, because it is the console's own sentence beside the daemon's rather than a
- * second refusal: one region, one step of leading, no box of its own. A boxed remedy
- * beside a boxed refusal would present one fact as two, which is exactly what putting
- * it in the shape's own region is meant to avoid.
- *
- * ONE DECLARATION AND NOT ONE PER FEATURE. A copy of this block under each feature's own
- * prefix would let a change to the region's leading land on one view and not the other.
+ * The remedy region: what the `action` prop receives. Muted and a size down, with no box of its
+ * own, since a boxed remedy beside a boxed refusal would present one fact as two.
  */
 .meridian-refusal-remedy {
   display: flex;
@@ -146,10 +120,7 @@
   margin: 0;
 }
 
-/*
- * The exclusive alternatives one code carries. A list because a person picks between
- * them; run together as prose they read as steps to perform in order.
- */
+/* The exclusive alternatives one code carries; a list, since a person picks between them. */
 .meridian-refusal-remedy__cases {
   margin: 0;
   padding-inline-start: var(--meridian-space-4);

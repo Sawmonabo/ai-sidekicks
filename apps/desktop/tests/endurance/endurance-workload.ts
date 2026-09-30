@@ -1,40 +1,24 @@
 // The endurance tier's driving vocabulary, shared by the files in it.
 //
-// Two tests in this tier drive the same console in the same way — one measures
-// how the heap MOVES over sustained use, the other what it IS once the console
-// has settled — and both need the same three things: a route observed, the
-// scenario advanced, and the store read back. A copy of any of those in each
-// file would be two drivers that drift, and the drift would not be loud: a route
-// wait that stopped waiting still passes. The heap itself is read through
-// `heap-instrument.ts`, which measures rather than drives.
+// Two tests drive the same console the same way (one measures how the heap moves over
+// sustained use, the other what it is once the console has settled) and both need a route
+// observed, the scenario advanced and the store read back. A copy in each file would be two
+// drivers that drift silently, since a route wait that stopped waiting still passes. The heap
+// itself is read through `heap-instrument.ts`, which measures rather than drives.
 //
-// WHY THE ROUTE WAITS NAME A SCREEN AND NOT THE FRAME
+// The route waits name a screen, not the frame. `.meridian-frame` is permanent chrome, on the
+// page before and after a route change, so a wait on it returns at once and the next navigation
+// can land before React mounted anything, giving a churn loop that reports clean heap growth
+// because it never performed the mount and unmount it claims to measure. Each transition waits
+// on something only its destination renders, and `steady-state.test.ts` asserts the two
+// locators below route-exclusive. Both are production markup.
 //
-// `.meridian-frame` is the app's permanent chrome. It is on the page before a
-// route change and still there after, so a wait on it returns immediately and
-// the next navigation can land before React has mounted anything — which is a
-// churn loop that reports clean heap growth precisely because it never performed
-// the mount and unmount it claims to measure.
-//
-// So each transition waits on something only its own destination renders, and
-// the two locators below are asserted route-EXCLUSIVE by
-// `steady-state.test.ts` — the assertion that fails the day either one goes back
-// to naming the frame.
-//
-// Both are production markup, and neither is a test-only attribute added to the
-// renderer to make this observable.
-//
-// Each locator names a STRUCTURE only its own route mounts. The settings destination is
-// the settings frame, so its locator is that frame's own section rail; the session screen
-// is the transcript, so its locator is the scroll container the whole screen is built
-// around. An absence class would not do: neither is route-exclusive, because the
-// transcript renders its own `empty` when a session has no rows yet, and the settings
-// pages render `not-checked` absences of their own.
-//
-// When either screen changes shape, its locator stops matching and this tier fails
-// on a wait timeout naming the selector. That is the right direction: a driver that
-// can no longer see the screen it drives should stop, not continue measuring an
-// unobserved loop.
+// Each locator names a structure only its own route mounts: the settings frame's section rail,
+// and the transcript pane. An absence class would not do, because the transcript renders its
+// own `empty` when a session has no rows and the settings pages render `not-checked` absences.
+// When a screen changes shape, its locator stops matching and this tier fails on a wait timeout
+// naming the selector, which is right: a driver that cannot see the screen it drives should
+// stop, not keep measuring an unobserved loop.
 
 import { expect } from "vitest";
 
@@ -53,91 +37,68 @@ import { TRANSCRIPT_ROW_BOX_SELECTOR } from "./transcript-window-read.js";
 import { CONCURRENT_STREAMING_SCENARIO } from "../../fixtures/scenarios/concurrent-streaming.js";
 
 /**
- * How every launch in this tier is asked for: the concurrent-streaming script, and the
- * tier's OWN body allowance.
- *
- * Stated once rather than at each launch, because both halves are properties of
- * the tier rather than of a case. The allowance is the second: an endurance body
- * drives hundreds of churn cycles with settling heap samples either side, which
- * is a different subject from an end-to-end body and is why this tier has a
- * registered figure of its own — and the tier's own `testTimeout` is derived from
- * that same figure (`tierTimeoutFor`, `vitest.config.ts`). A launch that took the
- * default would be bounded nine times more tightly than the tier that runs it.
+ * How every launch in this tier is asked for: the given script and the tier's own body
+ * allowance. An endurance body drives hundreds of churn cycles with settling heap samples
+ * either side, so the tier has its own registered figure, and its `testTimeout` derives from the
+ * same figure (`tierTimeoutFor`); the default allowance would bound a launch far more tightly
+ * than the tier that runs it.
  */
 export function enduranceLaunchOptions(scenarioId: string): LaunchAppOptions {
   return {
     scenarioId,
     bodyAllowanceMs: ENDURANCE_BODY_ALLOWANCE_MS,
-    // Every launch in this tier reads a heap, and every figure it gates is a
-    // DIFFERENCE of two such readings. See `readSettledHeapBytes` for why the
-    // default instrument cannot carry one.
+    // Every figure this tier gates is a difference of two heap readings; see
+    // `readSettledHeapBytes` in `heap-instrument.ts` for why the default instrument cannot carry
+    // one.
     isPreciseHeapReadingRequired: true,
   };
 }
 
+/** Launch options for the concurrent-streaming script. */
 export const ENDURANCE_LAUNCH_OPTIONS: LaunchAppOptions = enduranceLaunchOptions(
   CONCURRENT_STREAMING_SCENARIO.id,
 );
 
+/** The session id the concurrent-streaming script plays into. */
 export const CONCURRENT_STREAMING_SESSION_ID: string = CONCURRENT_STREAMING_SCENARIO.sessionId;
 
+/** The hash route of the concurrent-streaming session. */
 export const CONCURRENT_STREAMING_SESSION_ROUTE: string = `#/session/${encodeURIComponent(CONCURRENT_STREAMING_SESSION_ID)}`;
 
+/** The hash route of the settings destination. */
 export const SETTINGS_ROUTE: string = "#/settings";
 
 /**
- * What the settings route renders and the session screen does not.
- *
- * Anchored under the frame's screen region, so an element of the same class mounted
- * in the rail, a banner, or an overlay cannot satisfy the wait for a screen that
- * never mounted.
- *
- * The section rail rather than one of the screen's absences: the pages inside the
- * settings frame render absences of their own — several of them `not-checked`,
- * because the reads behind them are unregistered — so an absence-kind selector here
- * would no longer be route-exclusive against the session screen's. The rail is the one
- * piece of markup that exists if and only if this screen mounted.
+ * What the settings route renders and the session screen does not: the section rail, the one
+ * piece of markup that exists if and only if this screen mounted. It is anchored under the
+ * frame's screen region so a same-class element in the rail, a banner or an overlay cannot
+ * satisfy the wait.
  */
 export const SETTINGS_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-settings__rail";
 
 /**
- * What the session screen renders and the settings route does not.
- *
- * The transcript PANE, which the session screen mounts on every session route whether or not
- * that session has rows yet — so the wait observes the MOUNT rather than the arrival of
- * content, which is what a churn cycle needs it to observe.
- *
- * NOT the transcript's body, which was this selector until the provenance rail was removed:
- * that box is a container whose children are all conditional, so before the session's
- * first read settles it holds a virtualized list with nothing in it and has no box at
- * all. It satisfied a visibility wait only because the rail beside the window drew an
- * unconditional strip — a wait that passed on the presence of an element it was not
- * asking about. The pane is the element the ROUTE mounts, which is the claim this
- * constant is making.
+ * What the session screen renders and the settings route does not: the transcript pane, which
+ * every session route mounts whether or not the session has rows yet, so the wait observes the
+ * mount rather than the arrival of content. The transcript's body would not do, since its
+ * children are all conditional and before the first read settles it has no box at all.
  */
 export const SESSION_SCREEN_SELECTOR: string = ".meridian-frame__screen .meridian-pane--transcript";
 
 /**
- * One transcript row, anchored under the frame's screen region.
- *
- * The PANE says the session screen mounted; a ROW says the projection, the window
- * fold and the viewport's reconcile have all run and something is on screen. The
- * two budget readings in this tier need the second claim and the churn loop needs
- * the first, so both selectors live here and neither tier spells one itself.
+ * One transcript row, anchored under the frame's screen region. The pane says the session
+ * screen mounted; a row says the projection, the window fold and the viewport's reconcile have
+ * run and something is on screen. The churn loop needs the first and the budget readings the
+ * second, so both selectors live here.
  */
 export const TRANSCRIPT_ROW_SELECTOR: string =
   ".meridian-frame__screen .meridian-transcript-row-layout";
 
 /**
- * Assign the hash and wait for the screen only that route mounts.
- *
- * The wait carries `IN_WINDOW_STEP_TIMEOUT_MS` — a route change is a store update
- * and one React commit, so that figure bounds a console that has STOPPED
- * navigating rather than one being slow — and it is additionally held to what is
- * left of the body's allowance. Both halves matter: without the first, a stalled
- * route reports as a body that ran long; without the second, a transition
- * declared at ten seconds outlives an allowance with a second left on it and the
- * enclosing race replaces the selector's name with the generic overrun.
+ * Assign the hash and wait for the screen only that route mounts. The wait carries
+ * `IN_WINDOW_STEP_TIMEOUT_MS` (a route change is one store update and one React commit, so it
+ * bounds a console that stopped navigating) and is also held to what is left of the body's
+ * allowance, so the enclosing race does not replace the selector's name with the generic
+ * overrun.
  */
 async function openRoute(
   consoleApplication: AppUnderTest,
@@ -153,10 +114,12 @@ async function openRoute(
   });
 }
 
+/** Open the settings route and wait for its screen. */
 export async function openSettingsRoute(consoleApplication: AppUnderTest): Promise<void> {
   await openRoute(consoleApplication, SETTINGS_ROUTE, SETTINGS_SCREEN_SELECTOR);
 }
 
+/** Open the concurrent-streaming session and wait for its screen. */
 export async function openConcurrentStreamingSessionRoute(
   consoleApplication: AppUnderTest,
 ): Promise<void> {
@@ -164,12 +127,9 @@ export async function openConcurrentStreamingSessionRoute(
 }
 
 /**
- * Move the scenario on, and report how far it has got.
- *
- * `null` means the handle is not on the page at all — which this tier treats as a
- * failure and never as a reason to skip, on the same reasoning the tripwire
- * assertion carries: a run that could not drive the workload measured an idle
- * console, and reporting that as a pass is worse than not running.
+ * Move the scenario on, and report how many beats it has delivered. `null` means the handle is
+ * not on the page, which this tier treats as a failure and never a reason to skip: a run that
+ * could not drive the workload measured an idle console.
  */
 export async function advanceScenario(
   consoleApplication: AppUnderTest,
@@ -203,12 +163,9 @@ export async function readPlayingScenarioId(
 }
 
 /**
- * How many events the store for one session has ADMITTED, or `null`.
- *
- * Admitted to the apply chokepoint, which is a different number from the beats
- * the engine delivered and from the transcript's row count. That is why both are
- * read: they answer different questions, and this one answers whether a stream
- * reached this window's stores at all.
+ * How many events the store for one session has admitted to the apply chokepoint, or `null`.
+ * It differs from the beats the engine delivered and from the transcript's row count, and
+ * answers whether a stream reached this window's stores at all.
  */
 export async function readAppliedEventCount(
   consoleApplication: AppUnderTest,
@@ -238,14 +195,10 @@ export async function readBoundSessionIds(
 }
 
 /**
- * What one churn cycle saw, in the two registers a caller can be fooled in.
- *
- * THE ROW COUNT IS HERE BECAUSE THE ROUTE WAIT STOPPED CARRYING IT. The session screen
- * wait names the transcript PANE, which mounts its chrome whether or not the transcript
- * inside it ever draws a row — so a run whose transcript never mounted churns the whole
- * loop, waits successfully every time, and reports clean heap growth over a transcript
- * that is not there. The pane says the route arrived; this says the transcript under it
- * came up.
+ * What one churn cycle saw, in the two registers a caller can be fooled in. The row count is
+ * here because the session screen wait names the transcript pane, which mounts its chrome
+ * whether or not a row is ever drawn; without the count, a run whose transcript never mounted
+ * would report clean heap growth over a transcript that is not there.
  */
 export interface ChurnCycleReading {
   /** Beats the engine has delivered, or `null` where the handle is not on the page. */
@@ -255,61 +208,44 @@ export interface ChurnCycleReading {
 }
 
 /**
- * One cycle of the work a console does while a person watches it.
- *
- * Navigation and palette use rather than synthetic allocation, because the leaks
- * worth catching live in the machinery those exercise — subscriptions, effects,
- * portals, and the listener table — and a loop that allocated arrays would prove
- * only that V8 collects arrays. The clock moves once per cycle so the scenario is
- * delivering into that machinery while it is being churned, which is the state a
- * real session is in and the one a leak shows up in.
- *
- * Each route change is OBSERVED before the next one is issued: the mount and
- * unmount are the subject of the measurement, so a cycle that assigned two hashes
- * back to back would be a cycle that measured neither.
- *
- * Returns what the cycle saw, so a caller can assert the workload progressed and
- * that it progressed over a transcript, without paying for a second round trip.
+ * One cycle of the work a console does while a person watches it: navigation and palette use,
+ * not synthetic allocation, because leaks live in the machinery those exercise (subscriptions,
+ * effects, portals, the listener table). The clock moves once per cycle so the scenario delivers
+ * into that machinery while it is churned. Each route change is observed before the next is
+ * issued, since the mount and unmount are the subject. Returns what the cycle saw, so a caller
+ * can assert the workload progressed over a transcript.
  */
 export async function churnOnce(
   consoleApplication: AppUnderTest,
   advanceMilliseconds: number,
 ): Promise<ChurnCycleReading> {
   const consoleWindow = consoleApplication.window;
-  // Through the shared palette helper, which waits for the input to hold focus before this
-  // returns. Typing into an unfocused palette is silent here rather than red — the
-  // keystrokes go to the document, the filter never runs, and the cycle reports a
-  // clean churn over machinery it did not touch. That is the worse failure of the
-  // two, because a measurement nobody can tell was not taken keeps being trusted.
+  // The shared palette helper waits for the input to hold focus. Typing into an unfocused
+  // palette is silent: the keystrokes go to the document and the cycle reports a clean churn
+  // over machinery it did not touch.
   await openPalette(consoleApplication);
   await consoleWindow.keyboard.type("Go to");
   await closePalette(consoleApplication);
 
-  // Route changes mount and unmount the screen subtree through the error
-  // boundary's keyed remount — the path most likely to strand a listener. One of
-  // the two routes is the scenario's own session, so the cycle also opens and
-  // re-reads the store the beats are landing in.
+  // Route changes mount and unmount the screen subtree through the error boundary's keyed
+  // remount, the path most likely to strand a listener. One route is the scenario's own session,
+  // so the cycle also re-reads the store the beats land in.
   await openSettingsRoute(consoleApplication);
   await openConcurrentStreamingSessionRoute(consoleApplication);
 
   const deliveredBeatCount = await advanceScenario(consoleApplication, advanceMilliseconds);
-  // Counted AFTER the advance, so the cycle reports the transcript the beats it just
-  // delivered landed in. A count and not a wait: the early cycles legitimately have
-  // no row — the concurrent-streaming script is walked over the whole run — so a wait here would
-  // spend the body's allowance on a state the run is expecting. What the caller does
-  // with the sequence of counts is the claim; this only reports them.
+  // Counted after the advance, so it reports the transcript the just-delivered beats landed in.
+  // A count and not a wait: early cycles legitimately have no row, as the script is walked over
+  // the whole run, and a wait would spend the body's allowance on an expected state.
   const transcriptRowCount = await consoleWindow.locator(TRANSCRIPT_ROW_BOX_SELECTOR).count();
   return { deliveredBeatCount, transcriptRowCount };
 }
 
 /**
- * How many advances the whole script is walked in, and how many drain it.
- *
- * Steps rather than one jump because a beat delivered into a store is applied
- * through a coalescing window on the same frozen clock: one advance past the end
- * would deliver every beat and leave the last of them queued. The drain advances
- * carry that window past its deadline with nothing left to deliver, which is the
- * quiet point — every beat in, nothing in flight.
+ * How many advances the whole script is walked in, and how many drain it. Steps rather than one
+ * jump because a delivered beat is applied through a coalescing window on the same frozen clock:
+ * one advance past the end would leave the last beat queued. The drain advances carry that
+ * window past its deadline, the quiet point with every beat in and nothing in flight.
  */
 const SCENARIO_DELIVERY_STEP_COUNT = 20;
 const SCENARIO_DRAIN_STEP_COUNT = 5;
@@ -321,19 +257,11 @@ export interface ScenarioDeliverySchedule {
 }
 
 /**
- * The walk that puts the whole concurrent-streaming script in and leaves nothing queued.
- *
- * One derivation rather than three: this tier walks the script from the driver
- * process and the two budget readings walk it from INSIDE the renderer, where a
- * round trip per advance would be the thing being measured. All three ask for the
- * same walk, and a copy of this arithmetic in each would be three places for a
- * beat to be left queued behind a deadline nothing reaches.
- *
- * The step is floored at one coalescing window, so every step also drains the
- * batch the step before it delivered. Today's script makes that floor inert — its
- * span over twenty steps is comfortably wider than the 16 ms window — and it is
- * stated anyway, because a shorter script would otherwise deliver beats no advance
- * in the loop ever released, and the failure would be a quiet one.
+ * The walk that puts the whole concurrent-streaming script in and leaves nothing queued. It is
+ * one derivation because this tier walks the script from the driver process and the two budget
+ * readings walk it from inside the renderer; three copies would be three places to leave a beat
+ * queued. The step is floored at one coalescing window so every step drains the batch before it;
+ * today's script makes the floor inert, but a shorter one would otherwise strand beats quietly.
  */
 export function concurrentStreamingDeliverySchedule(): ScenarioDeliverySchedule {
   const scriptSpanMs = CONCURRENT_STREAMING_SCENARIO.beats.at(-1)?.atMs ?? 0;
@@ -347,11 +275,8 @@ export function concurrentStreamingDeliverySchedule(): ScenarioDeliverySchedule 
 }
 
 /**
- * Play the concurrent-streaming script to its end and let the stores settle on it.
- *
- * Returns the beats delivered, so a caller can assert the session it is about to
- * measure actually has content rather than being an empty store with a route
- * pointed at it.
+ * Play the concurrent-streaming script to its end and let the stores settle on it. Returns the
+ * beats delivered so a caller can assert the session has content.
  */
 export async function deliverWholeScenario(
   consoleApplication: AppUnderTest,
@@ -365,12 +290,9 @@ export async function deliverWholeScenario(
 }
 
 /**
- * Assert this window's session store holds the concurrent-streaming script's events.
- *
- * Shared because both files need it for different reasons: the steady-state run
- * needs the workload to have been a workload, and the at-rest reading needs the
- * budget's subject — ONE SESSION OPEN, with content — to be what was on screen
- * when the heap was read.
+ * Assert this window's session store holds the concurrent-streaming script's events: the
+ * steady-state run needs the workload to have been one, and the at-rest reading needs one open
+ * session with content on screen when the heap is read.
  */
 export async function expectConcurrentStreamingSessionCarriesContent(
   consoleApplication: AppUnderTest,

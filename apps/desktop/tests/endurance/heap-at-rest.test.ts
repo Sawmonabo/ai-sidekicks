@@ -1,49 +1,23 @@
-// The renderer heap-at-rest budget, measured.
+// The renderer heap-at-rest budget: the heap with one session open at rest stays under the
+// ceiling in `budgets.json`, compared through the registry's own `evaluateBudget`.
 //
-// Renderer heap with one session open at rest is bounded at 120 MB, and `budgets.json` carries the ceiling. This
-// file is the row's `measuredBy`: it takes the reading and compares it through
-// the registry's own `evaluateBudget`, so the number this gate uses and the
-// number the spec wrote are the same number read from one file.
+// The reading is taken here, not in the budget CLI: the figure is a renderer heap, and the
+// Node process behind `scripts/budget/measure-heap.mts` holds no Chromium, React, DOM or
+// console store, so it deliberately measures nothing. Only the built console holds the subject.
+// It is not taken in `steady-state.test.ts` either: that file bounds how far the heap moves and
+// owns no ceiling, this one bounds what the heap is at one quiet instant and owns no growth
+// rule, so no number has two owners.
 //
-// WHY THE READING LIVES ON THE ENDURANCE TIER AND NOT IN THE BUDGET CLI
-//
-// The figure is a RENDERER heap. `scripts/budget/measure-heap.mts` runs in a Node
-// process that holds no Chromium, no V8 renderer isolate, no React, no DOM, and
-// no console store, so every figure available there is short of the shipped
-// renderer by everything that makes a renderer — which is why that harness
-// deliberately measures nothing and refuses to be named this row's measurer. The
-// only process that holds the subject is the built console itself, which is what
-// this tier launches.
-//
-// WHY THE READING IS TAKEN HERE AND NOT IN `steady-state.test.ts`
-//
-// Two different claims. That file bounds how far the heap MOVES over sustained
-// use and owns no ceiling; this one bounds what the heap IS at one quiet instant
-// and owns no growth rule. Putting both in one file would put one number under
-// two owners, which is how a budget gets loosened in one place and stays enforced
-// in the other.
-//
-// WHAT MAKES THE INSTANT THE BUDGET'S SUBJECT
-//
-// "One session open at rest" is three conditions, and the run establishes each
-// rather than assuming it:
-//
-//   • **One session open.** The console is launched on the concurrent-streaming scenario and
-//     navigated to that scenario's own session route, and the navigation is
-//     observed on markup only that route renders.
-//   • **With content.** The frozen clock is walked over the whole script, and the
-//     session store's ADMITTED event count is asserted non-zero against a live
-//     wire subscription. A reading over an empty store measures the substrate,
-//     not this budget's subject — which is precisely why this row recorded itself
-//     unmeasurable until the fixture bridge served the session read.
-//   • **At rest.** Nothing in a fixture build moves the frozen clock on its own,
-//     so the console is idle from the last advance onwards. The heap is then read
-//     through the tier's one instrument — a forced collection over a DevTools
-//     session, then the minimum over settling samples — which is what this row's
-//     own subject sentence has always said the figure is taken after. A sampler
-//     alone would carry the four megabytes the precision precondition allocates
-//     and drops a few round trips earlier, so the ceiling would be compared
-//     against this renderer's heap plus the proof that the instrument works.
+// "One session open at rest" is established by the run, not assumed:
+//   - One session open: the console launches on the concurrent-streaming scenario and navigates
+//     to its session route, observed on markup only that route renders.
+//   - With content: the frozen clock walks the whole script and the session store's admitted
+//     event count is asserted non-zero, since a reading over an empty store measures the
+//     substrate.
+//   - At rest: nothing in a fixture build moves the frozen clock on its own. The heap is read
+//     through the tier's one instrument (a forced collection, then the minimum over settling
+//     samples); a bare sampler would carry the four megabytes the precision precondition
+//     allocates and drops a few round trips earlier.
 
 import process from "node:process";
 
@@ -65,7 +39,7 @@ import { type Budget } from "../../scripts/budget/budget-document.mjs";
 
 const bundleIsBuilt = fixtureBundleExists();
 
-/** The row this file measures. Named once; every figure below comes off it. */
+/** The budget row this file measures. */
 const HEAP_AT_REST_BUDGET_ID = "renderer-heap-at-rest";
 
 const registry = BudgetRegistry.load();
@@ -74,10 +48,8 @@ const budget = registry.requireBudget(HEAP_AT_REST_BUDGET_ID);
 /**
  * The row rewritten with a ceiling one byte under whatever was measured.
  *
- * The negative control, and it drives the REAL comparison rather than a
- * re-implementation of `<=`: without it, an `evaluateBudget` that returned
- * `withinBudget: true` unconditionally would satisfy the assertion above and this
- * gate would report green over any renderer at all.
+ * The negative control drives the real comparison, so an `evaluateBudget` that always returned
+ * `withinBudget: true` cannot leave this gate green over any renderer.
  */
 function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
   return {
@@ -87,11 +59,9 @@ function budgetWithCeilingBelow(measuredCanonicalValue: number): Budget {
 }
 
 describe("the renderer heap-at-rest budget row", () => {
-  // The ceiling, the unit, and the row's `n/a`-versus-`enforced` consistency are
-  // the budget tier's to hold (`scripts/budget/measure-heap.test.ts`) and are
-  // deliberately not restated here. What only THIS file can say is that it is the
-  // harness the row names — so a reading that moves away, or a row flipped back
-  // to ungated while this gate keeps running and passing, fails here.
+  // The ceiling, the unit and the row's `n/a`-versus-`enforced` consistency belong to the
+  // budget tier (`scripts/budget/measure-heap.test.ts`). This checks only that the row names
+  // this file as its measurer and is still enforced.
   it("is the harness the row names as its measurer", () => {
     expect(budget.status).toBe("enforced");
     expect(budget.measuredBy).toBe("apps/desktop/tests/endurance/heap-at-rest.test.ts");
@@ -110,30 +80,25 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
       expect(Number(deliveredBeatCount)).toBe(CONCURRENT_STREAMING_SCENARIO.beats.length);
       await expectConcurrentStreamingSessionCarriesContent(consoleApplication);
 
-      // Attached before the precondition, which needs it: the precondition proves the
-      // instrument by measuring a difference of two readings, and it takes each of
-      // them behind this reader's own forced collection so the difference is the
-      // probe's allocation rather than whatever the collector reclaimed in between.
+      // Attached before the precondition, which needs it: the precondition takes each of its
+      // two readings behind this reader's forced collection, so the difference is the probe's
+      // allocation and not whatever the collector reclaimed in between.
       const heapProbe = await RendererHeapProbe.attachTo(consoleApplication);
       let atRestHeapBytes: number;
       try {
-        // The instrument before the reading it serves: a launch that lost the precise
-        // flag reports a quantized, cached figure, which for a CEILING would silently
-        // pass or fail on a bucket boundary rather than on this renderer's heap.
+        // A launch that lost the precise-heap flag reports a quantized, cached figure, which a
+        // ceiling would pass or fail on a bucket boundary rather than on the renderer's heap.
         await expectPreciseHeapInstrument(consoleApplication, heapProbe);
 
         atRestHeapBytes = await heapProbe.readSettledBytes();
       } finally {
-        // Detached before the wrapper closes the window, and before the assertions:
-        // nothing below reads the renderer again, and detaching a DevTools session
-        // from a closed application raises over whatever the body was failing on.
+        // Detached before the window closes: detaching a DevTools session from a closed
+        // application raises over whatever the body was failing on.
         await heapProbe.detach();
       }
       const verdict = evaluateBudget(budget, atRestHeapBytes);
 
-      // Reported before the assertion, on the same reasoning the steady-state run
-      // prints its growth: a gate that speaks only when it fails gives a reviewer
-      // no way to watch a margin shrink over months until the day it crosses.
+      // Printed before the assertion so a shrinking margin is visible before a run crosses.
       process.stdout.write(
         `[console-endurance] heap at rest ${String(Math.round(atRestHeapBytes / 1024))} kB ` +
           `of ${String(Math.round(budget.limit.canonicalValue / 1024))} kB ` +
@@ -146,8 +111,7 @@ describe.skipIf(!bundleIsBuilt)("endurance — the console at rest with one sess
         `${budget.label}: ${String(atRestHeapBytes)} B against a ${String(budget.limit.canonicalValue)} B ceiling`,
       ).toBe(true);
 
-      // A ceiling planted one byte under the reading must fail the same
-      // comparison this gate just passed.
+      // A ceiling planted one byte under the reading must fail the comparison just passed.
       expect(
         evaluateBudget(budgetWithCeilingBelow(atRestHeapBytes), atRestHeapBytes).withinBudget,
       ).toBe(false);

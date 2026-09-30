@@ -1,20 +1,9 @@
-// The four derivations the accounts fixture body makes over one account-plane reading.
-//
-// EVERY CASE DRIVES THE REAL FUNCTION. Nothing here reimplements a selection, a
-// supersession rule, or a day count — a test that restated one would pass against a
-// module that had stopped agreeing with it, which is the failure the package standard
-// names outright.
-//
-// AND EVERY CLEAN RESULT HAS ITS NEGATIVE CONTROL. The `limitId` key, the account
-// filter, the ordering, and the generation comparison are each asserted twice — once
-// for what they do, once for the thing they would do if the rule were the obvious
-// wrong one.
-//
-// WHICH READING IS CURRENT IS ASSERTED ELSEWHERE, ON PURPOSE. That rule belongs to
-// `bridge/quotas/provider-quota-fold.ts`, which has its own suite. What is asserted HERE
-// is that this module makes no such decision of its own — the case that hands it two
-// readings for one limit is the foil for exactly that, and its input is one the
-// readout's contract does not produce.
+// The four derivations the accounts fixture body makes over one account-plane reading. Every
+// case drives the real function, so a test never restates a selection, a supersession rule or a
+// day count. Each clean result has a negative control: the `limitId` key, the account filter,
+// the ordering and the generation comparison are asserted for what they do and for the obvious
+// wrong rule. Which reading is current is tested in `provider-account-fold.test.ts`; here, the
+// case handing two readings for one limit shows this module makes no such decision.
 
 import { describe, expect, it } from "vitest";
 
@@ -73,12 +62,8 @@ function usageWindow(
 }
 
 /**
- * A reading of the account plane holding exactly these current rows.
- *
- * The readout is the only thing the selection accepts, and it is composed here rather
- * than reached for: what the four other members say does not bear on which rows this
- * account's table draws, so a case that had to script a phase and a refusal to ask
- * about ordering would be answering a question nobody asked.
+ * A reading of the account plane holding exactly these current rows. Composed here so a case
+ * asking about ordering need not script a phase and a refusal.
  */
 function registryHolding(
   usageWindows: readonly ProviderAccountUsageWindow[],
@@ -113,8 +98,8 @@ describe("accountQuotaRowsFrom", () => {
     ]);
   });
 
-  // The negative control for the case above: every one of those three carries the
-  // same `windowMins`, so a selection keyed on the window length would answer one row.
+  // Negative control: all three carry the same `windowMins`, so a selection keyed on window
+  // length would answer one row.
   it("does not collapse rows that share a window length", () => {
     const sharedWindowLengths = new Set(
       [
@@ -126,12 +111,9 @@ describe("accountQuotaRowsFrom", () => {
     expect(sharedWindowLengths.size).toBe(1);
   });
 
-  // THE FOIL FOR THE SECOND RULE THAT USED TO LIVE HERE. Two readings for one limit is
-  // an input the readout's own contract does not produce — the fold keeps one row per
-  // `(accountId, limitId)` — and that is exactly why it is the right probe: a module
-  // that resolved this pair would be answering a question it is not allowed to answer,
-  // and the answer it used to give was the wrong one, putting a later 5% in place of a
-  // standing 44% inside one window because it ranked on the timestamp alone.
+  // The foil for a second supersession rule: two readings for one limit is an input the
+  // readout's contract does not produce (the fold keeps one row per `(accountId, limitId)`), so
+  // a module resolving the pair would be answering a question it may not answer.
   it("decides nothing about which of two readings for one limit is current", () => {
     const rows = accountQuotaRowsFrom(
       registryHolding([
@@ -183,9 +165,8 @@ describe("accountQuotaRowsFrom", () => {
     expect(rows.map((row) => row.window.limitId)).toEqual(["alpha", "zeta"]);
   });
 
-  // The ordering is this page's and the reading is the node's, so the selection must
-  // not reorder the array it was handed — a fold publishing its rows to two views
-  // would otherwise have one of them shuffled under it.
+  // The ordering is this page's and the reading is the node's, so the selection must not
+  // reorder the array it was handed.
   it("leaves the reading's own row order untouched", () => {
     const currentRows = [usageWindow({ limitId: "zeta" }), usageWindow({ limitId: "alpha" })];
     const registry = registryHolding(currentRows);
@@ -203,8 +184,8 @@ describe("estimatedReloginDaysAfterSignIn", () => {
     ).toBe(30);
   });
 
-  // Measured from the ANCHOR and never from the clock: the same pair answers the same
-  // number whenever it is asked, which is what stops the figure reading as a deadline.
+  // Measured from the anchor, never the clock, so the same pair answers the same number and the
+  // figure does not read as a deadline.
   it("answers the same interval however far in the past the pair sits", () => {
     expect(
       estimatedReloginDaysAfterSignIn("2020-01-01T00:00:00.000Z", "2020-01-31T00:00:00.000Z"),

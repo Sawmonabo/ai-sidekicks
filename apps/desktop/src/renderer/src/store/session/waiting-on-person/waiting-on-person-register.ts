@@ -1,37 +1,17 @@
-// What is still waiting on a person, held OUTSIDE the window it was learned from.
+// What is still waiting on a person, held outside the window it was learned from.
 //
-// WHY THIS IS NOT A FOLD OVER THE STORE'S `timeline`. A session's stream replays from the
-// position this user was last acknowledged at, so a resumed read establishes a window whose
-// head is somewhere in the middle of the log, and `timeline` is that window and nothing
-// else. It is also CAPPED, so a long session drops its oldest rows as it runs. A fold over
-// it would lose an approval the moment its opening row fell out of the window, and the
-// count would read zero over a run that is still blocked; no care inside the fold can fix
-// that, because the opener is not in the input.
+// Not a fold over the store's `timeline`: a resumed read starts mid-log and the timeline is
+// capped, so an approval's opening row can be gone while the run is still blocked. The register
+// is advanced by every admitted event and recovered backward page, seeded from each read's base
+// state, and cleared by nothing that replaces or prunes the window.
 //
-// SO THE REGISTER IS A LEDGER OF LIFECYCLES AND NOT A VIEW OF ROWS. It is advanced by
-// every event the store admits and by every row a backward page recovers, it is seeded
-// from the base state a read establishes, and it is cleared by NOTHING that replaces or
-// prunes the window. What it holds per lifecycle is two positions, which is all any
-// reader needs and is far smaller than the rows those positions came from.
+// It keeps two positions per lifecycle (the opener and the newest terminal), so rows in any order
+// give the same answer. A backward page delivers an opener after its terminal, and a register that
+// deleted a key on a terminal would re-open a settled ask.
 //
-// AND IT IS ORDER-INSENSITIVE BY CONSTRUCTION, which is the property that makes the
-// backward walk safe. Rows arrive at the tail in order and at the head in reverse, so a
-// register that deleted a key on a terminal would be defeated by a page that then
-// delivered that request's OPENING row: the opener would arrive after its own terminal
-// and re-open a settled ask forever. Holding the two positions instead makes the answer
-// a comparison rather than a history — outstanding means an opener with no terminal
-// after it — and the same rows in any order give the same answer.
-//
-// WHAT THE BASE STATE CAN AND CANNOT CARRY, read rather than assumed. `SessionSnapshot`
-// carries entities, and one entity kind answers an ask class authoritatively: a `run`
-// row's `state` is a registered `RunState`, so a run blocked on an approval or an
-// answer says so on the base state whatever the window's own rows hold. The two
-// REQUEST lifecycles have no carrier at all — `store/entities/entities.ts` declares no kind for
-// an intervention, and an `approval` row's state vocabulary is a
-// renderer-local projection contract that no wire schema registers — so a request
-// raised below the window's head is not merely absent, it is UNREADABLE from here.
-// {@link WaitingOnPersonRecords.isWindowHeadUnread} is that fact, and a view that
-// printed an all-clear line over it would be reporting something it never read.
+// The seed reads only `run` entities, whose `state` is a registered `RunState`. The request
+// lifecycles have no base-state carrier, so a request raised below the window's head is
+// unreadable from here; {@link WaitingOnPersonRecords.isWindowHeadUnread} reports that.
 
 import type { StoredEntity, ProjectedSessionEvent } from "../entities/entities.js";
 import {
@@ -45,12 +25,8 @@ import {
 } from "./waiting-on-person-states.js";
 
 /**
- * One request lifecycle, as two positions.
- *
- * POSITIONS RATHER THAN A BOOLEAN, which is what makes the register order-insensitive:
- * a terminal that arrives before its own opener — the ordinary case on a backward page —
- * settles the request all the same, and an opener that arrives afterwards does not
- * re-open it.
+ * One request lifecycle, as two positions. A terminal seen before its opener still settles the
+ * request (the ordinary case on a backward page), and a later opener does not re-open it.
  */
 export interface WaitingRequestRecord {
   /** Where the opening event sat, or `undefined` while only a terminal has been seen. */
@@ -71,12 +47,9 @@ export interface WaitingOnPersonRecords {
   readonly requestsByKey: ReadonlyMap<string, WaitingRequestRecord>;
   readonly runsByRunId: ReadonlyMap<string, WaitingRunRecord>;
   /**
-   * Whether requests raised below this window's head exist that were never read here.
-   *
-   * True while the read that established the base state submitted a position — which is
-   * exactly "this window starts partway through the log" — because the three request
-   * lifecycles have no base-state carrier to seed them from. Run states are seeded and
-   * are therefore NOT what this reports.
+   * Whether requests raised below this window's head may exist that were never read here.
+   * True while the read that established the base state submitted a position, since the window
+   * then starts partway through the log. Run states are seeded, so they are not what this reports.
    */
   readonly isWindowHeadUnread: boolean;
 }
@@ -85,12 +58,8 @@ export interface WaitingOnPersonRecords {
 export interface WaitingOnPersonSeed {
   readonly entities: readonly StoredEntity[];
   /**
-   * The sequence the base state is current as of, which is the position every entity it
-   * carries is seeded AT.
-   *
-   * So an event ahead of it supersedes the seed and one at or below it does not: a row
-   * at or below the cursor is already folded into the entity the read carried, and
-   * letting it win would put a run back into a state the base state has passed.
+   * The sequence the base state is current as of, which every entity it carries is seeded at.
+   * An event at or below it is already folded into the seed and must not supersede it.
    */
   readonly cursor: number;
   /** The position the read was performed FROM, or `undefined` for the log's beginning. */
@@ -98,11 +67,7 @@ export interface WaitingOnPersonSeed {
 }
 
 /**
- * One session's outstanding-ask ledger.
- *
- * A class with private fields per `apps/desktop/AGENTS.md`: it is state with two acts
- * that change it, and both acts have to be able to admit rows in any order without every
- * caller remembering why.
+ * One session's outstanding-ask ledger, advanced by rows admitted in any order.
  */
 export class WaitingOnPersonRegister {
   readonly #requestsByKey = new Map<string, WaitingRequestRecord>();
@@ -114,12 +79,8 @@ export class WaitingOnPersonRegister {
   #readingRevision = -1;
 
   /**
-   * Take what a completed read established, WITHOUT forgetting what is already here.
-   *
-   * A read re-establishes the WINDOW and says nothing about a request it did not carry,
-   * so a register cleared here would lose exactly the older asks this class exists to
-   * hold. What it does move is the window-head fact, because that is a property of the
-   * read that just landed.
+   * Take what a completed read established without forgetting the asks already held; only the
+   * window-head fact is replaced.
    */
   public seedFrom(seed: WaitingOnPersonSeed): void {
     this.#isWindowHeadUnread = seed.windowHeadCursor !== undefined;
@@ -144,11 +105,8 @@ export class WaitingOnPersonRegister {
   }
 
   /**
-   * What the register holds, as one frozen reading.
-   *
-   * Held between changes so a consumer subscribed to the store's revision re-derives
-   * nothing while nothing moved: the maps are copied on the way out, because a reader
-   * handed the live ones could watch them change underneath a render.
+   * What the register holds, as one frozen reading. Cached between changes, and the maps are
+   * copies so a render cannot watch them change.
    */
   public get ledger(): WaitingOnPersonRecords {
     const reading = this.#reading;
@@ -190,9 +148,7 @@ export class WaitingOnPersonRegister {
 
   #recordRunState(record: { readonly runId: string } & WaitingRunRecord): void {
     const held = this.#runsByRunId.get(record.runId);
-    // NEWEST WINS, and equal loses. A row at the seed's own position is one the base
-    // state has already folded in, so replaying it would put a run back into the state
-    // it was in when this window opened.
+    // Newest wins and equal loses: a row at the seed's own position is already folded into it.
     if (held !== undefined && held.atSequence >= record.atSequence) {
       return;
     }

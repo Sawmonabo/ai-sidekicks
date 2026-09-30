@@ -1,12 +1,6 @@
-// Which tone each server status wears, declared once for every view that draws one.
-//
-// A `.ts` module rather than a table inside whichever component happened to need it
-// first: the row's aggregate chip and each leg's own chip both key on this, and two
-// tables would be two answers to one question the moment a status changed color.
-//
-// A TOTAL `Record` RATHER THAN A SWITCH. A sixth status is then a compile error here
-// rather than a chip that silently renders neutral, which is the difference between a
-// vocabulary the page is held to and one it happens to cover today.
+// Which tone each server status wears, declared once for the row's aggregate chip and each
+// leg's chip. A total `Record` makes a new status a compile error, not a chip that renders
+// neutral.
 
 import type { ChipTone } from "@renderer/components/Chip/Chip.js";
 import type { McpServerStatus } from "@ai-sidekicks/contracts";
@@ -14,10 +8,8 @@ import type { McpServerStatus } from "@ai-sidekicks/contracts";
 /**
  * The mapping.
  *
- * `unknown` is `attention` and deliberately not `failure`: lost observability is not
- * a fault, and coloring it as one would tell an operator that a binding which may be
- * perfectly healthy had broken. `starting` is neutral for the same reason in the
- * other direction — a transition is not news.
+ * `unknown` is `attention`, not `failure`: lost observability is not a fault. `starting` is
+ * neutral because a transition is not news.
  */
 const TONE_FOR_SERVER_STATUS: Readonly<Record<McpServerStatus, ChipTone>> = {
   failed: "failure",

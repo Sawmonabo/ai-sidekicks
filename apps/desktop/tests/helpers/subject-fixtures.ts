@@ -1,15 +1,6 @@
-// The two subjects every subject-keyed suite is addressed at.
-//
-// A subject is compared by IDENTITY — that is the whole of what `object` means in
-// `subject-scoped-holder.ts` and in `lib/reads/generation-latch.ts` — so a fixture subject is
-// one allocation with a name on it, and three suites declaring their own pair was
-// three copies of the same two lines. One home instead: the identities are shared,
-// which is exactly what makes "the holder is at subject one, not subject two" the
-// same sentence in each suite.
-//
-// A test-support module rather than a constant in one suite that the others import:
-// a test file importing another test file makes one suite's cases a dependency of
-// another's.
+// The two subjects every subject-keyed suite is addressed at. A subject is an `object` compared by
+// reference (see `lib/subject-scoped/subject-scoped-holder.ts`), so each fixture is one shared
+// allocation with a name on it. It has its own module so no suite imports another suite's file.
 
 /** A subject, named so a failure message can say which one a value belonged to. */
 export interface NamedFixtureSubject {

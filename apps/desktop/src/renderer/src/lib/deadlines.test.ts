@@ -16,8 +16,7 @@ describe("earliestFutureDeadline — what is armed for", () => {
   });
 
   it("skips a value that is not a finite instant", () => {
-    // A timeout scheduled against `NaN` fires immediately and forever, which is the
-    // one way this substrate could become the poll it exists to avoid.
+    // A timeout scheduled against `NaN` fires immediately and forever, which would be a poll.
     expect(earliestFutureDeadline([Number.NaN, Number.POSITIVE_INFINITY], MOUNTED_AT)).toBe(
       undefined,
     );
@@ -25,8 +24,7 @@ describe("earliestFutureDeadline — what is armed for", () => {
   });
 
   it("negative control: the deadline exactly at the instant is behind, not ahead", () => {
-    // Without this, an implementation using `<` instead of `<=` would arm a
-    // zero-delay timer for a threshold the caller has already crossed.
+    // Guards against `<` for `<=`, which would arm a zero-delay timer for a crossed deadline.
     expect(earliestFutureDeadline([MOUNTED_AT], MOUNTED_AT)).toBeUndefined();
   });
 });

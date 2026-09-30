@@ -1,24 +1,14 @@
 // A document that reports a given focus, for the length of one construction.
 //
-// `WindowStore` seeds `isWindowFocused` from its own document, so a case about a window
-// that opened unfocused has to make the document say so — the shim this tier runs
-// under reports a focused, visible document, which is the state a shipped window is in
-// most of the time and exactly the one the defect hid behind.
+// `WindowStore` seeds `isWindowFocused` from its own document, so a case about a window that opened
+// unfocused has to make the document say so; the DOM shim reports a focused, visible document.
+// Both readings move together because the store reads both and no host produces a document that
+// is hidden and holding the keyboard.
 //
-// BOTH READINGS MOVE TOGETHER, because the store reads both and a case that moved one
-// alone would be asserting against a document state no host produces: a window is not
-// both hidden and holding the keyboard.
-//
-// SCOPED TO A CONSTRUCTION RATHER THAN INSTALLED FOR A FILE, because the seed is read
-// once, in the constructor. A stub left standing for a whole case would also be
-// answering the frame's own listeners and every other reader in the tree, which is a
-// wider claim than any case here makes.
-//
-// OWN PROPERTIES SHADOWING THE PROTOTYPE'S, and removed rather than written back:
-// `hasFocus` is a method and `visibilityState` an accessor, both declared on
-// `Document.prototype` by every DOM this console runs under, so there is nothing on the
-// instance to restore TO and assigning the previous answer back would leave a frozen
-// copy of it behind as an own property.
+// The stub is scoped to a construction because the seed is read once, in the constructor, and a
+// stub left standing would also answer every other reader in the tree. The own properties shadow
+// `Document.prototype`'s `hasFocus` method and `visibilityState` accessor and are deleted rather
+// than written back, since there is no instance value to restore.
 
 /** What a document says about this window. Both members, because the store reads both. */
 export interface DocumentFocusReading {

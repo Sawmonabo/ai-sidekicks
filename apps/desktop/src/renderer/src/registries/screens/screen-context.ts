@@ -1,10 +1,6 @@
-// What a screen is handed, below every module that hands it one.
-//
-// HOISTED OUT OF `screen-registry.ts` for `registries/panes/pane-context.ts`' reason and no other: the
-// frame's board mounts a reserved frame while a loader-backed screen is in flight, so
-// the registry reaches `PendingScreenBody.tsx`, which names the context a screen is
-// mounted with. Declaring that context in the registry made the pair a cycle, and the
-// layering gate counts type edges so an `import type` cannot hide one.
+// What a screen is handed. It sits below `screen-registry.ts` because the registry reaches
+// `PendingScreenBody.tsx`, which names this context; declaring it in the registry would make a
+// cycle through type imports, which the layering check counts (as with `panes/pane-context.ts`).
 import { type PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import { type DraftStore } from "@renderer/store/draft-store.js";
 import { type UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
@@ -15,7 +11,7 @@ import { type SessionStoreRegistry } from "@renderer/store/session/session-store
 import type { SchemePreference } from "@renderer/styles/tokens.js";
 import type { PaneRegistry } from "../panes/pane-registry.js";
 
-/** Everything a screen is handed. Nothing here is global; all of it is per window. */
+/** Everything a screen is handed; all of it is per window. */
 export interface ScreenContext {
   readonly route: AppRoute;
   readonly bridge: PlatformBridge;
@@ -23,35 +19,22 @@ export interface ScreenContext {
   /** The session store for the route's session, or `undefined` on a bare route. */
   readonly sessionStore: SessionStore | undefined;
   /**
-   * Every session this window has open — the only session set the renderer can
-   * name, since no bridge member lists a node's sessions. A screen that has to
-   * OFFER sessions reads it; a screen that renders one reads `sessionStore`.
+   * Every session this window has open, the only session set the renderer can name (no bridge
+   * member lists a node's sessions). A screen that offers sessions reads it.
    */
   readonly sessionStoreRegistry: SessionStoreRegistry;
   /**
-   * The pane board THIS composition registered its bodies into.
-   *
-   * On the context rather than reached for, and here rather than as one screen's
-   * prop, because it is the same fact for every feature: a screen that opens a pane
-   * has to resolve it from the board the composition around it filled.
-   * `registerFeatureContributions` already takes the registry as a parameter so a test and an
-   * auxiliary window can compose their own — and a screen that then read the
-   * process-wide singleton would hand that composition a production body, or the
-   * reserved absence where production has none, however carefully it had asked.
-   *
-   * Required rather than defaulted to the singleton, on the composition site's own
-   * rule: a default is the same hard-coding one parameter along, and a caller that
-   * forgets it still reads production.
+   * The pane registry this composition registered its bodies into. A screen that opens a pane must
+   * resolve it from here, not the process-wide singleton, so a test or another window composing its
+   * own registry never gets a production body. Required, since a default would still read
+   * production.
    */
   readonly paneRegistry: PaneRegistry;
   readonly uiStateStore: UiStateStore;
   readonly draftStore: DraftStore;
   /**
-   * This window's one act for choosing a color scheme, which applies it and saves it.
-   *
-   * Handed down rather than rebuilt by a screen, because the act also guards the saved
-   * choice against the read that restores it at start: a second copy would carry a second
-   * guard that knows nothing of choices made through the first.
+   * This window's one act for choosing a color scheme: it applies and saves the choice, and guards
+   * it against the startup read that restores it. A second copy would have its own guard.
    */
   readonly chooseScheme: (preference: SchemePreference) => void;
 }

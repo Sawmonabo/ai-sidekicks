@@ -1,20 +1,12 @@
-// The bridge's shape, read at runtime.
+// The bridge's shape, read at runtime. The fixture bridge must carry the preload's namespaces
+// exactly. Types cover most of that, since both bridges are `PlatformBridge`, but the live bridge
+// is an object graph handed across `contextBridge` by a preload this program does not compile
+// with, so this is the runtime check. Its readers are the "did the preload run" probe in
+// `live-bridge.ts` and `bridge-shape.test.ts`.
 //
-// The fixture bridge has to carry the preload's namespaces, shape-identical namespace for
-// namespace. The type system carries most of that
-// claim already — both bridges ARE `PlatformBridge`, so a namespace added to the
-// contract breaks the fixture at compile time — but not all of it. The live bridge
-// is an object graph handed across `contextBridge` by a preload this program does
-// not compile with, so on THAT side the interface is a claim about a value nobody
-// checked. This module is the runtime half, and it has two readers: `live-bridge`'s
-// "did the preload run" probe, and `bridge-shape.test.ts`.
-//
-// A shape is namespace to member names, and each member carries its `typeof`. Data
-// members count as much as methods: `app` holds values and no functions, and
-// a bridge that dropped `locale` would be as wrong as one that dropped
-// `daemon.call`. The `typeof` is what separates "the member is missing" from "the
-// member is there and is a string where a function belongs", which is the shape a
-// half-installed preload actually arrives in.
+// A shape maps each namespace to its member names, each with its `typeof`, and data members count
+// as much as methods. The `typeof` separates a missing member from one that is there with the
+// wrong type, which is how a half-installed preload arrives.
 import type { PreloadApi } from "@shared/preload-api.js";
 import type { PlatformBridge } from "./platform-bridge.js";
 
@@ -22,15 +14,9 @@ import type { PlatformBridge } from "./platform-bridge.js";
 export type DesktopBridgeNamespace = keyof PreloadApi;
 
 /**
- * Every namespace the contract declares, as a table rather than an array.
- *
- * The annotation is what makes this exhaustive in BOTH directions on a fresh object
- * literal: a namespace added to `PreloadApi` is a missing-property error here
- * until it is listed, and a name that is not on the contract is an excess-property
- * error. The array this replaced was a plain `readonly (keyof PreloadApi)[]`,
- * which type-checks each entry and counts none — so it would have gone on probing
- * the namespaces it was written against however many the contract grew, and the probe would have kept
- * answering yes to a bridge missing the fifth.
+ * Every namespace the contract declares, as a table. The annotation makes it exhaustive in both
+ * directions: a namespace missing here, or one not on `PreloadApi`, is a compile error. A plain
+ * array would type-check each entry but count none, so the probe would miss a fifth namespace.
  */
 const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<DesktopBridgeNamespace, true>> = {
   daemon: true,
@@ -45,12 +31,8 @@ const BRIDGE_NAMESPACE_PRESENCE: Readonly<Record<DesktopBridgeNamespace, true>> 
 };
 
 /**
- * The namespaces, as data.
- *
- * `Object.keys` of a fresh object literal returns exactly that literal's own
- * enumerable keys, which is why the narrowing is sound — the alternative is
- * spelling the namespace names a second time, and a second spelling is the thing the
- * presence table above exists to prevent.
+ * The namespaces, as data. `Object.keys` of a fresh literal returns exactly its own keys, so the
+ * narrowing is sound and the names are not spelled a second time.
  */
 export const DESKTOP_BRIDGE_NAMESPACES: readonly DesktopBridgeNamespace[] = Object.keys(
   BRIDGE_NAMESPACE_PRESENCE,
@@ -66,9 +48,9 @@ export interface LabeledBridgeShape {
 }
 
 /**
- * The bridge's members that are not preload namespaces: the signals every host answers.
- * Keyed by the type, so a signal added to `PlatformBridge` fails to compile until it is
- * listed, and the shape stays a reading of the preload's namespaces alone.
+ * The bridge's members that are not preload namespaces: the signals every host answers. Keyed by
+ * the type, so a new signal fails to compile until listed and the shape stays a reading of the
+ * preload's namespaces alone.
  */
 const BRIDGE_SIGNAL_MEMBERS: Readonly<
   Record<Exclude<keyof PlatformBridge, DesktopBridgeNamespace>, true>
@@ -78,16 +60,10 @@ const BRIDGE_SIGNAL_MEMBERS: Readonly<
 };
 
 /**
- * Read a bridge's shape.
- *
- * OWN enumerable keys only, at both levels. `contextBridge` hands the renderer a
- * plain object graph — nothing is a class instance and nothing inherits — so the
- * own keys are every member there is, while walking the prototype chain would pick up
- * `Object`'s members and make every namespace look alike.
- *
- * Takes `PlatformBridge` and not `unknown`: the callers hold typed bridges, and a
- * parameter that accepted anything would invite this to become a validator. It
- * describes; deciding whether a description is acceptable belongs to the caller.
+ * Reads a bridge's shape from own enumerable keys at both levels. `contextBridge` hands the
+ * renderer a plain object graph, so own keys are every member, while the prototype chain would add
+ * `Object`'s members. It takes `PlatformBridge`, not `unknown`, and describes without deciding
+ * whether the description is acceptable.
  */
 export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
   const shape = new Map<string, readonly string[]>();
@@ -101,11 +77,8 @@ export function describeBridgeShape(bridge: PlatformBridge): BridgeShape {
 }
 
 /**
- * Every way two shapes differ, one sentence each. An empty result means identical.
- *
- * Sentences rather than a boolean because the assertion this feeds is "these two
- * bridges are the same", and a bare `false` on that assertion tells the reader
- * nothing about which namespace or which member moved.
+ * Every way two shapes differ, one sentence each; empty means identical. Sentences rather than a
+ * boolean so a failed assertion names the namespace or member that moved.
  */
 export function diffBridgeShapes(
   left: LabeledBridgeShape,
@@ -138,9 +111,8 @@ export function diffBridgeShapes(
 
 function describeMembers(namespaceValue: unknown): readonly string[] {
   if (typeof namespaceValue !== "object" || namespaceValue === null) {
-    // Not a namespace at all. Reported as zero members rather than thrown, so a
-    // bridge whose `app` arrived as a string is DESCRIBED as empty and then
-    // rejected by the comparison, instead of taking the describer down with it.
+    // Not a namespace: reported as zero members, not thrown, so a bridge whose `app` arrived as a
+    // string is described as empty and rejected by the comparison.
     return [];
   }
   return Object.entries(namespaceValue)

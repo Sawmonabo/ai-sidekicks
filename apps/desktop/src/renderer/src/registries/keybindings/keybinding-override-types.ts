@@ -1,12 +1,7 @@
-// What the override store answers in.
-//
-// The shapes and the state machine over them fail differently, and they are read by
-// different callers. `keybinding-override-store.ts` beside this file owns the state —
-// what supersedes what, when a snapshot is dropped, which write settles — while what
-// is here is the vocabulary that state is expressed in: what a rebinding answered,
-// what a stored override this window declined looks like, what the frame installs and
-// the Keyboard page draws, and what the store is built over. The map itself is main's,
-// kept in its own file on this machine and reached through the bridge's `keyboardMap`.
+// The vocabulary the override store speaks in: what a rebinding answered, what a declined stored
+// override looks like, what the frame installs and the Keyboard page draws, and what the store is
+// built over. The state itself is in `keybinding-override-store.ts`; the map is main's, reached
+// through the bridge's `keyboardMap`.
 
 import type { Refusal } from "@renderer/lib/refusal.js";
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
@@ -15,11 +10,8 @@ import type { Keybinding } from "../commands/command-types.js";
 import type { KeybindingOverride, KeybindingOverrideRefusal } from "./keybinding-overrides.js";
 
 /**
- * What a rebinding did.
- *
- * `unsaved` sits on the accepted arm rather than turning it into a failure: the chord
- * IS bound in this window either way, and what a refused write costs is a reload,
- * which is a different sentence from "the chord was not taken".
+ * What a rebinding did. `unsaved` sits on the accepted arm: the chord is bound in this window
+ * either way, and a refused write only costs a reload.
  */
 export type KeybindingBindResult =
   | {
@@ -29,7 +21,7 @@ export type KeybindingBindResult =
     }
   | { readonly outcome: "refused"; readonly refusal: KeybindingOverrideRefusal };
 
-/** A stored override this window declined to install, with the service's reason. */
+/** A stored override this window declined to install, with the reason. */
 export interface KeybindingHydrationRefusal {
   readonly commandId: string;
   readonly chord: string;
@@ -37,56 +29,38 @@ export interface KeybindingHydrationRefusal {
 }
 
 /**
- * What the frame installs and what the Keyboard page draws, as one value.
- *
- * One snapshot object rather than two accessors, because `useSyncExternalStore`
- * compares by identity: two readings of two fields would be two subscriptions to one
- * change, and a caller needing both would re-render twice per act.
+ * What the frame installs and the Keyboard page draws, as one value. It is one object because
+ * `useSyncExternalStore` compares by identity, and two accessors would re-render twice per act.
  */
 export interface KeybindingSnapshot {
   /** The effective table: the shipped chords with this window's overrides applied. */
   readonly bindings: readonly Keybinding[];
   /**
-   * The shipped table these overrides were composed ONTO, as it was read.
-   *
-   * Beside the effective one rather than instead of it, because the two answer
-   * different questions and a page asking "which rows did this person change" needs
-   * the one the changes are not in. Reading it off this snapshot is what keeps that
-   * answer in step with the table the frame is installing — where a page reading the
-   * base's own module would be a second reading the moment the base stops being one
-   * module's constant. The Keyboard page still reads that constant, because today it
-   * IS the whole base; the day the base is composed, that page reads this member and
-   * nothing else about it changes.
+   * The shipped table the overrides were composed onto, as read. A page asking which rows a
+   * person changed needs the table the changes are not in.
    */
   readonly shippedBindings: readonly Keybinding[];
   /** True while a chord is being recorded, which suspends the console keyboard. */
   readonly recording: boolean;
 }
 
+/** What the override store is built over. */
 export interface KeybindingOverrideStoreOptions {
   /**
-   * Reads the chords the console ships. Overrides are composed onto what it answers.
-   *
-   * A reader rather than the table, so a base that grows as features contribute is
-   * read at composition time instead of captured at construction.
+   * Reads the chords the console ships and composes overrides onto them. It is a reader, not an
+   * array, so chords contributed after construction are included.
    */
   readonly defaults: () => readonly Keybinding[];
   /**
-   * Signals that the shipped table has moved, where it can. Absent means it cannot.
-   *
-   * The store re-composes and publishes on the signal, so every reader of the snapshot
-   * re-renders exactly as it does for a rebinding. A base that never moves supplies
-   * nothing, and the reader above is then called once per composition and no oftener.
+   * Signals that the shipped table moved; absent means it never does. The store re-composes and
+   * publishes on the signal, as it does for a rebinding.
    */
   readonly subscribeToDefaults?: (onDefaultsChange: () => void) => Unsubscribe;
   /**
-   * Whether a command id names an act this window has.
-   *
-   * A stored override is read only for an act that exists: an override for one that
-   * no longer does is skipped without a word and is gone from the next write, so it
-   * can never bring the act back.
+   * Whether a command id names an act this window has. A stored override for a missing act is
+   * skipped silently and dropped from the next write.
    */
   readonly isCommandRegistered: (commandId: string) => boolean;
-  /** Which host's reserved chords to refuse. Defaults to the one being run on. */
+  /** Whose reserved chords to refuse; defaults to the host being run on. */
   readonly platform?: ChordPlatform;
 }

@@ -1,34 +1,10 @@
-// The guard on `test:changed`, driven as a command.
-//
-// SPAWNED, NEVER IMPORTED. The rule under test is what the script does when it
-// is INVOKED with the wrong arguments: it reads `process.argv`, writes to
-// `process.stderr`, and calls `process.exit`. Importing the module and calling a
-// function would test a function, exercise none of those three, and leave the
-// only thing a caller ever touches — the process's exit code — unasserted.
-//
-// The SELECTION is driven the same way and for the same reason. A lane forwards
-// the files it authored, and the fixed `--project=console-unit` this script used
-// to pass could not run a `main-unit` file — so a real test file, named
-// explicitly on the command line, matched in no selected project and the run
-// exited 0. Asserting the exit code alone cannot see that: an empty selection
-// under `--changed` exits 0 exactly as a passing one does. So the case below
-// asserts that the forwarded file's own NAME appears in what vitest reported,
-// which is the only reading that separates "it ran" from "it was skipped".
-//
-// AND WHAT IT ASSERTS ON IS READ PLAIN. Every reading of the child's streams
-// goes through one stripper and the child runs with color turned off, because
-// the first version of the selection case did neither and asserted on raw bytes:
-// on a developer's machine a piped child stays uncolored and the case passed,
-// while the runner colorizes and the reporter puts escapes BETWEEN the words of
-// the very line the case matched. It was measuring terminal support.
-//
-// The refusal matters because a wrong invocation of this script is SILENT. Both
-// halves were measured, not reasoned about: with the ref appended after
-// `--maxWorkers=2` it arrived as a positional file filter and vitest reported
-// "No test files found, exiting with code 0"; and with the ref attached to
-// `--changed` but naming no revision, vitest reports the same thing and exits 0
-// again. A verification step whose two commonest misuses both exit 0 is a step
-// that cannot fail, so the refusal is the only place the mistake can surface.
+// Drives `test-changed.ts` as a command and never imports it: the rule under test is what it does
+// when invoked with wrong arguments (read `process.argv`, write stderr, exit), and the exit code is
+// all a caller touches. Both silent misuses were measured: a ref appended after `--maxWorkers=2`
+// and a ref naming no revision each make vitest report "No test files found" and exit 0. An empty
+// selection exits 0 exactly as a passing run does, so the selection cases assert vitest's file
+// count line instead of the exit code alone. Streams are read through one stripper with color off,
+// because a colorizing runner puts escapes between the words of the summary line.
 
 import { spawnSync, type SpawnSyncReturns } from "node:child_process";
 import path from "node:path";
@@ -46,42 +22,18 @@ const SCRIPT = path.join(HERE, "test-changed.ts");
 const MISUSE_EXIT_CODE = 2;
 
 /**
- * Keeps the INTERPRETER off the stream this suite reads as the script's voice.
- *
- * `--experimental-strip-types` makes Node print `ExperimentalWarning: Type
- * Stripping …` plus its `--trace-warnings` follow-up to stderr before the script
- * body runs. Measured on Node 22.12 (the same two lines the CI job prints for
- * every other type-stripped script it invokes): without this flag the run below
- * that asserts an EMPTY stderr fails on the interpreter's chatter, so the
- * assertion is passing today by interpreter-version accident rather than by
- * design.
- *
- * Suppressed AT THE SOURCE rather than filtered out of the captured text, and the
- * choice is the point. A filter over `(node:NNN)` lines — which
- * `tools/__tests__/entry-guard.test.mjs` uses, because it spawns a dozen scripts
- * it does not own under flags it does not choose — also swallows a warning the
- * script itself caused, which is exactly the content-blindness a stderr assertion
- * exists to avoid. This suite owns its single spawn, so it can name the one
- * warning class it did not ask for and leave the assertion byte-exact: anything
- * on stderr after this is the script speaking.
- *
- * That helper is NOT reused here, and not for want of trying — it cannot be
- * imported from this file and both routes refuse mechanically. As `.mjs` it is
- * TS7016 (no declaration) and `allowJs` is TS5053 against the repo-wide
- * `isolatedDeclarations`; as `.mts` it is TS6059, outside `tsconfig.scripts.json`'s
- * `rootDir`. Widening either to share four lines of string handling would put the
- * repository's tooling tree inside the config that type-validates this package's
- * scripts.
+ * Keeps Node's `ExperimentalWarning` for `--experimental-strip-types` off the stderr this suite
+ * reads as the script's voice; measured on Node 22.12, the empty-stderr assertion fails without
+ * it. It is suppressed at the source rather than filtered from the captured text, because a
+ * filter would also swallow a warning the script itself caused. The filter in
+ * `tools/__tests__/entry-guard.test.mjs` cannot be imported here: as `.mjs` it fails TS7016 and
+ * TS5053, and as `.mts` it is outside `tsconfig.scripts.json`'s `rootDir`.
  */
 const SUPPRESS_INTERPRETER_WARNING = "--disable-warning=ExperimentalWarning";
 
 /**
- * Run the script the way a package script runs it.
- *
- * `cwd` is the package root because that is where pnpm puts a package script,
- * and the script resolves vitest from there. Passing it explicitly means this
- * suite's own working directory — whatever the runner chose — cannot decide
- * whether the resolution succeeds.
+ * Runs the script the way a package script runs it. `cwd` is the package root, where pnpm runs it
+ * and where it resolves vitest, so this suite's own working directory cannot decide the outcome.
  */
 function runScript(...args: readonly string[]): SpawnSyncReturns<string> {
   return spawnSync(
@@ -96,22 +48,10 @@ function runScript(...args: readonly string[]): SpawnSyncReturns<string> {
 }
 
 /**
- * The child's environment with color turned off, whatever this host exports.
- *
- * `NO_COLOR` AND NOT `FORCE_COLOR=0`, and the difference is a real inversion
- * rather than a preference. Both color libraries in this tree decide on
- * PRESENCE or on JavaScript truthiness, never on the number a reader would
- * expect: vitest's `tinyrainbow@3.1.0` asks `"FORCE_COLOR" in env`, and
- * `picocolors@1.1.1` asks `!!env.FORCE_COLOR` — and `"0"` is a non-empty string,
- * so it is truthy. Setting `FORCE_COLOR` to `"0"` therefore turns color ON in
- * both. `NO_COLOR` is what actually decides, in both, ahead of everything else.
- *
- * The inherited variable is DELETED rather than overwritten for the same
- * reason: under a presence check any value at all forces color, so the only
- * safe value is no variable.
- *
- * This is the child's environment and never the operator's — the script itself
- * keeps whatever color its caller wants, and nothing here is exported.
+ * The child's environment with color off. `NO_COLOR` rather than `FORCE_COLOR=0`: vitest's color
+ * library tests `"FORCE_COLOR" in env` and `picocolors` tests `!!env.FORCE_COLOR`, so `"0"` turns
+ * color on in both. The inherited variable is deleted for the same reason. Only the child's
+ * environment changes.
  */
 function colorFreeEnvironment(): NodeJS.ProcessEnv {
   const environment: NodeJS.ProcessEnv = { ...process.env, NO_COLOR: "1" };
@@ -120,19 +60,11 @@ function colorFreeEnvironment(): NodeJS.ProcessEnv {
 }
 
 /**
- * The child's stdout with terminal control sequences removed. The ONE reader.
- *
- * Every assertion about what the command reported goes through this, because a
- * summary line the runner colorized carries escapes BETWEEN its words — CI
- * emitted `Test Files \u001B[22m \u001B[1m\u001B[32m1 passed`, where `\s+`
- * cannot match — and an assertion that reads the raw bytes is measuring the
- * host's terminal support rather than the command's behavior. It passed on a
- * developer's machine, where a piped child stays uncolored, and failed on the
- * runner, where the job's environment turns color on.
- *
- * `node:util`'s own stripper rather than a pattern of ours: the escape grammar
- * is not a thing this package should hold an opinion about, and a regex written
- * here would be a second implementation of something the platform ships.
+ * The child's stdout with terminal control sequences removed; every assertion on what the command
+ * reported reads through it. A colorizing runner puts escapes between the words of the summary
+ * line (CI emitted `Test Files \u001B[22m \u001B[1m\u001B[32m1 passed`), which `\s+` cannot
+ * match, while a piped child on a developer's machine stays uncolored. It uses `node:util`'s
+ * stripper rather than a pattern of ours.
  */
 function plainStdout(result: SpawnSyncReturns<string>): string {
   return stripVTControlCharacters(result.stdout);
@@ -144,25 +76,11 @@ function plainStderr(result: SpawnSyncReturns<string>): string {
 }
 
 /**
- * The commit this checkout certainly holds, resolved the way the script will.
- *
- * A REMOTE-TRACKING NAME IS THE WRONG INSTRUMENT, and replacing one is what this
- * exists for. The successful-path control used to pass `origin/develop`, which a
- * full clone has and a fresh one does not: `actions/checkout@v5` is configured
- * here with no `fetch-depth`, so it fetches one ref at depth 1 and the job that
- * runs this project holds no `origin/develop` at all. The script's own ref guard
- * therefore refused before vitest was ever reached, and a case whose whole
- * subject is the SUCCESSFUL path asserted `0` against the misuse code on every
- * CI run. A ref the environment happens to carry is a precondition this suite
- * does not control; the commit `HEAD` names is one it does, in a shallow clone
- * and a full one alike — so the control asserts that the guard ADMITS A REF THAT
- * RESOLVES rather than one somebody remembered to fetch.
- *
- * Resolved with the same `^{commit}` peel, in the same working directory the
- * script resolves from, so what is handed over is the object that guard will
- * look for in the repository it will look in. A checkout with no HEAD commit
- * fails HERE with that sentence rather than downstream: it would otherwise turn
- * this control into the refusal case it is the foil for, and pass.
+ * The commit this checkout certainly holds, resolved the way the script will. A remote-tracking
+ * name is the wrong instrument: a shallow CI checkout may hold no `origin/develop`, so the script's
+ * ref guard would refuse before vitest ran and the successful-path control would see the misuse
+ * code. `HEAD` exists in a shallow and a full clone alike. A checkout with no HEAD commit fails
+ * here rather than passing as the refusal case.
  */
 function checkoutLocalCommit(): string {
   const resolved = spawnSync("git", ["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], {
@@ -184,20 +102,16 @@ describe("test:changed refuses an invocation with no base ref", () => {
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
     expect(plainStderr(refused)).toContain("no base ref");
     expect(plainStderr(refused)).toContain("test:changed <base-ref>");
-    // Nothing was run. A refusal that had already started vitest would leave the
-    // caller reading a partial run's output beside a message telling them the
-    // run never happened.
+    // Nothing was run: a refusal after vitest had started would leave partial output beside a
+    // message saying it never ran.
     expect(plainStdout(refused)).toBe("");
   });
 
   it("runs vitest once it has one, so the refusal is about the ref", () => {
-    // The non-vacuity control. Without it, a script that was simply broken — a
-    // bad resolve, a syntax error, an unconditional refusal — would satisfy the
-    // case above and satisfy it for the wrong reason. `--help` is carried
-    // through as a forwarded argument and vitest answers it before loading a
-    // config or running a test, so this costs a tenth of a second and still
-    // proves the whole path: argument accepted, vitest resolved, spawned, its
-    // exit code returned, and the caller's own arguments passed on.
+    // The non-vacuity control: a broken script (bad resolve, syntax error, unconditional refusal)
+    // would satisfy the case above for the wrong reason. Vitest answers `--help` before loading a
+    // config, so this cheaply proves argument acceptance, vitest resolution, the spawn, the exit
+    // code and the forwarding of the caller's arguments.
     const helped = runScript(checkoutLocalCommit(), "--help");
 
     expect(helped.status).toBe(0);
@@ -208,38 +122,28 @@ describe("test:changed refuses an invocation with no base ref", () => {
 
 describe("test:changed refuses a base ref that resolves to no commit", () => {
   /**
-   * A ref no repository holds, and deliberately not a plausible one.
-   *
-   * A branch name a clone MIGHT have would make this case pass or fail on the
-   * checkout it happens to run in, which is the opposite of what a guard against
-   * a stale ref should be measured by.
+   * A ref no repository holds, deliberately not a plausible branch name, so the outcome does not
+   * depend on the checkout the case runs in.
    */
   const UNRESOLVABLE_REF = "no-such-ref/test-changed-guard";
 
   it("exits with the misuse code and names the ref it could not resolve", () => {
-    // THE SECOND WAY TO A SILENT GREEN. The empty-ref guard above passes a NONEMPTY
-    // ref straight through, and `--changed=<unknown>` is not an error to vitest:
-    // it resolves no revision, selects no file, reports "No test files found" and
-    // exits 0. A lane holding a typo or a deleted remote branch therefore read a
-    // green result as "my changes are covered" — byte for byte the false success
-    // the argument-position fix removed, arriving another way.
+    // A nonempty ref passes the empty-ref guard, and `--changed=<unknown>` is not an error to
+    // vitest: it selects no file, reports "No test files found" and exits 0.
     const refused = runScript(UNRESOLVABLE_REF);
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
     expect(plainStderr(refused)).toContain(UNRESOLVABLE_REF);
     expect(plainStderr(refused)).toContain("resolves to no commit");
-    // Nothing was run, and git said nothing of its own. The resolution captures
-    // both of git's streams, so a reader's whole picture of this failure is the
-    // sentence this script wrote — and a refusal that had already started vitest
-    // would leave partial run output above a message saying it never ran.
+    // Nothing was run and git said nothing of its own: both of git's streams are captured, so the
+    // only message is this script's.
     expect(plainStdout(refused)).toBe("");
   });
 
   it("refuses a ref that names an object which is not a commit", () => {
-    // The `^{commit}` peel, driven rather than described. `HEAD^{tree}` resolves
-    // to a real object in every repository this can run in, and `--changed` can
-    // diff none of them — so a guard that only asked "does this name resolve"
-    // would admit it and hand vitest a revision it silently selects nothing for.
+    // Drives the `^{commit}` peel: `HEAD^{tree}` resolves to a real object everywhere, but
+    // `--changed` cannot diff a tree, so a guard that only asked whether the name resolves would
+    // admit it.
     const refused = runScript("HEAD^{tree}");
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
@@ -250,21 +154,14 @@ describe("test:changed refuses a base ref that resolves to no commit", () => {
 
 describe("test:changed runs the project that owns each forwarded file", () => {
   /**
-   * A real `main-unit` test file, which the superseded selection could not run.
-   *
-   * `src/main/**` is owned by `main-unit`, and `main-unit` is exactly the
-   * project a fixed `--project=renderer` excludes — so this file is the finding
-   * rather than an example of it. Small and dependency-free, so the case costs one
-   * short suite rather than a tier.
+   * A real `main-unit` test file, a project a selection fixed to `renderer` could not run.
+   * Small and dependency-free, so the case costs one short suite rather than a tier.
    */
   const MAIN_UNIT_FILE = "src/main/services/missing-path.test.ts";
 
   /**
-   * Vitest's own count line, which is the reading that says the file RAN.
-   *
-   * Named once because the control below has to hold the same pattern against a
-   * colorized sample; two copies would let the control drift off the assertion
-   * it exists to justify.
+   * Vitest's own count line, the reading that says the file ran. It is named once so the control
+   * below holds the same pattern against a colorized sample.
    */
   const TEST_FILE_COUNT = /Test Files\s+1 passed/;
 
@@ -272,23 +169,15 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   const ELECTRON_TIER_FILE = "tests/e2e/window-came-up-blank.test.ts";
 
   /**
-   * The usage line of vitest's own help, counted rather than merely found.
-   *
-   * `toContain` cannot tell one copy of the help from two, and two is exactly
-   * what a classifier that asked vitest's parser about a help request would
-   * produce — the parser writes the option list to the CALLING process.
+   * The usage line of vitest's help, counted: `toContain` cannot tell one copy of the help from
+   * two, and asking vitest's parser about a help request prints a second copy.
    */
   const VITEST_RUN_USAGE_LINE = "$ vitest run";
 
   it("negative control: the colorized summary this pattern must survive", () => {
-    // The bytes GitHub Actions produced, copied from the failing job rather than
-    // imagined: the reporter emits the count with escapes BETWEEN the words, so
-    // `\s+` has a `\u001B[22m` where it wants a space. Without the strip this
-    // suite measured the runner's terminal support and called it a selection.
-    //
-    // Both halves are asserted, and the first is what makes the second mean
-    // anything: a pattern that matched the raw bytes would prove nothing about
-    // the stripping, and one that matched neither would prove nothing at all.
+    // Bytes GitHub Actions produced: the reporter puts escapes between the words, so `\s+` meets
+    // `\u001B[22m` where it wants a space. The first assertion shows the hazard exists, and the
+    // second shows the strip removes it.
     const colorized =
       "\u001B[2m Test Files \u001B[22m \u001B[1m\u001B[32m1 passed\u001B[39m\u001B[22m (1)\n";
 
@@ -302,12 +191,8 @@ describe("test:changed runs the project that owns each forwarded file", () => {
     const ran = runScript(checkoutLocalCommit(), MAIN_UNIT_FILE);
 
     expect(ran.status).toBe(0);
-    // THE FINDING. Under the superseded selection this file was named on the
-    // command line, matched in no selected project, and the command reported a
-    // successful unit verification having executed nothing.
-    // Vitest's default reporter names no path on a clean run, so the reading
-    // that separates "it ran" from "it was skipped" is the FILE COUNT: exactly
-    // one, against the `No test files found` an empty selection reports.
+    // The file count separates "it ran" from "it was skipped": vitest's default reporter names no
+    // path on a clean run, and an empty selection reports `No test files found`.
     expect(
       plainStdout(ran),
       "the forwarded file was not run — the selection excludes the project that owns it",
@@ -315,17 +200,11 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   }, 120_000);
 
   it("runs the file beside an option written in either documented form", () => {
-    // THE FINDING. Vitest documents both a separate-value and an attached form
-    // for a value-taking option, and the shape rule this replaced — "an argument
-    // not starting with `-` is a file" — read the SEPARATE form's operand as a
-    // path. `--testNamePattern "palette opens"` and `--reporter verbose` were
-    // therefore claimed by no project and refused with the misuse code: a valid
-    // invocation this command would not run.
-    //
-    // The pattern CARRIES A SPACE deliberately — that is the reported shape — and
-    // is `. `, which matches every test name in the file below without this suite
-    // holding a copy of any of them. A bare space would be worse than useless:
-    // vitest's parser coerces a numeric-looking value, and `Number(" ")` is `0`.
+    // Vitest documents a separate-value and an attached form for value-taking options. A shape
+    // rule ("not starting with `-` is a file") read the separate form's operand as a path and
+    // refused a valid invocation. The pattern carries a space on purpose (the reported shape) and
+    // is `. ` so it matches every test name without copying one; a bare space would be coerced
+    // to `0` by vitest's parser.
     const invocations: readonly (readonly string[])[] = [
       ["--testNamePattern", ". ", "--reporter", "verbose", MAIN_UNIT_FILE],
       ["--reporter=verbose", MAIN_UNIT_FILE],
@@ -336,18 +215,15 @@ describe("test:changed runs the project that owns each forwarded file", () => {
 
       expect(ran.status, invocation.join(" ")).toBe(0);
       expect(plainStdout(ran), invocation.join(" ")).toMatch(TEST_FILE_COUNT);
-      // And the reporter really was forwarded as an OPTION rather than swallowed:
-      // the default reporter names no path on a clean run, so a path in the output
-      // is the verbose reporter and nothing else.
+      // And the reporter was forwarded as an option: the default reporter names no path on a
+      // clean run, so a path in the output is the verbose reporter.
       expect(plainStdout(ran), invocation.join(" ")).toContain(MAIN_UNIT_FILE);
     }
   }, 240_000);
 
   it("refuses an argument list vitest's own parser refuses, in its words", () => {
-    // The other half of asking vitest rather than guessing. `--silent` takes an
-    // OPTIONAL value, and cac rejects the space-separated spelling outright — so
-    // the caller is told which form to write, here, before a run is started,
-    // rather than downstream where the sentence would be about something else.
+    // The other half of asking vitest: `--silent` takes an optional value and cac rejects the
+    // space-separated spelling, so the caller is told which form to write before a run starts.
     const refused = runScript(checkoutLocalCommit(), "--silent", MAIN_UNIT_FILE);
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);
@@ -357,10 +233,9 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   }, 120_000);
 
   it("negative control: a help request prints vitest's usage exactly once", () => {
-    // Why the classifier skips a help request instead of asking about it. Vitest's
-    // parser answers `--help` by WRITING the whole option list to the calling
-    // process's stdout, so classifying such an invocation would put a second copy
-    // above the child's own. One occurrence is the assertion; two is the defect.
+    // Why the script skips a help request instead of asking the parser: it writes the option list
+    // to the calling process's stdout, which would print a second copy above the child's. One
+    // occurrence passes; two is the defect.
     const helped = runScript(checkoutLocalCommit(), "--help");
 
     expect(helped.status).toBe(0);
@@ -368,9 +243,8 @@ describe("test:changed runs the project that owns each forwarded file", () => {
   });
 
   it("refuses a file no unit project claims rather than skipping it", () => {
-    // The other half: this command runs the projects that need no prior build,
-    // and a file belonging to one of the others must not be quietly dropped into
-    // an empty selection that exits 0.
+    // This command runs only projects that need no prior build; a file from another project must
+    // not be dropped into an empty selection that exits 0.
     const refused = runScript(checkoutLocalCommit(), ELECTRON_TIER_FILE);
 
     expect(refused.status).toBe(MISUSE_EXIT_CODE);

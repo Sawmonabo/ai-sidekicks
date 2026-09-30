@@ -1,6 +1,7 @@
 import { SETTINGS_PAGE_IDS, type SettingsPageId } from "@renderer/routing/settings-page-ids.js";
 import { SETTINGS_PAGE_LABELS } from "@renderer/features/settings/settings-page-labels.js";
 
+/** Props for {@link SettingsPageList}. */
 export interface SettingsPageListProps {
   readonly selectedSection: SettingsPageId | undefined;
   readonly onOpenSection: (section: SettingsPageId) => void;

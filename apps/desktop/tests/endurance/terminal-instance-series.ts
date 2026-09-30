@@ -1,37 +1,28 @@
-// The pane-count sweep this row's slope is read over, and the rule that decides
-// whether a sweep is admissible evidence at all.
+// The pane-count sweep the row's slope is read over, and the rule that decides whether a sweep
+// is admissible evidence.
 //
-// Split from `terminal-instance-memory.test.ts` for the reason the pane harness was
-// split from it: that file is the budget row's ARGUMENT — what the subject is, what
-// the figure covers, what fails the run — and this one is the measurement discipline
-// the argument rests on. `terminal-pane-harness.ts` opens panes and proves each is
-// drawing; this module reads the heap around them and says whether the readings
-// agree well enough to be evidence.
+// `terminal-instance-memory.test.ts` is the budget row's argument (what the subject is, what
+// the figure covers, what fails the run); this is the measurement discipline it rests on.
+// `terminal-pane-harness.ts` opens panes and proves each is drawing; this module reads the heap
+// around them and says whether the readings agree well enough to be evidence.
 //
-// WHY A SWEEP IS RE-READ RATHER THAN TRUSTED
+// A sweep is re-read rather than trusted: every figure is a difference of two ~13 MB heap
+// readings and the slope control gates a ratio of two such differences, so a sub-megabyte wobble
+// moves the ratio by a factor of three. `RendererHeapProbe` forces a collection and
+// `expectPreciseHeapInstrument` proves precision, but one sample still cannot carry a hard gate.
+// Measured on a loaded machine: a first instance of 2 021 kB against a slope of 310 kB, a ratio
+// of 0.15 against a 0.5 floor, where the idle ratio is 0.87 run after run.
 //
-// Every figure here is a DIFFERENCE of two ~13 MB heap readings, and the quantity the
-// slope control gates is a RATIO of two such differences. A sub-megabyte wobble in
-// either reading moves that ratio by a factor of three. That is not a fault of the
-// instrument — `RendererHeapProbe` forces a collection and takes a floor over
-// settling samples, and `expectPreciseHeapInstrument` proves the reading is the
-// precise one rather than Blink's quantized cache — it is what happens when a single
-// sample is asked to carry a hard gate. Measured on a loaded machine: a first
-// instance of 2 021 kB against a slope of 310 kB, a ratio of 0.15 against a 0.5
-// floor, on a tree whose idle ratio is 0.87 run after run.
+// Three things stand between a wobble and a red gate, none widening the band: every reading is a
+// median over repeated settled reads, every per-instance interval is observed separately and the
+// intervals are held to each other, and a sweep that fails either test is re-measured once
+// before it fails the run.
 //
-// So three things stand between a wobble and a red gate, and none of them widens the
-// band: every reading is a MEDIAN over repeated settled reads, every per-instance
-// interval is observed SEPARATELY and the intervals are held to each other, and a
-// sweep that fails either test is re-measured exactly once before it fails the run.
-//
-// AND THE SENTENCE MATTERS AS MUCH AS THE BAND. The reason a sweep is inadmissible
-// is carried out of here as operator-facing text, because the two ways to fail this
-// control are not the same finding: a slope that is a small fraction of the first
-// instance is a fixed cost being reported as an instance, and a figure inside the
-// instrument's own noise is a reading that measured nothing. Renderer fallback is
-// not among the candidates either sentence names — `openPaneAndAwaitWebglReadiness`
-// fails the run before any reading is taken unless every instance reports `webgl`.
+// The reason a sweep is inadmissible is operator-facing text, because the failures are different
+// findings: a slope that is a small fraction of the first instance is a fixed cost reported as
+// an instance, and a figure inside the instrument's noise measured nothing. Renderer fallback is
+// not a candidate either sentence names, since `openPaneAndAwaitWebglReadiness` fails the run
+// before any reading unless every instance reports `webgl`.
 
 import type { AppUnderTest } from "../helpers/electron-harness.js";
 import { medianOfHeapReadings, type RendererHeapProbe } from "./heap-instrument.js";
@@ -40,117 +31,77 @@ import { closeEveryPane, openPaneAndAwaitWebglReadiness } from "./terminal-pane-
 /**
  * How many instances the slope is read over.
  *
- * Three: one gives a delta and no slope, two give a slope from a single interval
- * whose noise is the whole reading, and three give two intervals whose agreement is
- * evidence — which is a claim this module has to earn by reading them separately,
- * and the reason `measureTerminalInstanceSeries` takes a reading after EVERY
- * instance rather than one at the end and a division. More would spend a WebGL
- * context per instance against a page ledger capped at twelve for reasons
- * `terminal/emulator/renderer-pool.ts` records.
+ * Three: one gives a delta and no slope, two give a slope from a single interval whose noise is
+ * the whole reading, and three give two intervals whose agreement is evidence, hence a reading
+ * after every instance in `measureTerminalInstanceSeries`. More would spend a WebGL context per
+ * instance against a page ledger capped at twelve (see `terminal/emulator/renderer-pool.ts`).
  */
 export const MEASURED_INSTANCE_COUNT: number = 3;
 
 /**
  * How many settled reads each point of the sweep is the median of.
  *
- * Three, and it is a median rather than a mean because what it has to reject is one
- * outlying read — a collection that landed mid-sample, a background allocation in
- * the window — and a mean carries a third of that outlier into the figure while a
- * median of three discards it outright. Five would spend two more forced-collection
- * round trips per point to survive a SECOND outlier in the same triple, which is the
- * case the one re-measure below already covers, and it would do so at five times the
- * sweep's round-trip cost.
- *
- * Each read is itself `RendererHeapProbe.readSettledBytes` — four forced collections
- * and a floor over six settling samples — so this is a median over floors, not a
- * median over snapshots.
- *
- * The median itself is `medianOfHeapReadings`, in `heap-instrument.js` beside the
- * reader: the tier's precision precondition combines its own windows the same way and
- * for the same reason, and two private copies of the word would be two definitions
- * that could drift apart with neither failing.
+ * A median because the aim is to reject one outlying read (a collection landing mid-sample, a
+ * background allocation): a mean carries a third of it into the figure, a median of three
+ * discards it. Five would cost two more forced-collection round trips per point to survive a
+ * second outlier in the same triple, which the one re-measure already covers. Each read is
+ * `RendererHeapProbe.readSettledBytes`, so this is a median over floors, not over snapshots.
+ * The median is `medianOfHeapReadings` from `heap-instrument.js`, shared with the precision proof.
  */
 export const HEAP_READING_SAMPLE_COUNT: number = 3;
 
 /**
  * The smallest per-instance figure this sweep will treat as a measurement.
  *
- * An ABSOLUTE floor beside the ratio band, because a ratio says nothing about
- * whether either of its terms was real. Measured idle on macOS / Electron 44 over
- * five runs, the three per-instance figures land at 937-942 kB for the first
- * instance and 824-827 kB for each later one; the same sweep on a loaded machine
- * produced a 310 kB later-instance figure. 200 kB is under a quarter of the smallest
- * honest reading and well over the few-kilobyte drift between two settled reads of
- * an unchanged page, so a figure below it is a difference the instrument cannot
- * resolve rather than a pane that got cheaper.
- *
- * A figure under this floor is reported as instrument noise and never as a fixed
- * cost: this sweep cannot tell a per-instance cost that collapsed from a heap
- * reading that wobbled, and saying the first when the second is true sends a
- * reviewer to the console for a defect that is on the runner.
+ * An absolute floor beside the ratio band, since a ratio says nothing about whether either term
+ * was real. Idle on macOS / Electron 44 over five runs, the first instance measured 937-942 kB
+ * and each later one 824-827 kB; a loaded machine produced a 310 kB later-instance figure.
+ * 200 kB is under a quarter of the smallest honest reading and well over the few-kilobyte drift
+ * between two settled reads of an unchanged page. A figure below it is reported as instrument
+ * noise, never as a fixed cost: the sweep cannot tell a collapsed per-instance cost from a
+ * wobbling heap reading, and saying the first sends a reviewer to the console for a defect on
+ * the runner.
  */
 export const INSTRUMENT_NOISE_FLOOR_BYTES: number = 200 * 1024;
 
 /**
  * How far the later instances' slope may sit from the first instance's delta.
  *
- * A FACTOR rather than a byte figure, because a tolerance tight enough to mean
- * something at this revision's ~940 kB pane reading would be inside the noise once
- * the output stream lands and the same pane holds a filled buffer.
- *
- * The LOWER bound is the load-bearing half and the reason this control exists: a
- * first delta inflated by a one-time cost — the emulator chunk, a lazily created
- * texture atlas, a page-wide allocation the second instance reuses — shows up as a
- * slope that is a small FRACTION of it, which is precisely the shape of "a fixed
- * cost reported as the instance". That is not hypothetical here: before the readings
- * were taken behind a forced collection, this run measured a first instance at
- * 4 165 kB and a slope of MINUS 5 765 kB, because a later mount triggered the
- * collection the baseline had not had. The upper bound catches the mirror image — a
- * first instance costing less than its successors, which would mean the gated figure
- * is not the worst case it claims to be.
- *
- * The band is wide against what the instrument delivers idle: a first instance of
- * 937-942 kB against a slope of 824-827 kB, a ratio that read 0.88 in every one of
- * five runs. The absolute figures move by a few kilobytes between runs and the RATIO
- * does not, which is the quantity this control is about. The width is headroom for a
- * different runner's allocator rather than slack this reading needs.
- *
- * Read against the PANE half alone, deliberately. The slope is a claim about what a
- * second pane costs, and the scrollback half is measured once for the subject rather
- * than per mounted instance.
+ * A factor rather than a byte figure, since a tolerance tight enough to mean something at the
+ * ~940 kB pane reading would fall inside the noise once the pane holds a filled buffer. The
+ * lower bound is the load-bearing half: a first delta inflated by a one-time cost (the emulator
+ * chunk, a lazily created texture atlas) makes the slope a small fraction of it. Before
+ * readings were taken behind a forced collection, the run measured a first instance of
+ * 4 165 kB and a slope of minus 5 765 kB, because a later mount triggered the collection the
+ * baseline lacked. The upper bound catches the mirror image: a first instance costing less than
+ * its successors would mean the gated figure is not the worst case. Idle, the ratio read 0.88 in
+ * five runs (937-942 kB against 824-827 kB); the width is headroom for a different runner's
+ * allocator. Read against the pane half alone: the slope is about what a second pane costs.
  */
 export const SLOPE_AGREEMENT_LOWER_FACTOR: number = 0.5;
+
+/** The upper bound of the slope band: later panes may cost at most this multiple of the first. */
 export const SLOPE_AGREEMENT_UPPER_FACTOR: number = 2;
 
 /**
- * How far the per-instance intervals may sit from each other.
+ * How far the per-instance intervals may sit from each other: the smaller must be at least this
+ * fraction of the larger.
  *
- * The band above compares a MEAN of the later intervals against the first instance,
- * and a mean hides the disagreement that would discredit it: a run where instance 2
- * costs 1.5 MB and instance 3 costs 0.1 MB averages to a healthy-looking slope. So
- * the intervals are also held to one another — the smaller must be at least this
- * fraction of the larger — which is what makes "two intervals whose agreement is
- * itself evidence" a check rather than a hope.
- *
- * The same 0.5 as the slope band's lower bound, and for the same reason: two
- * measurements of one quantity that disagree by more than a factor of two are not
- * two measurements of one quantity. Idle, the two intervals differ by under 1 %.
+ * The slope band compares a mean of the later intervals with the first instance, and a mean
+ * hides disagreement (1.5 MB and 0.1 MB average to a healthy-looking slope). The same 0.5 as
+ * the slope band's lower bound: two measurements of one quantity that differ by more than a
+ * factor of two are not two measurements of one quantity. Idle, the intervals differ by under 1 %.
  */
 export const INTERVAL_AGREEMENT_LOWER_FACTOR: number = 0.5;
 
 /**
  * How much of one pane's cost may still be held after every pane is closed.
  *
- * One pane's own figure. Three came and went, so a per-instance retention would show
- * three times over; anything under one instance cannot be a per-instance leak. The
- * claim is deliberately the weaker one — this row owns the pane-shaped teardown, and
- * the adapter's own churn accounting over a working day of cycles is
- * `xterm-adapter.test.ts`'s and is not duplicated here.
- *
- * Scaled by {@link TerminalInstanceSeries.perInstanceBytes} and never by the first
- * instance's delta alone. Both bounds used to hang off that one difference, so a
- * single under-read tightened the residue bound in the same run that made the slope
- * fail, and one wobble failed two controls as if they were two findings.
+ * One pane's own figure: three came and went, so a per-instance retention would show three times
+ * over. The claim is deliberately the weaker one; this row owns the pane-shaped teardown, and
+ * the adapter's churn accounting is `xterm-adapter.test.ts`'s. Scaled by
+ * {@link TerminalInstanceSeries.perInstanceBytes} and never by the first delta alone, so one
+ * under-read cannot tighten this bound in the same run that fails the slope.
  */
 export const TEARDOWN_RESIDUE_FACTOR: number = 1;
 
@@ -189,14 +140,11 @@ async function readMedianSettledBytes(heapProbe: RendererHeapProbe): Promise<num
 }
 
 /**
- * Open the instances one at a time, reading the settled heap around every one, and
- * close them all again.
+ * Opens the instances one at a time, reading the settled heap around each, and closes them all.
  *
- * Self-contained on both ends: it takes its own baseline with nothing mounted and
- * leaves the page with nothing mounted, which is what lets a caller run it a second
- * time without unwinding anything of its own. The warm-up cycle that moves the
- * emulator chunk to the left of the baseline is the CALLER's, because it is paid
- * once for the page and a second sweep must not pay it again.
+ * Self-contained on both ends (its own baseline with nothing mounted, nothing mounted after), so
+ * a caller can run it twice. The warm-up cycle that moves the emulator chunk left of the
+ * baseline is the caller's, since it is paid once for the page.
  */
 export async function measureTerminalInstanceSeries(
   consoleApplication: AppUnderTest,
@@ -238,11 +186,9 @@ export async function measureTerminalInstanceSeries(
 /**
  * Whether this sweep's readings are evidence about a pane.
  *
- * Three tests, in the order a reader needs them. The floor first, because a ratio
- * between two figures the instrument could not resolve says nothing at all; then the
- * intervals against each other, because a mean of two disagreeing intervals is not a
- * slope; then the slope against the first instance, which is the finding this
- * control exists for.
+ * Three tests in order: the floor (a ratio between figures the instrument could not resolve says
+ * nothing), the intervals against each other (a mean of disagreeing intervals is not a slope),
+ * then the slope against the first instance.
  */
 export function admissibilityOf(series: TerminalInstanceSeries): SeriesAdmissibility {
   const everyInstanceBytes = [series.paneStandingBytes, ...series.perInstanceIntervalBytes];

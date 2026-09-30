@@ -1,44 +1,15 @@
-// What a `daemon.subscribe` name delivers: the closed set of registered STREAMS and
-// the routing every subscription in the renderer goes through.
+// The closed set of `daemon.subscribe` stream names and the routing every subscription goes
+// through. `daemon.subscribe` names either a registered stream, which delivers a projection of many
+// kinds, or a single event type, which delivers only itself. `session-event-subscriber.ts` and
+// `scenario-subscriptions.fixture.ts` both read this table, so the fixture answers as the daemon
+// would; a second copy would let them drift and deliver nothing to a subscriber, indistinguishable
+// from a quiet session.
 //
-// `daemon.subscribe(name, request, handler)` names either a registered STREAM or a single
-// event type, and the two answer differently — a stream delivers a projection of
-// many kinds, an event type delivers only its own. Both sides of that seam read this
-// module: `frame/session/session-event-binder.ts` passes a stream name to `daemon.subscribe`,
-// and `scenario-subscriptions.fixture.ts` has to route by the same table to answer the
-// way the daemon would. Two copies of the rule would let the producer and the
-// consumer drift while every test still passed: a fixture that recognized one stream
-// name would deliver NOTHING to a subscriber that named another, so every run beat a
-// scenario scripts would be invisible to the view that asked for it, and the silence
-// would be indistinguishable from a quiet session.
-//
-// WHICH KINDS A NARROWED STREAM CARRIES IS `session-event-stream-kinds.ts`, one
-// module down. The rows below are composed out of that module's lists rather than
-// restating them, and the reason the two are separate files is that they answer
-// different questions with different readers: this one is asked by everything that
-// opens or serves a subscription, and that one is asked by everything that has to
-// know what a carried kind announces about the run or the queue row underneath it.
-//
-// WHERE THE ROWS COME FROM. Each row is a subscription the corpus registers:
-//
-//   • `session.subscribe` — the replay-then-tail stream of the WHOLE session,
-//     delivered as frames of its events, each carrying the event's envelope and
-//     cursor. Every kind the session emits reaches it.
-//   • `run.subscribeState` — streams `RunStateChangeEvent | RunRolledBackEvent`
-//     and Codex's live safety hold, which no session row carries.
-//   • `run.subscribeQueue` — streams the `QueueItemSummary` projection.
-//   • `presence.subscribe` — the devices connected to this machine, which is the
-//     one row here that is not a session-event stream and is registered anyway: it
-//     IS a `daemon.subscribe` name, and a table that held every OTHER name left this
-//     one falling through to the bare-event-type arm, where it matched the kind
-//     `presence.subscribe` that no census registers and therefore delivered nothing
-//     at all.
-//
-// FROZEN AT EVERY LEVEL — the table and each row on it — because it is exported: a
-// reachable mutation would re-route every subscription in the renderer at once, and
-// a readonly type is a TypeScript view that says nothing about that at runtime. The
-// kind lists carry their own freeze in `session-event-stream-kinds.ts`, where they
-// are declared.
+// The kind lists for narrowed streams are composed from `session-event-stream-kinds.ts`. Rows:
+// `session.subscribe` (the whole session log), `run.subscribeState` and `run.subscribeQueue`
+// (narrowed projections), and `presence.subscribe` (the connected devices, not a session-event
+// stream, but still a `daemon.subscribe` name). The table and each row are frozen because a
+// mutation would re-route every subscription in the renderer.
 
 import { readFrozenRecord } from "@renderer/lib/frozen-record.js";
 import {
@@ -46,12 +17,7 @@ import {
   RUN_STATE_STREAM_CARRIED_KINDS,
 } from "./session-event-stream-kinds.js";
 
-/**
- * The registered subscription name for a session's whole event stream.
- *
- * Named verbatim rather than invented: a console that subscribed to a string the
- * daemon does not serve would get silence indistinguishable from a quiet session.
- */
+/** The subscription name for a session's whole event stream. */
 export const SESSION_EVENT_STREAM = "session.subscribe";
 
 /** The registered subscription name for a run's state-transition stream. */
@@ -60,23 +26,12 @@ export const RUN_STATE_EVENT_STREAM = "run.subscribeState";
 /** The registered subscription name for a session's queue-projection stream. */
 export const RUN_QUEUE_EVENT_STREAM = "run.subscribeQueue";
 
-/**
- * The registered subscription name for the devices connected to this machine.
- *
- * Declared here for the reason the three above are: this module is the one place that
- * says what a `daemon.subscribe` name delivers, and a second spelling of a subscribe
- * name is the drift it exists to end. It belongs to the machine, not to a session.
- */
+/** The subscription name for the devices connected to this machine; it belongs to the machine. */
 export const PRESENCE_EVENT_STREAM = "presence.subscribe";
 
 /**
- * A stream that carries a session's whole event log.
- *
- * It enumerates no kinds, and the absence is the honest shape rather than a gap:
- * the set it would enumerate is the entire registered census, which no module on the
- * release path can hold as a runtime value without pulling the taxonomy into the
- * renderer bundle — and a routing rule that answers "yes" for every kind needs no
- * set to answer with.
+ * A stream that carries a session's whole event log. It lists no kinds because the entire census
+ * would pull the taxonomy into the bundle, and a rule that accepts every kind needs no set.
  */
 export interface WholeSessionEventStream {
   readonly scope: "whole-session";
@@ -86,23 +41,15 @@ export interface WholeSessionEventStream {
 export interface NarrowedSessionEventStream {
   readonly scope: "selected-kinds";
   /**
-   * This stream's kinds, taken from the contract-bound record in
-   * `session-event-stream-kinds.ts` that declares them and frozen there. Typed as
-   * strings because a subscriber's event `kind` arrives wire-verbatim: the membership
-   * test IS what recognizes it, and the registration proof lives on that record rather
-   * than on this list.
+   * This stream's kinds, frozen where they are declared in `session-event-stream-kinds.ts`. Typed
+   * as strings because a subscriber's event `kind` arrives wire-verbatim.
    */
   readonly carriedKinds: readonly string[];
 }
 
 /**
- * A stream whose deliveries are the machine's device list rather than frames.
- *
- * It carries no session-event kind: each delivery is the whole list of devices
- * connected to the machine. A separate scope rather than a narrowed stream with a
- * flag, because the two answer a subscriber differently at the delivery seam —
- * `scenario-subscriptions.fixture.ts` routes on exactly this discriminant — and a
- * flag on the narrowed row would have to be read by everything that handles one.
+ * A stream whose deliveries are the machine's device list rather than frames. It is a separate
+ * scope, not a flag on the narrowed row, because `scenario-subscriptions.fixture.ts` routes on it.
  */
 export interface MachinePresenceStream {
   readonly scope: "machine-presence";
@@ -114,14 +61,7 @@ export type SessionEventStream =
   | NarrowedSessionEventStream
   | MachinePresenceStream;
 
-/**
- * One registered stream name — the four declarations above, read as a type.
- *
- * `typeof` each constant rather than the strings written a second time: a union
- * spelling them again would be a set that agrees with the constants only by
- * discipline, and this file exists because two spellings of one subscribe seam
- * had already drifted once.
- */
+/** One registered stream name, taken from the constants above so the strings are not repeated. */
 export type SessionEventStreamName =
   | typeof SESSION_EVENT_STREAM
   | typeof RUN_STATE_EVENT_STREAM
@@ -129,13 +69,8 @@ export type SessionEventStreamName =
   | typeof PRESENCE_EVENT_STREAM;
 
 /**
- * Every session-event stream the console can subscribe to. Closed, frozen, and the
- * one authority on which name routes where.
- *
- * Keyed by subscription name rather than listed, so the table is total over the
- * names by construction: a registered stream with no row here, or a row for a
- * name nothing registers, is a compile error rather than a silent hole in the
- * routing — which is precisely the shape the defect this table replaces took.
+ * Every stream the console can subscribe to; the one authority on which name routes where. Keyed
+ * by name, so a stream without a row, or a row nothing registers, fails the compile.
  */
 export const SESSION_EVENT_STREAMS: Readonly<Record<SessionEventStreamName, SessionEventStream>> =
   Object.freeze({
@@ -161,18 +96,11 @@ export function sessionEventStreamFor(subscriptionName: string): SessionEventStr
 }
 
 /**
- * Does a subscriber that named `subscriptionName` hear about an event of this kind?
+ * Whether a subscriber that named `subscriptionName` hears an event of this kind.
  *
- * The two arms of `daemon.subscribe` in one predicate, because they are one
- * decision: a registered stream delivers what its row carries, and every other
- * name is an event type that delivers only itself. A name that is neither — a
- * stream the corpus does not register, or a typo — matches no kind and therefore
- * receives nothing, which is what the daemon does with a subscription it cannot
- * serve and what keeps an unnoticed misspelling from quietly reading as an empty
- * session.
- *
- * The presence row bears on no session-event kind: its subscriber is handed the
- * machine's device list by the serving seam, never a frame.
+ * A registered stream delivers what its row carries and any other name is an event type that
+ * delivers only itself. A name that is neither, such as a typo, matches nothing, as with the
+ * daemon. The presence stream carries no session-event kind.
  */
 export function subscriptionDeliversEventKind(
   subscriptionName: string,

@@ -1,29 +1,11 @@
-// The console bench-tier ledger.
+// The bench-tier ledger: where the own-build measurements (bytes, heap, frame cost) are recorded.
 //
-// The console is light on the machine: a library is admitted only after its
-// bytes, heap, and frame cost are measured against an own build, and endurance
-// results are recorded in a dated ledger that records refutations. The bench
-// tier is where the own-build measurements those two rules depend on are taken,
-// and this file is where their numbers go.
-//
-// Three properties, each deliberate:
-//
-//   • It appends and never deletes. A ledger that rewrites history cannot
-//     record a refutation, which is the one thing a ledger is for. Re-running
-//     a benchmark adds a row; it does not replace one.
-//
-//   • Every row carries its provenance — the git commit the numbers were taken
-//     at (best effort; a detached or git-less checkout records `null` rather
-//     than failing the run), an ISO timestamp, AND the machine that produced
-//     them. The machine is not decoration: a benchmark row is meaningless
-//     without it, because two rows from different hardware differ by more than
-//     any regression this tier is meant to catch, and a reader comparing them
-//     without knowing that would draw exactly the wrong conclusion.
-//
-//   • Statistics come from the raw samples, not from a summary the harness was
-//     handed. `summarizeBenchmarkSamples` computes min, median, p95, and max by
-//     sorting the samples it is given, so the p95 is the real 95th percentile
-//     of that run rather than an interpolation of somebody else's percentiles.
+// - It appends and never deletes: a ledger that rewrites history cannot record a refutation.
+// - Every row carries its provenance: the git commit (best effort; a detached or git-less
+//   checkout records `null` rather than failing the run), an ISO timestamp and the machine,
+//   because rows from different hardware differ by more than any regression this tier catches.
+// - Statistics come from the raw samples: `summarizeBenchmarkSamples` sorts what it is given, so
+//   p95 is the real 95th percentile of that run.
 
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -33,10 +15,8 @@ import process from "node:process";
 import { fileURLToPath } from "node:url";
 
 /**
- * The machine a row's numbers were taken on. Recorded per row rather than per
- * document because one ledger accumulates rows from developer laptops and CI
- * runners alike, and a timing is only comparable to another timing from the
- * same hardware.
+ * The machine a row's numbers were taken on. Recorded per row because one ledger accumulates
+ * rows from laptops and CI runners, and a timing is only comparable on the same hardware.
  */
 export interface BenchmarkRuntimeEnvironment {
   readonly nodeVersion: string;
@@ -66,7 +46,7 @@ export interface BenchmarkLedgerRowInput {
   readonly unit: string;
   /** The raw per-sample measurements. */
   readonly samples: readonly number[];
-  /** Anything a reader needs to interpret the numbers — entity counts, batch sizes, machine notes. */
+  /** Anything a reader needs to interpret the numbers: entity counts, batch sizes, notes. */
   readonly context?: Readonly<Record<string, string | number | boolean>>;
 }
 
@@ -96,11 +76,8 @@ const THIS_DIRECTORY: string = path.dirname(fileURLToPath(import.meta.url));
 export const DEFAULT_BENCHMARK_LEDGER_PATH: string = path.join(THIS_DIRECTORY, "ledger.json");
 
 /**
- * Computes min / median / p95 / max over a sample series.
- *
- * The percentile is the nearest-rank definition — the smallest sample at or
- * above the 95th percentile position — which for a small sample count is the
- * only definition that returns a value the run actually observed.
+ * Computes min / median / p95 / max over a sample series, throwing on an empty one. The
+ * percentile is nearest-rank, the only definition that returns a value the run observed.
  */
 export function summarizeBenchmarkSamples(samples: readonly number[]): BenchmarkSampleStatistics {
   if (samples.length === 0) {
@@ -147,9 +124,8 @@ export function readBenchmarkRuntimeEnvironment(): BenchmarkRuntimeEnvironment {
 }
 
 /**
- * Reads the current commit, tolerating every failure mode: no git on the path,
- * not a repository, a shallow clone with no HEAD. A ledger row without a commit
- * is still worth keeping; a benchmark that fails because git is missing is not.
+ * Reads the current commit, tolerating every failure (no git, not a repository, a shallow clone
+ * with no HEAD): a row without a commit is worth keeping, a benchmark failing over git is not.
  */
 export function readGitCommitSha(workingDirectory: string = THIS_DIRECTORY): string | null {
   try {
@@ -165,12 +141,7 @@ export function readGitCommitSha(workingDirectory: string = THIS_DIRECTORY): str
   }
 }
 
-/**
- * Append-only ledger over a JSON document.
- *
- * Stateful (it owns a file path and a lazily-read commit), so it is a class
- * rather than a pair of free functions.
- */
+/** Append-only ledger over a JSON document; it owns a file path and a lazily-read commit. */
 export class BenchmarkLedger {
   readonly #ledgerFilePath: string;
   #gitCommitShaResolved = false;
@@ -240,12 +211,9 @@ export class BenchmarkLedger {
 
   #resolveGitCommitSha(): string | null {
     if (!this.#gitCommitShaResolved) {
-      // Resolved from THIS module's directory, deliberately, and not from the
-      // ledger file's. The commit a row records is the commit of the code that
-      // was benchmarked; a run directed at an out-of-tree output path (a
-      // scratch file, a CI artifact directory) must still stamp that commit,
-      // and reading git from the output location would silently record `null`
-      // for exactly those runs.
+      // Resolved from this module's directory, not the ledger file's: a row records the commit
+      // of the benchmarked code, and a run writing to an out-of-tree path would otherwise record
+      // `null`.
       this.#gitCommitSha = readGitCommitSha();
       this.#gitCommitShaResolved = true;
     }
@@ -263,8 +231,8 @@ export class BenchmarkLedger {
     try {
       parsed = JSON.parse(fileText);
     } catch (parseError) {
-      // A corrupt ledger is a loud failure, never a silent reset: overwriting it
-      // would delete history, which this class exists not to do.
+      // A corrupt ledger is a loud failure, never a silent reset, since overwriting it would
+      // delete history.
       throw new Error(
         `Benchmark ledger at ${this.#ledgerFilePath} is not valid JSON and will not be overwritten: ${String(parseError)}`,
         { cause: parseError },

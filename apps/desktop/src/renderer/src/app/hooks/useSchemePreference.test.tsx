@@ -1,19 +1,9 @@
-// A scheme that could not be saved is a scheme the person is told about.
-//
-// The act has two halves and only one of them can fail: the frame applies the
-// preference to this window's store synchronously, and then asks the durable store
-// to keep it. `UiStateStore.write` declares its failure as a returned VALUE, so a
-// caller that fires it and walks away cannot tell a stored preference from one the
-// disk refused — the window looked right, and the choice was gone at the next
-// reload with nothing on screen having said so.
-//
-// So each case here drives the real hook against a real `UiStateStore` whose adapter
-// is real too: `MemoryPersistenceAdapter` with a zero-byte ceiling refuses every
-// write with the same `quota-exceeded` the durable adapter raises, which is what
-// makes this path reachable at all without a stand-in for the store under test.
-//
-// Two things are asserted together every time, because either alone is the wrong
-// behavior: the scheme IS applied, and the banner says it will not come back.
+// A scheme that could not be saved is a scheme the person is told about. The frame applies the
+// preference at once and then asks the durable store to keep it; `UiStateStore` declares a write
+// failure as a returned value, so nothing on screen would say a choice was lost at the next
+// reload. Cases drive the real hook against a real `UiStateStore` whose `MemoryPersistenceAdapter`
+// has a zero-byte ceiling, which refuses every write with the `quota-exceeded` the durable adapter
+// raises. Each asserts that the scheme is applied and that the banner says it will not come back.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -35,6 +25,7 @@ function storeThatCannotWrite(): UiStateStore {
   });
 }
 
+/** A store whose writes land. */
 function storeThatWrites(): UiStateStore {
   return new UiStateStore({
     adapter: new MemoryPersistenceAdapter(),
@@ -42,12 +33,14 @@ function storeThatWrites(): UiStateStore {
   });
 }
 
+/** What the probe reads and reports: the two stores and the hook result sink. */
 interface SchemeProbeProps {
   readonly frameStore: WindowStore;
   readonly uiStateStore: UiStateStore;
   readonly onResult: (result: UseSchemePreferenceResult) => void;
 }
 
+/** Mounts the real hook and reports its result each render. */
 function SchemeProbe(props: SchemeProbeProps): null {
   props.onResult(useSchemePreference(props.frameStore, props.uiStateStore));
   return null;
@@ -92,16 +85,16 @@ describe("useSchemePreference — a refused write is disclosed, never discarded"
 
     await probe.choose("dark");
 
-    // The choice stands for this window — that half of the act succeeded.
+    // The choice stands for this window.
     expect(frameStore.getState().schemePreference).toBe("dark");
 
     const banners = frameStore.getState().banners;
     expect(banners).toHaveLength(1);
     expect(banners[0]?.code).toBe("quota-exceeded");
-    // Both facts, in one sentence: applied here, and gone after a reload.
+    // Applied here, and gone after a reload.
     expect(banners[0]?.detail).toContain("applies to this window");
     expect(banners[0]?.detail).toContain("reload");
-    // And the store's own sentence, carried whole rather than reworded.
+    // The store's own sentence is carried whole.
     expect(banners[0]?.detail).toContain("past its 0-byte ceiling");
   });
 
@@ -117,8 +110,7 @@ describe("useSchemePreference — a refused write is disclosed, never discarded"
   });
 
   it("negative control: a write that lands raises nothing", async () => {
-    // Without this, a hook that banner-ed every choice would satisfy both cases
-    // above while reporting a failure on every successful write.
+    // Without this, a hook that raised a banner on every choice would pass both cases above.
     const frameStore = new WindowStore();
     const uiStateStore = storeThatWrites();
     const probe = await mountScheme(frameStore, uiStateStore);
@@ -143,10 +135,8 @@ describe("useSchemePreference — hydration is a pure read", () => {
   });
 
   it("never writes the default back over what it read", async () => {
-    // The defect a `schemePreference` effect would reintroduce: it cannot tell the
-    // person's choice from the hydration that just applied a stored one, so it
-    // writes the default over the stored preference in the window before the read
-    // settles.
+    // A `schemePreference` effect could not tell a choice from the hydration that applied a
+    // stored one, and would write the default over it before the read settles.
     const uiStateStore = storeThatWrites();
     await uiStateStore.writeGlobal(SCHEME_PREFERENCE_KEY, "scheme", "dark");
     const frameStore = new WindowStore();

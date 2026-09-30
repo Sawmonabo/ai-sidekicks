@@ -1,21 +1,9 @@
-// What a saved pane layout carries, and the five ways a saved one can be wrong.
-//
-// The restore cases are the point of this file. Three of the five are ORDINARY —
-// a record written by another build, a pane kind this one has not got, an entity
-// that no longer validates — so each has to be dropped and REPORTED rather than
-// thrown, and the report has to be a value a view can render. The fourth, the
-// cap, is what stands between a hand-edited record and a window that mounts panes
-// until it stops responding. The fifth is a record holding two pane ids at ONE
-// address: `open()` cannot repair that, because focusing the first pane is all it
-// ever does, so the duplicate mounts a second body, counts a second time against the cap, and is
-// written straight back on the next save. It is coalesced during decoding instead,
-// first in position order winning.
-//
-// Every clean assertion below has a negative control, because the failure mode
-// that matters here is a validator that passes everything.
-//
-// How the layout behaves when the pane layout moves it — opening, ordering, focus, and the
-// panel group's settled sizes — is `pane-layout-store.test.ts`.
+// What a saved pane layout carries and the ways a saved one can be wrong. An unknown version,
+// unknown kind or invalid entity is dropped and reported as a value a view can render, never
+// thrown. The cap stops a hand-edited record mounting panes until the window hangs. A duplicate
+// address is coalesced during decoding because `open()` cannot repair it. Each clean assertion
+// has a negative control, since the failure that matters is a validator that passes everything.
+// Live movement is in `pane-layout-store.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -62,8 +50,8 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
   });
 
   it("never writes an ephemeral pane", () => {
-    // `routing/panes/pane-kinds.ts`'s `isEphemeralPaneKind`: a browser pane is never written to the
-    // layout snapshot, so a restart cannot reopen a page nobody asked for.
+    // A browser pane is ephemeral and never written, so a restart cannot reopen a page nobody
+    // asked for.
     const layout = twoPaneLayout();
     const source = layout.snapshot().panes[0];
     layout.open({ kind: "browser" }, { linkedSourcePaneId: source?.paneId ?? "" });
@@ -74,8 +62,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
   });
 
   it("mints no pane id a restored pane already holds", () => {
-    // Without the ordinal being read back, `close` would remove two panes and
-    // `focus` would land on whichever the array reached first.
+    // Without the ordinal read back, a new pane could reuse a restored id.
     const layout = twoPaneLayout();
     const restored = emptyLayout();
     restored.restore(layout.toSnapshot());
@@ -88,8 +75,7 @@ describe("PaneLayoutStore — what a snapshot carries", () => {
 
 describe("PaneLayoutStore — what a restore refuses", () => {
   it("discards a snapshot of an unknown version WHOLE", () => {
-    // A grammar this build does not know is a grammar whose members it cannot
-    // interpret, and a half-restored pane layout hides which half went missing.
+    // A half-restored layout hides which half went missing.
     const layout = twoPaneLayout();
     const snapshot = layout.toSnapshot();
     const header = snapshot[PANE_LAYOUT_SNAPSHOT_HEADER_KEY];
@@ -109,8 +95,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("negative control: the SAME snapshot at the current version restores whole", () => {
-    // Without this, the case above would pass over a restore that discarded every
-    // record it was ever handed.
+    // The case above would also pass over a restore that discarded every record.
     const restored = emptyLayout();
     expect(restored.restore(twoPaneLayout().toSnapshot()).restoredPaneCount).toBe(2);
   });
@@ -159,10 +144,8 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("drops a pane whose entity kind that pane kind is not a view of", () => {
-    // `transcript` is a view of the session; an artifact is not.
-    // A weaker admission here passes the row on to a body that refuses it later,
-    // leaving a pane nothing can render counted against the cap — and
-    // written straight back out on the next save, so it survives every restart.
+    // `transcript` is a view of the session, not of an artifact. A weaker admission would leave
+    // a pane nothing can render, counted against the cap and saved again.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-95"] = {
       position: 5,
@@ -179,8 +162,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("drops a pane whose entity id is not identifier-shaped", () => {
-    // A non-empty id is not a valid one. A path separator makes a store key that can
-    // never exist, and the console holds this value to one grammar everywhere else.
+    // A non-empty id is not a valid one: a path separator makes a store key that cannot exist.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-94"] = {
       position: 5,
@@ -223,8 +205,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("negative control: the same pane kinds over the entities they ARE views of restore", () => {
-    // Without this, every case above would pass over an admission that had simply
-    // stopped admitting anything with an entity on it.
+    // The cases above would also pass over an admission that rejected every entity.
     const layout = emptyLayout();
     layout.open({ kind: "transcript" });
     layout.open({ kind: "inspector", entity: { kind: "worktree", id: "worktree-01" } });
@@ -251,9 +232,8 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("adopts one pane for a record holding two ids at one address", () => {
-    // The corrupted or hand-edited shape: two DIFFERENT pane ids naming the same
-    // kind over the same entity. Both decode cleanly, which is exactly why nothing
-    // downstream catches it.
+    // Two different pane ids naming the same kind and entity. Both decode cleanly, so nothing
+    // downstream would catch it.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-duplicate"] = {
       position: 5,
@@ -270,14 +250,13 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
       "pane-address-duplicate",
     ]);
-    // First in POSITION order survives, which is the arrangement the person last
-    // saw — not whichever id `Object.entries` happened to yield first.
+    // First in position order survives, not whichever id `Object.entries` yields first.
     expect(restored.snapshot().panes.map((pane) => pane.paneId)).not.toContain("pane-duplicate");
   });
 
   it("counts the survivor once against the restore cap", () => {
-    // A dropped duplicate must not push a real pane out of the restore, so the
-    // record below holds cap-many distinct addresses plus one repeat of the first.
+    // A dropped duplicate must not push a real pane out, so the record holds cap-many distinct
+    // addresses plus one repeat.
     const cap = 3;
     const source = emptyLayout();
     for (let index = 0; index < cap; index += 1) {
@@ -298,16 +277,14 @@ describe("PaneLayoutStore — what a restore refuses", () => {
     const report = new PaneLayoutStore({ restoredPaneCap: cap }).restore(snapshot);
 
     expect(report.restoredPaneCount).toBe(cap);
-    // The duplicate is the ONLY refusal: if it had counted against the cap, the last
-    // distinct pane would have been dropped and the cap refusal raised beside it.
+    // The duplicate is the only refusal; counting it against the cap would drop a real pane.
     expect(report.refusals.map((refusal) => refusal.code)).toStrictEqual([
       "pane-address-duplicate",
     ]);
   });
 
   it("negative control: two panes at two addresses both restore, with no refusal", () => {
-    // Without this, the two cases above would pass over a decoder that coalesced
-    // every pane onto the first — the failure mode a dedupe introduces.
+    // The two cases above would also pass over a decoder that coalesced every pane onto the first.
     const snapshot = twoPaneLayout().toSnapshot();
     snapshot["pane-distinct"] = {
       position: 5,
@@ -331,8 +308,7 @@ describe("PaneLayoutStore — what a restore refuses", () => {
   });
 
   it("names itself in every refusal it raises", () => {
-    // A refusal that names nobody is a refusal a view three layers up cannot
-    // attribute — `core/refusal.ts`'s own reason for the field.
+    // A refusal must name its origin so a view can attribute it.
     const report = emptyLayout().restore(null);
     for (const refusal of report.refusals) {
       expect(refusal.origin).toBe("pane-layout");

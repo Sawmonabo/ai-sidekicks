@@ -1,42 +1,20 @@
-// The console tiers' one way to force a collection and read retained bytes.
+// The endurance tier's one way to force a collection in-process and read retained bytes.
+// Written once so two copies of a retry-until-stable loop cannot drift into two definitions of
+// "settled", with the weaker loop reporting the smaller leak.
 //
-// Two tiers ask heap questions of in-process code — the budget tier asks what one
-// terminal instance retains, the endurance tier asks whether a churn of them
-// leaves that number where it started — and both answers are only as good as the
-// collection that precedes them. Written once here because two copies of a
-// retry-until-stable loop drift into two different definitions of "settled", and
-// the tier whose loop is weaker then reports the smaller leak.
+// `arrayBuffers` is part of the reading: `heapUsed` excludes typed-array backing stores, and
+// `@xterm/xterm` keeps its buffer in `Uint32Array`s (twelve bytes per cell, eagerly), so a large
+// scrollback sits almost entirely outside it. `retainedBytes` is the sum and the only figure a
+// caller compares.
 //
-// WHY `arrayBuffers` IS PART OF THE READING AND NOT A DETAIL
+// The collector is reached through `v8.setFlagsFromString` because `globalThis.gc` exists only
+// under `--expose-gc`, which a Vitest project cannot add to a worker it did not spawn. This
+// keeps the capability local rather than putting a flag in a tier's config whose absence would
+// turn its assertions into noise. A caller that gets `undefined` is told so and skips.
 //
-// `process.memoryUsage().heapUsed` counts the V8 heap and NOT the backing stores
-// of typed arrays, which V8 allocates outside it. `@xterm/xterm` stores its buffer
-// as `Uint32Array`s — twelve bytes per cell, eagerly, regardless of content — so a
-// ten-thousand-line scrollback is almost entirely OUTSIDE `heapUsed`. A gate that
-// read `heapUsed` alone would report a terminal at a few per cent of its budget
-// and keep reporting it with the buffer arbitrarily large, which is the exact
-// shape of the stand-in gate `heap-budget.test.ts` exists to keep retired. So the
-// reading is the sum, and `retainedBytes` is the only figure a caller compares.
-//
-// WHY GC IS REACHED THROUGH `v8.setFlagsFromString` RATHER THAN A RUNNER FLAG
-//
-// `globalThis.gc` exists only under `--expose-gc`, which a Vitest project cannot
-// add to the worker it did not spawn. Enabling the flag at runtime and compiling
-// the accessor through `vm.runInNewContext` is the documented way to reach it from
-// inside a process that was started without it, and it keeps the capability local
-// to this module: no tier's config carries a flag whose absence would silently
-// turn its assertions into noise. A caller that gets `undefined` is told so and
-// skips rather than measuring garbage.
-//
-// WHY THE MEMO IS OWNED BY AN OBJECT AND NOT BY THE MODULE
-//
-// The resolution has to be memoized — `setFlagsFromString` mutates process-wide
-// state, and calling it per sample would flip the flag hundreds of times in a run.
-// Held in module-level variables that memo became process-global and
-// order-dependent: one early failed resolution permanently hid a `globalThis.gc`
-// installed afterwards, and the tier that ran second reported "no collector" for a
-// reason belonging to the tier that ran first. The memo is a private field, so a
-// harness that resolves nothing cannot narrow one built beside it.
+// The resolution is memoized because `setFlagsFromString` mutates process-wide state and would
+// flip the flag every sample. The memo is a private field, not a module variable, so one failed
+// resolution cannot hide a `globalThis.gc` installed later or narrow another instance.
 
 import v8 from "node:v8";
 import vm from "node:vm";
@@ -51,8 +29,7 @@ export interface HeapSample {
 }
 
 /**
- * Reach the runtime's collector, or answer `undefined` on one that will not give
- * it up. Pure with respect to this module: everything it remembers is the caller's.
+ * Reaches the runtime's collector, or answers `undefined` on one that will not give it up.
  */
 function resolveExposedCollector(): (() => void) | undefined {
   const existing = (globalThis as { gc?: () => void }).gc;
@@ -66,19 +43,15 @@ function resolveExposedCollector(): (() => void) | undefined {
   } catch {
     return undefined;
   } finally {
-    // Left off for everything downstream of this call: the flag is needed to
-    // COMPILE the accessor, not to hold it, and leaving it on changes how the
-    // rest of the run is optimized.
+    // Left off downstream: the flag is needed to compile the accessor, not to hold it, and
+    // leaving it on changes how the rest of the run is optimized.
     v8.setFlagsFromString("--no-expose-gc");
   }
 }
 
 /**
- * One owner of one resolution attempt.
- *
- * The attempt runs at most once per instance — which is what keeps the
- * process-wide flag mutation to one flip per collector however many samples are
- * taken — and its outcome, including a failure, belongs to that instance alone.
+ * One owner of one resolution attempt: it runs at most once per instance, and its outcome,
+ * including a failure, belongs to that instance alone.
  */
 export class HeapCollector {
   readonly #resolveCollector: () => (() => void) | undefined;
@@ -86,10 +59,8 @@ export class HeapCollector {
   #hasResolved = false;
 
   /**
-   * @param resolveCollector how the collector is reached. The runtime's own way by
-   *   default; a caller supplies its own only to drive a runtime this process
-   *   cannot produce on demand — one that refuses, and one that hands over a
-   *   collector installed later.
+   * Takes how the collector is reached, so a test can drive a runtime that refuses or one that
+   * hands a collector over later.
    */
   public constructor(resolveCollector: () => (() => void) | undefined = resolveExposedCollector) {
     this.#resolveCollector = resolveCollector;
@@ -117,23 +88,17 @@ export class HeapCollector {
 /**
  * How many collect-and-settle rounds a sample runs.
  *
- * Exported because a SECOND process measures the same thing over a DevTools session
- * — the endurance tier's renderer probe — and the two loops genuinely cannot be
- * shared: one collects in this process and one over CDP. The round count and the
- * "collect, then yield a macrotask" discipline can be, and must be. Raise this
- * because the in-process readings stop settling, and a probe carrying its own copy
- * goes on collecting the old number of times while reading a floor the tier no
- * longer reaches — with nothing failing, which is what two definitions of "settled"
- * cost.
+ * Exported because the renderer probe in `heap-instrument.ts` collects over CDP with the same
+ * round count; the loops differ but the count must not, or the probe reads a floor this process
+ * no longer reaches.
  */
 export const SETTLE_ROUNDS = 4;
 
 /**
  * A collector and the settling loop that makes its readings comparable.
  *
- * Constructed by the tier that measures, beside its own harness. Not a module
- * singleton: a tier's readings are its own, and a shared one would make the first
- * tier to resolve decide what every later one can measure.
+ * Built by the case that measures rather than a singleton, so the first tier to resolve does
+ * not decide what later ones can measure.
  */
 export class HeapSampler {
   readonly #collector: HeapCollector;
@@ -143,23 +108,19 @@ export class HeapSampler {
   }
 
   /**
-   * Whether a heap reading is admissible here. A reading with no collection behind
-   * it is noise, and a tier that is green because it measured noise is worse than
-   * one that is loud about the gap.
+   * Whether a heap reading is admissible here: a reading with no collection behind it is noise,
+   * and a tier green on noise is worse than one loud about the gap.
    */
   public get isCollectorAvailable(): boolean {
     return this.#collector.available();
   }
 
   /**
-   * Collect, let pending finalization run, and read.
+   * Collects, lets pending finalization run, and reads.
    *
-   * The rounds are what make the reading comparable: one collection reclaims what
-   * is unreachable at that instant, and a disposed emulator's listeners are
-   * released across a microtask boundary rather than inside the call that disposed
-   * it. Four rounds with a macrotask between them is the smallest loop that gave
-   * the same number twice on this code; fewer left the second reading below the
-   * first.
+   * One collection reclaims only what is unreachable at that instant, and a disposed emulator's
+   * listeners are released across a microtask boundary. Four rounds with a macrotask between
+   * them was the smallest loop that gave the same number twice on this code.
    */
   public async sample(): Promise<HeapSample> {
     for (let round = 0; round < SETTLE_ROUNDS; round += 1) {

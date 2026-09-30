@@ -1,17 +1,10 @@
-// The fixture bridge: a real platform bridge backed by a scripted scenario.
+// The fixture bridge: a real platform bridge backed by a scripted scenario. The daemon half is
+// `services/daemon/daemon.fixture.ts`; this assembles it with the host's other answers.
 //
-// Every member is the fixture's answer to one the preload declares. The daemon half is
-// `services/daemon/daemon.fixture.ts`; this module assembles it with the host's other answers.
-//
-//   • **Native calls refuse rather than pretend.** `showOpenDialog` under the fixture cannot
-//     open a dialog, so it rejects with a fixture-scoped error. A fixture that returned a
-//     plausible path would let a view ship with a code path nobody has run against the
-//     real dialog.
-//   • **`app` meta is fixed.** Version, platform, arch, locale and the machine's memory are
-//     constants, so a screenshot does not shift when the developer's machine does.
-//   • **The keyboard map is held in memory.** It is the one file main keeps for the page, so
-//     the fixture keeps it for the life of the scenario: the first read is the empty map and a
-//     write is read back, which is the Keyboard page's whole contract with main.
+// Native calls refuse rather than pretend, so a view cannot ship a code path nobody ran against
+// the real dialog. The `app` meta is fixed so a screenshot does not shift with the machine. The
+// keyboard map is held in memory: the first read is empty and a write is read back, which is the
+// Keyboard page's whole contract with main.
 
 import type { DaemonEvent, DaemonSubscribeParams } from "@ai-sidekicks/contracts";
 import { DAEMON_STATUS_TOPIC } from "@shared/daemon-status-topic.js";
@@ -46,6 +39,7 @@ export const FIXTURE_APP_META: PlatformBridge["app"] = {
   physicalMemoryBytes: 17_179_869_184,
 };
 
+/** Options for `createFixtureBridge`. */
 export interface FixtureBridgeOptions {
   readonly scenario: Scenario;
 }
@@ -60,7 +54,7 @@ export interface FixtureBridge {
   readonly scenarioEngine: ScenarioEngine;
 }
 
-/** Build the fixture bridge for one scenario, with the engine that plays it. */
+/** Builds the fixture bridge for one scenario, with the engine that plays it. */
 export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridge {
   const scenarioEngine = new ScenarioEngine({ scenario: options.scenario });
   const updaterState: UpdateState = options.scenario.updaterState ?? { status: "idle" };
@@ -109,15 +103,14 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       savePastedImage: () => refuseAbsentCapability("native.savePastedImage"),
       showMessageBox: () => refuseAbsentCapability("native.showMessageBox"),
       showNotification: () => {
-        // Notifications are fire-and-forget on the live bridge too, so the fixture matches its
-        // signature by doing nothing observable rather than throwing from a `void` method the
-        // caller cannot catch.
+        // Fire-and-forget on the live bridge too; a throw from a `void` method the caller cannot
+        // catch would be worse than doing nothing observable.
       },
       getNotificationPermission: () => refuseAbsentCapability("native.getNotificationPermission"),
       openExternal: () => refuseAbsentCapability("native.openExternal"),
       copyToClipboard: async () => {
-        // Clipboard writes are safe to no-op: nothing reads the result back, and a refusal here
-        // would make every "copy id" affordance untestable.
+        // A no-op is safe: nothing reads the result back, and a refusal would make every "copy id"
+        // affordance untestable.
       },
       openInEditor: () => refuseAbsentCapability("native.openInEditor"),
       openInTerminal: () => refuseAbsentCapability("native.openInTerminal"),
@@ -125,10 +118,8 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
       listEditors: () => refuseAbsentCapability("native.listEditors"),
     },
     update: {
-      // The scenario's own declaration, or a bare `idle`. The default carries no
-      // `lastCheckedAt` deliberately: that member is optional, absent means no check has ever
-      // completed, and a fixture that supplied an instant on every scenario would make the
-      // never-checked arm unreachable.
+      // The scenario's declaration, or a bare `idle`. The default omits the optional
+      // `lastCheckedAt` so the never-checked arm stays reachable.
       getState: async (): Promise<UpdateState> => updaterState,
       subscribe: (handler): Unsubscribe => {
         handler(updaterState);
@@ -174,9 +165,9 @@ export function createFixtureBridge(options: FixtureBridgeOptions): FixtureBridg
 }
 
 /**
- * Refuse, by throwing, a member main answers synchronously and the fixture cannot stand in
- * for: a subscription main pushes, or a publication main receives. It throws where a call
- * would reject, because its signature returns before anything could settle.
+ * Refuses, by throwing, a member main answers synchronously and the fixture cannot stand in for (a
+ * subscription main pushes, or a publication main receives). It throws because the signature
+ * returns before anything could settle.
  */
 function refuseAbsentSubscription(call: string): never {
   throw new FixtureBridgeError(

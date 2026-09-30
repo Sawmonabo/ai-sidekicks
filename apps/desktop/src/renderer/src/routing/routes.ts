@@ -1,87 +1,44 @@
-// The console's routes, as data.
-//
-// Hash routing, not history routing, and for a concrete reason: the renderer is served
-// from a custom `sidekicks-renderer://` scheme through a bundle handler that resolves
-// exactly one document (`src/main/protocol.ts`). A history-API route would ask that
-// handler for a path that is not a file; a hash route asks for the same document every
-// time and carries its state after the `#`.
-//
-// The routes are one per icon-rail destination plus the session screen. The
-// session screen is a route and NOT a rail destination: a session is reached from the
-// sessions destination, which is why `railDestinationFor` answers `sessions` for it.
-//
-// A route arriving MALFORMED (an unknown route name, too many segments, an empty
-// segment) resolves to the not-found route, which says what it could not open rather
-// than rendering blank.
+// The console's routes as data. Hash routing, because the renderer is served from a custom
+// `sidekicks-renderer://` scheme whose handler resolves one document
+// (`main/services/renderer-protocol.ts`); a hash carries state after the `#` without asking it
+// for another path. A malformed hash resolves to the not-found route, never a blank screen.
 
-/** Where the console currently is. A closed union — every arm renders something. */
+/** Where the console currently is. A closed union: every arm renders something. */
 export type AppRoute =
   | { readonly kind: "sessions" }
-  // ONE ARM CARRYING AN OPTIONAL FOCUS, unlike the settings split below, and the
-  // difference is what the two grammars can express. `#/settings` has nowhere to put
-  // a page-scoped selection, so the pair `{page: undefined, selection}` is a value the
-  // formatter cannot write down and the split makes it unrepresentable. A session screen
-  // address always carries its session, so `{sessionId, workflowPhase}` is writable in
-  // full and reads back byte-for-byte — there is no half-supplied context to forbid.
-  //
-  // THE PHASE DEEP LINK IS A SESSION SCREEN ADDRESS RATHER THAN A DESTINATION OF ITS OWN.
-  // `#/session/<sid>/workflow/<rid>/phase/<pid>` opens the session it names, focused
-  // on one phase of one run — so the rail highlights `sessions` exactly as a bare
-  // session screen does, the screen the route mounts is the session screen, and the palette's
-  // scope row names the session. A seventh route kind would have had to answer all
-  // three of those questions again and would have answered them the same way.
-  //
-  // WHY A PARKED PHASE NEEDS AN ADDRESS AT ALL. A `waiting-human` park ends when a
-  // person answers that phase's form, and the places that say so — a park banner, a
-  // run row, a notification — are frequently not in the window holding the run pane.
-  // Without a written-down address the phase is reachable only by somebody who has
-  // already navigated to it, which is the one person who does not need the link.
+  // One arm with an optional focus: a session address always carries its session, so
+  // `{sessionId, workflowPhase}` is writable in full. `#/session/<sid>/workflow/<rid>/phase/<pid>`
+  // is a session address, not a destination, so the rail and the palette scope treat it as the
+  // session. A parked phase needs an address because the places that link to it (a park banner,
+  // a run row, a notification) are often in a window without the run pane.
   | {
       readonly kind: "session";
       readonly sessionId: string;
       /**
        * The phase this address is focused on, where it names one.
        *
-       * OMITTED and never set to `undefined`, which is what keeps the round trip
-       * exact under `exactOptionalPropertyTypes` — the same rule the settings arm's
-       * `selection` obeys one arm down, and for the same reason: a present-but-
-       * undefined member and an absent one are different values to the structural
-       * comparison {@link parseRoute}'s tests hold this grammar to.
-       *
-       * Both ids travel as opaque wire values. Routing owns the grammar and never the
-       * meaning, so nothing here parses either one or asserts they name a live run.
+       * Omitted, never set to `undefined`, so the round trip is exact under
+       * `exactOptionalPropertyTypes`. Both ids are opaque wire values: routing owns the grammar
+       * and never checks that they name a live run.
        */
       readonly workflowPhase?: {
         readonly workflowRunId: string;
         readonly phaseId: string;
       };
     }
-  // Bare, and deliberately so. This destination opens the `workflow-builder` pane,
-  // and a pane carries its own context — a definition id written into the address
-  // here would be a second, unowned locator for something the builder has not
-  // defined yet.
+  // Bare on purpose: this destination opens the `workflow-builder` pane, which carries its own
+  // context, so a definition id here would be a second locator for something not yet defined.
   | { readonly kind: "workflows" }
-  // TWO ARMS AND NOT ONE OPTIONAL MEMBER. `#/settings` carries no page and therefore
-  // has nowhere to put a page-scoped selection: such a pair is a value
-  // {@link formatRoute} cannot write down, and a route that cannot be written down is
-  // one {@link parseRoute} can never give back. The split makes it unrepresentable
-  // rather than merely undocumented.
-  //
-  // The selection is a bare `string` for `pane-harness`' reason, the DAG: `settings/`
-  // sits above this module, so WHAT a page does with the segment is that page's to
-  // decide. Routing owns the grammar and never the meaning.
+  // Two arms, not one optional member: `#/settings` carries no page, so a selection without a
+  // page is a value `formatRoute` cannot write down; the split makes it unrepresentable. The
+  // selection is a bare string because `settings/` sits above this module and decides what a
+  // page does with it.
   | { readonly kind: "settings"; readonly page: undefined }
   | { readonly kind: "settings"; readonly page: string; readonly selection?: string }
-  // The pane harness a fixture launch registers. {@link parseRoute} produces it in
-  // every window, and a window whose composition registered no harness renders it as
-  // not-found, exactly as it renders any other unknown address.
-  //
-  // The pane kind travels as a bare `string` rather than as `PaneKind`, because an
-  // address arrives untyped: the screen the route mounts holds the segment
-  // to `parsePaneAddress`, which is the console's one admission point for an
-  // address that arrived untyped — the same predicate a restored layout snapshot is
-  // held to, so a route a person types and a snapshot read off disk cannot disagree
-  // about which kinds exist.
+  // The pane harness a fixture launch registers. `parseRoute` produces it in every window; one
+  // whose composition registered no harness renders it as not-found. The pane kind is a bare
+  // string because the address arrives untyped; the screen holds it to `parsePaneAddress`, the
+  // same predicate a restored layout snapshot is held to.
   | {
       readonly kind: "pane-harness";
       readonly paneKind: string;
@@ -93,21 +50,13 @@ export type AppRoute =
 export const DEFAULT_ROUTE: AppRoute = { kind: "sessions" };
 
 /**
- * Parse a location hash into a route.
- *
- * Total: every input produces a route, because a renderer that throws while
- * deciding what to render has no way to tell anyone why. Totality is a property
- * of this function and not a hope about its input — the two ways a hash breaks a
- * parser are both closed below. Every percent-escape goes through
- * {@link decodeSegment}, and every empty segment is refused before an arm reads
- * one, so neither a `URIError` nor a silently normalized path leaves here.
+ * Parse a location hash into a route. Total: every input produces a route, so a malformed
+ * percent-escape or an empty segment resolves to not-found and never throws or normalizes.
  */
 export function parseRoute(hash: string): AppRoute {
   const afterHash = hash.startsWith("#") ? hash.slice(1) : hash;
-  // The LEADING slash is the one optional separator; every other one is grammar.
-  // The filter that used to drop empty segments deleted the evidence the arms
-  // below validate on, so `#/session//foo` resolved to session `foo` — a different
-  // session than the link names.
+  // The leading slash is the one optional separator; empty segments are kept so the arms below
+  // can refuse them (`#/session//foo` must not open session `foo`).
   const path = afterHash.startsWith("/") ? afterHash.slice(1) : afterHash;
 
   if (path === "") {
@@ -116,8 +65,7 @@ export function parseRoute(hash: string): AppRoute {
 
   const segments = path.split("/");
   const [head, ...rest] = segments;
-  // `String.prototype.split` never answers an empty array, so `head` is present —
-  // the `undefined` arm is the compiler's obligation, answered the same way.
+  // `split` never returns an empty array; the `undefined` check is for the compiler.
   if (head === undefined || segments.includes("")) {
     return notFound(hash);
   }
@@ -147,22 +95,15 @@ export function parseRoute(hash: string): AppRoute {
       return notFound(hash);
     }
     if (selectionSegment === undefined) {
-      // The key is OMITTED and never set to `undefined`, which is what keeps the
-      // round trip exact under `exactOptionalPropertyTypes`: a present-but-undefined
-      // member and an absent one are different values to a structural comparison, and
-      // this is the arm `#/settings/<page>` has to give back.
+      // The key is omitted, not set to `undefined`, so the round trip stays exact.
       return { kind: "settings", page };
     }
     const selection = decodeSegment(selectionSegment);
     return selection === undefined ? notFound(hash) : { kind: "settings", page, selection };
   }
 
-  // The pane harness a fixture launch registers. Parsed in every window; a window whose
-  // composition registered no harness renders the address as not-found. The address is
-  // `#/pane-harness/<paneKind>/<sessionId>`, and BOTH segments are required: the pane
-  // bodies this mounts are session-scoped, so an address with no session would open a
-  // harness that could only ever render the pane's own not-bound absence — a screen
-  // measuring nothing.
+  // `#/pane-harness/<paneKind>/<sessionId>`: both segments are required because the pane
+  // bodies it mounts are session-scoped.
   if (head === "pane-harness") {
     const [paneKindSegment, sessionIdSegment] = rest;
     if (paneKindSegment === undefined || sessionIdSegment === undefined || rest.length > 2) {
@@ -178,16 +119,14 @@ export function parseRoute(hash: string): AppRoute {
   return notFound(hash);
 }
 
-/** Render a route back to a hash. Round-trips with `parseRoute`. */
+/** Render a route back to a hash; the exact inverse of `parseRoute`. */
 export function formatRoute(route: AppRoute): string {
   switch (route.kind) {
     case "sessions":
       return "#/sessions";
     case "session": {
       const sessionAddress = `#/session/${encodeURIComponent(route.sessionId)}`;
-      // The keywords are written literally on both sides of one grammar, three lines
-      // from the parse that reads them, so the pair cannot drift into a link that
-      // opens the session screen with its focus quietly dropped.
+      // The `workflow` and `phase` keywords must match `sessionRoute`'s.
       const { workflowPhase } = route;
       return workflowPhase === undefined
         ? sessionAddress
@@ -214,15 +153,8 @@ export function formatRoute(route: AppRoute): string {
 /**
  * Decode one path segment, or `undefined` when its percent-escapes are malformed.
  *
- * ONE helper rather than a `try` at each decode site. `decodeURIComponent` raises
- * `URIError` on an escape like `%zz`, and {@link parseRoute}'s contract is that
- * every input produces a route — a promise that holds only while EVERY decode in
- * this module answers a malformed escape the same way. A guard pasted per site is
- * how the next arm to grow a segment ships without one.
- *
- * `undefined` rather than a raised refusal, because the caller has an answer for
- * this: a hash anyone can type into the address bar is a probe, not an incident,
- * and the not-found route says what it could not open.
+ * The one guard for `decodeURIComponent`'s `URIError`, so every decode answers a malformed
+ * escape the same way. A hash anyone can type is a probe, so `undefined` and not a refusal.
  */
 function decodeSegment(segment: string): string | undefined {
   try {
@@ -235,17 +167,8 @@ function decodeSegment(segment: string): string | undefined {
 /**
  * The two session screen addresses, read from the segments after `session`.
  *
- * A HELPER RATHER THAN A THIRD BRANCH INSIDE {@link parseRoute}, because this arm is
- * the only one whose grammar has interior KEYWORDS — `workflow` and `phase` sit
- * between the three ids and are the whole of what distinguishes a focused address
- * from a session id that happens to have slashes in it. Reading them inline would
- * have put five destructured segments and two literal comparisons in the middle of a
- * function whose other arms are two lines each.
- *
- * The keyword positions are checked BEFORE the ids are decoded, so
- * `#/session/s/anything/r/phase/p` is not-found rather than a session screen address
- * silently missing its focus. Every id still goes through {@link decodeSegment}, which
- * is what keeps {@link parseRoute} total over a malformed percent-escape.
+ * The keyword positions are checked before the ids are decoded, so
+ * `#/session/s/anything/r/phase/p` is not-found rather than a session address missing its focus.
  */
 function sessionRoute(hash: string, rest: readonly string[]): AppRoute {
   const [sessionSegment, workflowKeyword, runSegment, phaseKeyword, phaseSegment] = rest;
@@ -257,9 +180,7 @@ function sessionRoute(hash: string, rest: readonly string[]): AppRoute {
     return notFound(hash);
   }
   if (rest.length === 1) {
-    // The key is OMITTED rather than set to `undefined`: this is the arm
-    // `#/session/<id>` has to give back, and the two are different values under
-    // `exactOptionalPropertyTypes`.
+    // The key is omitted, not set to `undefined`, so `#/session/<id>` round-trips exactly.
     return { kind: "session", sessionId };
   }
   if (

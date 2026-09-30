@@ -1,14 +1,6 @@
-// One beat composes into an envelope the wire's own schema accepts.
-//
-// Every case here drives the REGISTERED carrier rather than a restatement of what
-// the composer is supposed to produce. A test that asserted member names against a
-// list written beside them would agree with any composer that agreed with the list,
-// which is the failure this seam already had once: the fixture's shape and the
-// console's boundary agreed with each other and with nothing the daemon sends.
-//
-// WHAT IS NOT HERE. The round trip — composed envelope back through the console's
-// own decode boundary — spans the fixture and that boundary, so it is not asserted
-// here.
+// One beat composes into an envelope the wire's own schema accepts. Cases drive the registered
+// carrier and not a member list written beside the composer, which would agree with any composer
+// that agreed with it. The round trip through the console's decode boundary is asserted elsewhere.
 
 import { describe, expect, it } from "vitest";
 
@@ -49,8 +41,7 @@ describe("composeScenarioEventEnvelope — the shape the fixture delivers", () =
   });
 
   it("negative control: the authoring record the composer was given does not", () => {
-    // Without this, the case above passes against a composer that returns its
-    // argument unchanged — which is exactly what the fixture used to deliver.
+    // Without it, the case above passes against a composer that returns its argument unchanged.
     const beat = authoredBeat({ actorId: USER_ID });
 
     expect(EventEnvelopeSchema.safeParse(beat).success).toBe(false);
@@ -59,9 +50,8 @@ describe("composeScenarioEventEnvelope — the shape the fixture delivers", () =
   });
 
   it("supplies an empty payload where the beat states none, because the wire omits none", () => {
-    // Spelled out rather than overridden away: `exactOptionalPropertyTypes` makes
-    // "the member is absent" a different value from "the member is `undefined`",
-    // and absent is the state a scenario author actually writes.
+    // Spelled out: under `exactOptionalPropertyTypes` an absent member differs from
+    // `undefined`, and absent is what a scenario author writes.
     const composed = composeScenarioEventEnvelope({
       id: EVENT_ID,
       sessionId: SESSION_ID,
@@ -75,8 +65,8 @@ describe("composeScenarioEventEnvelope — the shape the fixture delivers", () =
   });
 
   it("omits the actor where the beat attributes itself to nobody", () => {
-    // Absent rather than present-`null`: a beat that names no actor is not the same
-    // claim as one that names the system, and the two are wire-distinguishable.
+    // Absent, not present-`null`: no actor is a different claim from the system, and the wire
+    // distinguishes them.
     const composed = composeScenarioEventEnvelope(authoredBeat());
 
     expect(composed).not.toHaveProperty("actor");
@@ -84,10 +74,9 @@ describe("composeScenarioEventEnvelope — the shape the fixture delivers", () =
   });
 
   it("composes an unregistered kind with no category, which the carrier then refuses", () => {
-    // The composer substitutes nothing. A kind the census does not register has no
-    // category, and a record with none is the shape `EventEnvelopeSchema` rejects —
-    // so a scenario that plays a beat no daemon emits cannot be delivered as though
-    // one did, and `tests/helpers/scenario-contract-check/contract-check.ts` reports it by name before it ships.
+    // The composer substitutes nothing: a kind outside the census has no category, so a beat
+    // no daemon emits is not delivered as though one did, and
+    // `tests/helpers/scenario-contract-check/contract-check.ts` reports it before it ships.
     const composed = composeScenarioEventEnvelope(authoredBeat({ kind: "run.started" }));
 
     expect(composed).not.toHaveProperty("category");

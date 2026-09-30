@@ -1,19 +1,13 @@
-// The console's daemon call set: which methods the console calls, and nothing about
-// their shapes.
-//
-// The declaration half of the reply registry beside it. Each method's request and
-// reply types come from the daemon's method map in `@ai-sidekicks/contracts`
-// (`DaemonParams`, `DaemonResult`), and its schemas from that method's descriptor,
-// which `daemon-reply-registry.ts` looks up. This file holds only the names, so a
-// method's shape is stated once, by the contract that owns it.
+// The daemon methods the console calls, by name only. Request and reply types come from the
+// daemon's method map in `@ai-sidekicks/contracts` and the schemas from each method's descriptor
+// (see `daemon-reply-registry.ts`), so a method's shape is stated once, by the contract.
 
 /**
  * Every daemon method the console calls, closed.
  *
- * Each entry must be a query or mutation the daemon's method map names: the reply
- * registry types every entry with `DaemonParams` and `DaemonResult`, which accept only
- * a `DaemonMethod`, so a misspelled method or a subscription is a compile error there.
- * Grouped by namespace: driver, timeline, session, presence and highlight.
+ * Each entry must be a query or mutation the daemon's method map names: the reply registry types
+ * entries with `DaemonParams` and `DaemonResult`, so a misspelled method or a subscription is a
+ * compile error there.
  */
 export const REGISTERED_DAEMON_METHODS = [
   "driver.interruptRun",

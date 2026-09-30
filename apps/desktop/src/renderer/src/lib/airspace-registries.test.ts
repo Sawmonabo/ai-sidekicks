@@ -10,8 +10,7 @@ describe("airspaceRegistryFor", () => {
   });
 
   it("gives a second document its own airspace", () => {
-    // An auxiliary window is its own renderer with its own overlays: a dialog open in
-    // one window must not make a view in another yield.
+    // A dialog open in one window must not make a view in another window yield.
     const other = document.implementation.createHTMLDocument("auxiliary");
     expect(airspaceRegistryFor(other)).not.toBe(airspaceRegistryFor(document));
   });

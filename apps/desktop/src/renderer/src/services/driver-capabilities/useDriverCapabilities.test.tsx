@@ -1,19 +1,9 @@
-// One capability read per bridge, however many views want the answer — and no
-// answer that stands for the life of the window.
-//
-// Two claims, and both are arithmetic on the wire rather than anything on screen.
-// Two features gate controls on `driver.listCapabilities`, and a read of their own
-// each would put two calls on the wire for one answer in a session view holding
-// both. And a latched read would let a transient first-read refusal hide Steer,
-// Rewind, and the compaction control for as long as the window stayed open. The
-// counting is done against a bridge that records every call, on a frozen clock so the
-// scheduler's coalescing window is advanced explicitly and no case depends on how fast
-// the runner happens to be.
-//
-// The negative controls are a second bridge — which must read again, because the
-// cache is keyed by the bridge and a global "read once ever" would serve a second
-// window the first window's answer — and a refresh reason nobody gave, which must
-// put nothing on the wire.
+// One capability read per bridge however many views want it, and no answer that stands for the
+// window's life. Two features gate controls on `driver.listCapabilities`, so separate reads would
+// double the calls, and a latched read would let one transient refusal hide Steer, Rewind and the
+// compaction control. Calls are counted on a bridge that records them, on a frozen clock advanced
+// explicitly. The negative controls are a second bridge, which must read again because the cache
+// is keyed by bridge, and a refresh reason nobody gave, which must put nothing on the wire.
 
 import { describe, expect, it } from "vitest";
 import { act, render } from "@testing-library/react";
@@ -126,9 +116,8 @@ describe("useDriverCapabilities — one read, every consumer", () => {
       });
     });
 
-    // The late consumer is served the settled answer straight away rather than an
-    // absence, and its own `subscribe` reason is coalesced into one further read
-    // rather than one per consumer.
+    // The late consumer gets the settled answer at once, and its `subscribe` reason coalesces into
+    // one further read rather than one per consumer.
     expect(declaredFlagsForDriver(readoutsByLabel.get("second"), "claude")?.steer).toBe(true);
     await settleScheduledRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(2);
@@ -152,8 +141,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
     });
     await settleScheduledRead(counted.clock);
 
-    // The gating stays fail-closed — no driver declares anything — and the reason is
-    // on the reading rather than swallowed, so a view can say why its controls went.
+    // Gating stays fail-closed and the reason is on the reading so a view can say why.
     expect(declaredFlagsForDriver(readout, "claude")).toBeUndefined();
     expect(settledRefusalOf(readout).code).toBe("reply-unreadable");
     // One ask for the two consumers that were mounted, not one each.
@@ -185,8 +173,7 @@ describe("useDriverCapabilities — a read that failed says so", () => {
   });
 
   it("negative control: a reply naming no driver is answered, not refused", async () => {
-    // An empty declaration set is a fact about the node. Reporting it as a failure
-    // would put a refusal on screen for a session that is working exactly as it is.
+    // An empty declaration set is a fact about the node, not a failure to put on screen.
     const counted = answeringCapabilityReads({ drivers: [] });
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
@@ -207,10 +194,8 @@ describe("useDriverCapabilities — a read that failed says so", () => {
   });
 });
 
-// No settlement is terminal for a bridge. A read that failed once, and a report that
-// was true when it landed, both have to be re-askable — otherwise a transient refusal
-// hides three controls for the life of the window and a driver installed after the
-// first read is never seen.
+// No settlement is terminal for a bridge: a refused read and a stale report must both be
+// re-askable, or a transient refusal hides three controls and a later-installed driver is missed.
 describe("useDriverCapabilities — a settlement is never terminal", () => {
   /** One consumer bound to a session, so the repair reason is wired as a pane wires it. */
   function RepairingProbe(props: {
@@ -229,8 +214,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
   }
 
   it("re-reads on window focus, so a refused first read stops hiding the controls", async () => {
-    // The first read is refused and the second answers, which is the transient this
-    // is about: a daemon that was not ready when the window opened.
+    // The first read is refused and the second answers: a daemon not ready when the window opened.
     const counted = answeringCapabilityReads(
       { drivers: [{ driverName: "claude" }] },
       { drivers: [reportFor("claude", ["steer", "rollback"])] },
@@ -285,8 +269,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     act(() => {
       sessionStore.markDegraded("subscription-closed");
     });
-    // Losing the stream is not the moment: the read would go to a wire that is not
-    // answering. The repair is.
+    // Losing the stream is not the moment, since the wire is not answering; the repair is.
     await settleScheduledRead(counted.clock);
     expect(capabilityCallCount(counted)).toBe(1);
 
@@ -296,15 +279,13 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
     await settleScheduledRead(counted.clock);
 
     expect(capabilityCallCount(counted)).toBe(2);
-    // A driver installed while the daemon was away is now declared, which the latch
-    // could never have seen.
+    // A driver installed while the daemon was away is now declared.
     expect(declaredFlagsForDriver(readout, "claude")?.rollback).toBe(true);
   });
 
   it("keeps the settled reading on screen while the refresh is in flight", async () => {
-    // The not-loaded state is entered once and never re-entered on a refresh: a
-    // control that vanished and came back on every window focus would be a worse
-    // reading than a slightly stale one.
+    // The not-loaded state is entered once and never re-entered on a refresh, so controls do not
+    // vanish on every window focus.
     const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });
     let readout: DriverCapabilityReadout | undefined = neverRead();
     await act(async () => {
@@ -327,8 +308,7 @@ describe("useDriverCapabilities — a settlement is never terminal", () => {
   });
 
   it("negative control: nothing re-reads without a reason", async () => {
-    // Without this, a cache that had simply started polling would pass every case
-    // above. Time passes, no reason is given, and the wire stays quiet.
+    // Without this, a cache that had started polling would pass every case above.
     const counted = answeringCapabilityReads({ drivers: [reportFor("claude", ["steer"])] });
     await act(async () => {
       render(<CapabilityProbe bridge={counted.bridge} onReadout={() => undefined} />, {

@@ -1,35 +1,14 @@
-// Frame state that outlives the route, and the banner key that keeps two producers
-// apart.
+// Frame state that outlives the route:
 //
-// Both claims are about the same thing: a store field that exists because reading
-// the route was not enough.
-//
-//   • **The retained session.** `activeSessionId` answers "which session does the
-//     route name", and every consumer that wanted "which session is this window in"
-//     asked it instead — so opening a session and then going to Settings made a
-//     session that was still open unreachable. The two answers are kept apart here
-//     rather than reconciled at each caller, and the control below is the one that
-//     matters: the route projection must NOT go sticky, because `AppRouter`
-//     renders "this session is opening" off exactly that projection.
-//   • **The banner key.** A refusal keyed on its code alone was unambiguous while
-//     one producer raised banners. It stopped being unambiguous when a second one
-//     did, and two subsystems sharing a code word would have overwritten each
-//     other's sentence.
-//   • **The modal-dialog cell.** The frame inerts its background for a modal
-//     overlay's lifetime, and it can only ask itself about the palette: the frame
-//     imports no feature, so a card a feature renders is one it cannot name at all.
-//     So the card takes a CLAIM here and the frame reads the one
-//     cell that register derives — which makes what the cell PUBLISHES the whole
-//     contract, and the control below is the one that matters: an unchanged write
-//     must publish nothing, because the writer is an effect that re-runs on inputs
-//     the cell does not depend on. Whose claim is whose is
-//     `modal-dialog-claims.test.ts`; what reaches the readable is here.
-//   • **The focus seed.** `isWindowFocused` was `true` at construction and moved only
-//     on a transition, so a window that opened without focus received no `blur` to
-//     correct it and claimed an audience it never had. It is read from the document
-//     now, and the cases below drive both readings the store conjoins — the last of
-//     them is the negative control, since a seed that answered `false` everywhere
-//     would satisfy the first two and be just as wrong.
+//   - The retained session. The route projection must not go sticky, because `AppRouter` renders
+//     "this session is opening" from it.
+//   - The banner key. Origin plus code keeps two subsystems that share a code from overwriting
+//     each other.
+//   - The modal-dialog cell. An unchanged write must publish nothing, since the writer is an
+//     effect that re-runs on inputs the cell does not depend on. Claim ownership is tested in
+//     `modal-dialog-claims.test.ts`.
+//   - The focus seed. It is read from the document, because a window opened without focus never
+//     receives the `blur` that would correct an assumed `true`; the last case is the control.
 
 import { describe, expect, it } from "vitest";
 
@@ -68,8 +47,7 @@ describe("WindowStore — the session a window has in hand outlives the route", 
   });
 
   it("survives a hash adoption that names no session", () => {
-    // The second writer. A rule enforced on one of the two route paths is a rule
-    // the other one silently opts out of.
+    // The second route writer; a rule enforced on only one path is one the other opts out of.
     const store = new WindowStore();
 
     store.adoptHash(SESSION_ROUTE_HASH);
@@ -88,9 +66,8 @@ describe("WindowStore — the session a window has in hand outlives the route", 
   });
 
   it("control: the route projection does NOT go sticky", () => {
-    // `AppRouter` renders "this session is opening" whenever the projection
-    // names a session and its store is absent. A projection that retained the
-    // session would put that message over Settings for as long as the window lived.
+    // `AppRouter` renders "this session is opening" while the projection names a session with no
+    // store, so a sticky projection would show it over Settings for the window's life.
     const store = new WindowStore();
 
     store.navigate({ kind: "session", sessionId: "session-alpha" });
@@ -108,9 +85,8 @@ describe("WindowStore — a feature's modal dialog publishes whether it is up", 
   });
 
   it("publishes the open dialog and clears it again, through the readable", () => {
-    // Read through `readable` rather than through `getState`, because that is the
-    // face the frame actually holds: a cell the class could set and the read-only
-    // face never reported would leave the background reachable with the card up.
+    // Read through `readable`, the face the frame holds: a cell the read-only face never
+    // reported would leave the background reachable with the card up.
     const store = new WindowStore();
     const published: boolean[] = [];
     const unsubscribe = store.readable.subscribe((state) => {
@@ -128,11 +104,9 @@ describe("WindowStore — a feature's modal dialog publishes whether it is up", 
   });
 
   it("control: an unchanged write publishes nothing", () => {
-    // The publisher is an effect keyed on the card's open flag AND on the store, so
-    // it re-runs whenever the window hands it a new one — and the register speaks on
-    // every move it makes, which for a card closing while another is still up is the
-    // same `true` again. Without the guard each of those would re-render the rail,
-    // the banner stack, and the whole screen for a fact that did not move.
+    // The publisher re-runs whenever the window hands it a new store, and the register repeats
+    // `true` when a card closes under another. Without the guard each would re-render the rail,
+    // banners and screen for a fact that did not move.
     const store = new WindowStore();
     let publishCount = 0;
     const unsubscribe = store.readable.subscribe(() => {
@@ -146,8 +120,8 @@ describe("WindowStore — a feature's modal dialog publishes whether it is up", 
     store.modalDialogClaims.hold("the-onboarding-walkthrough");
     expect(publishCount).toBe(1);
 
-    // The register republishes `true` here, and the cell must absorb it: the sign-in
-    // card is still up, so nothing the frame renders has moved.
+    // The register republishes `true` here and the cell must absorb it: the sign-in card is
+    // still up.
     store.modalDialogClaims.release("the-onboarding-walkthrough");
     expect(publishCount).toBe(1);
 
@@ -167,8 +141,7 @@ describe("WindowStore — a refusal banner is keyed by its author and its code",
   });
 
   it("keeps two subsystems' banners apart when they share a code word", () => {
-    // The defect the key exists to prevent: one producer's refusal silently
-    // overwriting another's because both happened to say `unavailable`.
+    // One producer's refusal must not overwrite another's because both said `unavailable`.
     const store = new WindowStore();
 
     store.raiseRefusalBanner(refuse("persistence", "unavailable", "storage is gone"));
@@ -224,17 +197,16 @@ describe("WindowStore — a refusal banner is keyed by its author and its code",
 
 describe("WindowStore — window focus is seeded from the window's own document", () => {
   it("opens unfocused where the document does not hold the keyboard", () => {
-    // The defect: seeded `true`, this window never received a `blur` — it was never
-    // focused to lose it — so every consumer read an audience that was not there.
+    // Seeded `true`, this window never received a `blur` (it was never focused), so consumers
+    // read an audience that was not there.
     const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new WindowStore());
 
     expect(store.getState().isWindowFocused).toBe(false);
   });
 
   it("opens unfocused where the document is not on screen at all", () => {
-    // The second reading, and it is not the first one twice: a minimized window that
-    // had focus when it went down reports hidden, and a main process that creates a window
-    // without showing it reports hidden before anything is ever focused.
+    // Not the first reading twice: a minimized window that had focus reports hidden, and so does
+    // a window main creates without showing before anything is focused.
     const store = underDocumentFocus(HIDDEN_DOCUMENT, () => new WindowStore());
 
     expect(store.getState().isWindowFocused).toBe(false);
@@ -247,9 +219,8 @@ describe("WindowStore — window focus is seeded from the window's own document"
   });
 
   it("reads the document once, at construction, and not on every read", () => {
-    // What makes this a SEED rather than a subscription: the frame's focus and blur
-    // listeners are what move the cell afterwards, and a store that re-read the
-    // document on every access would be a second answer free to disagree with them.
+    // A seed, not a subscription: the focus and blur listeners move the cell afterwards, and a
+    // store that re-read the document on every access could disagree with them.
     const store = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new WindowStore());
 
     store.setWindowFocused(true);
@@ -258,8 +229,8 @@ describe("WindowStore — window focus is seeded from the window's own document"
   });
 
   it("gives two windows built under different documents different answers", () => {
-    // An auxiliary window shares no store with the main one, and each one's
-    // document is the only thing that says whether anybody is looking at IT.
+    // An auxiliary window shares no store with the main one, and only its own document says
+    // whether anybody is looking at it.
     const background = underDocumentFocus(UNFOCUSED_DOCUMENT, () => new WindowStore());
     const foreground = underDocumentFocus(FOCUSED_DOCUMENT, () => new WindowStore());
 

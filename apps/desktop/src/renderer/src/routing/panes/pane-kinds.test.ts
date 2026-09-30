@@ -1,11 +1,5 @@
-// The pane-kind set is closed, and its order is the one `registeredPaneKinds()` answers in:
-// `transcript`, `inspector`, `diff`, `workflow-run`, `workflow-builder`, `browser`,
-// `terminal` and `agents`.
-//
-// The list below is compared to `PANE_KINDS` by `toStrictEqual`, which is an ORDERED
-// comparison — a reorder fails here, and a reorder is not cosmetic:
-// `registeredPaneKinds()` answers in declaration order and the gallery renders in it.
-// Adding or dropping a kind is a change to both lists, made on purpose.
+// The declared list is compared to `PANE_KINDS` in order: `registeredPaneKinds()` answers in
+// declaration order, so a reorder is a real change, and adding or dropping a kind edits both.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,9 +23,8 @@ describe("pane kinds — the closed set", () => {
   });
 
   it("declares each kind exactly once", () => {
-    // `toStrictEqual` above would pass over a set that repeated a member if the
-    // list repeated it too, and a repeat is what a merge of two
-    // concurrent additions produces.
+    // The list comparison above passes if both lists repeat a member, as a merge of two
+    // concurrent additions could produce.
     expect(new Set(PANE_KINDS).size).toBe(PANE_KINDS.length);
   });
 });
@@ -44,9 +37,8 @@ describe("pane kinds — the guard layout restore drops against", () => {
   });
 
   it("negative control: refuses everything else, including near misses", () => {
-    // Without this the case above would pass over an `isPaneKind` that answered
-    // `true` for every string — which is exactly the shape a `typeof value ===
-    // "string"` check degenerates into if the membership test is dropped.
+    // Without it the case above passes for an `isPaneKind` that answers `true` for every
+    // string, which is what remains if the membership test is dropped.
     const refused: readonly unknown[] = [
       "Transcript",
       "workflow_run",
@@ -66,10 +58,8 @@ describe("pane kinds — the guard layout restore drops against", () => {
   });
 
   it("narrows to the union rather than merely answering a boolean", () => {
-    // The guard's whole job is the narrowing; a predicate typed `boolean` would
-    // pass every case above and still leave a layout reader casting. Reading the
-    // narrowed value into a `PaneKind` is the assertion, and it is a compile-time
-    // one that this line makes runnable.
+    // A predicate typed `boolean` would pass every case above and still leave a layout
+    // reader casting; assigning the narrowed value to a `PaneKind` is the compile-time check.
     const fromSnapshot: unknown = "terminal";
     expect(isPaneKind(fromSnapshot)).toBe(true);
     if (!isPaneKind(fromSnapshot)) {

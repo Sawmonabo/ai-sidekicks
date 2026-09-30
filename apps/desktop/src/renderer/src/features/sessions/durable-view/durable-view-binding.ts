@@ -1,60 +1,29 @@
-// Which durable store a view is reading from, and what happens to the one it
-// replaces.
+// Which `UiStateStore` a durable binding is attached to, and what becomes of one whose store
+// was replaced. `durable-view-state.ts` decides what a durable value is; this module owns
+// the React lifetime.
 //
-// `durable-view-state.ts` beside it decides what a durable view value IS and what a
-// refused write means. This module answers the other question: which `UiStateStore`
-// a binding is attached to, and what becomes of a binding whose store has been
-// replaced. They are two jobs — a state machine and a React lifetime — reviewed
-// against different failures, which is the split `settings/pages/` already makes
-// between its preference store and its holder.
+// The window's store is rebuilt when the bridge changes (`app/hooks/useUiStateStore.ts` closes
+// the old one). A binding built in a `useState` initializer would stay attached to the closed
+// store: stale pins on screen, writes to a database nothing reads, the new store never
+// hydrated. So a binding is keyed on the store's identity: the same store hands its binding
+// back, a different one disposes it and mints a successor.
 //
-// THE DEFECT THIS EXISTS FOR
+// The holder lives at module scope, which is window scope (an auxiliary window is its own
+// renderer process). Per component, leaving and returning to the sessions destination would
+// mint a second `SessionPinStore` over the one `UiStateStore`: two writers of one record, and
+// the auto-pin authority read at a first send would use the older copy. This is one holder
+// per binding kind per window, as `machineSettingsHolder` is.
 //
-// `frame/bindings/ui-state-lifecycle.ts` REPLACES this window's store: its effect closes the
-// store it held and the next pass mints a fresh one, which is how a bridge or
-// scenario change reaches storage. Both durable bindings on the sessions
-// destination were built by a `useState` initializer — which runs once per mounted
-// component and is never recomputed — so a replacement left them attached to the
-// closed store for the rest of the mount. Three consequences, all silent: the pin
-// map from the previous scenario stayed on screen, every later write went to a
-// database nothing reads, and the new store was never hydrated.
-//
-// So the binding is keyed on the STORE's identity. A store that is still the one a
-// binding was minted for hands that binding back; a different one disposes the
-// binding before it and mints a successor.
-//
-// AND THE HOLDER'S OWN LIFETIME IS THE WINDOW'S. A holder minted by a `useState`
-// initializer would belong to the COMPONENT that called this hook: leaving the
-// sessions destination and coming back would mint a second holder, which would mint a
-// second `SessionPinStore` over the one `UiStateStore` this window is on — two writers
-// of one durable record, each holding its own in-memory copy of it. Nothing on screen
-// would show it, because the mounted view always reads the newest of the two; what
-// reads the older one is the auto-pin authority stamped when a session was started,
-// which would answer a first send with a switch nobody was changing any more and
-// spread a pin map the durable record had moved past. So the holder is declared at
-// MODULE scope by the module that owns the binding — `machineSettingsHolder` in `features/settings/machine-settings/` is the
-// same shape for the same reason — and module scope is window scope here, since an
-// auxiliary window is its own renderer process and no channel joins two windows'
-// module graphs. One holder per binding kind per window, so a remount finds the
-// binding it left rather than a rival for it.
-//
-// READING AND ACQUIRING ARE TWO METHODS, and the split is what keeps this safe under
-// React: {@link DurableViewBindingHolder.bindingIfCurrent} is what a render body
-// calls and mutates nothing, {@link DurableViewBindingHolder.acquire} is what an
-// effect or an event handler calls and is the only place a binding is minted or
-// disposed. One method doing both would let a render React discards dispose the
-// binding the committed tree is subscribed to — the exact failure
-// `features/settings/machine-settings/machine-settings-holder.ts` records against its own first shape.
+// Reading and acquiring are separate methods. `bindingIfCurrent` mutates nothing and is what
+// a render body calls; `acquire` mints and disposes, and only an effect or an event handler
+// calls it, so a render React discards cannot dispose the committed tree's binding.
 
 import type { Unsubscribe } from "@renderer/lib/emitter.js";
 import type { UiStateStore } from "@renderer/store/persistence/ui-state-store.js";
 
 /**
- * What a durable binding must offer for a holder to own its lifetime.
- *
- * Three verbs and no value accessor: what a binding HOLDS is its own vocabulary —
- * a pin map, a hide set — and a holder that named one would be a base class for two
- * unrelated objects rather than the one thing they share.
+ * What a durable binding must offer for a holder to own its lifetime. There is no value
+ * accessor: what a binding holds (a pin map, a hide set) is its own vocabulary.
  */
 export interface DurableViewBinding {
   /** Read the durable record once. Idempotent, so a re-acquired binding asks once. */
@@ -67,28 +36,20 @@ export interface DurableViewBinding {
 /** What a view holds: the live binding while there is one, and the way to reach it. */
 export interface DurableViewBindingAccess<TBinding extends DurableViewBinding> {
   /**
-   * The binding this render may read, or `undefined` while the acquiring effect has
-   * not settled — the OPENING arm. A view renders its own initial value there,
-   * which is what a freshly minted binding holds anyway, so the arm costs a person
-   * nothing and never shows a disposed binding's contents.
+   * The binding this render may read, or `undefined` while the acquiring effect has not
+   * settled. A view renders its own initial value then, which is what a fresh binding holds.
    */
   readonly binding: TBinding | undefined;
   /**
-   * The binding an event handler writes through.
-   *
-   * Acquires rather than reads: a press must move a binding rather than be swallowed
-   * by the frame before the effect ran, and a press cannot outrun a passive effect,
-   * so the handler settles on the same binding that effect acquires.
+   * The binding an event handler writes through. Acquires rather than reads, because a press
+   * cannot outrun a passive effect and must settle on the binding that effect acquires.
    */
   readonly acquire: () => TBinding;
 }
 
 /**
- * Which binding is live for which store, and the one disposal there is.
- *
- * A class with private fields rather than a pair of refs, per `apps/desktop/AGENTS.md`:
- * the rule below is an invariant over two fields moving together, and an invariant is
- * only checkable when the state has one owner.
+ * Which binding is live for which store, and the one disposal there is. A class with private
+ * fields, because the rule below is an invariant over two fields moving together.
  */
 export class DurableViewBindingHolder<TBinding extends DurableViewBinding> {
   readonly #mint: (store: UiStateStore) => TBinding;
@@ -100,33 +61,25 @@ export class DurableViewBindingHolder<TBinding extends DurableViewBinding> {
   }
 
   /**
-   * The live binding for `store`, or `undefined` when this holder is on another
-   * store or has not been asked for one yet.
-   *
-   * PURE — a field read and a comparison — because this is the call a render body
-   * makes, and a render body may run for a pass React discards.
+   * The live binding for `store`, or `undefined` when this holder is on another store or has
+   * not been asked yet. Pure, because a render body calls it and may run for a discarded pass.
    */
   public bindingIfCurrent(store: UiStateStore): TBinding | undefined {
     return this.#store === store ? this.#binding : undefined;
   }
 
   /**
-   * The binding for this store, minting one on first ask and on a store change.
-   *
-   * MUTATES, so it is reached from an effect or from an event handler and never from
-   * a render body. Idempotent for one store, which is what lets strict mode invoke
-   * the acquiring effect twice without the second invocation superseding what the
-   * first one minted — and what lets an event handler that fires before the effect
-   * has settled write into the binding that effect is about to install.
+   * The binding for this store, minting one on first ask and on a store change. Mutates, so
+   * only effects and event handlers call it. Idempotent for one store, so strict mode's second
+   * effect run does not supersede the first's binding.
    */
   public acquire(store: UiStateStore): TBinding {
     const held = this.bindingIfCurrent(store);
     if (held !== undefined) {
       return held;
     }
-    // The only disposal there is: the binding a DIFFERENT store supersedes. A
-    // component unmounting disposes nothing, because a remount over the same store
-    // must find the value it left rather than re-read a record it already holds.
+    // Only a different store supersedes: an unmounting component disposes nothing, so a
+    // remount over the same store finds the value it left.
     this.#binding?.dispose();
     const minted = this.#mint(store);
     this.#store = store;

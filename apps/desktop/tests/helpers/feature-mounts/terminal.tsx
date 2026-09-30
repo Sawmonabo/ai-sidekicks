@@ -1,8 +1,5 @@
-// The terminal pane, mounted once for the screenshot and accessibility tiers.
-//
-// The body comes out of a pane registry the terminal feature registers into, and the
-// store is fed the terminal-lease scenario's beats verbatim, so the lease reading on
-// screen is the fixture's rather than this file's.
+// The terminal pane mounted for the screenshot and accessibility tiers, with its store fed the
+// terminal-lease scenario's beats so the lease reading is the fixture's.
 
 import { waitFor } from "@testing-library/react";
 import type { FunctionComponent } from "react";
@@ -20,18 +17,15 @@ import { paneBinding, resolvedPaneBody } from "./pane-body-resolution.js";
 import { COMPOSED_ENTITY_PROJECTORS } from "./projector-composition.js";
 
 /**
- * How long the emulator's chunk may take to arrive.
- *
- * Above Testing Library's one-second default because the first mount in a file pays for
- * the whole `@xterm/xterm` chunk, compiled on demand by the dev server, while every later
- * one reads the loader's memo.
+ * How long the emulator's chunk may take to arrive. Above Testing Library's default because the
+ * first mount in a file pays for the whole `@xterm/xterm` chunk, compiled on demand by the dev
+ * server.
  */
 const EMULATOR_CHUNK_TIMEOUT_MS = 20_000;
 
 /**
- * A store holding every beat the terminal-lease scenario scripts, opened from the
- * scenario's own base state and with the fold a window composes: a store built without
- * projectors folds the scenario's `run.*` beats into no entity at all.
+ * A store holding every beat of the terminal-lease scenario, with the fold a window composes;
+ * without projectors the scenario's `run.*` beats fold into no entity.
  */
 function terminalSessionStore(): SessionStore {
   const store = new SessionStore({
@@ -48,10 +42,8 @@ function terminalSessionStore(): SessionStore {
 }
 
 /**
- * The terminal pane, mounted and waited on until the emulator's chunk has landed.
- *
- * The emulator is reached across an `import()`, so a tier that read the tree straight
- * after the mount would be looking at the not-loaded absence rather than at the grid.
+ * The terminal pane, mounted and waited on until the emulator's chunk has landed. The emulator
+ * loads through `import()`, so an early read would see the not-loaded absence, not the grid.
  */
 export async function mountTerminalPane(): Promise<MountedView> {
   const { bridge } = createFixtureBridge({ scenario: TERMINAL_LEASE_SCENARIO });
@@ -73,8 +65,8 @@ export async function mountTerminalPane(): Promise<MountedView> {
     container,
     paneTrailName(TERMINAL_LEASE_SCENARIO.sessionId, "Terminal"),
   );
-  // Not inside `act`: the chunk resolves in a promise React knows nothing about, and an
-  // `act` scope holds the resulting commit back until it exits.
+  // Outside `act`: the chunk resolves in a promise React cannot see, and `act` would hold the
+  // resulting commit back until it exits.
   await waitFor(
     () => {
       if (region.querySelector(".meridian-terminal-mount-point__mount-element") === null) {

@@ -1,16 +1,9 @@
-// What a reader may do with a round it did not start.
+// What a reader may do with a round it did not start (`currentClaim`): read whether the round is
+// live and settle against it, and nothing else. After a joiner finishes, the write that took the
+// key still holds it.
 //
-// `currentClaim` is the third way into one register, and the only one whose caller
-// did not take the key it is asking about. Single flight is the property this object
-// exists to supply, so what that caller may do is exactly two things — read whether
-// the round is still live, and settle against it — and the register is what proves
-// the third is absent: after a joiner is finished, the write that took the key is
-// still holding it.
-//
-// The one round a joiner DOES own is the one it minted on a free key, and its bound
-// is asserted rather than argued: a reader that treated the handle as read-only would
-// otherwise hold that key for the life of the subject and refuse every later act on
-// it, which every correctness case here would still pass.
+// The one round a joiner owns is the one it minted on a free key; its bound is asserted, since a
+// handle treated as read-only would hold the key for the life of the subject.
 
 import { describe, expect, it } from "vitest";
 
@@ -19,8 +12,8 @@ import { SUBJECT_ONE } from "@test/helpers/subject-fixtures.js";
 
 describe("GenerationLatch — currentClaim, for the reader that joins the round", () => {
   it("joins the live round rather than superseding it", () => {
-    // Both handles name one round: the claim that took the key is still current, and
-    // the joined handle settles through it.
+    // Both handles name one round: the claim that took the key is current, and the joined handle
+    // settles through it.
     const latch = new GenerationLatch();
     const started = latch.claim(SUBJECT_ONE, "preferences");
     const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
@@ -41,8 +34,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
   });
 
   it("negative control: superseding one key leaves a round joined on another alone", () => {
-    // Without this, "goes stale" above would be satisfied by a handle that reported
-    // itself stale from the moment it was minted.
+    // Guards against "goes stale" being satisfied by a handle stale from the start.
     const latch = new GenerationLatch();
     latch.claim(SUBJECT_ONE, "preferences");
     const elsewhere = latch.currentClaim(SUBJECT_ONE, "appearance");
@@ -69,11 +61,9 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
   });
 
   it("hands a joiner no way to give back a key it did not take", () => {
-    // The type IS the guard, and the control is structural: on a handle that carries
-    // `release`, the suppression below is unused and the typecheck fails on TS2578
-    // rather than passing quietly. `release()` in the `finally`-shaped position the
-    // claim interface invites would delete the key out from under the write still in
-    // flight, and the next press would dispatch a duplicate.
+    // The type is the guard, and the control is structural: on a handle that carries `release`,
+    // the suppression below is unused and the typecheck fails on TS2578. A `release()` in a
+    // `finally` would delete the key from under the write in flight.
     const latch = new GenerationLatch();
     latch.claim(SUBJECT_ONE, "preferences");
     const joined = latch.currentClaim(SUBJECT_ONE, "preferences");
@@ -89,16 +79,15 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
     expect(joined.settle(() => undefined)).toBe(true);
     expect(write?.isCurrent).toBe(true);
     expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
-    // Negative control: the taker's own release does free it, so the claim above is
-    // about WHO may give the key back rather than about a key nothing can free.
+    // Control: the taker's own release does free it, so the claim above is about who may give the
+    // key back.
     write?.release();
     expect(latch.claim(SUBJECT_ONE, "preferences")).toBeDefined();
   });
 
   it("ends a round it minted on a free key when that round settles", () => {
-    // Nobody else took this key, so nobody else can give it back. A reader treating
-    // the handle as read-only would otherwise hold it for the life of the subject and
-    // refuse every later act on it.
+    // Nobody else took this key, so nobody else can give it back; a read-only handle would hold it
+    // for the life of the subject.
     const latch = new GenerationLatch();
     const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
     expect(latch.claim(SUBJECT_ONE, "preferences")).toBeUndefined();
@@ -119,8 +108,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
   });
 
   it("never lets a minted round free the key a later act holds", () => {
-    // The same rule the taken claims obey: a release is guarded on being current, so
-    // a superseded round's settlement gives nothing back.
+    // A release is guarded on being current, so a superseded round's settlement gives nothing back.
     const latch = new GenerationLatch();
     const minted = latch.currentClaim(SUBJECT_ONE, "preferences");
     const successor = latch.supersedeAndClaim(SUBJECT_ONE, "preferences");
@@ -138,9 +126,7 @@ describe("GenerationLatch — currentClaim, for the reader that joins the round"
   });
 
   it("negative control: minted rounds that never settle do accumulate", () => {
-    // Without this, the bound above would also be satisfied by a `currentClaim` that
-    // took no key at all — which is the other way to make the count zero, and the one
-    // that would put two writes in flight on one key.
+    // Guards against a `currentClaim` that took no key at all, which also makes the count zero.
     const latch = new GenerationLatch();
     for (let read = 0; read < 1000; read += 1) {
       latch.currentClaim(SUBJECT_ONE, `read-${String(read)}`);

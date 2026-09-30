@@ -1,18 +1,9 @@
 // The unified patch text a fixture shape is generated as, before anything parses it.
 //
-// SPLIT FROM `diff-fixture.test-support.ts` ON THE SEAM BETWEEN A SHAPE AND ITS BYTES. That module
-// declares the shapes, holds the named fixtures, and turns a parsed patch into a
-// `DiffModel` — the two things a patch cannot carry included. This one writes
-// the patch: hunk headers with the line numbers the format produces, the extended
-// headers a rename and a mode change carry, and the `\ No newline at end of file`
-// marker. Two subjects, and the file that held both was doing two jobs, which
-// `apps/desktop/AGENTS.md` rejects.
-//
-// IT GENERATES A PATCH RATHER THAN A MODEL, and that is the whole reason this text
-// exists: `diff` 9.0.0 is adopted for parse and intraline compute, and a fixture that
-// hand-built hunk headers, line numbers, and word-level
-// segments would be a second implementation of exactly that — one the tiers would then
-// be measuring INSTEAD of the parser a wire will call.
+// It writes hunk headers with the line numbers the format produces, the extended headers a rename
+// and a mode change carry, and the `\ No newline at end of file` marker; shapes and the model are
+// `diff-fixture-shapes.ts` and `diff-fixture.ts`. It generates a patch rather than a model so the
+// tiers measure the parser a wire will call, not a second implementation of it.
 
 import {
   EXTENDED_HEADER_FIXTURE_FILES,
@@ -24,11 +15,8 @@ import type { DiffLineKind } from "@renderer/features/repos/diff/diff-model.js";
 /**
  * The kinds a generated hunk cycles through, so every row branch is reached.
  *
- * Deletion BEFORE insertion, which is not cosmetic: a unified patch expresses a
- * modified line as a delete run immediately followed by an insert run, and that
- * adjacency is what `patch-parse.ts` pairs to compute the intraline segments. A
- * cycle that emitted the insertion first would generate a patch no producer writes
- * and would silently drop every word-level highlight from the fixture.
+ * Deletion comes before insertion: a unified patch writes a modified line as a delete run followed
+ * by an insert run, and `patch-parse.ts` pairs that adjacency to compute intraline segments.
  */
 const LINE_KIND_CYCLE = ["context", "delete", "insert"] as const;
 
@@ -37,9 +25,8 @@ export function buildPatchText(shape: DiffFixtureShape): string {
   const patches: string[] = [];
   for (let fileOrdinal = 0; fileOrdinal < shape.fileCount; fileOrdinal += 1) {
     const path = fixtureFilePath(fileOrdinal);
-    // No `a/` and `b/` prefixes and no `diff --git` line: this is a plain unified
-    // patch, so the path the parser reports is the path written here, with nothing
-    // to strip and no chance of a re-rooted file reaching a view.
+    // A plain unified patch: no `a/` and `b/` prefixes and no `diff --git` line, so the parser
+    // reports the path as written.
     const lines: string[] = [`--- ${path}`, `+++ ${path}`];
     for (let hunkOrdinal = 0; hunkOrdinal < shape.hunksPerFile; hunkOrdinal += 1) {
       const start = hunkOrdinal * 40 + 1;
@@ -53,9 +40,8 @@ export function buildPatchText(shape: DiffFixtureShape): string {
     }
     patches.push(lines.join("\n"));
   }
-  // BEFORE the header files, which is not arrangement: the binary file's patch is the
-  // one whose body a parser reads by looking at what follows it, and a plain unified
-  // patch appended after it is read as part of that file rather than as its own.
+  // Before the header files: a plain unified patch appended after the binary file's patch would
+  // be read as part of that file.
   if (shape.terminalNewlineFile) {
     patches.push(terminalNewlinePatch());
   }
@@ -68,13 +54,8 @@ export function buildPatchText(shape: DiffFixtureShape): string {
 /**
  * One file that lost its terminating newline and changed nothing else.
  *
- * WRITTEN OUT RATHER THAN GENERATED, because the whole subject is one exact pair of
- * lines: the deletion and the insertion carry the SAME text, and the only thing that
- * tells them apart is the marker on the second. A generator parameterized over this
- * would have one call site and would hide the one property the case is about.
- *
- * The marker is on the inserted side alone, which is what removing a newline looks
- * like — a reader has to be able to see which side the file ends without one on.
+ * Written out rather than generated: the deletion and the insertion carry the same text, and only
+ * the marker on the inserted side, which is what removing a newline looks like, tells them apart.
  */
 function terminalNewlinePatch(): string {
   const { path, lastLine } = TERMINAL_NEWLINE_FIXTURE_FILE;
@@ -93,16 +74,10 @@ function terminalNewlinePatch(): string {
 /**
  * One file per extended-header kind, each changing nothing else, as git writes them.
  *
- * GIT-STYLE, WHICH THE REST OF THIS PATCH DELIBERATELY IS NOT. None of these changes
- * has any representation in a plain unified patch at all — `rename from`, `copy from`,
- * `old mode`, and the binary marker are git extended headers, read only under a
- * `diff --git` header — so each file carries one, with the `a/` and `b/` prefixes that
- * header requires. `parsePatch` reads `isGit` per file, so the plain files above keep
- * their paths verbatim and these are stripped, which is the mixture a real change set
- * produces too when only some of its files moved.
- *
- * No hunks anywhere below: the whole change is in the headers, which is the case a
- * view would draw as `+0 −0` under a bare path if it read only the hunks.
+ * These changes have no representation in a plain unified patch, so each file carries a
+ * `diff --git` header with the `a/` and `b/` prefixes it requires. `parsePatch` reads `isGit` per
+ * file, so the plain files keep their paths verbatim and these are stripped, as in a real change
+ * set. There are no hunks: a view that read only hunks would draw `+0 −0` under a bare path.
  */
 function extendedHeaderPatches(): readonly string[] {
   const { renamed, copied, modeChanged, binary } = EXTENDED_HEADER_FIXTURE_FILES;
@@ -163,9 +138,9 @@ const PATCH_PREFIX_BY_KIND: Readonly<Record<DiffLineKind, string>> = {
 /**
  * One generated line's text.
  *
- * The two changed kinds differ in exactly one identifier, which is what makes the
- * word diff over the pair produce the three-segment shape a renderer's intraline
- * case is written against — an unchanged head, one changed run, an unchanged tail.
+ * The two changed kinds differ in one identifier, so the word diff over the pair yields the
+ * unchanged head, one changed run and unchanged tail a renderer's intraline case is written
+ * against.
  */
 function fixtureLineText(kind: DiffLineKind, fileOrdinal: number, lineNumber: number): string {
   if (kind === "context") {

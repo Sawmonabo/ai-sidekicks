@@ -1,7 +1,4 @@
-// What a command line asking for a fixture launch is allowed to say.
-//
-// A launch the catalog cannot play is a startup error with no fallback, so each malformed
-// spelling below has to be refused rather than read leniently into some other launch, and
+// A malformed fixture launch is refused rather than read leniently into some other launch;
 // each refusal sits beside a well-formed launch that passes.
 
 import { describe, expect, it } from "vitest";

@@ -1,29 +1,9 @@
-// The figures the console passes straight through, and the locale property that
-// holds every formatter at once.
-//
-// The eight rules split every figure into two classes and fix what each may do, so the
-// failures worth testing for are not "wrong output" but "the wrong class was applied":
-//
-//   • a byte-for-byte string that got transformed — a trimmed id, a normalized
-//     digest — which still renders and is no longer what the daemon said;
-//   • a quantity formatted by hand rather than through `Intl`, which reads fine on
-//     the author's machine and renders `1.5` to an operator whose locale writes
-//     `1,5`.
-//
-// The three formatters here are the ones that add nothing of their own: a wire
-// string comes back the very string it went in as, and a count and a rate are what
-// `Intl` makes of the number with a caller-supplied unit. Each clean result carries
-// the control that would catch it — a "tidying" identity function is caught by
-// asserting the output is NOT what the tidy version would have produced, and a
-// locale-blind implementation is caught by the property this file closes on, which
-// formats the same value twice in two locales and requires the two to differ. That
-// property lives here rather than beside any one formatter because it ranges over
-// all six.
-//
-// The formatters that decide something `Intl` does not have their own files: the
-// four time readings, where the UNIT changes rather than the number growing, in
-// `wire-figures.time.test.ts`; and the two figures whose unit and precision the
-// console picks itself, in `wire-figures.units.test.ts`.
+// The pass-through figures, and the locale property that holds every formatter at once. The
+// failures worth testing are the wrong class applied: a wire string that got transformed (a
+// trimmed id, a normalized digest), or a quantity formatted by hand instead of through `Intl`
+// (`1.5` to a locale that writes `1,5`). Each case carries the control that catches it; the
+// closing property formats one value in two locales and requires them to differ. Time readings
+// are in `wire-figures.time.test.ts`, byte and money figures in `wire-figures.units.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -50,18 +30,15 @@ describe("formatWireString — a wire string is never transformed, not even help
   });
 
   it("does not trim, case-fold, or unicode-normalize", () => {
-    // The negative control: each of these is a transformation a well-meaning author
-    // might add, and each produces a DIFFERENT string from the one asserted above —
-    // so the identity assertion is not passing because both sides are the same
-    // tidy-up.
+    // Negative control: each is a tidy-up an author might add and each yields a different string,
+    // so the identity assertion is not passing because both sides are tidied.
     const padded = "  session.created  ";
     expect(formatWireString(padded)).not.toBe(padded.trim());
 
     const shouty = "RUN.FAILED";
     expect(formatWireString(shouty)).not.toBe(shouty.toLowerCase());
 
-    // "é" as e + combining acute. NFC would collapse it to one codepoint, which is
-    // a different byte sequence — and a digest or a path is bytes.
+    // "é" as e + combining acute; NFC would collapse it to a different byte sequence.
     const decomposed = "worktree/café";
     expect(formatWireString(decomposed)).toBe(decomposed);
     expect(formatWireString(decomposed)).not.toBe(decomposed.normalize("NFC"));
@@ -72,9 +49,7 @@ describe("formatWireString — a wire string is never transformed, not even help
 describe("formatCount — grouped, never abbreviated", () => {
   it("groups per locale and spells the number out in full", () => {
     expect(formatCount(1234567, "en-US")).toBe("1,234,567");
-    // The control: compact notation is the tempting alternative, and the eight rules
-    // admit it only where the exact figure is one hover away — which a bare count is
-    // not.
+    // Control: compact notation is the tempting alternative but hides the exact figure.
     expect(formatCount(1234567, "en-US")).not.toBe(
       new Intl.NumberFormat("en-US", { notation: "compact" }).format(1234567),
     );
@@ -87,10 +62,8 @@ describe("formatCount — grouped, never abbreviated", () => {
 });
 
 describe("every formatted quantity is rendered in the caller's locale", () => {
-  // One property over five formatters. A hand-rolled `toFixed` implementation, or one
-  // that dropped the `locale` parameter on the floor, renders identically in both
-  // columns — so requiring the two to differ IS the control, and it fails for exactly
-  // the defect the eight rules' `Intl` requirement exists to prevent.
+  // One property over five formatters: a hand-rolled `toFixed`, or one that dropped `locale`,
+  // renders identically in both columns, so requiring the two to differ is the control.
   const renderings: readonly (readonly [string, string, string])[] = [
     [
       "byte quantity",

@@ -1,23 +1,14 @@
-// What the destination says while this window is not following the daemon.
+// What the destination says while this window is not following the daemon: the list renders
+// from its last read, labeled as such, because a stale list a person can read beats an empty one.
 //
-// While the daemon is unreachable the list renders from its last read, labeled as
-// such: a stale list a person can read beats an empty one.
-//
-// WHERE THE FACT COMES FROM. `store/degradation.ts` is the console's one degradation
-// vocabulary and every open session store carries a cause from it. The destination
-// reads the fold over the open set, which `rows/open-session-rows.ts` performs
-// beside the projection it already subscribes to, so nothing here polls, counts, or
-// decides which of two standing causes wins.
+// The cause comes from `store/session-degradation.ts`, folded over the open stores by
+// `hooks/useOpenSessionProjection.ts`, so nothing here polls or picks between causes.
 
 import type { SessionDegradedCause } from "@renderer/store/session-degradation.js";
 
 /**
- * What one standing cause means for a person reading the list.
- *
- * Total over the closed five by construction, so a sixth cause fails to compile here
- * before it can reach a view that renders it namelessly. Each sentence names what
- * is WRONG rather than what the console did about it: a person deciding whether to
- * trust the list needs the fact, and "retrying" is not one.
+ * What one standing cause means for a person reading the list. Total over the causes, so a new
+ * one fails to compile here. Each sentence names what is wrong, not what the console did about it.
  */
 const DEGRADED_CAUSE_SENTENCES: Readonly<Record<SessionDegradedCause, string>> = {
   "stream-diverged": "this window could not follow the session stream",
@@ -37,12 +28,8 @@ export interface SessionListDegradation {
 const NOT_DEGRADED: SessionListDegradation = { lastReadSentence: undefined };
 
 /**
- * The sentence one standing cause produces, or none.
- *
- * A pure function of the cause rather than a hook, because there is no state here at
- * all: the fold that produces the cause is already a subscription, and a second hook
- * over its result would be a second place the destination could be told about a
- * degradation it is already holding.
+ * The sentence one standing cause produces, or none. Pure, since the fold that yields the cause
+ * is already a subscription.
  */
 export function sessionListDegradation(
   cause: SessionDegradedCause | undefined,

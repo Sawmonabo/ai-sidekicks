@@ -1,17 +1,8 @@
-// The rejected-load recovery ladder.
-//
-// A rejected `loadURL` used to log and return, leaving a live blank window with
-// no content and no reason. Every rung of the replacement is asserted here,
-// including the two that decide whether the PROCESS survives:
-//
-//   • the generated failure document, served in place of the blank window;
-//   • giving up when even that cannot be served — destroy, and for the main
-//     window exit non-zero rather than sit there as an invisible placeholder;
-//   • and the rung that must NOT give up: a window the user closed while its
-//     load was still failing. That is an ordinary quit, and treating it as an
-//     unservable renderer would call `app.exit` — which runs no `before-quit`
-//     and no `will-quit` handler, so the sidecar would never be drained and a
-//     normal close would report exit 5.
+// The rejected-load recovery ladder, including the two rungs that decide whether the process
+// survives: giving up when even the failure document cannot be served (destroy, and for the
+// main window exit non-zero), and the rung that must not give up, a window the user closed while
+// its load was failing. That is an ordinary quit, and `app.exit` would skip `before-quit` and
+// `will-quit`.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -30,7 +21,7 @@ async function loadWindowModule(): Promise<WindowModule> {
   return import("./window.js");
 }
 
-/** Both modules from ONE reset, so the exit code read is the one that was used. */
+/** Both modules from one reset, so the exit code read is the one that was used. */
 async function loadWindowAndFailureModules(): Promise<{
   windowModule: WindowModule;
   loadFailureModule: LoadFailureModule;
@@ -71,12 +62,9 @@ describe("a rejected document load", () => {
     expect(consoleError).toHaveBeenCalled();
   });
 
-  // A reason carrying an unpaired surrogate is the one input `encodeURIComponent`
-  // throws on. `buildLoadFailureUrl` bounds it away, and the recovery guards the
-  // call anyway; between them the ladder must still reach the document. Without
-  // either, the throw would land inside a `.catch` handler, become an unhandled
-  // rejection, and leave the window blank — the exact outcome this ladder exists
-  // to prevent.
+  // A reason with an unpaired surrogate is the one input `encodeURIComponent` throws on.
+  // `buildLoadFailureUrl` bounds it away and the recovery guards the call anyway; the ladder
+  // must still reach the document.
   it("still serves the document when the reason carries a lone surrogate", async () => {
     electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_\uD800_FAILED"));
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -106,9 +94,8 @@ describe("a rejected document load", () => {
     expect(consoleError.mock.calls.flat().join(" ")).toContain("no renderer document");
   });
 
-  // The ordinary case, and the one that must not reach `app.exit`. The window is
-  // destroyed synchronously after the factory returns — the user closing it —
-  // so the rejection handler runs against a window that is already gone.
+  // The ordinary case, which must not reach `app.exit`: the window is destroyed right after the
+  // factory returns, so the rejection handler runs against a window that is gone.
   describe("a window closed while its load was failing", () => {
     it("serves no document, and does not exit the process", async () => {
       electronMock.failLoadsContaining(INDEX_URL, new Error("ERR_ABORTED (-3)"));
@@ -117,24 +104,21 @@ describe("a rejected document load", () => {
       const { createMainWindow } = await loadWindowModule();
 
       const browserWindow = createMainWindow();
-      // Synchronous: `loadURL`'s rejection is delivered on a later microtask, so
-      // the window is already destroyed by the time the recovery runs.
+      // Synchronous: `loadURL`'s rejection arrives on a later microtask.
       browserWindow.destroy();
 
       await vi.waitFor(() => {
         expect(consoleWarn).toHaveBeenCalled();
       });
 
-      // The whole claim. `app.exit` skips `before-quit` and `will-quit`, so an
-      // exit here would silently bypass the sidecar drain on an ordinary close.
+      // `app.exit` skips `before-quit` and `will-quit`, so an exit here would bypass the drain.
       expect(electronMock.exitCodes).toEqual([]);
-      // No second load was attempted: there is no window left to show one in.
+      // No second load: there is no window left to show one in.
       expect(asMockWindow(browserWindow).loadedUrls).toEqual([INDEX_URL]);
       expect(consoleWarn.mock.calls.flat().join(" ")).toContain(
         "closed while its load was failing",
       );
-      // The give-up path's own diagnostic must not appear: this is not a
-      // renderer that could not be served, it is a window that went away.
+      // The give-up diagnostic must not appear: the window went away, it was not unservable.
       expect(consoleError.mock.calls.flat().join(" ")).not.toContain("no renderer document");
     });
   });

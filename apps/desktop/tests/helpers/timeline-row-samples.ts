@@ -1,15 +1,7 @@
-// Timeline rows for the cards' own tests.
-//
-// SCAFFOLDING, AND REACHED ONLY BY TESTS. It is deliberately NOT exported through
-// `cards/index.ts`, so nothing in the application graph imports it and the bundler drops
-// it from the renderer chunk. It lives here rather than under `test/` because the
-// co-located console tests compile under the renderer's own program, whose root does not
-// reach the test tree.
-//
-// WHY A BUILDER RATHER THAN LITERALS PER TEST. `TimelineRow` is a four-arm discriminated
-// union whose `run` arm requires three members that are all-or-none by construction. A
-// literal per test file would be four chances to write a row the projector could never
-// emit, and the cards would then be asserted against shapes that do not occur.
+// Timeline rows for the cards' own tests. Test-only: not exported through any barrel, so the
+// application graph never imports it. A builder rather than literals per test, because
+// `TimelineRow` is a discriminated union whose `run` arm requires three members that are
+// all-or-none; a literal could write a row the projector never emits.
 
 import type { RunId, SessionId, TimelineRow } from "@ai-sidekicks/contracts";
 
@@ -24,10 +16,8 @@ export interface SampleRowOverrides {
   readonly id?: string;
   readonly type?: string;
   /**
-   * The run the row is attributed to, where a case is about more than one.
-   *
-   * Varied rather than fixed because the interesting folds are keyed on it: two runs
-   * blocked at once is a shape the projection produces and one run id cannot state.
+   * The run the row is attributed to, for cases about more than one run: two runs blocked at
+   * once is a shape the projection produces and one run id cannot state.
    */
   readonly runId?: string;
   readonly summary?: string;
@@ -37,11 +27,8 @@ export interface SampleRowOverrides {
 }
 
 /**
- * A run-scoped row — the arm every message and tool row actually takes.
- *
- * `position` and `epoch` are present because the arm requires them: a run row without
- * them fails the contract's own parse, so a sample without them would be testing against
- * a row that cannot arrive.
+ * A run-scoped row, the arm every message and tool row takes. `position` and `epoch` are present
+ * because the arm requires them; without them the contract's own parse fails.
  */
 export function sampleRunRow(overrides: SampleRowOverrides = {}): TimelineRow {
   return {

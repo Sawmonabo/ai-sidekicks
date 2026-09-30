@@ -3,8 +3,8 @@ import { useContext } from "react";
 import { BridgeContext, type BridgeResolution } from "../bridge-context.js";
 
 /**
- * The resolution including its failure arm, for the app's own error view. Throws
- * outside the provider: every component renders inside it so the fixture is substitutable.
+ * The resolution including its failure arm, for the app's own error view. Throws outside the
+ * provider so the fixture stays substitutable.
  */
 export function useBridgeResolution(): BridgeResolution {
   const resolution = useContext(BridgeContext);
@@ -17,9 +17,8 @@ export function useBridgeResolution(): BridgeResolution {
 }
 
 /**
- * The resolved bridge and its clock, or a throw. A component that reaches for either with no
- * bridge resolved is a wiring bug, and an `undefined` return would let it render an empty
- * state that looks like "no data".
+ * The resolved bridge and its clock, or a throw: reaching for either with no bridge resolved is a
+ * wiring bug, and an `undefined` return would render as "no data".
  */
 export function useReadyBridgeResolution(): Extract<BridgeResolution, { status: "ready" }> {
   const resolution = useBridgeResolution();

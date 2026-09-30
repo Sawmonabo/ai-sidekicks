@@ -1,13 +1,7 @@
-// The ledger's own rules and the composer it takes, driven without a stream.
-//
-// Both consumers reach the ledger through a bridge, a subscription, and a React hook,
-// so the three claims that are its own — the count rises per delivery, only the newest
-// refusal is kept, and a clear resets both together — are asserted here rather than
-// through three layers that have nothing to do with them.
-//
-// AND THE COMPOSER IS ASSERTED HERE TOO, because it is one function for every stream. What each
-// stream owns is its own origin and its own sentence; what this module owns is the code and the
-// shape, and the cases below are what say which is which.
+// The ledger's own rules and the composer it takes, driven without a stream: the count rises per
+// delivery, only the newest refusal is kept, and a clear resets both together. The composer is one
+// function for every stream; each stream owns its origin and sentence, and this module the code
+// and shape.
 
 import { describe, expect, it } from "vitest";
 
@@ -39,9 +33,8 @@ describe("UnreadableDeliveryCounter", () => {
   });
 
   it("counts every delivery and keeps only the newest refusal", () => {
-    // The count and the refusal answer different questions — how far behind, and
-    // what failed most recently — so the second delivery must move both, one by
-    // rising and one by being replaced.
+    // The count (how far behind) and the refusal (what failed most recently) answer different
+    // questions, so the second delivery must raise one and replace the other.
     const ledger = new UnreadableDeliveryCounter(testRefusalFor);
 
     ledger.record(issuesOn("state"));
@@ -65,9 +58,8 @@ describe("UnreadableDeliveryCounter", () => {
   });
 
   it("negative control: a clear does not un-record the deliveries that follow it", () => {
-    // Without this a `clear` that also stopped recording would read identically to a
-    // correct one on every case above, and a stream that superseded its backlog once
-    // would then report a live gap as closed forever.
+    // Without this a `clear` that also stopped recording would read like a correct one above, and a
+    // stream that superseded its backlog once would report a live gap as closed forever.
     const ledger = new UnreadableDeliveryCounter(testRefusalFor);
     ledger.record(issuesOn("state"));
     ledger.clear();
@@ -96,8 +88,7 @@ describe("unreadableDeliveryRefusalComposerFor", () => {
   });
 
   it("says the same thing about a different stream, in that stream's words", () => {
-    // The two composers this replaced differed in exactly these two members and in
-    // nothing else, which is the whole reason there is one function here now.
+    // The two real composers differ only in these two members, which is why there is one function.
     const composed = unreadableDeliveryRefusalComposerFor({
       origin: "provider-account-quota",
       sentence:
@@ -112,8 +103,7 @@ describe("unreadableDeliveryRefusalComposerFor", () => {
   });
 
   it("negative control: it names the members and never the payload", () => {
-    // Without this the composer could quote what failed to parse — an unbounded and
-    // unvalidated value on screen to explain why an unvalidated value was refused —
+    // Without this the composer could quote what failed to parse, an unvalidated value on screen,
     // and every case above would still read the same.
     const composed = unreadableDeliveryRefusalComposerFor({
       origin: "session-queue",

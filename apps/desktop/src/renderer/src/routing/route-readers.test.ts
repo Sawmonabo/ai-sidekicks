@@ -1,13 +1,6 @@
-// The questions a view asks of a route it already holds.
-//
-// SPLIT FROM `routes.test.ts` with the module it drives. That file owns the GRAMMAR —
-// the round trip and the malformed hashes — and this one owns the readers: which rail
-// icon is lit, whether two routes are one address, and which workflow phase — if
-// any — the address a person followed was pointing at.
-//
-// EVERY PREDICATE IS ASKED ABOUT EVERY KIND, walked from the shared lists rather than
-// retyped, because the failure each of these guards against is a kind nobody asked the
-// predicate about — an icon that cannot be reached.
+// The questions a view asks of a route it already holds. Every predicate is asked about every
+// kind, walked from the shared route list, so a kind nobody asked about (an unreachable icon)
+// fails here.
 
 import { describe, expect, it } from "vitest";
 
@@ -29,25 +22,18 @@ describe("railDestinationFor — which rail icon is current", () => {
   });
 
   it("keeps a session screen under the sessions destination", () => {
-    // The session screen is reached FROM the sessions destination, so the rail
-    // highlights that one while a person is inside a session. The alternative —
-    // a `session` destination of its own — names an icon the rail does not
-    // render, which reads as the highlight going out on the busiest screen in
-    // the console.
+    // A `session` destination of its own would name an icon the rail does not render.
     expect(railDestinationFor({ kind: "session", sessionId: "session-1" })).toBe("sessions");
   });
 
   it("negative control: the session screen is not itself a rail destination", () => {
-    // Without this, the case above would pass over a `RAIL_DESTINATIONS` that
-    // still carried `session` beside the mapping, which is the exact state this
-    // pair was in: three destinations declared, and the spec's second one absent.
+    // Without it, the case above passes over a `RAIL_DESTINATIONS` that still carried `session`.
     expect([...RAIL_DESTINATIONS]).not.toContain("session");
     expect([...RAIL_DESTINATIONS]).toStrictEqual(["sessions", "workflows", "settings"]);
   });
 
   it("reaches every destination the rail declares, so no icon is unreachable", () => {
-    // Walked from the tuple rather than retyped. A destination the rail renders and
-    // no route resolves to is an icon a person can press into nothing.
+    // A destination the rail renders and no route resolves to is an icon that opens nothing.
     const reachable = new Set(
       MAIN_WINDOW_ROUTES.map((route) => railDestinationFor(route)).filter(
         (destination) => destination !== undefined,
@@ -81,8 +67,7 @@ describe("routesAreEqual — an unchanged hash costs no transition", () => {
         { kind: "settings", page: "providers" },
       ),
     ).toBe(false);
-    // The session screen arm's optional focus, in both directions: a bare address and a
-    // focused one are two places, and two focuses on different phases are two more.
+    // The optional focus: a bare address and a focused one differ, as do two different phases.
     expect(
       routesAreEqual(
         { kind: "session", sessionId: "session-1" },
@@ -145,17 +130,15 @@ describe("the settings arm's page-scoped selection", () => {
   });
 
   it("negative control: it names nothing for a route of another kind", () => {
-    // Without this, an accessor that read a member off any route at all would pass
-    // every case above and hand a page a selection some other address carried.
+    // Without it, an accessor that read a member off any route passes every case above.
     for (const route of MAIN_WINDOW_ROUTES.filter((each) => each.kind !== "settings")) {
       expect(settingsSelection(route), route.kind).toBeUndefined();
     }
   });
 
   it("distinguishes two addresses that differ only in the selection", () => {
-    // The transition this pays for: a person on the accounts page opened for one
-    // provider, following a row for another, must reach a route the frame store sees
-    // as different — or the navigation costs nothing and the page never re-renders.
+    // Following a row for another provider must reach a route the frame store sees as
+    // different, or the page never re-renders.
     expect(
       routesAreEqual(settingsRoute("providers", "codex"), settingsRoute("providers", "claude")),
     ).toBe(false);
@@ -170,9 +153,7 @@ describe("the settings arm's page-scoped selection", () => {
 
 describe("routeWorkflowPhase — the phase a deep link named", () => {
   it("hands back the focus a phase address carries", () => {
-    // The whole value rather than its two members separately: what a consumer needs is
-    // the run AND the phase together, and an accessor that answered one of them would
-    // let a caller pair this route's phase with some other route's run.
+    // The whole value, so a caller never pairs this route's phase with another route's run.
     expect(
       routeWorkflowPhase({
         kind: "session",
@@ -187,10 +168,7 @@ describe("routeWorkflowPhase — the phase a deep link named", () => {
   });
 
   it("negative control: it names nothing for a route of another kind", () => {
-    // Without this, an accessor that read a member off any route at all would pass both
-    // cases above and hand the run pane a focus that came from somewhere else — the
-    // same defect `settingsSelection` guards against, and the reason this reader exists
-    // rather than every consumer reaching into the arm itself.
+    // Without it, an accessor that read a member off any route passes both cases above.
     for (const route of MAIN_WINDOW_ROUTES.filter((each) => each.kind !== "session")) {
       expect(routeWorkflowPhase(route), route.kind).toBeUndefined();
     }

@@ -1,46 +1,23 @@
 // The one Electron launcher, shared by the end-to-end and endurance tiers.
 //
-// Both tiers need the same thing — a real main process, a real renderer, the fixture
-// bridge serving the console — and they need it built the same way, or the
-// endurance tier would be measuring a different application from the one the
-// end-to-end tier proved. So the launch lives here and neither tier owns a copy.
+// Both tiers need a real main process, a real renderer and the fixture bridge serving the
+// console, built the same way so the endurance tier measures the application the end-to-end tier
+// proved.
 //
-// WHY PLAYWRIGHT'S `_electron` UNDER VITEST, AND NOT `@playwright/test`
+// Playwright's `_electron` runs under Vitest rather than `@playwright/test`: `_electron` is the
+// only part these tiers need (attaching to a real Electron process and driving its window), and a
+// second runner would mean a second config, reporter and CI invocation.
 //
-// `@playwright/test` is already a devDependency and it exports `_electron`, which
-// is the only part of it these tiers need: a way to attach to a real Electron
-// process and drive its window. The RUNNER is a separate question, and the answer
-// is Vitest — the console's other tiers already run there with disjoint globs,
-// and a second runner would mean a second config, a second reporter, a second set
-// of CI invocations, and two places to look when a tier is red. One runner, two
-// more projects.
+// Profile isolation is load-bearing. Electron's default profile carries a machine-wide
+// `SingletonLock`: a second Electron on it (another checkout, an unrelated app, an orphan from a
+// killed run) loses `requestSingleInstanceLock()` and quits before opening a window, surfacing as
+// a timeout with no error. So every launch gets its own `--user-data-dir` under the system
+// temporary directory (`launch-profile.ts`), removed as part of the close.
 //
-// PROFILE ISOLATION IS LOAD-BEARING, NOT HYGIENE
-//
-// Electron's default profile carries a machine-wide `SingletonLock`. A second
-// Electron on the default profile — another checkout running this suite, an
-// unrelated app, an orphan from a killed run — loses `requestSingleInstanceLock()`
-// and quits before opening a window, which would surface here as a timeout with no
-// error. Every launch therefore gets its own `--user-data-dir` under the system
-// temporary directory (`launch-profile.ts`), removed as part of the close. This is
-// the same defect and the same fix the smoke test records; the mechanism is
-// restated rather than imported because that test owns a spawn-and-parse-stdout
-// probe, not a driven window.
-//
-// HEADLESS LINUX
-//
-// A CI runner without a display server needs an X server. `_electron.launch`
-// takes an executable path rather than a shell command, so a per-spawn
-// `xvfb-run` wrapper is not available the way it is for the smoke test's
-// `spawn` — and it is not wanted either: the `desktop` job stands one Xvfb up for
-// the whole run and exports `$DISPLAY` to every later step, which both tiers
-// inherit through `process.env`. They run in the aggregate `test` script's last
-// group and in that job's Electron leg, both on the fixture build.
-//
-// That display is not a GL driver, and a hosted runner has no GPU behind it, so
-// the software graphics stack such a host needs is stated in the launch's own
-// arguments — see `launch-args.ts`, which owns every switch this launcher passes
-// and why each one is passed.
+// Headless Linux needs an X server. `_electron.launch` takes an executable path, not a shell
+// command, so a per-spawn `xvfb-run` wrapper is not available; the CI job stands one Xvfb up for
+// the whole run and exports `$DISPLAY`, which both tiers inherit through `process.env`. A hosted
+// runner has no GPU, so the software graphics switches are in `launch-args.ts`.
 
 import process from "node:process";
 
@@ -79,98 +56,78 @@ interface LaunchedApp {
   readonly application: ElectronApplication;
   readonly window: Page;
   /**
-   * Close the app and remove its private profile. Safe to call twice.
+   * Closes the app and removes its private profile. Safe to call twice.
    *
-   * REJECTS when cleanup may have left something behind — a termination that was
-   * refused, a close that rejected outright, or a profile that would not come off
-   * disk. A caller that awaits this therefore fails a test whose assertions passed
-   * but which leaked an Electron or its directory, which is the point: vitest does
-   * not read logs, and either would otherwise survive into the launches after it.
-   * A close that lost its race and was SIGKILLed is breadcrumbed and resolves: the
-   * tree is gone, so the launches after it are unaffected. The second call is a
-   * no-op and never throws.
+   * Rejects when cleanup may have left something behind: a refused termination, a close that
+   * rejected outright, or a profile that would not come off disk. That fails a test whose
+   * assertions passed but which leaked an Electron or its directory. A close that lost its race
+   * and was SIGKILLed is logged and resolves, since the tree is gone. The second call is a no-op
+   * and never throws.
    */
   readonly close: () => Promise<void>;
 }
 
+/** A launched console plus the body's remaining allowance. */
 export interface AppUnderTest extends LaunchedApp {
   /**
-   * What is LEFT of the body's own allowance — hand it to a poll's `timeout`.
+   * What is left of the body's own allowance; hand it to a poll's `timeout`.
    *
-   * A body that waits has to bound its wait, and a body that invents a figure for
-   * that is a second copy of a bound which will drift from the registered one. So
-   * the wrapper mints the allowance once the launch has settled and passes it
-   * down: `consoleApplication.bodyAllowance.remainingMs()` is always what is left
-   * at the moment it is asked, and overrunning it fails with the harness's own
-   * sentence rather than vitest's generic kill (`launch-body.ts`).
+   * A body that invents its own figure is a second copy of a bound that will drift from the
+   * registered one. `bodyAllowance.remainingMs()` is what is left when asked, and overrunning it
+   * fails with the harness's own sentence rather than vitest's generic kill (`launch-body.ts`).
    */
   readonly bodyAllowance: BodyAllowance;
 }
 
+/** What a tier states about the console it launches. */
 export interface LaunchAppOptions {
   /**
-   * Extra environment for the Electron process.
+   * Extra environment for the Electron process, merged over `process.env`.
    *
-   * Merged over `process.env`. A tier uses this to pin a clock or a probe;
-   * nothing here reaches the renderer except through the main process, which is
-   * the same boundary the shipped application enforces.
+   * Nothing reaches the renderer except through the main process, the boundary the shipped
+   * application enforces.
    */
   readonly env?: Readonly<Record<string, string>>;
   /**
    * Which scripted scenario the launched console plays, passed as `--fixture`.
    *
-   * Absent, the console launches normally, reading the preload as the shipped
-   * application does. Pass a catalog id — a tier reads it off the scenario module it
-   * is driving, so a renamed scenario is a compile error. An unknown id fails the
-   * launch: the main process refuses it and exits before any window opens.
+   * Absent, the console launches normally. A tier reads the id off the scenario module it drives,
+   * so a renamed scenario is a compile error; an unknown id fails the launch because the main
+   * process refuses it and exits before any window opens.
    */
   readonly scenarioId?: string;
   /**
    * How long this tier's body gets between the settled launch and its cleanup.
    *
-   * Defaults to `BODY_ALLOWANCE_MS`, the shorter of the two registered figures,
-   * so a tier that says nothing fails inside a bound that names itself rather
-   * than under vitest's generic kill. A tier whose body is a different subject —
-   * the endurance workload, hundreds of driven cycles rather than one interaction
-   * — states `ENDURANCE_BODY_ALLOWANCE_MS`, and its `testTimeout` is derived from
-   * that same row (`tierTimeoutFor`, `vitest.config.ts`).
+   * Defaults to `BODY_ALLOWANCE_MS`, the shorter registered figure, so a tier that says nothing
+   * fails inside a bound that names itself. The endurance tier states
+   * `ENDURANCE_BODY_ALLOWANCE_MS`, and its `testTimeout` is derived from that row
+   * (`tierTimeoutFor`, `vitest.config.ts`).
    */
   readonly bodyAllowanceMs?: number;
   /**
-   * Whether this launch needs `performance.memory` to be a MEASUREMENT.
+   * Whether this launch needs `performance.memory` to be a measurement.
    *
-   * At Blink's default precision `usedJSHeapSize` is quantized into buckets and
-   * served from a long-interval cache rather than read at the moment it is asked
-   * for, which is fine for a coarse sanity check and useless for a tier whose
-   * gated figures are differences of two readings taken seconds apart. A named
-   * option rather than a caller-spelled argument list, so a tier states what it
-   * NEEDS and `launch-args.ts` decides how Chromium spells it.
-   *
-   * Off by default: the flag makes every read walk the heap, which is a cost no
-   * tier that does not measure one should pay.
+   * At Blink's default precision `usedJSHeapSize` is quantized and served from a long-interval
+   * cache, useless for gated figures that are differences of two readings seconds apart. A named
+   * option so a tier states what it needs and `launch-args.ts` decides how Chromium spells it.
+   * Off by default: the flag makes every read walk the heap.
    */
   readonly isPreciseHeapReadingRequired?: boolean;
 }
 
 /**
- * Launch the built console and wait for its first window.
+ * Launches the built console and waits for its first window.
  *
- * Throws rather than returning a partial handle: a caller that received an
- * application with no window would have to re-check the same condition, and the
- * failure it is re-checking for is exactly the one worth reporting loudly.
- *
- * Every wait below draws its timeout from ONE deadline minted here, so the whole
- * call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run — see
- * `launch-deadline.ts` for why a timeout per phase could not be.
+ * Throws rather than returning a partial handle. Every wait draws its timeout from one deadline
+ * minted here, so the whole call is bounded by `LAUNCH_BUDGET_MS` however slowly its phases run
+ * (`launch-deadline.ts`).
  */
 async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
-  // Minted before the first phase, including the profile directory: everything
-  // this function waits on is inside the budget, or the budget is not the
-  // launch's. It carries the WHOLE allowance — readiness, the witness, and
-  // cleanup — and each readiness wait below reserves the two later slices off
-  // it, so a slow ladder cannot spend the intervals that diagnose it. Cleanup
-  // takes its own slice as a ceiling rather than drawing on what is left here,
-  // which is why it is not handed this clock (`bounded-cleanup.ts`).
+  // Minted before the first phase, including the profile directory, so everything waited on is
+  // inside the budget. It carries the whole allowance (readiness, the witness, cleanup); each
+  // readiness wait reserves the two later slices off it. Cleanup takes its slice as a ceiling, so
+  // it is not handed this clock (`bounded-cleanup.ts`).
   const deadline = new LaunchDeadline(LAUNCH_BUDGET_MS);
   const profile = createLaunchProfile();
   let application: ElectronApplication;
@@ -186,29 +143,25 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
       env: {
         ...process.env,
         ...options.env,
-        // Every automated launch asks for an unobtrusive window: on macOS an
-        // ordinary reveal activates the application, steals focus, and switches
-        // the operator to the Space the window opened on — a dozen times per
-        // aggregate run. A fixture build honors this; a release build cannot
-        // (see `src/main/window-reveal.ts`).
+        // Every automated launch asks for an unobtrusive window: an ordinary macOS reveal
+        // activates the application, steals focus and switches Space. A fixture build honors
+        // this; a release build cannot (`src/main/windows/window-reveal.ts`).
         [UNOBTRUSIVE_WINDOWS_ENV]: "1",
       } as Record<string, string>,
       timeout: deadline.remainingMs(POST_READINESS_RESERVE_MS),
     });
   } catch (error: unknown) {
-    // No application was produced, so there is no cleanup verdict for the removal
-    // to travel on — and a bare `remove()` throwing here would replace the launch
-    // failure with a sentence about a directory. Surfaced and folded instead, so
-    // the readiness failure stays the error that explains the run.
+    // No application was produced, so no cleanup verdict can carry the removal, and a bare
+    // `remove()` throwing here would replace the launch failure with a sentence about a
+    // directory.
     throw withProfileRemoval(readinessFailure(deadline, error), removeLaunchProfile(profile));
   }
 
   const cleanup = new BoundedCleanup(
     {
       close: () => application.close(),
-      // Guarded because Playwright throws rather than returning `undefined` once
-      // the application handle is gone, and cleanup asking who to kill must not
-      // itself become the failure that stops the profile being removed.
+      // Guarded because Playwright throws once the application handle is gone, and asking who to
+      // kill must not stop the profile being removed.
       processId: () => {
         try {
           return application.process().pid;
@@ -227,16 +180,11 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
       return;
     }
     closed = true;
-    // The close itself is bounded and force-terminating, and it removes the
-    // profile, so this always returns a verdict rather than possibly not
-    // returning at all — and the removal reaches the caller ON that verdict. It
-    // used to be an `rmSync` in its own `try`/`catch` here whose `catch` only
-    // printed, so a removal that failed left a passing tier green and the
-    // directory on disk for every launch after it.
+    // Bounded and force-terminating, and it removes the profile, so this always returns a
+    // verdict, and the removal reaches the caller on it.
     cleanupOutcome = await cleanup.close();
-    // Breadcrumbed on every settlement but a clean close, and that is wider than
-    // the set that throws: a SIGKILLed tree is worth a line in the log and is not
-    // worth a red check, so `terminated` is recorded here and passes below.
+    // Logged on every settlement but a clean close, a wider set than the one that throws: a
+    // SIGKILLed tree is worth a log line, not a red check.
     if (cleanupOutcome.settlement !== "closed") {
       console.error(
         `${LAUNCH_TRACE_TAG} close settled ${cleanupOutcome.settlement} after ` +
@@ -247,10 +195,8 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
     if (failure === undefined) {
       return;
     }
-    // Thrown, not only logged: a `console.error` is not a failure to vitest, so a
-    // tier whose assertions passed would otherwise report success while leaving
-    // an Electron alive for every launch after it. The launch-failure path
-    // swallows this rejection to keep the original error on top.
+    // Thrown, not only logged: a `console.error` is not a failure to vitest. The launch-failure
+    // path swallows this rejection to keep the original error on top.
     throw failure;
   };
 
@@ -258,10 +204,8 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
     const window = await awaitPaintingAppWindow(application, deadline);
     return { application, window, close };
   } catch (error: unknown) {
-    // `close()` rejects on abnormal cleanup, and here that rejection must NOT
-    // win: the launch already failed and its error is the one that explains the
-    // run. So it is swallowed and the cleanup outcome is attached to the original
-    // instead — one error carrying both, never two with the wrong one on top.
+    // `close()` rejects on abnormal cleanup, but the launch already failed and its error explains
+    // the run. So the rejection is swallowed and the cleanup outcome is attached to the original.
     try {
       await close();
     } catch {
@@ -272,45 +216,23 @@ async function launchConsole(options: LaunchAppOptions): Promise<LaunchedApp> {
 }
 
 /**
- * Bind `application`'s close to the end of the current test, and close NOW when
- * that registration refuses.
+ * Binds `application`'s close to the end of the current test, and closes now when that
+ * registration refuses.
  *
- * On every ordinary call this is only `disposeWhenTestFinishes`: `onTestFinished`
- * takes the registration and the close runs on whatever outcome the test reaches,
- * vitest's own timeout kill included.
+ * Normally this is only `disposeWhenTestFinishes`, so the close runs on whatever outcome the test
+ * reaches, vitest's timeout kill included. `onTestFinished` throws outside a running test (for
+ * example `withLaunchedApp` from a `beforeAll`) when Electron is already up with a private profile
+ * on disk; the refusal is caught and the same idempotent close is awaited immediately, so exactly
+ * one remover is reached from both paths. If that close fails too, `closeAfterBody`'s rule
+ * applies: the refusal explains the run and the cleanup verdict rides on it as a clause.
  *
- * THE REFUSAL IS THE CASE THIS FUNCTION EXISTS FOR. `onTestFinished` throws
- * outside a running test, which is what `withLaunchedApp` called from a
- * `beforeAll` reaches — and by then Electron is up, its private profile is on
- * disk, and the only handle on either is about to be discarded with the caller's
- * stack frame, so the caller got a clear diagnostic beside a leaked browser and a
- * directory nothing would remove. The refusal is therefore caught and the SAME
- * close the registration would have run is awaited immediately, rather than a
- * second closer written here: that one is idempotent and owns the profile
- * removal, which is what keeps "exactly one remover, reached from both paths" a
- * property of the code. It is `spawnManagedElectronChild`'s own recovery arm one
- * layer up; that one disposes synchronously because its disposal is synchronous.
+ * The registered close fails the test instead of being swallowed. On a vitest timeout it is the
+ * only close there is, and the `closed` guard means no caller can ask again; its bounded retries
+ * are spent by the time it raises, so the failure means an Electron nothing could kill is still
+ * running and holding its profile for every later launch.
  *
- * Whose failure a reader is shown when the close fails too is `closeAfterBody`'s
- * rule, APPLIED here rather than restated: the refusal is the failure that
- * explains the run and the cleanup verdict rides on it as a clause, never over
- * it — the inversion `cleanup-disposition.ts` exists to stop.
- *
- * AND THE REGISTERED CLOSE FAILS THE TEST RATHER THAN BEING SWALLOWED, which is
- * the one place this package asks that of `disposeWhenTestFinishes`. On a vitest
- * timeout this registration is the only close there is: the body's own
- * settlement never runs, so nothing else can report the verdict later, and the
- * close is idempotent by a `closed` guard set before its cleanup runs — so a
- * caller cannot ask again by closing again either. `BoundedCleanup` has already
- * spent its bounded retries against the tree by the time it raises, so the
- * failure that reaches here means an Electron nothing could kill is still
- * running, holding its profile, and about to be inherited by every launch after
- * it. That is not a teardown sentence displacing a reader's failure; on a run
- * that would otherwise report clean it is the failure.
- *
- * Takes the close alone rather than a whole launched application, for that same
- * module's reason: the refusal is then reachable without an Electron, and
- * `test/helpers/settle-time-close.test.ts` is what drives it.
+ * Takes the close alone so the refusal is reachable without an Electron;
+ * `settle-time-close.test.ts` drives it.
  */
 export async function registerSettleTimeClose(
   application: Pick<ClosableApplication, "close">,
@@ -332,37 +254,25 @@ export async function registerSettleTimeClose(
 }
 
 /**
- * Launch the console, run `body` against it, and close it afterwards.
+ * Launches the console, runs `body` against it, and closes it afterwards.
  *
- * The one way in, so `launchConsole` is not exported: a tier that held the
- * handle itself would have to spell the disposition out, and nine of them did —
- * as a bare `finally`, which destroys the body's failure whenever the close
- * fails too. `closeAfterBody` states that rule once and is tested without an
- * Electron; this adds the launch, so no tier can reach the launched application
- * without also getting the rule.
+ * The one way in (`launchConsole` is not exported), so no tier can reach the launched application
+ * without `closeAfterBody`'s rule that the body's failure survives a failing close.
  */
 export async function withLaunchedApp<TResult>(
   options: LaunchAppOptions,
   body: (consoleApplication: AppUnderTest) => Promise<TResult>,
 ): Promise<TResult> {
   const launched = await launchConsole(options);
-  // The body's own settlement closes this launch, and that is the path that
-  // reports a cleanup verdict. This is the OTHER path: vitest's per-test timeout
-  // does not run the body's settlement at all, so without a settle-time
-  // registration a tier that overran its own budget left a real Electron and a
-  // real profile directory behind. `close` is idempotent, so on every ordinary
-  // outcome this is a no-op — `disposeWhenTestFinishes` swallows the rejection, because by
-  // then the test's own failure is the one that explains the run.
+  // The body's own settlement closes this launch and reports the cleanup verdict. Vitest's
+  // per-test timeout skips it, so this settle-time registration covers that path. `close` is
+  // idempotent, so on an ordinary outcome this is a no-op, and `disposeWhenTestFinishes` swallows
+  // the rejection since the test's own failure explains the run.
   //
-  // AWAITED, because the registration can refuse. A caller in a `beforeAll` is
-  // past the launch by the time `onTestFinished` throws, and the close that
-  // covers that misuse is the registration's own — see `registerSettleTimeClose`,
-  // which owns both halves so this call site states neither twice.
+  // Awaited because the registration can refuse; `registerSettleTimeClose` owns both halves.
   await registerSettleTimeClose(launched);
-  // Minted HERE and not inside the launch: the allowance bounds what runs after
-  // the launch settled, so a slow-but-valid launch spends none of it. That is the
-  // whole arithmetic the tier timeout is derived from — launch, then body, then
-  // the cleanup the launch budget already reserves.
+  // Minted here, not inside the launch: the allowance bounds what runs after the launch settled,
+  // so a slow but valid launch spends none of it.
   const bodyAllowance = new BodyAllowance(options.bodyAllowanceMs);
   const consoleApplication: AppUnderTest = { ...launched, bodyAllowance };
   return await withBoundedBody(launched, bodyAllowance, async () => await body(consoleApplication));

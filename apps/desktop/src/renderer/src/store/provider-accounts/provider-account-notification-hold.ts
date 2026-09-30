@@ -1,71 +1,37 @@
 // Account-plane notifications held across the registry's opening read.
 //
-// WHY ANYTHING IS HELD AT ALL. The tail opens BEFORE the read, and the read answers
-// with the whole registry at ONE instant — an instant the tail has already moved past
-// by the time the reply lands. An `account_removed` or an `account_changed` arriving
-// in between, applied on arrival, was then overwritten by the reply's unconditional
-// writes: the removed account came back and the newer credential generation regressed,
-// and both stayed that way INDEFINITELY, because the tail emits no second notification
-// for a mutation it already reported. Holding those frames and replaying them once the
-// snapshot has been applied is what puts them back in order.
+// The tail opens before the read, and the read answers with the whole registry at one instant
+// the tail has already moved past. A removal or change arriving in between would be
+// overwritten by the reply's unconditional writes (the removed account returns, the credential
+// generation regresses) and stay that way, since the tail emits no second notification. So
+// every frame is held, of any kind, and replayed once the snapshot is applied.
 //
-// EVERY KIND IS HELD, not only the ones that move state. The rule a reader carries is
-// then one sentence rather than a second list of which kinds may be reordered, and a
-// kind that moves nothing costs one place in the buffer and no correctness.
+// Past the cap, `overflowed` is not a loss: the caller applies what is held, applies the
+// overflowing frame, and takes a fresh read whose own hold starts empty.
 //
-// AND THE CAP DEGRADES TO A RE-READ RATHER THAN A DROP. `overflowed` is not a refusal
-// and not a loss: it tells the caller to apply what is held, apply the frame that
-// overflowed, and take a FRESH read, whose own hold starts empty. Dropping would be
-// exactly the silent loss this class exists to prevent. Each overflow costs a full
-// buffer's worth of traffic, so the re-read rate is the tail's rate divided by the cap
-// and converges as the tail quiets.
-//
-// A SECOND ATTEMPT INHERITS WHAT THE FIRST WAS HOLDING, WHICH IS THE SAME RULE
-// ARRIVED AT FROM THE OTHER SIDE. `begin()` used to clear, and a read begun while an
-// earlier one was still traveling therefore threw away every frame that earlier one
-// had held — silently, and by the very method whose purpose is that no frame is
-// dropped. It is reachable without anything failing: the opening read is taken
-// straight, a tail frame is held across it, and a `window-focus` trigger begins a
-// second read before the first reply lands. The superseded reply is then discarded by
-// its ordinal, so nothing releases what it held, and on the refused arm the console is
-// left presenting a removed account as present with no second notification coming.
-// Holding is CUMULATIVE instead: the cap applies to the union, so an inherited buffer
-// that fills degrades to the same re-read as any other, and the frames reach the fold
-// in arrival order whichever attempt was holding when each one landed.
+// Holding is cumulative: `begin()` does not clear, because a second read begun while an
+// earlier one is still traveling (a `window-focus` trigger) would otherwise drop the frames the
+// earlier one held, whose superseded reply is discarded. The cap applies to the union, and the
+// frames reach the fold in arrival order.
 
 import type { ProviderAccountNotification } from "@ai-sidekicks/contracts";
 
 /**
- * Account-plane notifications held while that registry's OPENING read is in
- * flight.
+ * The cap on account-plane notifications held while the registry's opening read is in flight.
  *
- * The tail opens before the read, and the read's reply restates the whole
- * registry at an instant the tail has already moved past — so a removal or a
- * credential-generation bump that arrives in that window has to be replayed
- * AFTER the snapshot is applied or the snapshot silently undoes it. The buffer's
- * lifetime is therefore one round trip, and its size is whatever the tail bursts
- * inside one: a node's accounts and their limit windows are a handful, so this is
- * a memory bound rather than a policy. Past it the reading stops buffering,
- * applies what it holds live, and takes a FRESH read — nothing is dropped,
- * because the tail emits no second notification for a mutation it already
- * reported.
+ * A memory bound, not a policy: a node's accounts and limit windows are a handful. Past it the
+ * reading applies what it holds live and takes a fresh read, so nothing is dropped.
  */
 export const PROVIDER_QUOTA_PENDING_NOTIFICATION_CAP = 64;
 
-/**
- * What holding one notification did. Two outcomes, and `overflowed` is an
- * instruction to the caller rather than a failure — see the header.
- */
+/** What holding one notification did. `overflowed` is an instruction to the caller. */
 export type NotificationHoldOutcome = "held" | "overflowed";
 
 /**
  * The notifications one reading is holding, and whether it is holding at all.
  *
- * A class with private fields rather than an array on the reading, because "am I
- * holding" and "what am I holding" are one piece of state, and only one transition
- * may move both: a caller able to lower the flag without taking the frames would
- * strand them, and one able to take them without lowering it would hand the same
- * frames over twice. {@link release} is that transition and is the only one.
+ * "Holding" and "what is held" are one piece of state, and {@link release} is the only
+ * transition that moves both, so frames are never stranded or handed over twice.
  */
 export class ProviderAccountNotificationHold {
   #held: ProviderAccountNotification[] = [];
@@ -77,14 +43,10 @@ export class ProviderAccountNotificationHold {
   }
 
   /**
-   * Start holding for a read attempt, keeping whatever a superseded one held.
-   *
-   * NOTHING IS CLEARED HERE, and {@link release} is the only thing that empties the
-   * buffer — which is what makes the two safe together: a released hold is already
-   * empty, so the frames a fresh attempt inherits are exactly the frames of an
-   * attempt that began and never released. That attempt is the one whose reply the
-   * caller's ordinal will discard, so this is the only path by which its frames can
-   * still reach the fold.
+   * Starts holding for a read attempt, keeping whatever a superseded one held. Nothing is
+   * cleared here; only {@link release} empties the buffer. That is the only path by which a
+   * superseded attempt's frames, whose reply the caller's ordinal discards, still reach the
+   * fold.
    */
   public begin(): void {
     this.#isHolding = true;
@@ -100,11 +62,8 @@ export class ProviderAccountNotificationHold {
   }
 
   /**
-   * Stop holding and hand back everything held, in arrival order.
-   *
-   * Order is what makes the replay correct: a removal followed by a re-registration
-   * and the reverse pair are the same two frames, and only their sequence says which
-   * state the registry ended in.
+   * Stops holding and hands back everything held, in arrival order, which is what makes the
+   * replay correct.
    */
   public release(): readonly ProviderAccountNotification[] {
     this.#isHolding = false;

@@ -1,17 +1,14 @@
-// What the two detour probes share: the key both visits are addressed at, and the
-// props each probe takes. The probes themselves are `DiscardedRenderValueProbe.test-support.tsx`
-// and `DiscardedRenderResourceProbe.test-support.tsx` — one component per module, the
-// `apps/desktop` AGENTS.md rule the one-component gate enforces on support modules too.
+// What the two discarded-render probes share: the key both visits are addressed at, and the
+// props each probe takes. The probes are `DiscardedRenderValueProbe.test-support.tsx` and
+// `DiscardedRenderResourceProbe.test-support.tsx`, one component per module.
 //
-// `subject-scoped-dropped-pass.test.tsx` and `subject-scoped-abandoned-pass.test.tsx`
-// ask different questions — whether a publisher survives a pass React retried, and
-// whether the visit on screen survives one React parked and superseded — and both ask
-// them of the same two components. One home for those, because a second copy would be
-// two components that agree until one of them stops calling something.
+// `useSubjectScopedState.dropped-pass.test.tsx` and
+// `useSubjectScopedState.abandoned-pass.test.tsx` ask different questions (whether a
+// publisher survives a pass React retried, and whether the visit on screen survives one
+// React parked and superseded) of the same two components, so they live once here.
 //
-// EVERY NEGATIVE CONTROL STAYS IN ITS OWN SUITE. A control is not a probe: it is the
-// arrangement one claim replaced, it drives the real holder through that arrangement,
-// and the two suites replaced different ones.
+// Every negative control stays in its own suite: a control is the arrangement one claim
+// replaced, driven through the real holder, and the two suites replaced different ones.
 
 import type { NamedFixtureSubject } from "@test/helpers/subject-fixtures.js";
 import type {
@@ -19,9 +16,10 @@ import type {
   ResourceOpenCloseLog,
 } from "./useSubjectScopedResource.test-support.js";
 
-/** The key BOTH visits are addressed at, so only the addressing tells them apart. */
+/** The key both visits are addressed at, so only the addressing tells them apart. */
 export const DISCARDED_RENDER_KEY = "s1";
 
+/** What the value probe takes. */
 export interface ValueProbeProps {
   readonly subject: object;
   /** Present on the pass that does not commit: the probe suspends on it. */
@@ -31,6 +29,7 @@ export interface ValueProbeProps {
   readonly onReady: (publish: (next: string) => void) => void;
 }
 
+/** What the resource probe takes. */
 export interface ResourceProbeProps {
   readonly subject: NamedFixtureSubject;
   readonly suspendOn: Promise<void> | undefined;

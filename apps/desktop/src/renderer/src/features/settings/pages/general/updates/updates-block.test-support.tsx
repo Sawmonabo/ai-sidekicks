@@ -1,9 +1,4 @@
-// The updater doubles both updates-block suites drive the updater's arms with.
-//
-// Hoisted because the suite splits on the block's own seam — what it reads, and what
-// its controls do — and both halves need the same updater doubles and the same settled
-// render. A second copy of the updater stub is two files disagreeing about what the
-// updater serves.
+// The updater doubles and the settled render both updates-block suites drive.
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
 import { act, render } from "@testing-library/react";
@@ -20,9 +15,7 @@ import type { UpdaterCalls } from "./updater-reading.js";
 /**
  * An updater that reports one state and answers both controls.
  *
- * Typed as the whole updater namespace, so an arm added to `UpdateState` upstream
- * fails this file to compile instead of leaving a case asserting against a shape
- * nobody serves.
+ * Typed as the whole updater namespace, so an arm added upstream fails this file to compile.
  */
 export function updaterReporting(
   state: UpdateState,
@@ -38,11 +31,8 @@ export function updaterReporting(
 }
 
 /**
- * An updater that pushes on demand, so a case can drive a second transition.
- *
- * The handler is captured rather than replayed from a script, because what these
- * cases need is a push that lands AFTER the first read settled — which is exactly the
- * moment a page that announced on every state change would speak a second time.
+ * An updater that pushes on demand, so a case can drive a transition after the first read
+ * settled; the handler is captured, not replayed from a script.
  */
 export function updaterPushing(initial: UpdateState): {
   readonly updater: UpdaterCalls;
@@ -70,10 +60,7 @@ export function updaterPushing(initial: UpdateState): {
 /**
  * An updater whose opening read is settled by hand, so a push can land ahead of it.
  *
- * Separate from {@link updaterPushing} rather than an option on it: that builder's
- * read resolves immediately, which is what its own cases need, and the case here
- * needs the opposite — a read still in flight when the updater pushes, which is the
- * moment an unconditional continuation overwrites the newer state with the older.
+ * Separate from {@link updaterPushing}, whose read resolves immediately.
  */
 export function updaterHoldingItsRead(): {
   readonly updater: UpdaterCalls;
@@ -106,10 +93,7 @@ export function updaterHoldingItsRead(): {
   };
 }
 
-/**
- * Machine settings as a window reads them before anything was chosen: every value is
- * its real default, and a press reaches `choose`.
- */
+/** Machine settings as a window reads them before anything was chosen; a press reaches `choose`. */
 export function preferencesAtDefaults(
   choose: UpdatesBlockProps["preferences"]["choose"] = () => undefined,
 ): UpdatesBlockProps["preferences"] {
@@ -135,12 +119,9 @@ export async function pressControl(block: HTMLElement, label: string): Promise<v
 /**
  * Mount the block under the console's real announcer and let its read settle.
  *
- * The announcer runs on a `ManualClock` so its hold window is frozen: whether a
- * sentence was said a second time is otherwise a question about how fast the runner
- * happened to be. The BLOCK is returned rather than the render container, because the
- * two live regions are the provider's siblings above it and one of them carries
- * `role="alert"` — a case asserting this block raises no alert would otherwise be
- * reading the announcer's.
+ * The announcer runs on a `ManualClock` so its hold window is frozen. The block is returned,
+ * not the render container, because the provider's live regions sit beside it and one carries
+ * `role="alert"`.
  */
 export async function renderSettled(
   updater: UpdaterCalls,

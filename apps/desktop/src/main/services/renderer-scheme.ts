@@ -1,19 +1,11 @@
-// The renderer transport's identity and its content-security policy.
+// The renderer transport's identity and content-security policy. This module imports nothing,
+// so the handler that serves the bundle, the window factory (which decides which origins a
+// window may navigate within) and the build config (which stands up the dev server) can all
+// take these values without an Electron import.
 //
-// Split out of `./protocol.ts` so the three things that need these values do
-// not have to reach through an Electron import to get them: the handler that
-// serves the bundle, the window factory
-// that decides which origins a window may navigate within, and the build config
-// that stands up the dev server. This module therefore imports NOTHING — not
-// `electron`, not `node:*` — and holds only frozen data.
-//
-// Why the policy lives beside the scheme rather than beside the handler: the
-// scheme and the policy are one decision. The hardening baseline locks a policy
-// for the renderer DOCUMENT, and that document is served over two transports —
-// this scheme in every packaged and built tree,
-// and the Vite dev server under `electron-vite dev`. A policy defined inside
-// the production handler is a policy the other transport has no way to state,
-// which is exactly how the dev document ended up with none.
+// The policy lives beside the scheme because the renderer document is served over two
+// transports, this scheme and the Vite dev server, and a policy inside the production handler
+// is one the dev transport cannot state.
 
 /** Scheme the built renderer bundle is served from. */
 export const RENDERER_SCHEME = "sidekicks-renderer";
@@ -27,28 +19,16 @@ export const RENDERER_ORIGIN = "sidekicks-renderer://app";
 /** The one navigable document; every route is this URL plus a hash fragment. */
 export const RENDERER_INDEX_URL = "sidekicks-renderer://app/index.html";
 
-// The hardening baseline locks this policy, and a response HEADER is its only
-// carrier — the shipped `index.html` deliberately has no meta tag.
-//
-// `connect-src` is narrower than the baseline's own text, which also admits
-// `https://<configured-control-plane-origin>` and
-// `wss://<configured-relay-origin>`. Those are placeholders: no control-plane
-// origin and no relay origin is configured anywhere in the workspace yet, and
-// emitting a placeholder string would produce a policy that neither allows the
-// real origin nor refuses honestly. The baseline is a floor, so shipping
-// `'self'` alone is stricter than it requires, not looser. The two configured
-// origins join this directive when the daemon and relay clients land.
-//
-// `connect-src` is also the ONE directive the dev transport widens, which is
-// why it is named as its own constant below rather than inlined here.
+// A response header is the policy's only carrier; the shipped `index.html` has no meta tag.
+// `connect-src` is `'self'` alone, stricter than the baseline's text, which also admits a
+// configured control-plane and relay origin; no such origin is configured anywhere yet, and a
+// placeholder would neither allow the real origin nor refuse honestly. It is also the one
+// directive the dev transport widens, so it is a constant of its own.
 const RENDERER_CONNECT_SRC = "connect-src 'self'";
 
 /**
- * Every directive except `connect-src`, in the order they are emitted.
- *
- * Shared verbatim by both transports. A directive added here reaches the dev
- * server and the production handler in the same edit, which is the property the
- * parity test in `renderer-scheme.test.ts` asserts.
+ * Every directive except `connect-src`, in emitted order. Both transports share it verbatim,
+ * which the parity test in `renderer-scheme.test.ts` asserts.
  */
 const RENDERER_POLICY_DIRECTIVES: readonly string[] = [
   "default-src 'self'",
@@ -63,11 +43,8 @@ const RENDERER_POLICY_DIRECTIVES: readonly string[] = [
 ];
 
 /**
- * Composes a policy from the shared directives plus one `connect-src`.
- *
- * `connect-src` is spliced into second position rather than appended, so both
- * policies read in the same order and a diff between them is a diff of one
- * token rather than of the whole string.
+ * Composes a policy from the shared directives plus one `connect-src`, spliced into second
+ * position so the two policies differ by one token, not by the whole string.
  */
 function composePolicy(connectSrc: string): string {
   const [defaultSrc, ...rest] = RENDERER_POLICY_DIRECTIVES;
@@ -78,34 +55,20 @@ function composePolicy(connectSrc: string): string {
 export const RENDERER_CONTENT_SECURITY_POLICY: string = composePolicy(RENDERER_CONNECT_SRC);
 
 /**
- * The port `electron-vite dev` serves the renderer on.
- *
- * Pinned rather than left to Vite's "first free port" search, because the dev
- * policy below names this origin: a server that silently moved to 5174 would
- * emit a policy for an origin it is not serving, and the HMR socket would be
- * refused by the very header meant to allow it. The config pairs this with
- * `strictPort`, so a collision fails the dev server loudly instead of moving
- * it — the failure a developer can act on, rather than a broken socket they
- * have to diagnose.
+ * The port `electron-vite dev` serves the renderer on. Pinned, and paired with `strictPort` in
+ * the config, because the dev policy names this origin: a server that silently moved would
+ * emit a policy for an origin it is not serving and the HMR socket would be refused.
  */
 export const RENDERER_DEV_SERVER_PORT = 5173;
 
 /**
- * The policy the Vite dev server emits on every response.
- *
- * Identical to the production policy except for `connect-src`, which additionally
- * names the HMR WebSocket origins. CSP Level 3 already lets `'self'` match a
- * `ws:` URL when the document's scheme is `http:`, so on a conforming engine
- * the additions are redundant — they are stated anyway because the cost is two
- * tokens and the failure they prevent (an HMR socket refused by our own header)
- * presents as "the dev server stopped reloading", which is a slow thing to
- * diagnose. Both spellings of the loopback host are named because Vite resolves
- * the HMR host from the request the browser made, and Electron reaches the dev
- * server by whichever one `ELECTRON_RENDERER_URL` carries.
- *
- * This is a DEV-only widening on a DEV-only origin. Nothing in a packaged or
- * built tree reads it: `window.ts` takes the dev branch only when the app is
- * unpackaged AND `ELECTRON_RENDERER_URL` is set.
+ * The policy the Vite dev server emits on every response: the production policy with a
+ * `connect-src` that also names the HMR WebSocket origins. CSP Level 3 already lets `'self'`
+ * match `ws:` from an `http:` document, so the additions are redundant on a conforming engine,
+ * but they prevent an HMR socket refused by our own header. Both loopback spellings are named
+ * because Electron reaches the dev server by whichever `ELECTRON_RENDERER_URL` carries. Dev
+ * only: `window.ts` takes the dev branch only when the app is unpackaged and
+ * `ELECTRON_RENDERER_URL` is set.
  */
 export const RENDERER_DEV_CONTENT_SECURITY_POLICY: string = composePolicy(
   `${RENDERER_CONNECT_SRC} ws://localhost:${String(RENDERER_DEV_SERVER_PORT)} ` +

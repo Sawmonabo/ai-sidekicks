@@ -1,60 +1,28 @@
-// The console's type system — the faces the console asks for, the line height, and
-// the size scale every line is set on.
+// The console's type system: the faces the console asks for, the line height, and the size scale
+// every line is set on. Separate from `palette.ts`, which answers "what color is this?" through
+// contrast measurements, while this file answers "how is text set?".
 //
-// Split out of `palette.ts` rather than authored beside it, and the seam is the
-// question each file answers. `palette.ts` answers "what color is this?" — a
-// system whose every value is measured against a contrast floor and whose tests
-// are ratio tests. This file answers "how is text set?", which no contrast
-// measurement touches. They were one file at 437 lines, past the point where a
-// module is doing one job, and the sizes and faces were the half that had nothing
-// to do with the color tests reading the other half.
+// `generate-css.ts` composes this and the palette into the emitted sheet, and `palette.ts` reads
+// the line height and type scale for `ENUMERATION_ROW_HEIGHT_REM`. This file is a leaf that
+// imports nothing local, so that dependency cannot become a cycle.
 //
-// Two modules read it, and the edge points one way in both cases. `generate-css.ts`
-// composes this and the palette into the one emitted sheet, which is where the two
-// systems meet. `palette.ts` reads the line height and the type scale for
-// `ENUMERATION_ROW_HEIGHT_REM`, which is a product of both scales — a row is a line
-// box plus its padding — so this file stays a LEAF that imports nothing local and
-// the dependency cannot become a cycle.
-//
-// The design language's type rule governs everything here: UI text in a humanist grotesque,
-// every wire-true figure in mono, and the two set on one shared scale so a figure and
-// its label sit on the same baseline.
-//
-// WHERE THE OPENTYPE FEATURES ARE NOT, AND WHY. The type rule asks for a slashed zero and
-// tabular figures, and this file declares neither.
-//
-//   The SLASHED ZERO belongs to the mono FACE and is declared as a descriptor
-//   inside its two `@font-face` rules in `typeface.ts`. It is not on `body`,
-//   and that would be the wrong home twice over: mono is
-//   the signature that a number came from the wire, and `font-feature-settings`
-//   INHERITS, so a root declaration would slash the zero in every user name,
-//   repo path, and branch name in the console — and then, because CSS Fonts 4
-//   gives that property precedence over the features `font-variant-*` computes,
-//   leave no descendant able to scope the feature back.
-//
-//   TABULAR FIGURES need no feature at all in these faces. Read out of the shipped
-//   `woff2` files on 2026-09-09: neither family carries `tnum` in `GSUB` or `GPOS`,
-//   and neither carries `pnum` either, which is the reading that settles it — there
-//   are no proportional figures to switch away FROM, and every digit in both
-//   families measures 600/1000 em. The digits are tabular by construction, so
-//   `"tnum" 1` would be a feature declared against a face that offers none. The two
-//   sheets that set `font-variant-numeric: tabular-nums` state it for the platform
-//   FALLBACK faces, which do offer both sets.
+// The OpenType features are not declared here. The slashed zero belongs to the mono face and is a
+// descriptor inside its `@font-face` rules in `typeface.ts`; on `body` it would inherit onto every
+// user name, repo path and branch, and CSS Fonts 4 gives `font-feature-settings` precedence over
+// `font-variant-*`, so no descendant could scope it back. Tabular figures need no feature:
+// neither family carries `tnum` or `pnum` in `GSUB` or `GPOS`, and every digit measures 600/1000
+// em, so the digits are tabular by construction. The sheets that set
+// `font-variant-numeric: tabular-nums` do so for the platform fallback faces, which offer both.
 
 /**
- * The line height every body line box occupies, as a multiple of its own size.
- *
- * Named rather than written into the generator's `body` rule, because it is not
- * only a paint instruction: a row of any list is a line box plus its padding, so
- * the console's row rhythm is derived from this number and would silently stop
- * matching what the sheet paints if the two were written separately.
+ * The line height every body line box occupies, as a multiple of its size. Named rather than
+ * written into the generator's `body` rule because the console's row rhythm is derived from it.
  */
 export const BODY_LINE_HEIGHT = 1.5;
 
 /**
- * Type scale, in rem. UI text is set in a humanist grotesque and every
- * wire-true figure in mono; the scale is shared so a figure and its label sit on
- * the same baseline.
+ * Type scale, in rem, shared by the sans and mono faces so a figure and its label sit on the
+ * same baseline.
  */
 export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
   "text-xs": 0.6875,
@@ -65,31 +33,17 @@ export const TYPE_SCALE_REM: Readonly<Record<string, number>> = {
 };
 
 /**
- * The font stacks. IBM Plex Sans and IBM Plex Mono are the ratified faces — the design
- * language's choice, admitted by the console's fonts rules — and the console self-hosts the
- * VARIABLE builds both name: `frame/bindings/typeface.ts` declares two `@font-face`
- * rules per family over `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable` — the
- * Roman and Italic Latin-1 splits of each, so an italic run gets the italic the foundry
- * cut rather than a browser-slanted upright. What ships is the FONT FILES, admitted as
- * distributed OFL-1.1 assets; the two packages are build-time-only `devDependencies`,
- * because the bundler resolves those `?url` imports while building and nothing resolves
- * either specifier at runtime. The platform fallbacks stay, and they are not decoration
- * — each face carries a `unicode-range`, so a codepoint outside Latin-1 falls through
- * to them rather than rendering as a notdef box.
+ * The font stacks. IBM Plex Sans (UI text) and IBM Plex Mono (wire-true figures) are the ratified
+ * faces, self-hosted as variable builds: `typeface.ts` declares the `@font-face` rules over
+ * `@ibm/plex-sans-variable` and `@ibm/plex-mono-variable`. Those packages are build-time-only
+ * `devDependencies`, since the bundler resolves the `?url` imports and nothing resolves them at
+ * runtime. The platform fallbacks stay because each face carries a `unicode-range`, so a
+ * codepoint outside Latin-1 falls through to them instead of rendering a notdef box.
  *
- * These two constants did not move when the faces arrived, which was the point of
- * naming the families here before anything loaded them: the stack is the design's
- * statement of what the console is set in, and the sheet is how those bytes get
- * to the document. They did not move when the faces became variable either, and
- * that is the same property holding: the family a rule ASKS for is this file's,
- * and which bytes answer is the other module's.
- *
- * WHAT VARIABLE BUYS, IN THIS CONSOLE, IS ONE WEIGHT. Every file carries a
- * continuous `wght 100–700` axis, so the 400, 500, and 600 the stylesheets ask for
- * and the 640 `palette/palette.css` asks for are each a real instance. Under the
- * static packages that preceded them there were three cuts per family and 640
- * silently became 600. The sans builds additionally carry `wdth 85–100`; nothing
- * here asks for a width today, and the declaration bounds it rather than using it.
+ * The stack names the family a rule asks for; which bytes answer is `typeface.ts`'s. The files
+ * carry a continuous `wght 100–700` axis, so the 400, 500 and 600 the stylesheets ask for and the
+ * 640 that `layout/CommandPalette/command-palette.css` asks for are each a real instance. The
+ * sans builds also carry `wdth 85–100`, which nothing asks for.
  */
 export const FONT_STACKS: Readonly<Record<string, string>> = {
   "font-sans":

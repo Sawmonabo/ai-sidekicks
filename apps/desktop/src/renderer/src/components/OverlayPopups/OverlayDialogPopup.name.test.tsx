@@ -1,21 +1,6 @@
-// How a dialog routed through this primitive gets its accessible name, both ways.
-//
-// WHY THE LABEL IS OPTIONAL AND NOT LAX. Four repos dialogs head their popup with a
-// `Dialog.Title`, and Base UI hands the popup that title's id as `aria-labelledby` —
-// so a `label` passed beside one is a second spelling of a name no accessible-name
-// computation ever reads. The third case below is what makes that a measurement
-// rather than an assertion about the spec: with both present the TITLE wins, so the
-// label is inert, and an inert prop a reader has to compare against the title beside
-// it is the drift this primitive declines to invite.
-//
-// AND THE SECOND CASE IS WHY THE PROP SURVIVES AT ALL. The command palette and the
-// attach form head their popups with ordinary elements, so `aria-label` is the only
-// name they have — a rule that dropped the prop would leave both unnamed.
-//
-// THE NAME IS ASKED FOR THROUGH THE ROLE QUERY, which computes it the way a reader's
-// software does, rather than by reading the attribute and calling that the name. The
-// attribute is asserted too, and separately: in the third case it is present and the
-// name is something else, which is the whole finding.
+// How a dialog gets its accessible name: from its `Dialog.Title`, or from `label` when the caller
+// heads it with an ordinary element. A `label` beside a title is inert because `aria-labelledby`
+// wins, so the name is asked for through the role query, not read off the attribute.
 
 import { render, screen } from "@testing-library/react";
 import { Dialog } from "@base-ui/react/dialog";
@@ -34,8 +19,7 @@ describe("OverlayDialogPopup — the accessible name, however the caller supplie
       </Dialog.Root>,
     );
     const popup = screen.getByRole("dialog", { name: "Attach a repository" });
-    // And nothing was invented on its behalf: an omitted label reaches the element as
-    // no attribute, rather than as an empty one standing in for a name.
+    // An omitted label reaches the element as no attribute, not an empty one.
     expect(popup.hasAttribute("aria-label")).toBe(false);
   });
 
@@ -52,9 +36,7 @@ describe("OverlayDialogPopup — the accessible name, however the caller supplie
   });
 
   it("negative control: a label beside a title is inert, and the title is the name", () => {
-    // Without this the rule above would be a preference. `aria-labelledby` wins the
-    // accessible-name computation, so the label is carried on the element and read by
-    // nothing — which is exactly why the callers that mount a title pass none.
+    // Negative control: `aria-labelledby` wins, so the label is carried and read by nothing.
     render(
       <Dialog.Root open modal="trap-focus">
         <OverlayDialogPopup

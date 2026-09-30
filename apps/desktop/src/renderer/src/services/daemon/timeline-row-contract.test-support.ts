@@ -1,24 +1,13 @@
-// The contract a projected timeline row has to satisfy, asked at the bridge.
-//
-// No console component holds a contracts schema — a schema is a parser, and every
-// parse happens at this boundary. That rule
-// binds a test as hard as it binds production: a feature's test that imported
-// `TimelineRowSchema` would be the second place the shape is read, and the second
-// place is where the drift starts.
-//
-// It is a `.test-support` and not a production reader because nothing in production
-// decodes a timeline row — the console PRODUCES them, and what a producer owes is
-// that what it built satisfies the contract its consumers parse against. That is an
-// assertion, so it lives with the assertions.
+// Asks the bridge's contract whether a projected timeline row is valid. No console component holds
+// a contracts schema, and a feature test that imported `TimelineRowSchema` would be a second place
+// the shape is read. It is test support because nothing in production decodes a timeline row: the
+// console produces them.
 
 import { TimelineRowSchema } from "@ai-sidekicks/contracts";
 
 /**
- * Whether one projected row satisfies the registered timeline-row contract.
- *
- * The real validator rather than a shape check written at a call site: a projection
- * that satisfied a local assertion and failed the contract would be one the daemon's
- * own consumers could never accept.
+ * Whether one projected row satisfies the registered timeline-row contract. It uses the real
+ * validator so a projection cannot pass a local check and fail the daemon's consumers.
  */
 export function isContractTimelineRow(row: unknown): boolean {
   return TimelineRowSchema.safeParse(row).success;

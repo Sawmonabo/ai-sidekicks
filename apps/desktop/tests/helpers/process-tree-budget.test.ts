@@ -1,27 +1,18 @@
 // One deadline for a whole tree kill, and what each command inside it is charged.
 //
-// `process-tree-readers.test.ts` beside this owns the bound on ONE command — the
-// shared `runBoundedHostCommand` taking the smaller of `HOST_QUERY_TIMEOUT_MS` and what it is
-// handed, and spawning nothing at all once that reaches zero. That claim is
-// about a single query and says nothing about a SEQUENCE of them, which is what
-// a tree kill actually is: the root's start-stamp read, the whole-host
-// process-table listing, a `taskkill` per addressable member, and a liveness
-// reading per member, every one a `spawnSync` this thread blocks on.
+// `process-tree-readers.test.ts` owns the bound on one command: `runBoundedHostCommand` takes the
+// smaller of `HOST_QUERY_TIMEOUT_MS` and what it is handed, and spawns nothing at zero. A tree
+// kill is a sequence of them (the root's start-stamp read, the whole-host process-table listing,
+// a `taskkill` and a liveness reading per member), each a `spawnSync` that blocks this thread.
 //
-// THE FINDING. Those commands were handed a NUMBER — the remainder read once,
-// when `terminateProcessTree` was called — so each of them was entitled to the
-// whole of it. `taskkill` could spend it and the fallback listing after it could
-// spend it again, and one call overran its advertised deadline several times
-// over before `BoundedCleanup` got the clock back to decide whether another
-// attempt fitted. Vitest's timeout runs on that same blocked thread, so the
-// overrun is paid in the `unterminable` verdict and the profile removal, which
-// are the two things a later launch feels.
+// Handing each command a number read once, when `terminateProcessTree` was called, entitled each
+// to the whole remainder, so one call overran its advertised deadline several times before
+// `BoundedCleanup` got the clock back. Vitest's timeout runs on the same blocked thread, so the
+// overrun is paid in the `unterminable` verdict and the profile removal.
 //
-// WHY THE COMMANDS ARE INJECTED HERE. A macOS runner never enters the Windows
-// arm, so a case that drove the real ones would be checking nothing on this
-// host — and it would run a real `taskkill`, which these cases must never do.
-// `externalTreeToolsOver` is therefore the seam: the same binding production
-// takes, over a scripted command set and a clock the case moves by hand.
+// The commands are injected because a macOS runner never enters the Windows arm and these cases
+// must never run a real `taskkill`. `externalTreeToolsOver` is the seam: production's binding over
+// a scripted command set and a hand-moved clock.
 
 import { describe, expect, it } from "vitest";
 
@@ -45,13 +36,9 @@ const TREE_TABLE: ReadonlyMap<number, ProcessTableRow> = processTableOf([
 const TEST_DEADLINE_MS = 400;
 
 /**
- * A command set that answers instantly, records what it was charged, and makes
- * the clock pay for it.
- *
- * The state the finding is about and the one no real platform produces on
- * demand: every query answers, slowly, and the tree survives all of them. Each
- * member charges `spendPerCommand` so a case can drive a whole sequence past
- * its deadline without waiting a single real second for a host query.
+ * A command set that answers instantly, records what it was charged, and makes the clock pay for
+ * it: every query answers, slowly, and the tree survives all of them, a state no real platform
+ * produces on demand. Each command charges `spendPerCommand`.
  */
 function budgetRecordingHostCommands(
   clock: SteppedClock,
@@ -75,12 +62,9 @@ function budgetRecordingHostCommands(
 }
 
 /**
- * A root identity that reads `same` without touching this host.
- *
- * The verified arm is the one that walks the table, which is what puts several
- * commands in the sequence these cases measure. Both stamps are scripted equal
- * and the table reader answers the unreadable sentinel, so the capture refresh
- * is a no-op rather than a second source of rows.
+ * A root identity that reads `same` without touching this host. The verified arm walks the table,
+ * which puts several commands in the sequence. Both stamps are scripted equal and the table
+ * reader answers the unreadable sentinel, so the capture refresh is a no-op.
  */
 function verifiedIdentity(): SpawnedTreeIdentity {
   return new SpawnedTreeIdentity(
@@ -93,11 +77,9 @@ function verifiedIdentity(): SpawnedTreeIdentity {
 
 describe("tree termination — every host command is charged to one shared deadline", () => {
   it("declines the figure across the sequence rather than repeating it", () => {
-    // THE FINDING, read as the figures the commands received. Each one costs a
-    // quarter of the deadline, so an honest deadline hands out 400, 300, 200,
-    // 100 and then 0 — and the snapshot this replaces handed out 400 to every
-    // one of them, which is how a single `terminate()` spent multiples of the
-    // bound its caller had advertised.
+    // The figures the commands received: each costs a quarter of the deadline, so an honest
+    // deadline hands out 400, 300, 200, 100 and then 0. A once-read snapshot handed out 400 to
+    // every one.
     const clock = new SteppedClock();
     const hostCommands = budgetRecordingHostCommands(clock, TEST_DEADLINE_MS / 4);
     terminateExternalTree(
@@ -139,10 +121,9 @@ describe("tree termination — every host command is charged to one shared deadl
   });
 
   it("hands a command that follows an exhausted one nothing at all", () => {
-    // The floor, and the half `runBoundedHostCommand` depends on: at or below zero it spawns
-    // nothing, so a second command after one that overran must arrive there
-    // with 0 rather than with the figure the first one was given. One command
-    // per case-scripted spend of the WHOLE deadline makes that unambiguous.
+    // The floor `runBoundedHostCommand` depends on: at or below zero it spawns nothing, so a
+    // command after one that overran must get 0. One command spending the whole deadline makes
+    // that unambiguous.
     const clock = new SteppedClock();
     const hostCommands = budgetRecordingHostCommands(clock, TEST_DEADLINE_MS * 2);
     terminateExternalTree(
@@ -164,10 +145,8 @@ describe("tree termination — every host command is charged to one shared deadl
   });
 
   it("negative control: a deadline nothing spends charges every command in full", () => {
-    // Without the control the cases above are ambiguous between "the budget is
-    // charged as it is spent" and "the budget only ever shrinks", and the
-    // second would pass over a binding that decremented on its own. Same seam,
-    // same deadline, commands that cost the clock nothing.
+    // Guards the cases above, which are ambiguous between "charged as it is spent" and "only ever
+    // shrinks". Same seam and deadline, commands that cost the clock nothing.
     const clock = new SteppedClock();
     const hostCommands = budgetRecordingHostCommands(clock, 0);
     terminateExternalTree(
@@ -185,10 +164,9 @@ describe("tree termination — every host command is charged to one shared deadl
   });
 
   it("negative control: a caller holding no deadline is handed no bound", () => {
-    // The unbounded arm, which most callers take — the capture at a spawn is
-    // inside nobody's disposal. A binding that invented a figure here would put
-    // every one of these commands under a ceiling nobody asked for, and one
-    // that floored it at zero would refuse to run them at all.
+    // The unbounded arm, which most callers take (the capture at a spawn is inside nobody's
+    // disposal): inventing a figure would put a ceiling nobody asked for, and flooring at zero
+    // would refuse to run them.
     const clock = new SteppedClock();
     const hostCommands = budgetRecordingHostCommands(clock, TEST_DEADLINE_MS);
     terminateExternalTree(
@@ -213,9 +191,8 @@ describe("the shared deadline itself, read directly", () => {
     expect(budget.remainingMilliseconds()).toBe(TEST_DEADLINE_MS);
     clock.advance(TEST_DEADLINE_MS / 4);
     expect(budget.remainingMilliseconds()).toBe(TEST_DEADLINE_MS * 0.75);
-    // Past the deadline the honest answer is zero and never a negative number:
-    // `runBoundedHostCommand` refuses at or below zero, and a growing negative would say the
-    // same thing in a form no reader can compare against a bound.
+    // Past the deadline the answer is zero, never negative: `runBoundedHostCommand` refuses at or
+    // below zero.
     clock.advance(TEST_DEADLINE_MS * 4);
     expect(budget.remainingMilliseconds()).toBe(0);
   });

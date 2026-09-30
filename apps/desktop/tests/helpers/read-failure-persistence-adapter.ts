@@ -1,18 +1,9 @@
 // A memory adapter whose reads fail while its writes keep landing.
 //
-// The collaborator two suites need to drive the one case that separates the store's
-// three read answers: the store's own cases prove `readOutcome` reports `failed` where
-// `read` reported nothing, and the pane layout's restore-order cases prove a failed read does
-// not file a fallback over the record it could not reach. Written once because both
-// need the same misbehavior, and it is a SUBCLASS rather than a hand-written double
-// for `ui-state-store.adapter-failure.test.ts`'s reason: the record map, the write
-// path, the trim and the gauge stay the real adapter's, so exactly one operation
-// misbehaves.
-//
-// AND THE FAILURE IS LIFTABLE, because every case that asserts what the adapter still
-// HOLDS has to read it back through the same adapter — a read-back taken while reads
-// fail asserts the failure a second time and would pass over a store that had written
-// anything at all.
+// It is a subclass rather than a hand-written double, so the record map, write path, trim and
+// gauge stay the real adapter's and exactly one operation misbehaves. The failure is liftable
+// because a read-back taken while reads fail would assert the failure a second time and pass over
+// a store that had written anything at all.
 
 import {
   PersistenceAdapterError,
@@ -21,6 +12,12 @@ import {
 import { MemoryPersistenceAdapter } from "@renderer/store/persistence/memory-persistence-adapter.js";
 import { refusePersistence } from "@renderer/store/persistence/persistence-refusals.js";
 
+/**
+ * A memory persistence adapter whose `read` rejects until `stopFailingReads` is called.
+ *
+ * It drives the case that separates the store's read answers: `failed` versus nothing stored,
+ * and a failed read that must not file a fallback over the record it could not reach.
+ */
 export class ReadFailurePersistenceAdapter extends MemoryPersistenceAdapter {
   #isFailingReads = true;
 

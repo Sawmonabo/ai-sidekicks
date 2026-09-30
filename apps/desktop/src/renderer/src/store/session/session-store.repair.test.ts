@@ -1,15 +1,9 @@
-// What an authoritative re-read is allowed to do to a store that is already ahead.
-//
-// Two modes, and both are about the moment a base state arrives late. The repair
-// read answers AT the cursor the store already reached, which a naive
-// "only a newer snapshot may land" guard discards — leaving a hole nothing on the
-// wire can ever fill. And the pre-initialization buffer holds events for a read
-// that may never come, so its cap is a real loss and the loss has to be named
-// rather than absorbed.
-//
-// The sibling suites of `failure-modes.test.ts` cover the other modes; this one
-// asserts on the REFUSAL or the recorded loss rather than merely on the absence of
-// a crash, for the same reason they do.
+// What an authoritative re-read may do to a store that is already ahead, for a base state that
+// arrives late. The repair read answers at the cursor the store already reached, which an "only
+// a newer snapshot may land" guard would discard, leaving a hole nothing on the wire can fill.
+// And the pre-initialization buffer holds events for a read that may never come, so its cap is a
+// real loss that must be named. Assertions are on the refusal or recorded loss, not on the
+// absence of a crash.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,10 +14,8 @@ import { SessionStore } from "./session-store.js";
 
 describe("failure matrix — the repair read answers at the cursor the store already reached", () => {
   /**
-   * The shape every case here starts from: a store that admitted event 7 over a
-   * cursor of 5, so its own cursor is 7, sequence 6 is recorded missing, and the
-   * sticky flag is set. An authoritative re-pull answers with everything through
-   * 7 — the same cursor — because 7 is the newest sequence that exists.
+   * A store that admitted event 7 over cursor 5: its cursor is 7, sequence 6 is missing and the
+   * sticky flag is set. An authoritative re-pull answers through 7, the same cursor.
    */
   function degradedAtCursorSeven(): SessionStore {
     const store = new SessionStore({ sessionId: "session-1" });
@@ -43,9 +35,7 @@ describe("failure matrix — the repair read answers at the cursor the store alr
       timeline: [eventAt(6), eventAt(7)],
     });
 
-    // Discarding this snapshot would have left sequence 6 missing from the
-    // projection and the banner stuck until unrelated later activity happened to
-    // push the session past 7 — a degraded state nothing on the wire can clear.
+    // Discarding this snapshot would leave 6 missing and the banner stuck.
     expect(store.snapshot().degradedCause).toBeUndefined();
     expect(store.snapshot().gaps).toStrictEqual([]);
     expect(store.snapshot().timeline.map((event) => event.sequence)).toStrictEqual([6, 7]);
@@ -61,18 +51,15 @@ describe("failure matrix — the repair read answers at the cursor the store alr
       timeline: [eventAt(6)],
     });
 
-    // Same state object: the guard returned before any transition, so the store
-    // did not lose event 7 to a read that had not seen it yet.
+    // Same state object: the guard returned before any transition, so event 7 is kept.
     expect(store.snapshot()).toBe(before);
     expect(store.snapshot().cursor).toBe(7);
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
   });
 
   it("negative control: an equal-cursor snapshot on a HEALTHY store is a no-op", () => {
-    // Without this the case above would pass over a guard that admitted every
-    // equal-cursor snapshot — which would rebuild the whole projection on each
-    // ordinary focus refresh, and a snapshot carrying no timeline would empty the
-    // one the store had.
+    // Guards against admitting every equal-cursor snapshot, which would rebuild the projection on
+    // each focus refresh and empty the timeline for a snapshot carrying none.
     const store = new SessionStore({ sessionId: "session-1" });
     store.initialize({ cursor: 0, entities: [] });
     store.apply(eventAt(1));
@@ -100,8 +87,7 @@ describe("failure matrix — events arrive before initialization and the read ne
     expect(outcome.droppedBeforeInitialization).toBe(overflowBy);
     expect(store.preInitializationDropCount).toBe(overflowBy);
     expect(store.pendingPreInitializationCount).toBe(PRE_INITIALIZATION_BUFFER_CAP);
-    // The loss is visible immediately rather than only once a read lands, because
-    // a store whose read never comes would otherwise drop in silence forever.
+    // The loss is visible immediately, or a store whose read never comes would drop in silence.
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
   });
 
@@ -116,8 +102,7 @@ describe("failure matrix — events arrive before initialization and the read ne
     expect(timeline).toHaveLength(PRE_INITIALIZATION_BUFFER_CAP);
     expect(timeline[0]?.sequence).toBe(overflowBy + 1);
     expect(store.pendingPreInitializationCount).toBe(0);
-    // The dropped sequences are named rather than guessed at: the drain runs the
-    // same gap detection every other admission does.
+    // The dropped sequences are named: the drain runs the same gap detection as any admission.
     expect(store.snapshot().gaps).toStrictEqual([{ fromSequence: 1, toSequence: 3 }]);
     expect(store.snapshot().degradedCause).toBe("sequence-gap");
   });

@@ -1,8 +1,5 @@
-// The banner shape: across the frame, because what the whole room can do has changed.
-//
-// `refusal-props.ts` states the grammar all three shapes obey and declares the
-// props they share; this module decides only the two things that are the banner's
-// own — whether a person can put it away, and that it does not speak for itself.
+// The banner shape: across the frame, because what the whole room can do has changed. It adds
+// whether a person can dismiss it, and it does not speak for itself.
 
 import "./Refusal.css";
 
@@ -12,37 +9,27 @@ import { WireFigure } from "../WireFigure/WireFigure.js";
 import { formatWireString } from "@renderer/lib/wire-figures.js";
 import { type RefusalProps } from "./refusal-props.js";
 
+/** Props for `RefusalBanner`. */
 export interface RefusalBannerProps extends Omit<RefusalProps, "detail"> {
   /**
-   * What happened, as text the daemon sent or as the console's own sentence.
-   *
-   * ONE PROP, WIDENED — never a second one beside `detail`. `React.ReactNode` already
-   * includes `string`, so a call site hands a daemon message over as a string, and
-   * it goes through {@link formatWireString} below and is shown verbatim.
-   *
-   * WIDENED ON THE BANNER AND ON NEITHER SIBLING, because the banner is the shape whose
-   * message is routinely the CONSOLE's own composition rather than a daemon string, and
-   * every wire figure inside such a sentence has to wear the mono provenance
-   * signature. A `string` would make that unreachable: the only way to name
-   * a protocol version or an attempt counter inside a sentence would be to paste it
-   * into proportional prose. The inline and card shapes render a refusal somebody else
-   * wrote and keep `RefusalProps` exactly as it is.
+   * What happened: a daemon string, shown verbatim, or the console's own composed sentence. Wider
+   * than the siblings' `string` because a composed sentence must be able to hold wire figures in
+   * mono.
    */
   readonly detail: React.ReactNode;
   /** Omit to make the banner undismissable — it clears when the condition does. */
   readonly onDismiss?: () => void;
 }
 
-/** Across the frame, when what the whole room can do has changed. */
+/** A refusal spanning the frame; dismissible only when `onDismiss` is given. */
 export function RefusalBanner(props: RefusalBannerProps): React.JSX.Element {
   return (
     <div
       className="meridian-refusal meridian-refusal--banner"
-      // Not a live region. The banner is inserted already carrying its text, which
-      // most screen readers never announce, and the frame announces every raise
-      // through the one `LiveAnnouncer` (`frame/composition/banner-announcements.ts`). A
-      // `role="status"` here would be a second, unreliable read of the same
-      // sentence; the banner stays in the tree as a plain group carrying the code.
+      // Not a live region: the banner mounts already carrying its text, which most screen readers
+      // never announce, and the frame announces every raise through the one `LiveAnnouncer`
+      // (`layout/AppShell/hooks/useRefusalBannerAnnouncements.ts`). A `role="status"` would read
+      // the sentence twice.
       role="group"
     >
       <Glyph name="alert" size={GLYPH_SIZE_CHROME} />

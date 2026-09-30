@@ -1,17 +1,15 @@
 // The mount inventory: one list of a session's mounts, each with its path and its two
 // health axes, composed from two calls the caller supplies.
 //
-// The list is session-scoped because the only call that names mount ids is the
-// workspace list, whose every item carries the mount its workspace belongs to. The
-// inventory is the distinct ids that call names, each then read for its path and its
-// health. The two axes are never collapsed, and nothing here polls.
+// The workspace list is the only call that names mount ids, and each workspace carries its
+// mount; the inventory is the distinct ids it names, each read for its path and health. The
+// two axes are never collapsed, and nothing here polls.
 //
-// It re-reads on focus and on reconnect (both bound in `MountInventoryList`), and on
-// the session events below, taken from the session store the window already has open
-// rather than from a second subscription to the same stream. Without a store the read
-// refreshes on focus alone.
+// It re-reads on focus and on reconnect (both bound in `MountedFolderList`) and on the
+// session events below, taken from the session store the window already has open rather
+// than a second subscription. Without a store it refreshes on focus alone.
 //
-// A rejected call is not caught here. It rejects the whole read, and `PushDrivenRead`
+// A rejected call is not caught here: it rejects the whole read, and `PushDrivenRead`
 // settles it as the read's failed state.
 
 import type {
@@ -58,9 +56,9 @@ export interface MountInventoryCalls {
  * Every session event kind that can change what this list says.
  *
  * The `workspace.*` lifecycle kinds change which mounts the workspace list names; a run
- * ending re-probes the worktree it executed in, so the health axis moves at exactly those
- * three. A run beginning changes neither axis and is left out. Typed as the contract's
- * own census, so a kind the daemon never sends fails to compile.
+ * ending re-probes the worktree it executed in, so health moves at those three run kinds.
+ * A run beginning changes neither axis. Typed as the contract's own census, so a kind the
+ * daemon never sends fails to compile.
  */
 const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
   "workspace.preparing",
@@ -76,8 +74,8 @@ const MOUNT_AFFECTING_EVENT_KINDS: readonly SessionEventType[] = [
 export interface MountInventory {
   readonly readings: readonly RepoMountReadResponse[];
   /**
-   * Mounts the workspace list named and this read did not open, because the cap
-   * was reached. Rendered as a count; never silently dropped.
+   * Mounts the workspace list named and this read did not open because the cap was
+   * reached. Rendered as a count, never dropped.
    */
   readonly unreadMountCount: number;
 }
@@ -88,9 +86,8 @@ export type MountInventoryRead = PushDrivenRead<MountInventory>;
 /**
  * Every mount id the session's workspaces name, once each, in a stable order.
  *
- * Sorted rather than left in reply order so two reads of an unchanged session
- * produce the same row order — the reply's order is the workspace list's, and a
- * mount's position in it moves when an unrelated workspace is created.
+ * Sorted so two reads of an unchanged session give the same row order: the workspace list's
+ * order moves when an unrelated workspace is created.
  */
 export function distinctMountIds(response: WorkspaceListResponse): readonly string[] {
   const seen = new Set<string>();
@@ -103,8 +100,8 @@ export function distinctMountIds(response: WorkspaceListResponse): readonly stri
 /**
  * Build the inventory read for one session.
  *
- * Constructed by whoever owns its lifetime — the page's mount effect, never a
- * render body — and disposed with that owner.
+ * Constructed by whoever owns its lifetime (a mount effect, never a render body) and
+ * disposed with that owner.
  */
 export function createMountInventoryRead(options: {
   readonly calls: MountInventoryCalls;
@@ -113,8 +110,8 @@ export function createMountInventoryRead(options: {
   /**
    * The retained session's store, where this window has one open.
    *
-   * `undefined` is a real answer rather than a defect — settings opens with no
-   * session — and it costs this read its push signal and nothing else.
+   * `undefined` is a real answer, not a defect: settings can open with no session. It
+   * costs this read its push signal and nothing else.
    */
   readonly sessionStore: SessionStore | undefined;
 }): MountInventoryRead {
@@ -123,9 +120,9 @@ export function createMountInventoryRead(options: {
     clock,
     origin: MOUNT_INVENTORY_ORIGIN,
     read: async (signal: AbortSignal) => await readMountInventory(calls, sessionId, signal),
-    // One re-read per burst, never one per event: the signal goes to the read's own
-    // `RefreshScheduler`, which debounces with an absolute deadline, so a run ending
-    // three worktrees at once costs one inventory read rather than three.
+    // One re-read per burst: the signal goes to the read's `RefreshScheduler`, which
+    // debounces with an absolute deadline, so a run ending three worktrees at once costs one
+    // inventory read.
     subscribe:
       sessionStore === undefined
         ? noSessionStoreOpen
@@ -135,12 +132,10 @@ export function createMountInventoryRead(options: {
 }
 
 /**
- * The fan-out read: the workspace list, then up to `MOUNT_INVENTORY_READ_CAP` mount
- * reads.
+ * The fan-out read: the workspace list, then up to `MOUNT_INVENTORY_READ_CAP` mount reads.
  *
- * The signal reaches every call, so a page that has left cancels the ones in flight. It
- * is read again between the calls, because an abort landing in either gap would
- * otherwise start a fan-out, or fold rows, for a page that has left. Exported so both
+ * The signal reaches every call and is read again between them, so a page that has left
+ * cancels calls in flight and an abort in either gap stops the fan-out. Exported so both
  * checkpoints are drivable at their own boundary.
  */
 export async function readMountInventory(

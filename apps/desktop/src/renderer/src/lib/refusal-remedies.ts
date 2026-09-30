@@ -1,37 +1,9 @@
-// What a person can DO about a named daemon refusal, and which shape it calls for.
+// What a person can do about a named daemon refusal, and which rendering it calls for.
 //
-// What reaches the screen from the refusal itself is fixed: the code verbatim in mono,
-// the daemon's own sentence unparaphrased, and no sentence of the console's explaining
-// what the daemon meant. Every rendering also takes an `action` prop — the operator's
-// next move, when one exists — and the console fills it. This table is
-// what fills it, and the distinction it keeps is the same one: the daemon says what
-// happened, and the console says what to do next.
-//
-// SO NOTHING HERE PARAPHRASES A `detail`. Each entry names an act — edit the line,
-// send again, wait for the bindings — and where the honest next move is "nothing,
-// this is over", it says that and the component withdraws the control instead of
-// leaving a button that cannot work.
-//
-// ONE TABLE RATHER THAN COPY IN EACH COMPONENT, because these codes reach more than
-// one. `session.not_found` can answer almost anything; `intervention.idempotency_conflict`
-// refuses a composer steer and a runs-pane control alike. Two components writing their
-// own words for one code is how a person learns a remedy on one screen and does not
-// recognize it on the next.
-//
-// AND EVERY KEY IS A CODE `error-contracts.md` ACTUALLY REGISTERS, which is checked
-// against that file rather than asserted here: a key the wire never sends answers
-// `undefined` forever, so the copy behind it reaches nobody and nothing reports it.
-// `run.version_conflict` was exactly that — console vocabulary that appears in no
-// registry, the corpus routing a stale comparand to the intervention lifecycle state
-// `expired` instead — so its row is gone rather than kept for symmetry.
-//
-// IT IS KEYED ON THE WIRE STRING AND ANSWERS `undefined` FOR EVERY OTHER CODE, which is
-// deliberate: a `Record` over a closed union would make this module import each
-// producer's vocabulary and invert the import direction — `lib/` sits below every
-// producer and knows none of them — and, worse, a total table would need an entry for
-// every registered code in the corpus, most of which have no next move beyond what the
-// daemon already said. An unlisted code renders exactly as it does today, with no
-// action beside it.
+// The daemon says what happened; this table says what to do next, and never paraphrases a
+// `detail`. Where the honest next move is "nothing, this is over", the component withdraws the
+// control. Keys are wire codes verbatim; an unlisted code answers `undefined` and renders with no
+// action. Keyed by string, not a `Record` over a union, because `lib/` sits below every producer.
 
 /**
  * Which of the three refusal shapes — inline under the control, a card in the transcript,
@@ -40,94 +12,70 @@
 export type RefusalRendering = "inline" | "card" | "banner";
 
 /**
- * What a component does about one named refusal, beyond rendering the daemon's words, in
- * one of two variants: the app-wide table's entry, or a feature table's entry with the
- * exclusive cases one code stands for.
+ * What a component does about one named refusal beyond rendering the daemon's words: the
+ * app-wide entry, or a feature table's entry with the exclusive cases one code stands for.
  */
 export type RefusalRemedy = AppRefusalRemedy | CasedRefusalRemedy;
 
-/**
- * The app-wide table's entry: the shape a refusal calls for, its next move, and whether
- * the request is finished.
- */
+/** The app-wide entry: the rendering a refusal calls for, its next move, and whether it is done. */
 export interface AppRefusalRemedy {
   /**
-   * The shape this refusal calls for, by blast radius rather than by severity.
-   *
-   * A component that has only one rendering ignores it; one that can raise a
-   * banner reads it and raises one, which is how `session.not_found` reaches the
-   * session screen from a control that was pressed in one pane.
+   * The rendering this refusal calls for, by blast radius rather than severity. A component
+   * with one rendering ignores it; one that can raise a banner does, so `session.not_found`
+   * reaches the session screen from a control pressed in one pane.
    */
   readonly rendering: RefusalRendering;
   /** The operator's next move, in the console's own words. Never a paraphrase. */
   readonly nextMove: string;
   /**
-   * Whether the request this refusal names is finished.
-   *
-   * `true` means there is nothing left for the control that produced it to do — the
-   * decision was answered elsewhere, the message was already sent, the run is gone
-   * — so the component withdraws the control rather than offering an act that can only
-   * be refused again. `false` means the same act may work, so the control stays.
+   * Whether the request this refusal names is finished. `true` means the control has nothing
+   * left to do, so the component withdraws it; `false` means the same act may work, so it stays.
    */
   readonly settled: boolean;
 }
 
 /**
- * A feature table's entry: the next move, and the exclusive cases a person chooses
- * between where one code stands for more than one situation.
- *
- * `distinctions` is a real empty rather than an absent member on the codes that have one
- * move: an empty list says "there is exactly one move" instead of "somebody forgot to
- * write them".
+ * A feature table's entry: the next move, and the exclusive cases a person chooses between where
+ * one code stands for more than one situation. `distinctions` is empty when there is one move.
  */
 export interface CasedRefusalRemedy {
   readonly nextMove: string;
   readonly distinctions: readonly string[];
 }
 
-/**
- * The next move for each named refusal, keyed on the wire code verbatim.
- *
- * Every entry is a code the corpus registers and a view in this console actually
- * reaches. A code with no entry is not an omission to be filled for symmetry: it is
- * a refusal whose daemon sentence is the whole of what the console can honestly say.
- */
+/** The next move for each named refusal; a code with no entry needs only the daemon's sentence. */
 const REFUSAL_REMEDIES: Readonly<Record<string, AppRefusalRemedy>> = {
-  // The retry carried a key already spent on different text. The daemon applied the
-  // first body and nothing new went out, so the remedy is a new message rather than
-  // another attempt at this one.
+  // The retry reused a key already spent on different text; the daemon applied the first body,
+  // so the remedy is a new message.
   "intervention.idempotency_conflict": {
     rendering: "inline",
     nextMove:
       "This was already sent with different text. Nothing new went out — send the line again as a new message.",
     settled: true,
   },
-  // The run left the daemon. Whatever the console last saw of it is the last thing
-  // anyone will see; the row stays and stops claiming to be live.
+  // The run left the daemon; the row stays and stops claiming to be live.
   "run.not_found": {
     rendering: "card",
     nextMove:
       "This run is gone from the background service. What is shown is the last state the stream reported.",
     settled: true,
   },
-  // The session itself is gone, so every control in this window is answering about
-  // something that is not there. That is a banner rather than a line beside one
-  // button.
+  // The session is gone, so every control in the window answers about nothing: a banner, not a
+  // line beside one button.
   "session.not_found": {
     rendering: "banner",
     nextMove:
       "This session is gone from this node. Open it again from the session list, or open another one.",
     settled: true,
   },
-  // Somebody else answered the request. The next projection read drops the card, so
-  // the two actions come off it now rather than staying pressable.
+  // Somebody else answered; the next projection read drops the card, so its actions come off now.
   "approval.already_resolved": {
     rendering: "card",
     nextMove: "Somebody else answered this request. It leaves the list on the next read.",
     settled: true,
   },
-  // No event was appended, so the goal did not change at all. The inline refusal names the
-  // bindings the daemon reported failing beside this.
+  // No event was appended, so the goal did not change. The inline refusal names the failing
+  // bindings beside this.
   "session.goal_delivery_failed": {
     rendering: "inline",
     nextMove:

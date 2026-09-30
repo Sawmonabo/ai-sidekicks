@@ -1,24 +1,18 @@
-// Tier: end-to-end. Its spec files are named for the incident they reproduce
-// rather than for the module they touch.
+// Tier: end-to-end. Spec files are named for the incident they reproduce, not the module they
+// touch. Every other tier renders the console into something that is not the application
+// (happy-dom, or a Chromium page), so none catches a defect that exists only in the shipped
+// app; this tier runs the path a person installing it would run.
 //
-// Every other console tier renders the console into something that is not the
-// application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped app, and
-// this tier runs the code path a person installing the application would run.
+// Playwright's own auto-retrying `expect` is not used: with two `expect`s, which timeout
+// applies to a line is answered from the import list, and its web-assertion timeouts come from
+// a test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
+// `expect.poll`) and asserting is Vitest's.
 //
-// ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`
-// and it is not used here: mixing two `expect`s makes which timeout applies to a line
-// a question a reader answers from the import list, and Playwright's web-assertion
-// timeouts are read from a test context this runner does not provide. Waiting is
-// explicit (`locator.waitFor`, `expect.poll`) and asserting is Vitest's.
-//
-// THE INCIDENT: the main process opened a window and the console was not in it.
-//
-// Two shapes of the same report, and the seams they land on are different. The window
-// is served from a scheme that was never registered as standard, so the document has
-// no origin and the renderer boots into a storage error; or the bundle loads, the
-// frame mounts, and the composition is empty — no rail, no mounted screen, and an
-// unowned pane kind rendering as a hole rather than as a composed absence.
+// The incident: the main process opened a window and the console was not in it. Two shapes:
+// the window is served from a scheme never registered as standard, so the document has no
+// origin and the renderer boots into a storage error; or the bundle loads and the frame mounts
+// but the composition is empty (no rail, no mounted screen, an unowned pane kind rendering as
+// a hole rather than a composed absence).
 //
 
 import { describe, expect, it } from "vitest";
@@ -35,40 +29,29 @@ const bundleIsBuilt = fixtureBundleExists();
 describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
   it("serves the window from the privileged renderer scheme", async () => {
     await withLaunchedApp({}, async (consoleApplication) => {
-      // The origin is the persistence partition key: a scheme registered without
-      // `standard: true` has no origin at all, and an origin-less document gets
-      // neither IndexedDB nor `localStorage` — so the scheme-persistence test
-      // below would fail with a storage error that says nothing about the cause.
-      // Asserted first, and against the main process's own constant rather than
-      // against a repeated string, so a scheme or host rename breaks this at
-      // compile time instead of leaving it comparing two stale literals.
+      // The origin is the persistence partition key: a scheme registered without `standard: true`
+      // has no origin, and an origin-less document gets neither IndexedDB nor `localStorage`.
+      // Asserted first against the main process's own constant, so a rename breaks it at compile
+      // time.
       const origin = await consoleApplication.window.evaluate(() => window.location.origin);
       expect(origin).toBe(RENDERER_ORIGIN);
     });
   });
 
   it("boots the frame with its rail, a mounted screen, and a composed absence", async () => {
-    // The scenario is NAMED rather than defaulted, and that is this case's premise
-    // rather than a detail of it: every claim below is about the first-run
-    // composition — a readable session, an unowned pane kind —
-    // and a window that names no scenario now plays the default scenario and opens into
-    // it, which is the first-launch rule doing exactly what it was built to do. Naming the
-    // scenario is also what stands that rule down, on the same principle the rule
-    // applies to an explicit hash: a launch that said what it wanted is not overridden.
+    // The scenario is named because every claim below is about the first-run composition (a
+    // readable session, an unowned pane kind); a window naming no scenario plays the default
+    // one and opens into it, and naming one stands that first-launch rule down.
     await withLaunchedApp({ scenarioId: FIRST_RUN_SCENARIO.id }, async (consoleApplication) => {
       const consoleWindow = consoleApplication.window;
 
-      // The rail exists and carries the destinations the frame declares. Read as
-      // a count rather than as specific labels: which destinations exist is the
-      // route table's business and it is asserted there, while "the rail rendered
-      // at all" is this tier's.
+      // The rail rendered at all; which destinations exist is the route table's business, so this
+      // reads a count, not labels.
       const railButtonCount = await consoleWindow.locator(".meridian-rail__button").count();
       expect(railButtonCount).toBeGreaterThan(0);
 
-      // The sessions destination has an owner — the all-sessions screen. The
-      // claim is that the OWNER rendered and the frame's unowned-screen arm did
-      // not fire: the owner's section is present and the
-      // frame's composed absence wrapper is not.
+      // The sessions destination has an owner, the all-sessions screen: its section is present
+      // and the frame's unowned-screen wrapper is not.
       await consoleWindow.locator(".meridian-frame").waitFor({
         state: "visible",
         timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
@@ -79,36 +62,28 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — console came up blank", () => {
       });
       expect(await consoleWindow.locator(".meridian-screen-notice").count()).toBe(0);
 
-      // The COMPOSED absence, in a real window, which is the half of the pair that
-      // makes the other half mean something: without it, "no absence wrapper on
-      // sessions" would also pass over a frame that had stopped rendering that arm
-      // altogether. And it must be the composed one, not a bare line, because a bare
-      // line at the top-left of a real window is what a half-painted page looks like.
+      // The composed absence, in a real window, is the half that gives the other half meaning:
+      // without it, "no absence wrapper on sessions" would also pass over a frame that stopped
+      // rendering that arm. It must be the composed one, because a bare line at the top-left is
+      // what a half-painted page looks like.
       //
-      // IT IS THE HARNESS'S ADMISSION REFUSAL. `registeredPaneKinds()` answers with every
-      // one of `PANE_KINDS`, so no address in a built console reaches a reserved arm. What
-      // stands in is an absence no feature can claim away, because it does not fire on a
-      // pane kind at all: `PaneHarnessScreen` holds the address segment
-      // to `parsePaneAddress`, the console's one admission point for an address
-      // that arrived untyped, and a segment that names no kind is refused there. That
-      // is also the STRONGER end-to-end subject — a reserved arm is a state
-      // a shipped build can only reach through its own composition mistake, while a
-      // mistyped hash is a thing a person actually does. The reserved arms themselves
-      // stay pinned where they can be driven directly, with a registry that holds no
-      // descriptor: `PaneHarnessScreen.test.tsx` for this one and `app/router.test.tsx`
-      // for the screen layer above it. Point this back at a reserved arm the day a kind is
-      // declared in `PANE_KINDS` ahead of the feature that renders it.
+      // This is the harness's admission refusal. `registeredPaneKinds()` answers with every one of
+      // `PANE_KINDS`, so no address in a built console reaches a reserved arm. What stands in is an
+      // absence no feature can claim away: `PaneHarnessScreen` holds the address segment to
+      // `parsePaneAddress`, the console's one admission point for an untyped address, and a
+      // segment naming no kind is refused there. It is also the stronger end-to-end subject, since
+      // a mistyped hash is something a person does while a reserved arm is reachable only through
+      // a composition mistake. The reserved arms stay pinned where a registry with no descriptor
+      // can drive them: `PaneHarnessScreen.test.tsx` and `app/router.test.tsx`.
       //
-      // BOTH address segments are required by that route's grammar, and the session
-      // is the scenario's own: the session it holds is readable, which is what gets
-      // the store open and the route as far as the pane harness.
+      // Both address segments are required by the route's grammar, and the session is the
+      // scenario's own, readable, which gets the store open and the route as far as the harness.
       await consoleWindow.evaluate((sessionId: string) => {
         window.location.hash = `#/pane-harness/not-a-pane-kind/${sessionId}`;
       }, FIRST_RUN_SCENARIO.sessionId);
-      // `--block` is the composed placement, and asserting it is the other half of
-      // "not a bare line": the screen layer proved that with `ScreenNotice`, and
-      // this arm renders its `Nothing` inside the harness region instead, where the
-      // placement modifier is what carries the same claim.
+      // `--block` is the composed placement, the other half of "not a bare line": this arm
+      // renders its `Nothing` inside the harness region, where the placement modifier carries
+      // the claim `ScreenNotice` carries at the screen layer.
       await consoleWindow
         .locator(
           `section[aria-label="${PANE_HARNESS_LABEL}"] .meridian-nothing--block.meridian-nothing--error`,

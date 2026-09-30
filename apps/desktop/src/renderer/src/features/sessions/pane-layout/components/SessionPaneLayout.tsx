@@ -1,50 +1,26 @@
-// The pane layout: the panes a person is looking at, side by side.
+// The pane layout: the panes a person is looking at, side by side. It is the frame (order,
+// widths, focus, the separators, the keyboard paths, and the one place each pane body is
+// mounted from), not any pane's content: every body comes from the pane registry by kind, so
+// a second open of the same entity focuses the pane that exists.
 //
-// The pane layout holds independent panes, each headed by an entity breadcrumb and a kind
-// glyph; one entity opens one pane, structurally — a single pane registry and a tripwire
-// that fails on a second owner.
+// Layout lives in `PaneLayoutStore`, never in `useState`; this component subscribes and
+// dispatches, so the restore path has one place to write. Rows are memoized so a streaming
+// session re-renders only the pane whose store changed. Keyboard comes before pointer: focus,
+// move and close are chords, and resize is on the separator, which the arrow keys operate.
 //
-// WHAT THIS COMPONENT IS AND IS NOT. It is the frame: order, widths, focus, the
-// separators, the keyboard paths, and the one place each pane body is mounted
-// from. It is NOT any pane's content — every body comes from
-// `registries/panes/pane-registry.ts`, resolved by kind, so a second open of the same
-// entity focuses the pane that already exists.
+// `react-resizable-panels` owns the resize gesture, the flex arithmetic and the
+// window-splitter ARIA, but not the layout: the group reports back to the store. Its crossed
+// `aria-valuemin` / `aria-valuemax` on later separators is corrected in
+// `separator-value-bounds.ts`. A pane's floor rides the panel's `minSize` in pixels; upstream
+// reports a pixel floor being rescaled as a percentage across a window resize, so
+// `PaneLayoutStore.applyLayout` clamps again over a freshly measured layout, and only the
+// store's clamp is written to disk.
 //
-// FOUR DECISIONS WORTH STATING:
-//
-//   • **Layout lives in `PaneLayoutStore`, never in `useState`.** A component holding
-//     pane order would be a second source of truth for it, and the restore path
-//     would then have two places to write. This component subscribes and dispatches.
-//   • **Every programmatic scroll and every rect read goes through a chokepoint.**
-//     Rects are `rect/rect-discipline.ts`'s; nothing here calls `scrollIntoView`.
-//   • **Rows are memoized.** A pane layout of four panes under a streaming session re-renders
-//     the pane whose store changed and not its neighbors, which is what the
-//     partitioned store buys and what an unmemoized map would give straight back.
-//   • **Keyboard before pointer.** Focus, move, and close are chords; resize is on
-//     the separator, which is focusable and operable with the arrow keys. A pane layout
-//     reachable only by dragging is a pane layout half the people using it cannot arrange.
-//
-// WHAT THE TWO ADOPTED LIBRARIES OWN FOR LAYOUT, PANES AND DRAG, AND WHAT STAYS OURS:
-//
-//   • `react-resizable-panels` owns the resize gesture, the flex arithmetic that
-//     turns a drag into widths, and the window-splitter ARIA with its arrow-key,
-//     Home/End and Enter bindings. It does NOT own the layout: `PaneLayoutStore` does,
-//     and the group reports back to it. Its one open defect — the crossed
-//     `aria-valuemin` / `aria-valuemax` on every separator after the first — is
-//     wrapped in `separator-aria.ts`. A pane's floor rides the panel's own
-//     `minSize` in PIXELS, which is what the density preset means; upstream issue
-//     #720 reports a pixel floor being rescaled as a percentage across a window
-//     resize, which is why `PaneLayoutStore.applyLayout` clamps again over a freshly
-//     measured pane layout — and only the store's clamp is written to disk.
-//   • `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture, as the
-//     browser's own HTML5 drag, so no React render happens per frame. It provides
-//     no keyboard drag by design, which is why the Alt+Shift chord below is not an
-//     alternative to the gesture but the accessible path the row's constraint
-//     requires the pane layout to keep.
-//
-// Own-built and staying own-built: the pane layout store, the separator's chrome, the drop
-// indicator, the keyboard reorder path, and the density floor. Neither library ships
-// a stylesheet and neither is imported for one.
+// `@atlaskit/pragmatic-drag-and-drop` owns the pointer reorder gesture as the browser's own
+// HTML5 drag, so no React render happens per frame. It has no keyboard drag by design, so the
+// Alt+Shift chords below are the accessible path. The store, the separator's chrome, the drop
+// indicator, the keyboard reorder and the density floor are our own; neither library is
+// imported for a stylesheet.
 
 import "./pane-layout.css";
 
@@ -79,7 +55,7 @@ import { usePaneRectSources } from "../hooks/usePaneRectSources.js";
 import { usePaneRectTracker } from "../hooks/usePaneRectTracker.js";
 import { useSeparatorValueBoundsCorrection } from "../hooks/useSeparatorValueBoundsCorrection.js";
 
-/** What the pane layout needs: its layout store, where bodies come from, and how each is addressed. */
+/** What the pane layout needs: its layout store, its pane registry, and each pane's context. */
 export interface SessionPaneLayoutProps {
   readonly layout: PaneLayoutStore;
   /** Where pane bodies come from. Passed rather than reached for, so a host picks its own. */
@@ -88,8 +64,7 @@ export interface SessionPaneLayoutProps {
   readonly paneContextFor: (pane: SessionPane) => PaneContext | Refusal;
   /** What the layout restore refused, rendered rather than swallowed. */
   readonly restoreRefusals?: readonly Refusal[];
-  /** Where measured pane rects go, for a body that hosts a native view.
-   * `pane-rect-tracker.ts` holds the rules. */
+  /** Where measured pane rects go, for a body that hosts a native view; see the rect tracker. */
   readonly onPaneRects?: (rects: readonly TrackedRect[]) => void;
 }
 
@@ -98,12 +73,9 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   const { layout } = props;
   const state = usePaneLayoutState(layout);
   const containerReference = useRef<HTMLDivElement>(null);
-  // The window's own clock, not a second time base beside it. In fixture mode that
-  // is the scenario's FROZEN clock, which every other view in the window already
-  // reads: a pane layout that minted a `RealClock` ran its rect-flush coalescing on wall
-  // time while the transcript and the reveal engine were frozen, so
-  // whether a flush had happened when a screenshot was taken depended on how long
-  // the runner took, and no advance of the fixture clock could settle it.
+  // The window's own clock, not a second time base: under the fixture it is the scenario's
+  // frozen clock, which every other view reads. A separate real clock made rect-flush timing
+  // depend on the runner.
   const clock = useClock();
   const tracker = usePaneRectTracker({
     clock,
@@ -112,29 +84,23 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
   usePaneRectSources(tracker, containerReference, state.revision);
   useSeparatorValueBoundsCorrection(containerReference, state.revision);
 
-  // Read HERE and not inside the drag seam: this is the component with the
-  // context, and a pane layout mounted outside `LiveAnnouncerProvider` throws on this line
-  // rather than reordering panes in a silence nobody watching can detect.
+  // Read here, in the component with the context: outside `LiveAnnouncerProvider` this throws
+  // instead of reordering panes in a silence nobody can detect.
   const announce = useAnnounce();
   const dragCoordinator = usePaneLayoutDragCoordinator();
   usePaneLayoutDragMonitor(dragCoordinator, layout, announce);
   const dropIndicator = usePaneLayoutDropIndicator(dragCoordinator);
 
-  // The five acts, built once per (layout, announcer) pair and shared by the two things
-  // that dispatch them: this component's own key handler below, and the palette rows
-  // `contributions/commands.ts` contributes. One implementation, so a chord and a
-  // palette row cannot mean two moves.
+  // The five acts, built once per (layout, announcer) pair and shared by this component's key
+  // handler and the palette rows in `contributions/commands.ts`, so a chord and a row cannot
+  // mean two moves.
   const acts = useMemo(() => paneLayoutActsOn(layout, announce), [layout, announce]);
   useMountedPaneLayout(acts);
 
   /**
-   * The density floor as a share of the pane layout, in permille, right now.
-   *
-   * Measured at the moment of the act rather than held in state: the floor is a
-   * width in pixels divided by the pane layout's own width, and a pane layout width kept in state
-   * would be a second copy of a number the DOM already has — one that goes stale
-   * exactly when the window is being resized. It is read inside a callback and
-   * never during a render, so nothing here makes rendering depend on layout.
+   * The density floor as a share of the pane layout, in permille, right now. Measured at the
+   * moment of the act rather than held in state, since a width kept in state would go stale
+   * exactly when the window is resized. Read inside a callback, never during a render.
    */
   const minimumPermille = useCallback(
     (density: PaneLayoutDensity): number => {
@@ -151,17 +117,13 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
-      // `Alt` alone, so nothing here collides with the palette's `$mod` chords.
+      // `Alt` alone, so nothing collides with the palette's `$mod` chords.
       if (!event.altKey || event.ctrlKey || event.metaKey) {
         return;
       }
-      // AND NOT FROM INSIDE A WIDGET THAT OWNS THESE KEYS. `Alt` alone is not the
-      // separation it was written as: on macOS Option+Arrow is word-wise caret
-      // movement and Option+Backspace deletes a word, and a pane body's find field,
-      // composer, or listbox bubbles those here. Without this the pane layout would move
-      // or CLOSE the pane somebody was typing in, and call `preventDefault` on the
-      // keystroke they meant. The chords stay available from the pane chrome, which
-      // is what has focus whenever a body does not.
+      // Not from inside a widget that owns these keys: on macOS Option+Arrow moves the caret
+      // by word and Option+Backspace deletes a word, and a find field, composer or listbox
+      // bubbles those here. The chords stay available from the pane chrome.
       if (isEditableTarget(event.target)) {
         return;
       }
@@ -185,9 +147,8 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
         }
         case "Backspace":
         case "Delete": {
-          // Consumed only where there is a pane to close, so a pane layout focusing nothing
-          // leaves Backspace to whatever else wanted it rather than eating the key
-          // and saying so — the same rule the window's binding table follows.
+          // Consumed only where there is a pane to close, so an unfocused layout leaves
+          // Backspace to whatever else wanted it, as the window's binding table does.
           if (state.focusedPaneId !== undefined) {
             acts.closeFocusedPane();
             event.preventDefault();
@@ -228,16 +189,11 @@ export function SessionPaneLayout(props: SessionPaneLayoutProps): React.JSX.Elem
 
   /**
    * Adopt what the group settled on, and re-measure while it is still settling.
-   *
-   * Two callbacks because they answer two different questions. `onLayoutChanged`
-   * fires once, when the pointer is released or a key is pressed, and is what the
-   * store keeps — writing every intermediate frame would put sixty arrangements a
-   * second through the persistence writer. `onLayoutChange` fires on every frame of
-   * the drag and does exactly one thing: invalidates the pane rects, so a native
-   * view hosted in a pane tracks its bounds THROUGH the resize rather than jumping
-   * to them at the end of it (`pane-rect-tracker.ts`). It is a read, queued to the
-   * next frame by the tracker; it writes no layout, which is the rule that callback
-   * exists under.
+   * `onLayoutChanged` fires once, on pointer release or key press, and is what the store
+   * keeps; writing every frame would put sixty arrangements a second through the persistence
+   * writer. `onLayoutChange` fires every frame of the drag and only invalidates the pane
+   * rects, so a native view hosted in a pane tracks its bounds through the resize. It writes
+   * no layout.
    */
   const onLayoutSettled = useCallback(
     (percentages: Readonly<Record<string, number>>) => {

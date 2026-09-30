@@ -1,18 +1,8 @@
-// The decode boundary reads the wire's envelope, and refuses the console's own shape.
-//
-// Both halves matter, and only together. The defect this file was written for was
-// invisible from either side alone: the boundary read `kind` and `actorId`
-// — the console's projection names — so it refused every canonical `EventEnvelope`
-// the daemon sends, while the fixture handed it the console's shape and every
-// fixture assertion agreed. So the positive case here parses a REGISTERED envelope,
-// which the old reader could not admit, and the negative control refuses the
-// authoring record, which the old reader admitted happily. Either one alone passes
-// against a boundary that reads the wrong wire.
-//
-// The envelopes and frames below are written out member by member rather than
-// composed by `event-envelope.fixture.ts`: the composer is what the fixture uses, and
-// a test that fed this boundary the composer's output would prove the two agree with
-// each other and nothing about whether either agrees with the contract.
+// The decode boundary reads the wire's envelope and refuses the console's own projection shape.
+// Both halves matter: a boundary that read the projection's names refused every canonical envelope
+// while the fixture handed it the projection and every assertion agreed. The envelopes here are
+// written member by member, not composed by `event-envelope.fixture.ts`, so the test checks the
+// boundary against the contract rather than against the fixture's own composer.
 
 import { describe, expect, it } from "vitest";
 
@@ -52,11 +42,8 @@ function registeredCategoryOf(eventType: typeof REGISTERED_TYPE): EventCategory 
 }
 
 /**
- * Some registered category that is not the given one.
- *
- * Derived from the census rather than written down, so the mismatch cases below stay
- * about the PAIRING: a taxonomy that grows a category, or moves this type between two,
- * moves this value with it instead of leaving a literal that quietly stops being wrong.
+ * Some registered category that is not the given one. Derived from the census so the mismatch
+ * cases stay about the pairing when the taxonomy changes.
  */
 function categoryOtherThan(ownCategory: EventCategory): EventCategory {
   const foreign = [...SESSION_EVENT_CATEGORY_BY_TYPE.values()].find(
@@ -69,12 +56,8 @@ function categoryOtherThan(ownCategory: EventCategory): EventCategory {
 }
 
 /**
- * One canonical envelope, spelled as `packages/contracts` declares it.
- *
- * `overrides` is `Record<string, unknown>` rather than a partial envelope on
- * purpose: several cases below vary a member to a value the contract forbids, and a
- * typed partial would refuse to express exactly the deliveries this boundary exists
- * to reject.
+ * One canonical envelope, spelled as `packages/contracts` declares it. `overrides` is untyped so a
+ * case can set a member to a value the contract forbids.
  */
 function registeredEnvelope(
   overrides: Readonly<Record<string, unknown>> = {},
@@ -129,10 +112,8 @@ describe("readSessionStreamFrame — the registered envelope", () => {
   });
 
   it("decodes a system-emitted envelope with no actor at all", () => {
-    // `actor: null` is the wire's system arm — the canonical set's only nullable
-    // member. It has to reach the console as an ABSENCE and not as the string
-    // "null" or an empty id, because the store admits every actor it is handed to
-    // the user hue allocator.
+    // `actor: null` is the wire's system arm. It must reach the console as an absence, not as the
+    // string "null" or an empty id, because the store hands every actor to the user hue allocator.
     const decoded = readOneEvent(registeredEnvelope({ actor: null }));
 
     expect(decoded?.actorId).toBeUndefined();
@@ -140,8 +121,7 @@ describe("readSessionStreamFrame — the registered envelope", () => {
   });
 
   it("decodes an envelope that omits the actor key entirely", () => {
-    // The other no-value state. Absent and present-null are wire-distinguishable
-    // and both mean nobody is named, so both settle the same way here.
+    // Absent and present-null are wire-distinguishable but both mean nobody is named.
     const decoded = readOneEvent(registeredEnvelope());
 
     expect(decoded?.actorId).toBeUndefined();
@@ -150,39 +130,29 @@ describe("readSessionStreamFrame — the registered envelope", () => {
 
 describe("readSessionStreamFrame — the census pairing of type and category", () => {
   it("refuses a census-known type carrying a category the registry does not pair it with", () => {
-    // THE case this leg exists for, and the one the tolerant carrier cannot make:
-    // `EventEnvelopeSchema` admits any registered category beside any bounded type
-    // string, and the strict layer — where a category/type mismatch fails loud — is
-    // not the layer that runs here. Without this leg the pair would parse, `category`
-    // would be dropped, and every projector above would route on `kind` alone,
-    // mutating the run partition off a combination the strict layer refuses outright.
+    // The case the tolerant carrier cannot make: it admits any registered category beside any
+    // type, and the strict layer that rejects a mismatch does not run here. Without this check the
+    // run partition would be mutated off a pairing the strict layer refuses.
     const reading = readFrameOf(
       registeredEnvelope({ category: categoryOtherThan(REGISTERED_CATEGORY) }),
     );
 
-    // The frame is read and this one change is counted, not held: the refusal is the
-    // event's, and a frame's other changes are not lost with it.
+    // The refusal is the event's; the frame's other changes are not lost with it.
     expect(reading?.events).toStrictEqual([]);
     expect(reading?.unreadableEventCount).toBe(1);
   });
 
   it("admits the same type carrying the category the registry does pair it with", () => {
-    // The control that keeps the case above from holding over a boundary that refused
-    // every delivery: this is the pairing the census itself declares, so a decoder
-    // reading the registry backwards, or refusing whenever it finds an entry, fails
-    // here while still passing the mismatch case.
+    // Keeps the case above from passing over a boundary that refused every delivery: a decoder
+    // reading the registry backwards fails here.
     const decoded = readOneEvent(registeredEnvelope({ category: REGISTERED_CATEGORY }));
 
     expect(decoded?.kind).toBe(REGISTERED_TYPE);
   });
 
   it("admits a type the census does not register, whatever category it names", () => {
-    // Forward compatibility, which is the whole reason the tolerant carrier is the
-    // schema this boundary parses with: a higher-MINOR producer may send a type this
-    // console has no entry for, and the console persists it rather than dropping it.
-    // There is no registered pairing to check such a delivery against, so every
-    // category the taxonomy carries is admitted beside it — swept rather than sampled,
-    // so a leg that refused one category would be caught.
+    // A higher-minor producer may send a type this console has no entry for, and the console keeps
+    // it. Every category is swept so a check that refused one would be caught.
     expect(SESSION_EVENT_CATEGORY_BY_TYPE.has(UNREGISTERED_TYPE as never)).toBe(false);
 
     for (const category of new Set(SESSION_EVENT_CATEGORY_BY_TYPE.values())) {
@@ -193,10 +163,7 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
   });
 
   it("carries no category onto the console event, which no reader above reads", () => {
-    // The pairing is CHECKED here and travels no further: every projector routes on
-    // `kind`, so a `category` member on `ProjectedSessionEvent` would be minted ahead of
-    // its reader. Asserted on the whole decoded value in the first case of this file;
-    // pinned here as the claim rather than as a side effect of that assertion.
+    // The pairing is checked and travels no further, since every projector routes on `kind`.
     const decoded = readOneEvent(registeredEnvelope());
 
     expect(decoded).toBeDefined();
@@ -206,9 +173,8 @@ describe("readSessionStreamFrame — the census pairing of type and category", (
 
 describe("readSessionStreamFrame — the drop mark", () => {
   it("reads the caught-up frame: no events, and the daemon's mark that it dropped some", () => {
-    // The one frame with no changes the contract admits. A reader that took it as an
-    // empty batch would leave a session that went quiet after a drop short of rows
-    // with nothing saying so.
+    // The one frame with no changes the contract admits. Read as an empty batch, it would leave the
+    // session short of rows with nothing saying so.
     expect(readSessionStreamFrame({ changes: [], dropped: true, cursor: EVENT_ID })).toStrictEqual({
       events: [],
       unreadableEventCount: 0,
@@ -229,10 +195,8 @@ describe("readSessionStreamFrame — the drop mark", () => {
 
 describe("readSessionStreamFrame — what it refuses", () => {
   it("negative control: refuses the console's own projection shape", () => {
-    // THE control for this file. This is exactly what the fixture used to deliver
-    // and what the old boundary admitted: the console's field names, no `category`
-    // and no `version`. A boundary that still reads the projection passes every
-    // other case here and fails this one.
+    // The control for this file: the console's own field names, with no `category` or `version`,
+    // which a boundary still reading the projection would admit.
     const reading = readFrameOf({
       id: EVENT_ID,
       sessionId: SESSION_ID,
@@ -247,17 +211,14 @@ describe("readSessionStreamFrame — what it refuses", () => {
   });
 
   it("refuses an envelope carrying no event id", () => {
-    // The id is the handle every later read of this event's body is keyed by, so a
-    // delivery without one would put a row in the store no view could open —
-    // and composing one out of the members that ARE present would look identical
-    // from every other assertion in this file.
+    // The id keys every later read of this event's body, so an event without one could not be
+    // opened.
     expect(readFrameOf(registeredEnvelope({ id: "" }))).toBeUndefined();
   });
 
   it("refuses an envelope whose sequence is not a whole position", () => {
-    // The store's dedupe set, cursor, and gap detection all key on `sequence`. A
-    // fractional one makes `cursor + 1` name a position no event can occupy, so the
-    // session is permanently degraded by a gap that never closes.
+    // The store's dedupe, cursor and gap detection key on `sequence`; a fractional one would leave
+    // the session degraded by a gap that never closes.
     expect(readFrameOf(registeredEnvelope({ sequence: 1.5 }))).toBeUndefined();
   });
 
@@ -266,14 +227,13 @@ describe("readSessionStreamFrame — what it refuses", () => {
   });
 
   it("refuses an envelope whose payload is an array rather than a keyed record", () => {
-    // An array is `typeof "object"`. Admitting one hands every projector a value
-    // whose named members are all `undefined` at a type that says they are readable.
+    // An array is `typeof "object"`; admitting one gives projectors a value whose members are all
+    // `undefined`.
     expect(readFrameOf(registeredEnvelope({ payload: [] }))).toBeUndefined();
   });
 
   it("refuses a delivery that is not a frame at all", () => {
-    // A bare envelope is not a frame, and a reader that took one would admit a
-    // delivery the daemon does not send.
+    // A bare envelope is not a frame, and the daemon does not send one.
     expect(readSessionStreamFrame(registeredEnvelope())).toBeUndefined();
     expect(readSessionStreamFrame(undefined)).toBeUndefined();
     expect(readSessionStreamFrame(null)).toBeUndefined();

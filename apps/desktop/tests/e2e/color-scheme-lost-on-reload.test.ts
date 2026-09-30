@@ -1,34 +1,23 @@
-// Tier: end-to-end. Its spec files are named for the incident they reproduce
-// rather than for the module they touch.
+// Tier: end-to-end. Spec files are named for the incident they reproduce, not the module they
+// touch. Every other tier renders the console into something that is not the application
+// (happy-dom, or a Chromium page), so none catches a defect that exists only in the shipped
+// app; this tier runs the path a person installing it would run.
 //
-// Every other console tier renders the console into something that is not the
-// application: happy-dom for the unit tier, a Chromium page for the three browser-mode
-// tiers. None of them can catch a defect that exists only in the shipped app, and
-// this tier runs the code path a person installing the application would run.
+// Playwright's own auto-retrying `expect` is not used: with two `expect`s, which timeout
+// applies to a line is answered from the import list, and its web-assertion timeouts come from
+// a test context this runner does not provide. Waiting is explicit (`locator.waitFor`,
+// `expect.poll`) and asserting is Vitest's.
 //
-// ONE ASSERTION LIBRARY, DELIBERATELY. Playwright ships its own auto-retrying `expect`
-// and it is not used here: mixing two `expect`s makes which timeout applies to a line
-// a question a reader answers from the import list, and Playwright's web-assertion
-// timeouts are read from a test context this runner does not provide. Waiting is
-// explicit (`locator.waitFor`, `expect.poll`) and asserting is Vitest's.
+// The incident: the color scheme a person chose was back to the default after a restart. The
+// applied attribute is written synchronously and the durable record is not, so every layer
+// above reports success while the bytes are in flight; only a reload separates a preference
+// that was written from one merely readable in the window that wrote it.
 //
-// THE INCIDENT: the color scheme a person chose was back to the default after a
-// restart.
-//
-// The applied attribute is written synchronously and the durable record is not, so
-// every layer above reports success while the bytes are still in flight — and the only
-// observation that separates a preference that was WRITTEN from one that is merely
-// readable in the window that wrote it is a reload.
-//
-// EVERY WAIT IS CHARGED TO THE BODY'S ALLOWANCE. `withLaunchedApp` reserves an
-// allowance for what runs between a settled launch and its cleanup, and a wait that
-// ignored it would be bounded twice over with the wrong one winning: a poll declaring
-// 10 000 ms against an allowance with 200 ms left runs past the allowance, and the
-// outer race then replaces the poll's own message ("the scheme did not change") with
-// the generic body-overrun sentence. So every bounded wait below is handed
-// `bodyAllowance.boundedMs(<its own bound>)` — the smaller of the two — which is what
-// makes the FIRST wait that cannot fit fail saying which step it was. A wait that
-// names no allowance is a review rejection.
+// Every wait is charged to the body's allowance. `withLaunchedApp` reserves one for what runs
+// between a settled launch and its cleanup, and a wait that ignored it would let the outer race
+// replace the poll's own message with the generic body-overrun sentence. Each bounded wait is
+// handed `bodyAllowance.boundedMs(<its own bound>)`, so the first wait that cannot fit names
+// its step.
 //
 
 import { describe, expect, it } from "vitest";
@@ -61,12 +50,9 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
           SCHEME_ATTRIBUTE,
         );
 
-      // What is actually ON DISK, read through a second connection rather than
-      // through the console's own store.
-      //
-      // The names come from the modules that own them, so a renamed database or
-      // key breaks this at compile time instead of turning the check vacuous. The
-      // record shape is the adapter's `StoredRecord`; only its `value` is read.
+      // What is actually on disk, read through a second connection rather than the console's
+      // own store. The names come from the modules that own them, so a rename breaks this at
+      // compile time; the record shape is the adapter's `StoredRecord`, and only `value` is read.
       const readPersistedScheme = async (): Promise<string | null> =>
         await consoleWindow.evaluate(
           async ([databaseName, storeName, partition, key]) =>
@@ -78,8 +64,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
               openRequest.onsuccess = (): void => {
                 const database = openRequest.result;
                 if (!database.objectStoreNames.contains(storeName)) {
-                  // The console degraded to memory and this connection just
-                  // created an empty database. Nothing is stored; say so.
+                  // The console degraded to memory and this connection just created an empty
+                  // database, so nothing is stored.
                   database.close();
                   resolve(null);
                   return;
@@ -107,19 +93,14 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
           ] as const,
         );
 
-      // A fresh profile starts on "system", and "system" writes NO attribute —
-      // deliberately, so the sheet's `prefers-color-scheme` layer keeps following
-      // the OS instead of freezing at whatever it was at mount. Asserted rather
-      // than assumed: it is the state every first-run person is in, and a
-      // resolved value written here would be the defect.
+      // A fresh profile starts on "system", which writes no attribute so the sheet's
+      // `prefers-color-scheme` layer keeps following the OS; a resolved value here would be the
+      // defect.
       expect(await readScheme()).toBeNull();
 
-      // Driven through the palette rather than by calling the store, because the
-      // durable write is the point: this proves the whole path a person takes —
-      // command, store, chokepoint, IndexedDB — and a direct store call would
-      // prove only that the store works, which the unit tier already knows. The
-      // `Color scheme` row moves to the next scheme in its cycle, and the one after
-      // "system" is dark.
+      // Driven through the palette to prove the whole path a person takes (command, store,
+      // chokepoint, IndexedDB), which a direct store call would not. The `Color scheme` row
+      // moves to the next scheme in its cycle, and the one after "system" is dark.
       await openPalette(consoleApplication);
       await consoleWindow.keyboard.type("Color scheme");
       await consoleWindow.keyboard.press("Enter");
@@ -130,11 +111,8 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
         })
         .toBe("dark");
 
-      // The applied attribute is set synchronously and the durable write is not,
-      // so the reload waits for the bytes rather than for the paint. Without this
-      // the test would be racing a database commit against a navigation, and the
-      // shape of losing that race is a lost preference reported as a broken
-      // feature.
+      // The reload waits for the bytes, not the paint; otherwise a database commit would race a
+      // navigation and a lost preference would look like a broken feature.
       await expect
         .poll(readPersistedScheme, {
           timeout: consoleApplication.bodyAllowance.boundedMs(IN_WINDOW_STEP_TIMEOUT_MS),
@@ -142,18 +120,13 @@ describe.skipIf(!bundleIsBuilt)("end-to-end — color scheme lost on reload", ()
         })
         .toBe("dark");
 
-      // The reload is the assertion. Everything above could pass against state
-      // that lives only in memory; only a reload distinguishes a preference that
-      // was written from one that is merely readable in the window that wrote it.
-      // IndexedDB is per-origin and this launch has its own profile, so the read
-      // is of this run's own write.
+      // The reload is the assertion: everything above could pass against state that lives only
+      // in memory. IndexedDB is per-origin and this launch has its own profile, so the read is
+      // this run's own write.
       //
-      // The reload boots the renderer a second time, which is the subject
-      // `console-launch-readiness` bounds — so the navigation and the frame
-      // element it must produce share ONE clock at that figure rather than
-      // taking it each, exactly as `launchConsole` divides its own ladder. Both
-      // legs are additionally held to what is left of the body's allowance, so
-      // whichever runs out first is the one that names itself.
+      // The reload boots the renderer a second time, which `console-launch-readiness` bounds, so
+      // the navigation and the frame element share one clock at that figure, as `launchConsole`
+      // divides its own ladder. Both legs are also held to what is left of the body's allowance.
       const reloadDeadline = new LaunchDeadline(READINESS_BUDGET_MS);
       await consoleWindow.reload({
         timeout: consoleApplication.bodyAllowance.boundedMs(reloadDeadline.remainingMs()),

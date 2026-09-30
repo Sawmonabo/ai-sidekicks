@@ -1,19 +1,7 @@
-// What a `daemon.subscribe` name delivers, and whether the routing can be changed
-// under a running renderer.
-//
-// The two questions a SUBSCRIBER's string raises: which kinds bear on the name it
-// passed, and whether anything in the process can answer that differently later.
-// Whether each stream carries what the wire registers is the sibling suite,
-// `session-event-stream-kinds.test.ts`, beside the module that declares the kinds —
-// it re-derives every list from the contracts census, which is the proof this file
-// takes as given.
-//
-// The negative controls carry the weight here for the same reason they do in the
-// sibling suite:
-// every assertion is about a set, and a predicate that answered `false` for
-// everything would satisfy "a narrowed stream refuses a stranger" perfectly. Each
-// clean answer is therefore pinned against a kind that must be delivered and one that
-// must not.
+// What a `daemon.subscribe` name delivers, and that nothing can re-route the table at runtime.
+// Whether each stream carries what the wire registers is `session-event-stream-kinds.test.ts`.
+// Every assertion is about a set, so each answer is pinned against a kind that must be delivered
+// and one that must not; a predicate that always answered `false` would otherwise pass.
 
 import { describe, expect, it } from "vitest";
 
@@ -63,24 +51,16 @@ describe("session-event streams — what a subscription name delivers", () => {
   });
 });
 
-// The routing table is a process-wide CONSTANT and not per-bridge state, so
-// "two bridges do not share routing state" is not the property to assert — there
-// is no state to share, and asserting it would pass over the exact defect this
-// closes. The stronger claim is asserted instead: nothing in the process can
-// change the table at all, so no subscription, and no bridge, can re-route
-// another.
+// The routing table is a process-wide constant, so the property to assert is that nothing in the
+// process can change it, not that two bridges do not share state.
 describe("session-event streams — the table cannot be re-routed at runtime", () => {
   it("refuses to grow a kind on an exported stream row", () => {
-    // The defect this closes: the rows were `ReadonlySet` views over mutable
-    // `Set`s, and `ReadonlySet` is a compiler view and nothing else. One
-    // `carriedKinds.add(…)` anywhere in the process re-routed every subscription
-    // in the renderer for the rest of its life, silently and permanently.
+    // The rows were once `ReadonlySet` views over mutable `Set`s, so one `add` re-routed every
+    // subscription in the renderer.
     const carried = carriedKindsOf(RUN_QUEUE_EVENT_STREAM);
 
     expect(() => {
-      // @ts-expect-error `carriedKinds` is a frozen `readonly string[]`, so the
-      // compiler refuses `push` before the runtime does — both halves matter,
-      // because the type view alone is what used to be relied on.
+      // @ts-expect-error `carriedKinds` is a `readonly string[]`, so `push` is a type error.
       carried.push("run.starting");
     }).toThrow(TypeError);
     expect(subscriptionDeliversEventKind(RUN_QUEUE_EVENT_STREAM, "run.starting")).toBe(false);
@@ -92,8 +72,7 @@ describe("session-event streams — the table cannot be re-routed at runtime", (
         scope: "whole-session",
       };
     }).toThrow(TypeError);
-    // The routing the swap tried to install: a whole-session row answers `true`
-    // for every kind, so this is what a successful mutation would have looked like.
+    // A whole-session row answers `true` for every kind, so this is what a successful swap shows.
     expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "queue_item.created")).toBe(false);
   });
 
@@ -108,18 +87,14 @@ describe("session-event streams — the table cannot be re-routed at runtime", (
   });
 
   it("negative control: the frozen check distinguishes a copy of the same data", () => {
-    // Without it, an `isFrozen` that answered `true` for everything would pass the
-    // case above — and a copy is exactly what a caller who wants to mutate should
-    // have to make, so it must read as unfrozen.
+    // Without it, an `isFrozen` that always answered `true` would pass the case above.
     expect(Object.isFrozen([...carriedKindsOf(RUN_STATE_EVENT_STREAM)])).toBe(false);
     expect(Object.isFrozen({ ...SESSION_EVENT_STREAMS })).toBe(false);
   });
 
   it("answers a lookup for an inherited property name as no row at all", () => {
-    // A subscription name and an event kind both arrive wire-verbatim, so
-    // `"constructor"` reaches these lookups exactly as a registered string does. An
-    // indexed read would answer it with something off `Object.prototype`, which is
-    // a truthy value where the caller asked whether the table has a row.
+    // Subscription names and kinds arrive wire-verbatim, so `"constructor"` must not resolve to
+    // something off `Object.prototype`.
     expect(sessionEventStreamFor("constructor")).toBeUndefined();
     expect(subscriptionDeliversEventKind(RUN_STATE_EVENT_STREAM, "toString")).toBe(false);
     expect(subscriptionDeliversEventKind("constructor", "constructor")).toBe(true);

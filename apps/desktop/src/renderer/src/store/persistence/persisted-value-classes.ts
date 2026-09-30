@@ -1,46 +1,25 @@
-// The closed value-class enumeration the persistence write chokepoint enforces.
+// The closed value-class enumeration the persistence write chokepoint enforces. The durable
+// store holds UI state only; a write outside the enumeration (message text, form values,
+// paths, code, names, anything user- or machine-authored) is a tripwire failure.
 //
-// The durable store holds UI state only — a closed value-class enumeration the
-// persistence layer's schema encodes, and a write outside it (message text, form
-// values, paths, code, names, anything user- or machine-authored) is a
-// tripwire failure at the store's write chokepoint.
+// Two conjuncts tell an expansion set from a sentence, and neither alone would:
 //
-// The hard part is mechanical: how does a chokepoint tell an expansion set from a
-// sentence? Two conjuncts do it, and neither alone would:
+//   1. A class, with a shape. Each class declares the structure its value must have, and there
+//      is no "arbitrary JSON" class, so a caller cannot smuggle a body through one.
+//   2. Every string is identifier-shaped. The grammar lives in `lib/identifier-grammar.ts`;
+//      this module applies it to every string a value carries, including object keys. A path
+//      contains `/`, which the charset admits, so paths are excluded by the class shapes: no
+//      class has a field that takes one.
 //
-//   1. **A class, with a shape.** Each class below declares the structure its
-//      value must have. There is no "arbitrary JSON" class, so a caller cannot
-//      smuggle a body through by claiming a class that accepts anything.
-//   2. **Every string is identifier-shaped.** That grammar — the charset, the
-//      ceiling, and the address exclusion built on it — lives one module down in
-//      `identifier-grammar.ts`; this module applies it to every string a value
-//      carries, including its object keys.
+// This module owns the closed set, each class's shape, the walk that applies the grammar, and
+// the byte measurement over a whole record. The refusal vocabulary is in
+// `persistence-refusals.ts`, because both adapters raise refusals and the grammar also settles
+// record addresses, which have no class.
 //
-// The rule is deliberately stricter than "no obvious prose". A filesystem path
-// contains `/`, which the charset admits, so path-shaped strings are excluded by
-// the CLASS shapes instead: no class below has a field that takes a path. Both
-// conjuncts are load-bearing.
-//
-// WHAT THIS MODULE OWNS, AND WHAT IT DOES NOT. The closed set, the shape each of
-// its classes declares, the walk that applies the grammar to a value, and the one
-// byte measurement over a whole record — one subject, the VALUE, from four angles.
-// The refusal vocabulary every one of those raises is declared below them all in
-// `refusals.ts`, and the string grammar in `identifier-grammar.ts`, because each is
-// consumed by modules this one never sees: both adapters raise refusals, and the
-// grammar settles record ADDRESSES, which have no class and so no shape.
-//
-// Drafts are absent from this enumeration on purpose. Composer text, form values,
-// paths, and code a user typed and did not send are user-authored
-// content, and the only durable homes such content has are the daemon's encrypted,
-// PII-mapped stores. A draft lives in its window's memory for that window's lifetime
-// — see `draft-store.ts`.
-//
-// ONE DECLARATION OF EACH CLOSED SET. The class names are written once, as the
-// `as const` array below; the union is `(typeof …)[number]` and the validator
-// table is keyed by that union. A validator with no enumerated class is an excess
-// property and an enumerated class with no validator is a missing one, so the two
-// halves cannot drift — which they could while the union and the array were two
-// hand-maintained lists that only a reader ever compared.
+// Drafts are absent on purpose: composer text is user-authored content, and its only durable
+// homes are the daemon's encrypted stores. A draft lives in window memory (`draft-store.ts`).
+// The class names are one `as const` array, the union derives from it, and the validator table
+// is keyed by the union, so the two halves cannot drift.
 
 import { isWireRecord } from "@renderer/lib/wire-record.js";
 import { SCHEME_PREFERENCES, isSchemePreference } from "@renderer/styles/tokens.js";
@@ -85,8 +64,7 @@ function invalid(detail: string): PersistenceRefusal {
   return refusePersistence("value-shape-invalid", detail);
 }
 
-// The rule the detail states: user- and machine-authored content has no
-// durable home in the renderer.
+// User- and machine-authored content has no durable home in the renderer.
 function notIdentifier(where: string, value: string): PersistenceRefusal {
   return refusePersistence(
     "value-not-identifier-shaped",
@@ -95,14 +73,9 @@ function notIdentifier(where: string, value: string): PersistenceRefusal {
 }
 
 /**
- * The record rule, re-narrowed over the `PersistableValue` tree this module walks.
- *
- * The decision — an object, not `null`, not an array — is `lib/wire-record.ts`'s and
- * is not restated here. What this adds is the narrowing, and it is load-bearing: both
- * callers below go straight on to `Object.entries` / `Object.values` and hand each
- * member back to a `PersistableValue` walk, which `Readonly<Record<string, unknown>>`
- * cannot feed. A local that only narrows is one line and no second rule; a cast at
- * each caller would be the same claim made twice with nothing checking either.
+ * The record rule from `lib/wire-record.ts`, re-narrowed over the `PersistableValue` tree.
+ * Both callers hand each member back to a `PersistableValue` walk, which
+ * `Readonly<Record<string, unknown>>` cannot feed.
  */
 function isPlainObject(
   value: PersistableValue,
@@ -111,17 +84,13 @@ function isPlainObject(
 }
 
 /**
- * Walk a value and refuse the first string that is not identifier-shaped. Object
- * KEYS are checked too: a key is as good a smuggling channel as a value.
+ * Walks a value and refuses the first string that is not identifier-shaped. Object keys are
+ * checked too, since a key is as good a smuggling channel as a value.
  *
- * `ancestors` holds the containers on the current descent, so a value that
- * reaches back into itself is refused as a shape fault rather than overflowing
- * the stack. The type says a persisted value is a tree, but this walk runs
- * before any other check on whatever an untyped boundary handed in, and a
- * cyclic object would otherwise take the whole renderer down inside a write
- * refusal. A container reached twice by two different paths — a shared leaf, no
- * cycle — is walked twice and admitted, which is why this is a descent stack and
- * not a visited set.
+ * `ancestors` holds the containers on the current descent, so a cyclic value is refused as a
+ * shape fault rather than overflowing the stack; this walk runs first, on whatever an untyped
+ * boundary handed in. A container reached twice by different paths is walked twice and
+ * admitted, which is why this is a descent stack and not a visited set.
  */
 function everyStringIsIdentifierShaped(
   value: PersistableValue,
@@ -232,13 +201,9 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
       ? undefined
       : invalid(`scheme is one of ${SCHEME_PREFERENCES.join(", ")}`),
   /**
-   * A settings record: identifier-named switches to booleans, and nothing else.
-   *
-   * BOOLEANS ONLY, which is what keeps this from becoming the arbitrary-JSON class
-   * the enumeration exists to refuse. A preference that needed a string would be
-   * carrying a name, a path, or a sentence — the three things that have no durable
-   * home in the renderer — and a preference that needed a number would be a
-   * threshold, which is a constant with a rationale rather than a stored value.
+   * A settings record: identifier-named switches to booleans, and nothing else. Booleans only,
+   * or this becomes the arbitrary-JSON class the enumeration exists to refuse: a string would
+   * carry a name, path or sentence, and a number would be a threshold, which is a constant.
    */
   preference: recordOf(
     (value) => (typeof value === "boolean" ? undefined : invalid("a preference is on or off")),
@@ -247,21 +212,16 @@ const SHAPE_VALIDATORS: Readonly<Record<PersistedValueClass, ShapeValidator>> = 
 };
 
 /**
- * True when a string names one of the admitted classes.
- *
- * A narrowing guard rather than a bare `includes`, so the lookup below needs no
- * cast and a caller that has only a `string` — everything arriving across a
- * boundary the compiler does not see — can ask the same question the chokepoint
- * asks, through the same predicate.
+ * True when a string names one of the admitted classes. A narrowing guard, so a caller holding
+ * only a `string` from across a boundary asks the same question the chokepoint does.
  */
 export function isPersistedValueClass(candidate: string): candidate is PersistedValueClass {
   return (PERSISTED_VALUE_CLASSES as readonly string[]).includes(candidate);
 }
 
 /**
- * The chokepoint's validator. Returns a refusal or `undefined`; it never
- * normalizes, truncates, or repairs, because a store that silently fixes a write
- * hides the caller that made it.
+ * The chokepoint's validator. Returns a refusal or `undefined`; it never normalizes, truncates
+ * or repairs, since that would hide the caller that made the bad write.
  */
 export function validatePersistedValue(
   valueClass: string,
@@ -281,24 +241,13 @@ export function validatePersistedValue(
 }
 
 /**
- * THE byte measurement. Every cap the chokepoint applies is counted through this
- * one function, over the whole record rather than over its value alone.
+ * The byte measurement every cap the chokepoint applies is counted through, over the whole
+ * record rather than its value alone: the address is stored too, and an index holds a second
+ * copy of the key.
  *
- * It sits with the value type it serializes rather than in a module of its own:
- * `JSON.stringify` over a `PersistableValue` is the measurement, and a module
- * holding the ruler while the thing being measured is declared in another would be
- * two files for one fact.
- *
- * The address counts because it is stored: a cap that measured only the value
- * would let a caller spend the entire ceiling on the value and then a further
- * unbounded amount on the key beside it, and the key is the part an index holds a
- * second copy of.
- *
- * UTF-8 bytes rather than `String.length`, which counts UTF-16 code units. Today
- * every string that reaches here has already passed the ASCII-only identifier
- * grammar, so the two agree — which is exactly why the cheaper one would go
- * unnoticed if the charset ever widened, and a ceiling described in bytes would
- * quietly start admitting several times what it claims.
+ * UTF-8 bytes, not `String.length` (UTF-16 code units). Every string here has passed the
+ * ASCII-only identifier grammar so the two agree today, but a byte ceiling counting code units
+ * would silently admit several times its claim if the charset widened.
  */
 export function measureRecordByteLength(
   partition: string,
@@ -315,23 +264,13 @@ export function measureRecordByteLength(
 }
 
 /**
- * The chokepoint's ADDRESS validator.
+ * The chokepoint's address validator. `partition` and `key` are written verbatim, so a caller
+ * deriving either from authored input would put prose or a path into durable storage beside an
+ * ordinary boolean value.
  *
- * `partition` and `key` are written to the record verbatim, so a caller that
- * derived either from user- or machine-authored input would put prose, a
- * path, or a name into durable storage while handing the value check a perfectly
- * ordinary boolean. Validating one half of a record and copying the other half
- * through is not a chokepoint, it is a chokepoint on one field.
- *
- * A code of its own rather than a reuse of `value-not-identifier-shaped`: the
- * store counts refusals BY CODE for the diagnostics view, and an operator
- * reading a count that named values while every one of them was an address would
- * go and audit the wrong half of every write.
- *
- * Neither component is echoed, only its length and which half it is — the same
- * discipline the value walk keeps, because a refusal that quotes the prose it
- * refused has carried that prose one layer further out than the store that
- * stopped it.
+ * It has its own refusal code, since the store counts refusals by code and a count naming
+ * values for what were addresses would send an operator to audit the wrong half. Neither
+ * component is echoed, only its length and which half it is.
  */
 export function validatePersistedAddress(
   partition: string,

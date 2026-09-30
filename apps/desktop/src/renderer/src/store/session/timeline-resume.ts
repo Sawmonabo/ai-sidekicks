@@ -1,70 +1,9 @@
-// The resume rule: where a store's next read of a session's stream starts, and what
-// the console does when the position it remembered is refused.
+// Where a store's next read of a session's stream starts, and what the console does when the
+// remembered position is refused. Pure: `open-session-entry.ts` acts on the decision.
 //
-// A PURE MODULE. It decides; it holds nothing and it calls nothing. `open-session-
-// entry.ts` is what ACTS on the decision — it submits the cursor on its next read,
-// beside the gap re-pull it already performs — because that entry is the one object
-// holding a store, its queue, and its scheduler together, and a decision acted on
-// anywhere else would be a second writer of a store whose whole design is one.
-//
-// WHICH SHAPE THIS IS DECIDED AGAINST, AND WHY IT IS THE SHIPPED ONE
-//
-// `packages/contracts/src/session.ts` is the shape on the wire: `SessionReadResponse`
-// carries `timelineCursors` as a `.strict()` object over `{ latest, acknowledged? }`
-// and carries NO `earliest` member. Strict is the load-bearing word — a responder
-// that sent one would be refused at the parse, so `earliest` is not a member a newer
-// daemon might grow into this reply; it is a member this reply cannot have.
-//
-// THE CONSOLE READS THE SHIPPED SCHEMA. A rule that resumes from
-// `acknowledged ?? earliest`, and compares the two to decide whether events were lost,
-// decodes a member the shipped schema forbids, and refusing the resume cycle whenever
-// `earliest` is absent would refuse every read from every responder. So the two facts
-// the shipped reply does carry are what is decided from.
-//
-// THE VOCABULARY, RE-DERIVED FROM WHAT A READ CAN ACTUALLY SAY
-//
-//   • `resume` — the reply carried an `acknowledged` position. That is where this
-//     user has been read up to, so the next read starts there.
-//   • `restart` — it carried none. Nothing has been acknowledged, so the beginning of
-//     the window IS the resume position and no cursor is submitted. This is a first
-//     read and it is the ordinary case; it is NOT a refusal.
-//   • `refused` — the daemon could not resolve a cursor this console SUBMITTED. The
-//     only refusal, because it is the only case that describes an answer rather than
-//     the shape of the responder's reply.
-//
-// WHY THE REFUSED ARM IS A VALUE AND NOT A THROW. It carries the console's refusal
-// grammar so a view renders it beside the feed rather than in place of it: the
-// stream is fine, the projection is fine, and what was lost is one remembered
-// position. A throw would turn that into a rejected read the scheduler records as a
-// degradation of the store, which is a different and worse claim.
-//
-// WHY THERE IS NO LOST-EVENT ARM, AND WHAT WOULD RE-ARM ONE
-//
-// A lost-event test — `decode(acknowledged) < decode(earliest)` means events were
-// lost — names `decode` as the inverse of an `encode` the daemon owns and
-// PUBLISHES NEITHER. `packages/contracts/src/session.ts` says the cursor is opaque in as
-// many words: its internal structure (sequence + monotonic_ns) is the daemon's, the
-// schema is a bounded non-empty string, and any non-empty bounded string is accepted
-// until that format is published. So this console has no ordering to take, and reading
-// one out of a cursor's leading characters is not a narrow reading of the contract — it
-// is an ordering invented for bytes the contract calls opaque. It also mis-fires on the
-// cursor that is on the wire TODAY: the client SDK synthesizes every cursor from an
-// event's UUID, and a leading-integer scan orders two UUIDs by whichever hex digits they
-// happen to start with — then discards a live projection on a loss nothing established.
-// And the comparison needs a floor the shipped reply does not carry at all, which is the
-// paragraph above.
-//
-// WHAT RE-ARMS IT. Either half is enough, and neither is a renderer's to invent:
-//
-//   • an ordering published by the cursor's OWNER — a `compareEventCursors` exported
-//     from `@ai-sidekicks/contracts` beside `EventCursorSchema`, or the structural
-//     cursor format that schema's own comment says would tighten its regex; or
-//   • a divergence the DAEMON reports, on a member of the session read or the
-//     subscribe reply. None is registered.
-//
-// Until then a lost row reaches the store as the sequence gap it already reconciles,
-// and the one cursor refusal the corpus does register — the submitted-cursor refusal
-// below — is the only arm that declines a cycle.
+// The decision reads the two members the wire schema carries (`latest` and optional
+// `acknowledged`). The cursor is opaque to the console, so there is no lost-event arm: a lost
+// row reaches the store as the sequence gap it already reconciles.
 
 import { EVENT_CURSOR_UNRESOLVABLE_CODE } from "@ai-sidekicks/contracts";
 
@@ -75,17 +14,8 @@ import { refuse, type NarrowedRefusal } from "@renderer/lib/refusal.js";
 export const TIMELINE_RESUME_ORIGIN = "timeline-resume";
 
 /**
- * Why a resume cycle was refused. Closed, and closed at ONE member.
- *
- * A reply with no cursor block, or a block missing a floor the shipped schema has no
- * member for, describes the SHAPE of a responder's reply rather than an answer, and is
- * not refused. The one refusal reports a failure: a position this console sent, that
- * the daemon could not resolve.
- *
- * A single-member enumeration rather than a bare literal, because the code a refusal
- * carries is a closed set this module owns,
- * a code outside it is a compile error at the site that raises it, and the co-located
- * test compares what is raised against what is declared.
+ * Why a resume cycle was refused. Closed at one member: a reply with no `acknowledged`
+ * position describes the reply, not an answer, so it restarts instead of being refused.
  */
 export const TIMELINE_RESUME_REFUSAL_CODES = ["resume-cursor-unresolvable"] as const;
 
@@ -96,12 +26,8 @@ export type TimelineResumeRefusalCode = (typeof TIMELINE_RESUME_REFUSAL_CODES)[n
 export type TimelineResumeRefusal = NarrowedRefusal<TimelineResumeRefusalCode>;
 
 /**
- * What a read said about where this session's stream picks up next.
- *
- * A discriminated union rather than a cursor plus a boolean: "resume here" and "there
- * is no position to resume from" are two different acts, and a caller that had to read
- * a flag beside a possibly-absent cursor would eventually read the cursor without the
- * flag — which is the one direction that resumes from a position nothing established.
+ * What a read said about where the stream picks up next. A union rather than a cursor plus a
+ * flag, so a caller cannot read a cursor that does not exist.
  */
 export type TimelineResumeDecision =
   | {
@@ -110,8 +36,7 @@ export type TimelineResumeDecision =
       readonly fromCursor: string;
     }
   | {
-      /** Nothing acknowledged: the window's beginning is the position, and no
-       * cursor is submitted. The ordinary first read, and not a failure. */
+      /** Nothing acknowledged: start at the window's beginning and submit no cursor. */
       readonly outcome: "restart";
     }
   | {
@@ -122,14 +47,8 @@ export type TimelineResumeDecision =
 /**
  * Decide where one read's cursor block says the next read starts.
  *
- * Takes `unknown` rather than `TimelineCursors`, because the block arrives from a
- * boundary the compiler does not see and a typed parameter would assert away exactly
- * the absences this has to answer for.
- *
- * A block that is missing, malformed, or carries no `acknowledged` all answer
- * `restart`, and they answer it for one reason rather than three: none of them names a
- * position, and the beginning of the window is where a reader with no position starts.
- * Reporting the three apart would be reporting a difference no caller can act on.
+ * Takes `unknown` because the block crosses a boundary the compiler does not see. A missing,
+ * malformed or acknowledgment-free block all answer `restart`, since none names a position.
  */
 export function resolveTimelineResume(cursors: unknown): TimelineResumeDecision {
   const acknowledged = readAcknowledgedCursor(cursors);
@@ -141,14 +60,7 @@ export function resolveTimelineResume(cursors: unknown): TimelineResumeDecision 
 /**
  * The refusal a caller records when the daemon could not resolve the cursor it sent.
  *
- * Built here rather than at the read path, so the one refusal this module owns is
- * raised through the module that declares its code — the property that makes
- * {@link TIMELINE_RESUME_REFUSAL_CODES} a closed set rather than a comment.
- *
- * The detail says what the console DID about it, because that is the part a person can
- * act on: the position is gone, the feed was re-read from the beginning of the window,
- * and nothing about the session's stream is otherwise affected. It names no cursor —
- * `lib/refusal.ts`' rule is that a detail never carries the refused value.
+ * The detail says what the console did about it and never carries the refused cursor.
  */
 export function refuseUnresolvableResume(): TimelineResumeDecision {
   return {
@@ -164,41 +76,17 @@ export function refuseUnresolvableResume(): TimelineResumeDecision {
 /**
  * Whether a rejected read is the daemon refusing a cursor it could not resolve.
  *
- * Total, and total by construction: `readWireErrorEnvelopeWithCode` reads through the
- * cross-process leaf's guarded property reads, so a rejection whose own `code` getter
- * throws answers `false` rather than propagating out of the `catch` that called this.
- *
- * The reader rather than a bare `rejection.code === …` comparison for that reason, and
- * because it takes ONE access per member: a value that answers one thing on the first
- * read and another on the second cannot make this arm disagree with itself.
+ * Total: a rejection whose `code` getter throws answers `false` instead of propagating out of
+ * the caller's `catch`.
  */
 export function isUnresolvableCursorRejection(rejection: unknown): boolean {
-  // The code comes from `@ai-sidekicks/contracts`, which is the daemon's own home for
-  // it, so the raiser and this classifier cannot spell it differently. What makes it
-  // usable here is its registration rather than its name: it refuses a request that
-  // CARRIED a cursor, so it can only ever answer a read this console submitted a
-  // position on — and the entry still tests the cursor it sent before it believes the
-  // code, because a console classifying on the code alone would take a refusal raised
-  // for some other caller's request as its own lost position.
+  // The entry still checks that it sent a cursor before believing the code, because the code
+  // refuses only a request that carried one.
   return readWireErrorEnvelopeWithCode(rejection, EVENT_CURSOR_UNRESOLVABLE_CODE) !== undefined;
 }
 
-/**
- * The acknowledged position a cursor block carries, or nothing.
- *
- * THE BLOCK IS NOT DECLARED AS A TYPE, and that is a decision rather than an
- * omission. The shipped `SessionReadResponseSchema` puts exactly two members on it —
- * `latest`, required, and `acknowledged`, optional — and only one of them decides
- * anything here, so a two-member interface would be a second declaration of a shape
- * `@ai-sidekicks/contracts` already owns, kept in step by hand, read for one field.
- * The block still arrives as `unknown`, because it crosses a boundary the compiler
- * does not see, and the store, which sits below the daemon service, narrows nothing
- * on its own.
- *
- * `latest` is nevertheless REQUIRED to be present and a cursor: it is what makes a
- * block a block, so a record without it is not a cursor block that lost its
- * acknowledged member — it is some other object, and nothing is read out of it.
- */
+// The acknowledged position a cursor block carries, or nothing. The block stays `unknown` because
+// it crosses a boundary; `latest` must be a cursor too, or the object is not a cursor block.
 function readAcknowledgedCursor(cursors: unknown): string | undefined {
   if (typeof cursors !== "object" || cursors === null || Array.isArray(cursors)) {
     return undefined;

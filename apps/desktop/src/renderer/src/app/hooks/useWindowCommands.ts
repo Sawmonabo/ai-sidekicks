@@ -1,11 +1,8 @@
 // The window's own commands, and the palette and chord-table wiring that carries them.
 //
-// A hook rather than a table: every command here closes over this window's store or
-// bridge, so they are built per window, registered from an effect and removed on
-// unmount. Registration, the installed binding set and the key listener move on three
-// clocks (the commands when the store or bridge acts change, the set when somebody
-// rebinds, the listener while a chord is being recorded), so they are three effects;
-// one effect would re-register every command on each press into the recorder.
+// A hook, not a table: every command closes over this window's store or bridge. Registration,
+// the installed binding set and the key listener change on different signals, so they are three
+// effects; one effect would re-register every command on each press into the recorder.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -62,8 +59,7 @@ export function useWindowCommands(
   const { route, lastOpenedSessionId, windowStore, keyboardMap, chooseScheme, screenRegistry } =
     input;
 
-  // Derived from the route rather than stored, so the palette cannot disagree with the
-  // rail about where the window is.
+  // Derived from the route, so the palette cannot disagree with the rail about where it is.
   const whenContext: WindowWhenClauseContext = useMemo(
     () => ({
       sessionActive: lastOpenedSessionId !== undefined,
@@ -75,18 +71,16 @@ export function useWindowCommands(
     [route, lastOpenedSessionId],
   );
 
-  // Read through a ref: the table is built once with one listener, and a closure
-  // captured at construction would evaluate every chord against the opening route.
+  // Read through a ref: a closure captured at construction would evaluate every chord against
+  // the opening route.
   const whenContextRef = useRef<WhenClauseContext>(whenContext);
   whenContextRef.current = whenContext;
 
   const [paletteOpen, setPaletteOpen] = useState(false);
-  // The palette reads the registry once per revision, so a registration that lands
-  // after the first render needs the revision bumped.
+  // The palette reads the registry once per revision, so a late registration bumps it.
   const [commandRevision, setCommandRevision] = useState(0);
 
-  // A bridge-backed command with no view of its own refuses on a window banner,
-  // which the store composes.
+  // A bridge-backed command with no view of its own refuses on a window banner.
   const raiseRefusalBanner = useCallback(
     (refusal: Refusal) => {
       windowStore.raiseRefusalBanner(refusal);
@@ -94,11 +88,10 @@ export function useWindowCommands(
     [windowStore],
   );
 
-  // Memoized on that stable sink, so the registration effect below runs once.
+  // Memoized on the stable sink, so the registration effect runs once.
   const bridgeCommands = useBridgeCommands(raiseRefusalBanner);
 
-  // The shipped chords with this person's overrides composed onto them, and whether
-  // the keyboard is suspended for a recording.
+  // The shipped chords with this person's overrides, and whether a recording suspends them.
   const keybindingSnapshot = useKeybindingSnapshot(keybindingOverrides);
 
   const keyBindingsRef = useRef<KeybindingTable>(undefined);
@@ -108,9 +101,9 @@ export function useWindowCommands(
   });
   const keyBindings = keyBindingsRef.current;
 
-  // Removed on unmount, so a second mount in one process (a test, a StrictMode
-  // double-render) does not collide with the first. `registerAll` is atomic, so a
-  // duplicate adds none of the list and the cleanup cannot remove another mount's command.
+  // Removed on unmount so a second mount in one process (a test) does not collide with the
+  // first. `registerAll` is atomic, so a duplicate adds none and cleanup cannot remove another
+  // mount's command.
   useEffect(() => {
     const windowCommands: readonly CommandDefinition[] = [
       ...buildNavigationCommands(windowStore, screenRegistry),
@@ -118,13 +111,12 @@ export function useWindowCommands(
       ...bridgeCommands,
     ];
     registerCommands(windowCommands);
-    // A feature that contributes later adds commands the palette must list, so the
-    // revision moves with every contribution. Its chords reach the table through the
-    // override store, which republishes on the same signal.
+    // A later contribution adds commands the palette must list; its chords reach the table
+    // through the override store, which republishes on the same signal.
     const stopWatchingContributions = subscribeToCommandContributions(() => {
       setCommandRevision((revision) => revision + 1);
     });
-    // Published for as long as the commands are registered: the same lifetime.
+    // Published for as long as the commands are registered.
     const withdrawRefusalSink = publishCommandRefusalSink(raiseRefusalBanner);
     setCommandRevision((revision) => revision + 1);
     return () => {
@@ -136,9 +128,8 @@ export function useWindowCommands(
     };
   }, [bridgeCommands, windowStore, raiseRefusalBanner, screenRegistry, chooseScheme]);
 
-  // The overrides a person authored, read back once per window. Not awaited:
-  // `hydrateFrom` turns a failed read into its read refusal, so a rejection escaping
-  // here is a defect.
+  // Not awaited: `hydrateFrom` turns a failed read into a read refusal, so a rejection is a
+  // defect.
   useEffect(() => {
     void keybindingOverrides.hydrateFrom(keyboardMap);
   }, [keyboardMap]);
@@ -148,8 +139,8 @@ export function useWindowCommands(
     keyBindings.setBindings(keybindingSnapshot.bindings);
   }, [keyBindings, keybindingSnapshot]);
 
-  // The listener is absent while a chord is recorded: it listens in the capture phase,
-  // so recording `$mod+1` would otherwise navigate to Sessions instead of binding it.
+  // Absent while a chord is recorded: it listens in the capture phase, so recording `$mod+1`
+  // would navigate to Sessions instead of binding it.
   useEffect(() => {
     if (keybindingSnapshot.recording) {
       return undefined;

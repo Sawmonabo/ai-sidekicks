@@ -1,25 +1,17 @@
-// The approval-request scenario: one request already approved, and three still waiting, all
-// raised by one agent in one run of the user's session.
+// The approval-request scenario: one request already approved and three still waiting, all
+// raised by one agent in one run.
 //
-// The three waiting are a destructive git command, a file write, and a provider
-// permission ask. Several requests rather than one, so a view that shows the waiting
-// ones has more than one card to be a barrier across, and one already approved to show
-// it does not count a settled request as waiting.
+// The waiting three are a destructive git command, a file write and a provider permission
+// ask: more than one card for a view to be a barrier across, beside an approved request a
+// view must not count as waiting.
 //
-// The approval beats carry the REGISTERED payload each approval variant declares,
-// because a payload no view reads is still a payload a daemon emits, and a beat
-// carrying a thinner one would be teaching the wire a shape it does not have.
-//
+// Approval beats carry the full registered payload of each variant.
 // `tests/helpers/scenario-contract-check/contract-check.ts` holds the beats to the census
-// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and to the strict payload layer
-// (`SessionEventSchema`), both in `packages/contracts/src/event.ts`, which is why
-// `session.created` carries the session's shape and the lead born with it, named
-// as the live agent list names it.
+// (`SESSION_EVENT_CATEGORY_BY_TYPE`) and strict payload layer (`SessionEventSchema`) in
+// `packages/contracts/src/event.ts`.
 //
-// IDENTIFIERS ARE UUIDS. `SessionId`, `UserId`, `AgentId`, `RunId`, and
-// `ApprovalRequestId` are branded ids the contracts declare over UUID values, and a
-// readable `approval-01` also renders at a third of the width a real one does — a
-// design lie in a fixture whose whole job is to be measured.
+// Ids are UUIDs, as the contracts' branded ids require, and a short readable id would render
+// narrower than a real one in a fixture that is measured.
 
 import {
   AgentIdSchema,
@@ -34,14 +26,9 @@ import {
 import { composeSessionCreatedPayload } from "../data/opening-entries.js";
 import type { Scenario } from "../scenario.js";
 
-// UUID v7 values whose leading bytes are this scenario's own start instant, so a
-// reader scanning a rendered id can still tell one fixture apart from another.
-//
-// MINTED THROUGH THE REGISTERED SCHEMAS RATHER THAN `as`-CAST. A scenario constant is
-// where a fixture chooses the bytes, and a cast asserts a brand without checking it —
-// so a malformed id surfaced at the first `.strict()` reply that carried it, which
-// takes the whole reply down and names the reply rather than the value. Parsing at
-// declaration fails the module instead, naming the constant.
+// UUID v7 values whose leading bytes are this scenario's start instant, so a rendered id
+// identifies its fixture. Parsed through the registered schemas, not cast, so a malformed id
+// fails the module and names the constant instead of failing a later reply.
 const SESSION_ID: SessionId = SessionIdSchema.parse("019b7a33-3300-75e5-8510-ada11a5a55a5");
 const USER_YOU: UserId = UserIdSchema.parse("019b7a33-3300-79a4-8110-cca0117a0510");
 const AGENT_IMPLEMENTER: AgentId = AgentIdSchema.parse("019b7a33-3300-7a6e-8110-d1a4c1150501");
@@ -53,14 +40,10 @@ const APPROVAL_PENDING_GIT_RESET = "019b7a33-3300-7f01-8120-d1a4c1150522";
 const APPROVAL_PENDING_WRITE = "019b7a33-3300-7f01-8130-d1a4c1150523";
 const APPROVAL_PENDING_ASK = "019b7a33-3300-7f01-8140-d1a4c1150524";
 
-/**
- * The daemon's durable id for the permission ask, carried on the `approval.requested`
- * EVENT payload.
- *
- * Registered there and persisted on the request row.
- */
+/** The daemon's durable id for the permission ask, carried on its `approval.requested` payload. */
 const PERMISSION_ASK_ID = "ask-permission-force-push";
 
+/** One approved and three waiting approval requests raised by one agent in one run. */
 export const APPROVAL_REQUEST_SCENARIO: Scenario = {
   id: "approval-request",
   label: "A decision waiting",
@@ -70,9 +53,7 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
     "approved one out.",
   sessionId: SESSION_ID,
   userIdsInJoinOrder: [USER_YOU, AGENT_IMPLEMENTER, AGENT_REVIEWER],
-  // The person the pending cards are addressed to. Stated rather than inferred:
-  // an approvals view that guessed its caller would render an approve control for
-  // whoever happens to be first in the join log.
+  // The person the pending cards are addressed to, stated so no view guesses it from join order.
   callerUserId: USER_YOU,
   startedAtIso: "2026-01-01T13:30:00.000Z",
   beats: [
@@ -105,11 +86,8 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         id: "019b7a33-3300-7e00-8110-e5e0c3350003",
         sessionId: SESSION_ID,
         sequence: 2,
-        // The run every request below was raised by, reaching `running`. The posture
-        // is stamped on THIS transition and on no other — the post-setup-gate spawn
-        // success, where the resolved workspace root and the effective posture are
-        // final — so the boundary a person is deciding under is a fact about this
-        // beat rather than a standing property of the run.
+        // The run every request below was raised by. The execution posture is stamped only on
+        // `run.running`, where the workspace root and effective posture are final.
         kind: "run.running",
         occurredAt: "2026-01-01T13:30:00.120Z",
         payload: {
@@ -158,9 +136,8 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         kind: "approval.approved",
         occurredAt: "2026-01-01T13:30:00.420Z",
         actorId: USER_YOU,
-        // The resolution events carry the approver, the scope that took effect, and
-        // the id the answering client minted for its answer. `effectiveScope` is never
-        // broader than what was requested.
+        // A resolution carries the approver, the scope that took effect (never broader than
+        // requested) and the id the answering client minted.
         payload: {
           sessionId: SESSION_ID,
           runId: RUN_ID,
@@ -222,11 +199,8 @@ export const APPROVAL_REQUEST_SCENARIO: Scenario = {
         id: "019b7a33-3300-7e00-8110-e5e0c3350009",
         sessionId: SESSION_ID,
         sequence: 7,
-        // The second pending request, and the one that arrived as a provider
-        // permission ask: `askId` is the daemon's durable id for the ask, and it
-        // reaches the console HERE and on no read. The pane learns the origin by
-        // joining its projection row to the `approval` entity this beat folds into,
-        // so the framing it renders comes from the event and never from the reply.
+        // The request that arrived as a provider permission ask: `askId` reaches the console
+        // on this event and on no read, so the pane's framing comes from the event.
         kind: "approval.requested",
         occurredAt: "2026-01-01T13:30:01.100Z",
         actorId: AGENT_IMPLEMENTER,

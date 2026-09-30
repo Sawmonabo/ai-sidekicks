@@ -1,9 +1,5 @@
-// The ledger that outlives the window, and the three properties it exists for.
-//
-// Every case here is one of: the VOCABULARY it keys on is the wire's, the ROWS it takes
-// may arrive in any order, and what it holds survives the window being pruned or
-// replaced, so an approval whose opening row fell out of a capped window, or never
-// reached a resumed one, still counts as waiting.
+// The ledger outlives the window: its vocabulary is the wire's, rows may arrive in any order, and
+// pruning or replacing the window does not lose an ask.
 
 import { SESSION_EVENT_CATEGORY_BY_TYPE } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -65,13 +61,9 @@ describe("the vocabulary this register keys on — wire truth", () => {
   });
 
   it("spells every run kind as its own state under the wire's own prefix", () => {
-    // The seed compares an entity's wire-verbatim `state` against
-    // `ATTENTION_RUN_STATES` while the log compares an event kind against
-    // `ATTENTION_RUN_STATE_KINDS`, and the two readings are the same fact only while
-    // every kind is exactly its state under the prefix. That the states themselves are
-    // the contract's is a COMPILE-time claim in the module — a view parses no wire
-    // value, so a runtime check here would have to be a second reading of the
-    // registered vocabulary rather than the registration itself.
+    // The seed compares an entity's state with ATTENTION_RUN_STATES and the log compares a kind
+    // with ATTENTION_RUN_STATE_KINDS; the two agree only while every kind is its state under
+    // the prefix. The states being the contract's is a compile-time claim in the module.
     expect(RUN_STATE_KINDS).toHaveLength(9);
     expect(RUN_STATE_KINDS.every((kind) => kind.startsWith(RUN_STATE_EVENT_PREFIX))).toBe(true);
   });
@@ -91,9 +83,8 @@ describe("the vocabulary this register keys on — wire truth", () => {
 
 describe("WaitingOnPersonRegister — what a base state establishes", () => {
   it("seeds a blocked run off the entity the read carried", () => {
-    // The one ask class a base state answers authoritatively: a run's `state` is a
-    // registered `RunState`, so a run blocked below the window's head says so here
-    // whatever the window's own rows hold.
+    // A run's `state` is a registered `RunState`, so a run blocked below the window's head shows
+    // on the base state.
     const journal = new WaitingOnPersonRegister();
     journal.seedFrom({
       cursor: 12,
@@ -108,9 +99,8 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
   });
 
   it("reports the request classes as unread where the read opened partway through", () => {
-    // Nothing on a base state carries an approval or an intervention,
-    // so a window that starts mid-log cannot answer for them at all — which is a third
-    // state and not a zero.
+    // No base-state entity carries an approval or an intervention, so a mid-log window cannot
+    // answer for them: unread, not zero.
     const journal = new WaitingOnPersonRegister();
     journal.seedFrom({ cursor: 12, windowHeadCursor: "cursor-12", entities: [] });
 
@@ -125,8 +115,7 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
   });
 
   it("keeps what it already held when a later read re-establishes the window", () => {
-    // A read says nothing about a request it did not carry, so a register cleared here
-    // would throw away exactly the older asks this class exists to hold.
+    // A read says nothing about a request it did not carry; clearing here would lose older asks.
     const journal = new WaitingOnPersonRegister();
     journal.admit([rowOf(3, "approval.requested", { approvalRequestId: "req-1" })]);
     journal.seedFrom({ cursor: 40, windowHeadCursor: "cursor-40", entities: [] });
@@ -151,9 +140,8 @@ describe("WaitingOnPersonRegister — what a base state establishes", () => {
 
 describe("WaitingOnPersonRegister — rows in any order", () => {
   it("does not re-open a request whose terminal arrived first", () => {
-    // THE BACKWARD-PAGE CASE. A page read from behind the window's head delivers a
-    // request's opening row AFTER its terminal, and a register that deleted a key on a
-    // terminal would hold that ask open for the rest of the session.
+    // A backward page delivers a request's opener after its terminal; a register that deleted
+    // the key on a terminal would hold the ask open for the rest of the session.
     const journal = new WaitingOnPersonRegister();
     journal.admit([rowOf(9, "approval.approved", { approvalRequestId: "req-1" })]);
     journal.admit([rowOf(4, "approval.requested", { approvalRequestId: "req-1" })]);
@@ -179,9 +167,7 @@ describe("WaitingOnPersonRegister — rows in any order", () => {
 
 describe("SessionStore — the ledger outlives the window", () => {
   it("still counts an approval whose opening row the cap has dropped", () => {
-    // THE DEFECT, EXERCISED THROUGH THE REAL STORE. The cap keeps the newest rows, so
-    // the row that opened this approval is gone from the timeline a fold would walk
-    // — and the approval is still open.
+    // The cap drops the row that opened this approval from the timeline, yet it is still open.
     const store = new SessionStore({ sessionId: SESSION_ID, timelineCap: 2 });
     store.initialize({ cursor: 0, entities: [] });
     store.applyBatch([

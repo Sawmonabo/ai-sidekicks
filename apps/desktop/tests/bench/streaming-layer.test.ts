@@ -1,62 +1,29 @@
-// The streaming block layer's benchmark gate — the bench tier's second arm.
+// The streaming block layer's benchmark gate: the bench tier's second arm.
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHY THIS ARM EXISTS
-// ─────────────────────────────────────────────────────────────────────────────
+// The console's streaming block layer is its largest own build: an incremental block
+// segmenter, a memoized settled-block parse, and a tail that is the only text `remend` is
+// applied to. It ships only on a measured win over the library path, and this file measures it.
 //
-// The console admits a library only after its bytes, heap, and frame cost are
-// measured against an own build, and the
-// console's streaming block layer is the largest own build in the tree: an
-// incremental block segmenter, a memoized settled-block parse, and a tail that is the
-// only text `remend` is applied to. The design track's decision A8 says that layer
-// "ships only on a measured win over the library path" — and until this file there
-// was no arm that measured it, so the layer would have merged ungated with the transcript
-// holding only the store fan-out rows.
+// Both arms consume the same recorded stream and produce the same trees, and both call the
+// console's real modules, so a regression in the segmenter or a cache that stops caching moves
+// the number:
 //
-// ─────────────────────────────────────────────────────────────────────────────
-// WHAT THE TWO ARMS ARE
-// ─────────────────────────────────────────────────────────────────────────────
+// - own: `MarkdownBlockSegmenter` splits each cumulative snapshot into settled blocks and a
+//   volatile tail; settled blocks go through `parseSettledBlock`, which memoizes by block text,
+//   and only the tail is re-parsed per delta.
+// - library: no segmentation and no memo; every delta re-parses the whole accumulated message.
 //
-// Both arms consume the SAME recorded stream and produce the same trees. They differ
-// in one decision and only one:
+// The library arm's cost per delta grows with the message, while the own arm's grows with the
+// tail, which the segmenter keeps bounded. The gate is therefore on the ratio, not on an
+// absolute time, which depends on the machine.
 //
-//   • **own** — `MarkdownBlockSegmenter` splits each cumulative snapshot into settled
-//     blocks and a volatile tail; the settled blocks go through `parseSettledBlock`,
-//     which memoizes by block text, and only the tail is re-parsed per delta.
-//   • **library** — no segmentation and no memo: every delta re-parses the whole
-//     accumulated message, which is what a card built directly on the parser does.
-//
-// Neither arm is a stand-in. Both call the console's real modules, so a regression in
-// the segmenter or a cache that stops caching moves this number rather than hiding
-// behind a local reimplementation.
-//
-// The shape of the win is structural rather than incidental: the library arm's cost
-// per delta grows with the message, because the text it re-parses is the whole message
-// so far, while the own arm's grows with the TAIL, which the segmenter keeps bounded
-// by settling blocks behind it. That is why the gate below is on the ratio and not on
-// either absolute — an absolute millisecond figure is a property of the machine, and
-// gating one would make this a hardware detector.
-//
-// ─────────────────────────────────────────────────────────────────────────────
-// WHAT THIS ARM DOES NOT MEASURE, AND THE LAYER THAT IS THEREFORE NOT SHIPPED
-// ─────────────────────────────────────────────────────────────────────────────
-//
-// The blueprint's streaming stack also describes a volatile tail written as a direct
-// DOM text node the framework never reconciles — bounded by a character limit,
-// word-segmented with `Intl.Segmenter`, handed back by keyed remount when the block
-// settles. That layer is gated by the SAME decision, and its gate asks for two
-// readings this tier cannot produce: p95 FRAME time and RETAINED heap, over a
-// ten-minute twenty-four-lane replay.
-//
-// This is a `node`-environment project. It has no compositor, no frame, and no
-// renderer heap; a DOM-mutation figure taken here under `jsdom` would be a
-// measurement of `jsdom` rather than of Chromium, and a "win" recorded from one would
-// be worth less than no number at all. So the direct-DOM tail is NOT shipped, and this
-// comment is the recorded refutation A8 asks for: the own layer ships only on a
-// measured win, no admissible measurement exists for that sub-decision in this tier,
-// and the library path therefore stands for the tail. What CAN be measured here — the
-// parse and segmentation cost the two paths differ by — is measured below, and the
-// endurance tier is where a frame-time reading for the tail would have to come from.
+// Not measured here: a volatile tail written as a direct DOM text node the framework never
+// reconciles (bounded by a character limit, word-segmented with `Intl.Segmenter`, handed back by
+// keyed remount when the block settles). Its gate needs p95 frame time and retained heap, and
+// this `node`-environment project has no compositor, frame or renderer heap; a DOM-mutation
+// figure taken under `jsdom` would measure `jsdom`, not Chromium. So the direct-DOM tail is not
+// shipped and the library path stands for the tail. A frame-time reading for it would have to
+// come from the endurance tier.
 
 import { performance } from "node:perf_hooks";
 import process from "node:process";
@@ -76,7 +43,7 @@ import {
   type BenchmarkLedgerRowInput,
 } from "./ledger.js";
 
-/** Lanes streaming at once. The frame-time budget's own figure for a busy session. */
+/** Lanes streaming at once, a busy session. */
 const CONCURRENT_LANE_COUNT = 12;
 
 /** Deltas each lane receives. One sample replays every one of them. */
@@ -87,22 +54,15 @@ const RECORDED_SAMPLE_COUNT = 9;
 const WARM_UP_SAMPLE_COUNT = 2;
 
 /**
- * The floor the own layer has to clear.
- *
- * Deliberately modest against the structural argument above — the point of a floor is
- * to fail when the mechanism is gone, not to encode the margin one machine happened
- * to show. A run that drops under it means the segmenter stopped bounding the
- * re-parsed text or the settled-block cache stopped hitting, and either is the layer
- * no longer earning its own existence.
+ * The floor the own layer has to clear. Deliberately modest: it fails when the mechanism is
+ * gone (the segmenter stopped bounding the re-parsed text, or the settled-block cache stopped
+ * hitting), not to encode one machine's margin.
  */
 const MINIMUM_INCREMENTAL_SPEEDUP = 2;
 
 /**
- * One lane's recorded stream: the cumulative snapshots a card would be handed.
- *
- * Markdown with the shape that decides the split — settling prose blocks, a fenced
- * code block, a list — so the segmenter is doing its real work rather than counting
- * blank lines in a paragraph.
+ * One lane's recorded stream: the cumulative snapshots a card would be handed. It mixes prose
+ * blocks, a fenced code block and a list so the segmenter does real work.
  */
 function buildLaneSnapshots(laneIndex: number): readonly string[] {
   const snapshots: string[] = [];
@@ -197,9 +157,8 @@ test(
       warmUpSamplesDiscarded: WARM_UP_SAMPLE_COUNT,
       nodeVersion: process.version,
       platform: `${process.platform}-${process.arch}`,
-      // Recorded on the row, not only in this file's header: a reader comparing these
-      // numbers has to know they say nothing about frame time or retained heap, which
-      // is what the direct-DOM tail's half of the same decision is gated on.
+      // Recorded on the row so a reader knows these numbers say nothing about frame time or
+      // retained heap.
       measures: "parse and segmentation cost only; no frame time, no retained heap",
     } as const;
 

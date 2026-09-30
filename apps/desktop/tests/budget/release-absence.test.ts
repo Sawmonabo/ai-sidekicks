@@ -1,46 +1,38 @@
-// Tier: bundle — what a RELEASE build must not contain.
+// Tier: bundle. What a release build must not contain.
 //
-// The fixture bridge, every scenario, the pane harness and the fixture handles are reached
-// only through the fixture composition, which sits behind `__FIXTURE_BUILD__`,
-// so a release build folds `if (false) { … }` and they are PHYSICALLY ABSENT from what
-// ships, not merely unreachable. The distinction is
-// the point: unreachable code still hands anyone who reads the file a way into the
-// console's internals and a set of fabricated sessions.
+// The fixture bridge, every scenario, the pane harness and the fixture handles are reached only
+// through the fixture composition, behind `__FIXTURE_BUILD__`, so a release build folds the
+// branch and they are physically absent from what ships, not merely unreachable: unreachable
+// code still hands a reader of the file a way into the console's internals and fabricated
+// sessions.
 //
-// The mechanism is written in source and checked in review. This file checks the OUTCOME,
-// on the artifact a person would install, because a define that was misspelled, dropped
-// from one build mode, or defeated by a bundler setting leaves the mechanism intact and
-// the outcome wrong. It reads no source text: every subject is either the build's own
-// output or a constant imported from the module that declares it.
+// This file checks the outcome on the built artifact, because a misspelled define, one dropped
+// from a build mode, or a bundler setting that defeats it leaves the mechanism intact and the
+// outcome wrong. It reads no source text: every subject is the build's own output or a constant
+// imported from the module that declares it.
 //
-// TWO CHECKS, BECAUSE FIXTURE CODE LIVES IN TWO PLACES.
+// Two checks, because fixture code lives in two places:
 //
-// Whole modules. Every build target writes hidden source maps, and a map's `sources` is
-// the bundler's own list of the modules that rendered code into that file.
-// `isFixtureOnlyModule` in `electron.vite.config.ts` names every module a release build
-// owes an absence for: the fixture corpus, whose side effects that config declares away,
-// the fixture-only modules beside it, and every test and test-support file. A module on
-// that list appearing in any map means a shipped module imports it outside a folded
-// branch, whatever the module holds, including a module added after this file was written.
-//
-// Names inside production modules. The fixture launch's page property is read by a module
-// that ships, and the perf meters ship as a module whose recordings fold under
-// `import.meta.env.DEV`; what must be absent is a set of names, so the second check sweeps
-// the shipped text for them, imported from the modules that declare them.
+// - Whole modules. Every build target writes hidden source maps whose `sources` list the
+//   modules that rendered code into each file. `isFixtureOnlyModule` in
+//   `electron.vite.config.ts` names every module a release build owes an absence for (the
+//   fixture corpus, the fixture-only modules beside it, and every test and test-support file);
+//   one appearing in any map means a shipped module imports it outside a folded branch.
+// - Names inside production modules. The fixture launch's page property is read by a module
+//   that ships, and the perf meters ship as a module whose recordings fold under
+//   `import.meta.env.DEV`, so the shipped text is swept for those names.
 //
 // Stylesheets are neither: no source map lists one, and a feature fixture's sheet ships its
-// rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that case as
-// an import rule (`fixture-stylesheet-outside-its-folder`,
+// rules whenever an ungated module imports it. `.dependency-cruiser.mjs` holds that case as an
+// import rule (`fixture-stylesheet-outside-its-folder`,
 // `fixture-stylesheet-from-outside-any-fixtures-folder`).
 //
-// LIKE ITS NEIGHBORS, THIS NEVER SKIPS. A missing build, or one that wrote no source maps,
-// fails with the command that produces one: a sweep that finds nothing because it read
-// nothing is the false pass this file exists to prevent, which is also why each check
-// carries a positive control and a planted negative control.
+// This never skips: a missing build, or one with no source maps, fails with the command that
+// produces one, since a sweep that finds nothing because it read nothing is a false pass. Each
+// check carries a positive control and a planted negative control.
 //
-// `FIXTURE_GLOBAL_NAMES` and `FIXTURE_LAUNCH_GLOBAL` are imported from their leaves rather
-// than from the modules that install them, because a name is all this tier needs, and the
-// installers' graphs reach React and the DOM, which this Node-context project does not
+// `FIXTURE_GLOBAL_NAMES` and `FIXTURE_LAUNCH_GLOBAL` are imported from their leaves because
+// the installers' graphs reach React and the DOM, which this Node-context project does not
 // compile.
 
 import { join } from "node:path";
@@ -64,39 +56,25 @@ import {
 } from "./built-renderer-tree.js";
 
 /**
- * A string every console build contains, fixture or release.
- *
- * The positive control for the string sweep. Without it a misdirected read (an empty
- * directory, a renamed output path, a tree holding only source maps) would report every
- * name absent because it was reading nothing at all.
+ * A string every console build contains, fixture or release: the string sweep's positive
+ * control, so a misdirected read (an empty directory, a renamed path) cannot report every name
+ * absent by reading nothing.
  */
 const CONSOLE_PRESENCE_MARKER = "meridian-frame";
 
 /**
- * The perf-meter kinds a release renderer must not carry, named rather than derived.
+ * The perf-meter kinds a release renderer must not carry, named rather than derived. Not every
+ * kind in the tuple: `"reveal-drain"` is also a `window-cap.ts` reason code and a
+ * `viewport-prune-cycle.ts` case label, and `"frame-time"` is a string other product code
+ * carries, so sweeping the tuple whole would fail on a correct bundle. `"apply-latency"` and
+ * `"store-size"` are the meters' own words, so their absence is evidence of the fold.
  *
- * NOT EVERY KIND IN THE TUPLE, and the exceptions are the whole design. `"reveal-drain"`
- * is also a `features/transcript/viewport/window-cap.ts` reason code and a
- * `viewport-prune-cycle.ts` case label, and `"frame-time"` is written by modules that
- * have nothing to do with the meters: real product strings a clean release build carries
- * for their own reasons, so sweeping the tuple whole would fail on a correct bundle and be
- * silenced rather than believed. `"apply-latency"` and `"store-size"` are the meters' own
- * words, so their absence from the shipped text is evidence of the fold.
- *
- * NAMED HERE because deriving the exceptions would mean reading every console module's
- * source text to find the other readers, and no test in this package reads source text.
- *
- * WHAT THAT COSTS: a kind on this list that later gains a reader elsewhere in the console
- * turns the sweep red on a correct build, and a new meter-only kind is swept only once
- * someone adds it here. The first reports itself the day it happens and is answered by
- * moving the kind off this list; the second is what the `satisfies` clause and the control
- * below keep visible.
- *
- * `satisfies` rather than a bare array of strings: the tuple is IMPORTED, so a renamed or
- * retired kind is a compile error here rather than a case that quietly matches nothing.
- * That import is a leaf whose only import is its own bounds table, so it reaches neither
- * the DOM nor a workspace package, and this tier's block in `vitest/tier-projects.ts`
- * names that property as the reason it substitutes the define.
+ * Deriving the exceptions would mean reading source text, which no test here does. The cost is
+ * that a listed kind gaining another reader turns the sweep red on a correct build (move it off
+ * the list), and a new meter-only kind is swept only once added here. `satisfies` makes a
+ * renamed or retired kind a compile error, since the tuple is imported from a leaf module whose
+ * only import is its bounds table; `vitest/tier-projects.ts` names that as why this tier
+ * substitutes the define.
  */
 const RELEASE_ABSENT_METER_KINDS = [
   "apply-latency",
@@ -104,23 +82,17 @@ const RELEASE_ABSENT_METER_KINDS = [
 ] as const satisfies readonly PerformanceMeterKind[];
 
 /**
- * Which built files carry a marker.
- *
- * A named function rather than a filter written per case, because the planted negative
- * control below has to drive the SAME search the sweep does: a control that re-expressed
- * the search would prove only that the control works.
+ * Which built files carry a marker. Shared so the planted negative control drives the same
+ * search the sweep does.
  */
 function carriersOf(marker: string, files: readonly BuiltFile[]): readonly string[] {
   return files.filter((file) => file.text.includes(marker)).map((file) => file.relativePath);
 }
 
 /**
- * Every fixture-only module the given source maps list, as `map: module` lines.
- *
- * ONE PASS REPORTING EVERY LEAK rather than a case per module: a leak is one import edge
- * and usually brings several modules with it, and what a reader needs is which modules
- * and which shipped file. Split out so the planted control drives the same collection and
- * the same predicate the real check does.
+ * Every fixture-only module the given source maps list, as `map: module` lines. One pass
+ * reports every leak, since a leaked import edge usually brings several modules; the planted
+ * control drives the same collection and predicate.
  */
 function fixtureOnlyModulesIn(maps: readonly BuiltSourceMap[]): readonly string[] {
   return maps.flatMap((map) =>
@@ -137,9 +109,8 @@ describe("release build — the fixture code is absent, not merely unreachable",
   );
 
   it("positive control: the string sweep is reading a real console build", () => {
-    // An absence claim is only as good as the evidence that the search happened. This
-    // runs first so a misdirected read is reported as "read nothing" rather than as
-    // "shipped nothing".
+    // An absence claim is only as good as the evidence that the search happened. This runs
+    // first so a misdirected read is reported as "read nothing", not "shipped nothing".
     const carriers = carriersOf(CONSOLE_PRESENCE_MARKER, builtFiles);
     expect(
       carriers.length,
@@ -162,11 +133,9 @@ describe("release build — the fixture code is absent, not merely unreachable",
   );
 
   it("positive control: every named meter kind is one the module still declares", () => {
-    // The list above is written out rather than derived, so this is the control against
-    // it going stale: an emptied list makes the case below vacuous without failing it, and
-    // a kind the tuple no longer holds is a case that can never match. The `satisfies`
-    // clause makes the same claim at compile time; this one makes a `test` run report it
-    // without a `typecheck` beside it.
+    // The list above is written out, not derived, so this guards it going stale: an emptied
+    // list makes the case below vacuous, and a kind the tuple no longer holds can never match.
+    // `satisfies` makes the same claim at compile time; this reports it in a `test` run alone.
     expect(RELEASE_ABSENT_METER_KINDS.length).toBeGreaterThan(0);
     for (const kind of RELEASE_ABSENT_METER_KINDS) {
       expect(PERFORMANCE_METER_KINDS).toContain(kind);
@@ -187,11 +156,10 @@ describe("release build — the fixture code is absent, not merely unreachable",
   });
 
   it("negative control: the string sweep reports a carrier when one is planted", () => {
-    // Every sweep above is an absence claim, and an absence claim is only worth what its
-    // search is worth. This plants a file that DOES carry a fixture handle and drives the
-    // same `carriersOf`, so a search that had stopped matching (a read that returned no
-    // text, a comparison that stopped comparing) is reported here instead of being read
-    // as a clean release build.
+    // Every sweep above is an absence claim, worth only what its search is worth. This plants a
+    // file that does carry a fixture handle and drives the same `carriersOf`, so a search that
+    // stopped matching (no text read, a comparison that stopped comparing) is reported here
+    // instead of read as a clean release build.
     const [plantedName] = FIXTURE_GLOBAL_NAMES;
     const plantedFiles: readonly BuiltFile[] = [
       { relativePath: "assets/clean.js", text: "export const nothingToSeeHere=1;" },
@@ -204,9 +172,8 @@ describe("release build — the fixture code is absent, not merely unreachable",
   it.each(sourceMapsPerTarget)(
     "positive control: the %s build wrote source maps naming its own source",
     (target, maps) => {
-      // The module check below reads these maps, so a target whose maps name nothing of
-      // its own source would make it vacuous for that target. A target that wrote no map
-      // at all has already failed the read above with its own message.
+      // The module check below reads these maps, so a target whose maps name none of its own
+      // source would make it vacuous. A target with no map at all already failed the read above.
       const namesOwnSource = maps.some((map) =>
         map.sources.some((source) => source.includes(`/src/${target}/`)),
       );
@@ -230,10 +197,9 @@ describe("release build — the fixture code is absent, not merely unreachable",
   });
 
   it("negative control: the module check reports a planted fixture-only module", () => {
-    // One planted module per kind the predicate names, beside a production module that
-    // must pass, driven through the same collection and the same predicate the check
-    // above reads. A predicate that stopped matching one kind is reported here instead of
-    // being read as a clean release build.
+    // One planted module per kind the predicate names, beside a production module that must
+    // pass, driven through the same collection and predicate as the check above, so a predicate
+    // that stopped matching one kind is reported here.
     const plantedSources = [
       "fixtures/scenarios/planted.ts",
       "src/renderer/src/services/daemon/planted.fixture.ts",

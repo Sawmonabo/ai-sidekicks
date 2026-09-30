@@ -1,98 +1,48 @@
-// The five kinds of nothing, in the two shapes an absence can take.
+// The five kinds of nothing in two shapes. Five absences render differently because the next move
+// differs for each; the kind set is closed, the traits table is total over it, and each kind
+// supplies its own copy, glyph and tone.
 //
-// The console's design language: five absences render differently because the
-// operator's next move differs for each, and a renderer that collapses two of these
-// into one is wrong. The rule is enforced structurally here — the kind set is closed,
-// the traits table below is total over it, and each kind supplies copy, a glyph, and a
-// tone no other kind supplies:
+//   - `not-loaded`: a skeleton in the row's shape; the read is in flight and says nothing yet.
+//   - `empty`: a quiet line with the escape hatch (`action`); the read found none.
+//   - `error`: the daemon's message text under an alert glyph on a red edge, never paraphrased.
+//   - `not-checked`: a dotted boundary; no question was put, which is neither "no" nor unknown.
+//   - `computing`: a clock glyph on a filled boundary; the answer is still being worked out.
 //
-//   • `not-loaded`  — a skeleton in the row's shape. The read is in flight; the
-//                     operator waits. It says nothing, because there is nothing yet
-//                     to say, and a sentence would be replaced a beat later.
-//   • `empty`       — a quiet line with the escape hatch. The read succeeded and
-//                     found none. The next move is to create one, so the `action`
-//                     prop is where that control goes.
-//   • `error`       — the daemon's own message text under an alert glyph on a red
-//                     edge. The read failed; the next move depends on what the
-//                     daemon said, so the console does not paraphrase it.
-//   • `not-checked` — a dotted boundary. Nobody asked. This is NOT "no" and NOT "we
-//                     do not know" — it is "no question was put", and conflating it
-//                     with either is how a console starts asserting facts it never
-//                     established.
-//   • `computing`   — a clock glyph on a filled boundary. The question was put and
-//                     the answer is still being worked out.
-//
-// KIND IS WHAT IS ABSENT; PLACEMENT IS WHERE THE ABSENCE IS MOUNTED. Those are two
-// questions and this component used to answer both with one: the kind picked the
-// shape, so `not-checked` was a badge everywhere. It is the right shape beside a
-// value it qualifies and the wrong one in place of a whole pane — a badge centered
-// in a 1440 px window is a strip of text a reader takes for a paint that did not
-// finish, and its `detail` reaches nobody, because a badge can only carry its second
-// line as a hover tooltip. So the caller names the placement and the placement picks
-// the shape:
-//
-//   • `inline` — a badge, sitting beside the value it qualifies.
-//   • `block`  — a block, standing in for the content of a region that is not there.
-//
-// Every kind renders in both. The design language names the treatment each kind
-// carries — dotted for `not-checked`, a clock for `computing` — and the kind carries
-// that treatment into either shape. What the placement decides is the box it is
-// carried in, which the design language does not speak to.
-//
-// The default reproduces the placement each kind was previously hard-wired to, so a
-// call site that names none renders exactly what it rendered before.
-//
-// Copy is the caller's, and the copy rule is calm authority — sentence case, past
-// tense for receipts, no exclamation marks, no blame. This component supplies the
-// shape; it never invents a sentence.
+// Kind is what is absent; placement is where it is mounted. `inline` is a badge beside the value
+// it qualifies; `block` stands in for a region's content. A badge in place of a whole pane reads
+// as unfinished paint and can only carry its second line as a tooltip. Copy is the caller's.
 
 import "./Nothing.css";
 
 import { GLYPH_SIZE_ROW, type GlyphName } from "@renderer/styles/glyphs.js";
 import { Glyph } from "../Glyph/Glyph.js";
 
-/**
- * Closed. Adding a sixth kind is a deliberate edit here and in the design language.
- *
- * The tuple is the declaration and the union is derived from it: the design language's claim is
- * that FIVE absences render differently, and a claim about a count has to be
- * countable at runtime for a test to hold it.
- */
+/** The closed set of absences. A tuple, so a test can count it; the union is derived. */
 export const NOTHING_KINDS = ["not-loaded", "empty", "error", "not-checked", "computing"] as const;
 
+/** One of `NOTHING_KINDS`. */
 export type NothingKind = (typeof NOTHING_KINDS)[number];
 
-/**
- * Closed, and closed at two. Declared the same way and for the same reason: the
- * claim is that there are exactly two shapes an absence takes, and a third added to
- * a hand-written union while this list stayed at two is the drift the tuple form
- * makes impossible.
- */
+/** The two shapes an absence takes. */
 export const NOTHING_PLACEMENTS = ["inline", "block"] as const;
 
+/** One of `NOTHING_PLACEMENTS`. */
 export type NothingPlacement = (typeof NOTHING_PLACEMENTS)[number];
 
+/** Props for `Nothing`. */
 export interface NothingProps {
   readonly kind: NothingKind;
   /**
-   * Where this absence is mounted. Omitted, it is the placement the kind is
-   * ordinarily mounted at — a qualifier beside a value is `inline`, an absence
-   * standing in for a region's content is `block`. Name it whenever the mount contradicts
-   * that: a whole pane of `not-checked` is `block`, and it is the caller that
-   * knows, because the caller is what mounted it.
+   * Where this absence is mounted. Omitted, it is the kind's ordinary placement; name it when
+   * the mount differs, such as a whole pane of `not-checked`, which is `block`.
    */
   readonly placement?: NothingPlacement;
   /** What is absent, in one sentence. For `error`, the refusal's code or headline. */
   readonly title: string;
   /**
-   * The second line. For `error` this is the daemon's message text, rendered
-   * verbatim — never paraphrased, shortened, or explained (the refusal grammar puts the code in
-   * mono and the message verbatim, and a paragraph set in mono is a paragraph
-   * nobody reads). For every other kind it is the console's own prose.
-   *
-   * A block renders it as prose. A badge has no room for a second line and carries
-   * it as the badge's tooltip, which is the honest limit of that shape and the
-   * reason a caller with something to say mounts it as a block.
+   * The second line. For `error` it is the daemon's message text, rendered verbatim; for every
+   * other kind it is the console's own prose. A block renders it as prose; a badge carries it
+   * as a tooltip.
    */
   readonly detail?: string;
   /** The next step, when there is one. A button, a link, a control. */
@@ -101,22 +51,15 @@ export interface NothingProps {
 
 /** What a kind supplies, and nothing about where it is mounted. */
 interface NothingKindTraits {
-  /**
-   * The placement this kind is mounted at when the caller names none. It is the
-   * kind's ordinary mount, not a property of the kind — which is exactly why a
-   * caller can override it.
-   */
+  /** The placement used when the caller names none; a caller may override it. */
   readonly defaultPlacement: NothingPlacement;
-  /**
-   * Whether the kind has words. `not-loaded` does not: the shape stands in for copy
-   * that would be replaced a beat later, and the title is announced rather than set.
-   */
+  /** Whether the kind has words; `not-loaded` shows a shape and only announces its title. */
   readonly copy: "prose" | "skeleton";
   /** The kind's glyph, in both shapes. Kinds that carry meaning in copy alone have none. */
   readonly glyph?: GlyphName;
   /**
-   * Which class the block form's second line takes. `error` gets its own, because
-   * the daemon's text is quoted rather than written and reads at a wider measure.
+   * The block form's second-line class; `error` has its own because quoted text needs a wider
+   * measure.
    */
   readonly detailClassName: string;
   /** The kind's live-region role, in both shapes. Absent where nothing is in progress. */
@@ -125,10 +68,7 @@ interface NothingKindTraits {
   readonly busy?: boolean;
 }
 
-/**
- * Total over `NothingKind` by construction — a sixth kind fails to compile here
- * before it can reach a call site that renders a nameless absence.
- */
+/** Total over `NothingKind`, so a new kind fails to compile until it has traits. */
 const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
   "not-loaded": {
     defaultPlacement: "block",
@@ -163,16 +103,19 @@ const NOTHING_KIND_TRAITS: Readonly<Record<NothingKind, NothingKindTraits>> = {
   },
 };
 
-/** The shape each placement renders as. The other half of the two-question split. */
+/** The shape each placement renders as. */
 const SHAPE_MODIFIER_BY_PLACEMENT: Readonly<Record<NothingPlacement, string>> = {
   inline: "meridian-nothing--badge",
   block: "meridian-nothing--block",
 };
 
-/** How wide each skeleton bar is, as a fraction of the measure. Uneven on purpose:
- *  three equal bars read as a table, and the shape being imitated is a transcript row. */
+/** Skeleton bar widths as fractions of the measure; uneven so they do not read as a table. */
 const SKELETON_BAR_WIDTHS: readonly string[] = ["38%", "82%", "61%"];
 
+/**
+ * Renders an absence of the given kind as a badge or a block; `placement` defaults per kind.
+ * Its copy comes from the caller.
+ */
 export function Nothing(props: NothingProps): React.JSX.Element {
   const traits = NOTHING_KIND_TRAITS[props.kind];
   const placement = props.placement ?? traits.defaultPlacement;
@@ -183,12 +126,8 @@ export function Nothing(props: NothingProps): React.JSX.Element {
 }
 
 /**
- * The badge: an absence that qualifies the value it sits beside.
- *
- * A skeleton badge is one bar rather than three, because the three exist to imitate
- * a transcript row's proportions and a badge has no row to imitate. It carries no
- * action for the same reason the block form does not: a read in flight has no next
- * move, so a control offered beside one is a control offered against nothing.
+ * The badge: an absence that qualifies the value it sits beside. A skeleton badge is one bar,
+ * and carries no action because a read in flight has no next move.
  */
 function renderBadge(
   props: NothingProps,

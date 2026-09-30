@@ -1,14 +1,7 @@
-// Routes as values: parsed, rendered back, compared, and classified.
-//
-// `failure-modes.test.ts` already drives the malformed-input arms — an escaped
-// session id, a malformed percent-escape, an empty path segment, an empty hash. This
-// file covers what that one does not: the round trip for the main-window grammar.
-//
-// The round trip is the load-bearing case. `parseRoute` and `formatRoute` are two
-// hand-written grammars over one shape, and nothing in the compiler makes them
-// agree; a route that renders to a hash the parser reads differently is a window
-// that reopens somewhere else, which is the failure a person meets after a restart
-// rather than at the moment it was caused.
+// Routes as values: parsed, rendered back, compared, and classified. `parseRoute` and
+// `formatRoute` are two hand-written grammars over one shape, so the round trip is the case that
+// catches a route that reopens somewhere else after a restart. Malformed-input arms are in
+// `routes.failure-modes.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,8 +21,8 @@ describe("routes — every main-window route renders to a hash that parses back 
   });
 
   it("negative control: two different routes do not render to one hash", () => {
-    // Without this, a `formatRoute` returning a constant would round-trip nothing
-    // and still satisfy a parser that returned the default route for everything.
+    // A `formatRoute` returning a constant would otherwise satisfy a parser that returned the
+    // default route for everything.
     const rendered = MAIN_WINDOW_ROUTES.map((route) => formatRoute(route));
     expect(new Set(rendered).size).toBe(rendered.length);
   });
@@ -41,8 +34,7 @@ describe("routes — the default", () => {
   });
 
   it("normalizes to an explicit hash rather than rendering back to nothing", () => {
-    // A window that reopened on "" would depend on the default staying what it is
-    // today; the explicit hash survives a change of default.
+    // The explicit hash survives a change of default.
     expect(formatRoute(DEFAULT_ROUTE)).toBe("#/sessions");
   });
 });
@@ -55,15 +47,13 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
     });
     expect(parseRoute("#/session/one/two").kind).toBe("not-found");
     expect(parseRoute("#/workflows/extra").kind).toBe("not-found");
-    // Three segments and not two: `#/settings/<page>/<selection>` is grammar now, so
-    // what over-runs the settings arm is one segment further along.
+    // `#/settings/<page>/<selection>` is grammar, so the overrun is a third segment.
     expect(parseRoute("#/settings/one/two/three").kind).toBe("not-found");
   });
 
   it("round-trips a settings address carrying its page's own selection", () => {
-    // The pair the grammar exists to keep exact: a row that deep-links to the accounts
-    // page for one provider hands the frame store an address, and a parser reading the
-    // second segment differently would open that page for another provider or none.
+    // A parser reading the second segment differently would open the page for another
+    // provider or none.
     expect(parseRoute("#/settings/providers/codex")).toStrictEqual({
       kind: "settings",
       page: "providers",
@@ -87,10 +77,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
   });
 
   it("names no address of its own for the session screen's rail destination", () => {
-    // `workspace` is a ROUTE kind reached from the sessions destination, not a
-    // rail destination with an address. `#/workspace` therefore names nothing —
-    // the session screen is `#/session/<id>` — and a grammar that answered it
-    // would be a second address for a screen that already has one.
+    // The session screen is `#/session/<id>`; `#/workspace` would be a second address for it.
     expect(parseRoute("#/workspace")).toStrictEqual({
       kind: "not-found",
       attempted: "#/workspace",
@@ -102,8 +89,7 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
   });
 
   it("carries the attempted hash, so the not-found screen says what it could not open", () => {
-    // A blank not-found is the state the console's five kinds of nothing exist to
-    // prevent: it renders as "something is wrong" and names nothing.
+    // A not-found that names nothing renders as an unexplained error.
     expect(parseRoute("#/nowhere")).toStrictEqual({ kind: "not-found", attempted: "#/nowhere" });
   });
 
@@ -116,10 +102,8 @@ describe("routes — malformed main-window hashes resolve to not-found", () => {
   });
 
   it("refuses a pane-harness address missing either of its two required segments", () => {
-    // Both segments are grammar rather than convenience: the pane bodies the
-    // harness mounts are session-scoped, so an address naming a kind and no
-    // session would open a harness whose panes could only render their own
-    // not-bound absence.
+    // The pane bodies the harness mounts are session-scoped, so a kind without a session
+    // could only render the pane's own not-bound state.
     expect(parseRoute("#/pane-harness").kind).toBe("not-found");
     expect(parseRoute("#/pane-harness/terminal").kind).toBe("not-found");
     expect(parseRoute("#/pane-harness/terminal/session-1/extra").kind).toBe("not-found");

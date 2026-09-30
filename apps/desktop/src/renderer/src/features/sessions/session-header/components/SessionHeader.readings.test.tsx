@@ -1,8 +1,5 @@
-// The title the session header renders, once a session carries one.
-//
-// The title is handed to the header as data, so these cases drive it directly and assert the
-// header renders it VERBATIM: a view that renders its absences correctly and its answers
-// approximately is the worse of the two bugs, because a wrong title is not visibly wrong.
+// The title the session header renders once a session carries one. It is handed in as data, and
+// asserted verbatim, since a wrong title is not visibly wrong.
 
 import { describe, expect, it } from "vitest";
 
@@ -20,17 +17,15 @@ describe("the session header — the session it is naming", () => {
     const title = bar.querySelector(".meridian-session-header__session-title");
 
     expect(title?.textContent).toBe(DISPLAY_TITLE);
-    // And the id is still there: the title is an addition to the identity, never a
-    // replacement for the one unambiguous name the session has.
+    // The id stays: the title adds to the identity and never replaces it.
     expect(bar.querySelector(".meridian-session-header__identity")?.textContent).toContain(
       SESSION_ID,
     );
   });
 
   it("negative control: a session with no title renders none rather than a placeholder", () => {
-    // Without this the case above would pass over a header that drew a "not named" badge
-    // for every untitled session — which is most of them, and which would report a
-    // missing answer where the answer is that this session has no name.
+    // The case above would also pass over a header that drew a "not named" badge, reporting a
+    // missing answer where the answer is that the session has no name.
     const bar = renderSessionHeader(
       <SessionHeader sessionId={SESSION_ID} sessionStore={storeWith()} />,
     );

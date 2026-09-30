@@ -1,14 +1,5 @@
-// The scheduler's own read line: supersession that a caller cannot decline.
-//
-// Before this pairing existed, a `RefreshScheduler` and a `GenerationLatch` were two
-// objects a reader was expected to bring together, and thirteen readers each decided
-// that for themselves. The claim these cases make is not that the pairing is possible
-// but that it is UNAVOIDABLE: a scheduler built with the two members every caller
-// already passes hands its performer a round, and a read that cannot be superseded
-// and cannot be abandoned is not a thing this class can produce.
-//
-// Driven on `ManualClock`, arming no real timer, for `scheduling.refresh-scheduler.
-// test.ts`'s reason — an assertion about what is armed cannot be made on wall time.
+// Supersession a caller cannot decline: a scheduler built with only the usual members still
+// hands its performer a round, so no read is unsupersedable and unabandonable.
 
 import { describe, expect, it } from "vitest";
 
@@ -17,14 +8,7 @@ import type { ReadRound } from "./read-scope.js";
 import { RefreshScheduler } from "./refresh-scheduler.js";
 import { settleMicrotasks } from "@test/helpers/session-store-fixtures.js";
 
-/**
- * The debounce these cases drive, named once.
- *
- * A local number rather than the console's own `REFRESH_DEBOUNCE_MS`: what is under
- * test is the round, not the interval, and pinning the shipped constant in a suite
- * that does not measure it is the restated-threshold `apps/desktop/AGENTS.md`
- * rejects. Any positive value serves, and this one is the neighboring suite's.
- */
+/** A local debounce: the round is under test, not the shipped interval. */
 const TEST_DEBOUNCE_MS = 120;
 
 /** A scheduler built with only the members every caller already passes. */
@@ -101,8 +85,7 @@ describe("RefreshScheduler — every read runs inside a round", () => {
     await runOneRead(clock);
 
     const inFlight = rounds[0];
-    // The control: the read is genuinely outstanding and its round is live, so the
-    // reading after `dispose()` is about the disposal and not about a dead round.
+    // Control: the round is live before `dispose()`, so the assertion after is about disposal.
     expect(inFlight?.signal.aborted).toBe(false);
 
     scheduler.dispose();
@@ -124,8 +107,7 @@ describe("RefreshScheduler — every read runs inside a round", () => {
     scheduler.request("subscribe");
     await runOneRead(clock);
 
-    // Nothing fires at all, which is the scheduler's own terminal rule; the round
-    // list is empty rather than holding a live round nobody can supersede.
+    // Nothing fires after dispose, so no live round exists for anyone to supersede.
     expect(rounds).toStrictEqual([]);
   });
 });

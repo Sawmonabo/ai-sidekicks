@@ -1,26 +1,13 @@
-// The screenshot tier: the composer feature's views, per scheme.
+// The screenshot tier: the composer feature's views, per scheme. `settled-capture.ts` owns the
+// mechanism: every capture is written into the gitignored `__screenshots__/` and compared against
+// nothing, so this file gates on whether each view can be captured at all.
 //
-// `settled-capture.ts` owns the mechanism this file rides: every capture is written
-// into the gitignored `__screenshots__/` and compared against nothing, so this file
-// gates on whether each view can be captured at all.
-//
-// WHAT IS PINNED, AND WHY. The composer is one component whose whole design claim is
-// about ADDRESSING. The session composer's own design
-// fixes the half that decides these images — "a path label under the input
-// reading _new turn_ or _steer_ from the target run's subscribed state and never
-// predicted" — and this composer's own rule is that the placeholder names the target
-// too. That claim is invisible to a DOM assertion reading one attribute and is
-// exactly what an image holds, so the addresses are captured rather than described:
-//
-//   • the session's own composer, which is what focus outside the pane layout addresses —
-//     the composition a person meets first;
-//   • a working run, the new-turn path;
-//   • a run waiting on a person, which is the one address that sketch labels
-//     _steer_ and the state the composer scenario deliberately ends on.
-//
-// HOW MANY CAPTURES THERE ARE IS DERIVED AND NEVER WRITTEN DOWN — one per view
-// per scheme, off the table below. A number in this header is a claim no gate reads,
-// and it went stale the moment a view joined the table.
+// The composer's design claim is about addressing: a path label reading _new turn_ or _steer_ from
+// the target run's subscribed state, never predicted, and a placeholder that names the target. A
+// DOM assertion reading one attribute cannot hold that; an image can. The captures are the
+// session's own composer (what focus outside the pane layout addresses), a working run (the
+// new-turn path) and a run waiting on a person (the _steer_ address, where the composer scenario
+// ends). The capture count is derived from the table below, not written here.
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
@@ -37,11 +24,9 @@ import { installMeridianTokens } from "@renderer/app/token-installation.js";
 import { COLOR_SCHEMES } from "@renderer/styles/tokens.js";
 
 /**
- * The views this tier captures, each with the name its image is written under.
- *
- * A table rather than one suite per view: the cases differ only in which view
- * is mounted, and a copy of the same six lines per view is one more place for the
- * scheme emulation to be forgotten.
+ * The views this tier captures, each with the name its image is written under. A table because
+ * the cases differ only in the mounted view, and a copy per view is one more place to forget the
+ * scheme emulation.
  */
 const PINNED_VIEWS: readonly {
   readonly captureName: string;
@@ -58,16 +43,13 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  // Leave the emulation off, so a later file's baseline is not captured under
-  // whichever scheme this one finished in.
+  // Leave the emulation off so a later file's capture is not taken under this file's last scheme.
   await emulateSystemScheme("light");
 });
 
 /**
- * Every capture this file writes, one per view per scheme.
- *
- * The cross product is taken ONCE and named, so the count below is the same value
- * the loop runs and cannot be a second, hand-kept figure that drifts from it.
+ * Every capture this file writes, one per view per scheme. The cross product is taken once, so the
+ * count asserted below is the value the loop runs.
  */
 const PINNED_CAPTURES: readonly {
   readonly captureName: string;
@@ -82,10 +64,9 @@ const PINNED_CAPTURES: readonly {
 );
 
 describe("screenshot — the composer views", () => {
-  // This one runs everywhere, including off the pinned platform: it reads the table
-  // rather than the renderer. A duplicate capture name is silent on the machine
-  // that mints — the second capture overwrites the first and both cases go green
-  // against one image — so the uniqueness claim is asserted where it can be seen.
+  // Reads the table, not the renderer, so it runs everywhere. A duplicate capture name is silent
+  // where captures are minted (the second overwrites the first and both cases go green against
+  // one image).
   it("writes one distinctly-named capture per view per scheme", () => {
     expect(PINNED_CAPTURES).toHaveLength(PINNED_VIEWS.length * COLOR_SCHEMES.length);
     expect(new Set(PINNED_CAPTURES.map((capture) => capture.captureName)).size).toBe(
@@ -95,9 +76,8 @@ describe("screenshot — the composer views", () => {
 
   for (const capture of PINNED_CAPTURES) {
     it(`renders ${capture.captureName}`, async () => {
-      // Through the system preference rather than a stamped attribute: the token
-      // sheet's dark layer is a `prefers-color-scheme` block, and driving it is
-      // what a default install actually resolves.
+      // Through the system preference, not a stamped attribute: the token sheet's dark layer is a
+      // `prefers-color-scheme` block, which is what a default install resolves.
       await emulateSystemScheme(capture.scheme);
       const mounted = await capture.mount();
 

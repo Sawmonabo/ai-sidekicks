@@ -1,37 +1,21 @@
-// The two codes a push-driven read mints when a failure carried none of its own.
-//
-// ITS OWN MODULE because two modules beside it derive from the set and one of them
-// cannot import the other. `push-driven-read.ts` names the subscribe arm; the reply
-// unwrappers in `served-value.ts` name the read arm as their fallback, and that
-// module is imported BY the model rather than the other way round — so declaring the
-// set in either one and importing it from the other closes a two-module cycle
-// `no-circular` fails. The state-and-views rule in `apps/desktop/AGENTS.md` requires
-// the set be declared exactly once, and this is the only placement that satisfies both
-// rules.
+// The two codes a push-driven read mints when a failure carried none of its own. They live in
+// their own module so `coerce-to-refusal.ts` in `lib/` can use them without importing from
+// `store/reads/push-driven-read.ts`, which itself imports the coercion.
 
 /**
- * The codes the shared read helpers mint when a failure carried none of its own.
- *
- * Declared once and derived from, because both the read arm and the subscribe arm
- * name one of them and a second spelling in either place is a rename waiting to go
- * half-applied. A failure that arrives carrying a daemon code keeps that code —
- * these two are the fallback, never a translation.
+ * The codes the shared read helpers mint when a failure carried none of its own. A failure that
+ * carries a daemon code keeps it; these are a fallback, never a translation.
  */
 export const PUSH_DRIVEN_READ_FAILURE_CODES = ["read-failed", "subscribe-failed"] as const;
 
-/** One such code. Derived, so the set is stated exactly once. */
+/** One of {@link PUSH_DRIVEN_READ_FAILURE_CODES}. */
 export type PushDrivenReadFailureCode = (typeof PUSH_DRIVEN_READ_FAILURE_CODES)[number];
 
 /**
- * The two, typed against that set rather than spelled at the call.
- *
- * `coerceToRefusal` takes any code, because its callers include mutations whose
- * failure is neither of these — so without these two bindings the set above would be
- * declared and consumed by nothing, which is a closed set that has stopped closing
- * anything. A typo in either one is a compile error here instead of a code no
- * reader recognizes on screen.
+ * The read arm's fallback code, typed against the set so a typo is a compile error.
+ * `coerceToRefusal` accepts any code because mutations fail with neither of these.
  */
 export const READ_FAILED: PushDrivenReadFailureCode = "read-failed";
 
-/** The subscribe arm's, on the same reasoning as {@link READ_FAILED}. */
+/** The subscribe arm's fallback code, typed like {@link READ_FAILED}. */
 export const SUBSCRIBE_FAILED: PushDrivenReadFailureCode = "subscribe-failed";

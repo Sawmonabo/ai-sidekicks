@@ -1,20 +1,6 @@
-// Everything the palette DECIDES, so the component beside it only renders.
-//
-// The state-and-views rule in `apps/desktop/AGENTS.md`: effects, subscriptions and
-// derivations live in a hook and never in a render body. The palette has four, and
-// each of them is a claim worth reading on its own rather than between two JSX
-// blocks: the capture that freezes the scope, the dormancy that makes a closed
-// palette walk nothing, the clear that runs after the commit, and the one chord this
-// component listens for before any feature has registered a command.
-//
-// THE HOOK TAKES THE PROPS WHOLE. The component destructures nothing before calling
-// it — a hook that took eleven positional arguments would put the props' own order
-// in two files, and the next optional member added would be a silent mismatch.
-//
-// A HOOK AND NOT A CLASS. The state here is React's: three `useState` cells, three
-// memos and two effects, none of which outlives a mount or is reachable without one.
-// The rule's class shape is for state a module holds, and `palette-latch.ts` beside
-// this one is where the dispatch that could be held statefully already lives.
+// The palette's state and effects, so the component only renders: the scope capture, dormancy
+// while closed, the clear after the commit, and the one chord it listens for before any feature
+// has registered a command. The hook takes the props whole so their order lives in one file.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -45,9 +31,8 @@ import {
 export interface CommandPaletteProps {
   readonly registry: CommandRegistry;
   /**
-   * The context keys — live on the way in and CAPTURED at the open transition, so a
-   * caller recomputing them on every route change moves nothing under a person who is
-   * mid-keystroke. Drives visibility, the printed chord, and what the act runs against.
+   * The context keys, captured at the open transition so recomputing them on every route change
+   * moves nothing under a person mid-keystroke. Drives visibility, printed chords and the run.
    */
   readonly context: WhenClauseContext;
   readonly open: boolean;
@@ -56,20 +41,10 @@ export interface CommandPaletteProps {
   readonly platform: ChordPlatform;
   /** Supplies each row's chord. Omit and rows print no chord rather than a wrong one. */
   readonly bindings?: KeybindingTable;
-  /**
-   * The scoped-context row: what these commands act on.
-   *
-   * Read once, when the palette opens, together with `context` — the two are one
-   * reading. A caller may recompute either as often as it likes; what a person sees is
-   * what it said at the moment they summoned this, and what runs is what it named.
-   */
+  /** What these commands act on. Read once at open, together with `context`, as one reading. */
   readonly scopeLabel?: string;
   readonly readiness?: PaletteReadiness;
-  /**
-   * Bump to recompute results after late registration. The registry is a mutable
-   * object, so React cannot see a `register` call; this is the frame's way of
-   * saying "the command set changed" without making the registry a store.
-   */
+  /** Bump to recompute results after late registration; React cannot see a registry change. */
   readonly revision?: number;
   /** Where popups portal. The frame's overlay root; `undefined` falls back to `<body>`. */
   readonly overlayContainer?: HTMLElement | null;
@@ -77,7 +52,7 @@ export interface CommandPaletteProps {
   readonly chordTarget?: KeybindingTarget;
 }
 
-/** What the render reads. Every field is settled before the component's first JSX line. */
+/** What the render reads; every field is settled before the component's first JSX line. */
 export interface CommandPaletteState {
   readonly query: string;
   readonly setQuery: (query: string) => void;
@@ -94,6 +69,7 @@ export interface CommandPaletteState {
   readonly resultCountLabel: string;
 }
 
+/** Owns the palette's state, effects and derivations; the component only renders the result. */
 export function useCommandPalette(props: CommandPaletteProps): CommandPaletteState {
   const { registry, context, open, onOpenChange, scopeLabel, revision, chordTarget } = props;
 
@@ -103,16 +79,9 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   );
   const inputRef = useRef<HTMLInputElement | null>(null);
 
-  // The reading, latched at the open transition — the label and the context together.
-  //
-  // Adjusted DURING RENDER rather than in an effect, which is the documented React
-  // shape for state derived from a prop change and the only one that is correct here:
-  // an effect runs after the commit, so the first frame of an open palette would print
-  // the scope from the last time it was open — precisely the stale target this latch
-  // prevents, shown at the one moment a person is reading it. It sits above the memos
-  // because they consume what it captured, and both fields are RETAINED on close so the
-  // closing frame renders what the open one did rather than flashing the route the
-  // palette is being dismissed onto.
+  // The label and context, latched at the open transition. Adjusted during render, not in an
+  // effect, so the first frame of an open palette never shows the last open's scope. Both are
+  // retained on close so the closing frame renders what the open one did.
   const [latchedScope, setLatchedScope] = useState<LatchedPaletteScope>({
     wasOpen: open,
     scopeLabel,
@@ -129,15 +98,10 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   const capturedContext = latchedScope.context;
 
   const results = useMemo(
-    // Gated on `open`: a closed palette walks no command list, ranks nothing, and
-    // answers from one frozen array — so the frame can re-render as often as the
-    // route and the command context move without paying for a palette nobody has
-    // summoned. The same array every time, so the memo below it never recomputes
-    // either. Against the CAPTURED context, which is also what makes that dormancy
-    // hold: the capture does not move while the route does.
+    // Gated on `open`: a closed palette ranks nothing and returns one frozen array, so route
+    // changes cost nothing while it is closed. Searches the captured context, which does not move.
     () => (open ? registry.search(query, capturedContext) : NO_RESULTS),
-    // `revision` is a deliberate dependency with no use in the body: it is the
-    // frame's signal that the registry's contents changed under us.
+    // `revision` is a dependency with no use in the body: the signal that the registry changed.
     [open, registry, query, capturedContext, revision],
   );
   const groups = useMemo(() => groupResults(results), [results]);
@@ -153,62 +117,36 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
     [onOpenChange],
   );
 
-  // Clear the query on close, in an EFFECT rather than inside the close handler.
-  //
-  // Selecting an item makes the combobox fill the input with that item's label
-  // (`shouldFillInput` is true for a single-selection combobox whose input is not
-  // inside a `Combobox.Popup`, which ours is not — it lives in a `Dialog.Popup`).
-  // That write and a clear issued from the click handler land in the same React
-  // batch, so which one survives would depend on handler-merge order inside the
-  // library. An effect runs after the commit and therefore always last: the
-  // palette reopens empty, never showing the id of the command last run.
+  // Clear the query on close, in an effect: selecting an item makes the combobox fill the input
+  // with its label (single selection, input outside a `Combobox.Popup`), and a clear from the click
+  // handler would race that write. An effect runs after the commit, so the palette reopens empty.
   useEffect(() => {
     if (!open) {
       setQuery("");
-      // The refusal goes with it. It is a fact about one press against one captured
-      // reading, and the next open captures a new one — so carrying it across would
-      // put a sentence about a vanished command over a list that no longer contains it.
+      // The refusal is about one press against one captured reading, so it does not carry over.
       setInvocationRefusal(undefined);
     }
   }, [open]);
 
   const runResult = useCallback(
     (result: CommandSearchResult): PaletteRowPressOutcome => {
-      // INVOKED FIRST, CLOSED SECOND, and the order is the fix rather than a
-      // rearrangement: whether the palette should close is decided by whether the
-      // command ran, and the close used to be issued before there was an answer. Both
-      // land in one event handler, so React still commits them together.
+      // Invoke first, close second: whether to close depends on whether the command ran.
       const refusal = runLatchedCommand(registry, result.command.id, capturedContext);
       if (refusal === undefined) {
         setInvocationRefusal(undefined);
         handleOpenChange(false);
         return "ran";
       }
-      // The act did not happen and the rows are still on screen, which is what the
-      // inline shape means. The row's own module keeps it that way — see its `onClick`.
+      // The rows stay on screen (see the row's `onClick`), so the refusal shows inline.
       setInvocationRefusal(refusal);
       return "refused";
     },
     [handleOpenChange, registry, capturedContext],
   );
 
-  // The highlighted row's own warm.
-  //
-  // THE HIGHLIGHT AND NOT THE HOVER, and not the query: the highlight is where a
-  // person's intent is legible before they act — arrow keys move it, `autoHighlight`
-  // puts it on the best match as they type, and Enter runs whatever is under it. A
-  // command that opens a loader-backed body declares `preload`, and this is the moment
-  // to call it: the chunk is in flight while the row is still being read.
-  //
-  // THE HIGHLIGHTED RESULT ARRIVES WHOLE, and that is a fact about the combobox rather
-  // than a convenience. `items` is handed the GROUPS, so what the root highlights is an
-  // element of a group's own `items` — a `CommandSearchResult` — and not the string a
-  // `Combobox.Item` carries as its `value`. A first version of this took the id and
-  // looked the result up in `results`; the lookup compared a string against an object
-  // and matched nothing, so every warm was silently skipped and the boundary bought
-  // nothing at the one moment it was for.
-  //
-  // A COMMAND WITHOUT `preload` IS THE COMMON CASE and costs one optional call.
+  // Warm the highlighted row, not the hover: the highlight is where intent is legible before the
+  // act. The root highlights a `CommandSearchResult` (an element of a group's `items`), not the
+  // string `Combobox.Item` carries as its `value`. `preload` is optional; most commands lack it.
   const warmHighlighted = useCallback((highlighted: CommandSearchResult | undefined): void => {
     highlighted?.command.preload?.();
   }, []);
@@ -228,8 +166,7 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
       }
       event.preventDefault();
       event.stopPropagation();
-      // A toggle rather than an open: pressing the same chord again is what a
-      // person does to dismiss what they just summoned.
+      // A toggle: pressing the chord again dismisses what it summoned.
       handleOpenChange(!open);
     };
     target.addEventListener("keydown", listener, { capture: true });
@@ -260,10 +197,5 @@ export function useCommandPalette(props: CommandPaletteProps): CommandPaletteSta
   };
 }
 
-/**
- * What a closed palette's search answers with.
- *
- * One frozen array rather than a fresh `[]`, so the grouping memo above sees the same
- * identity every time and a closed palette recomputes literally nothing.
- */
+/** What a closed palette's search returns: one frozen array, so the grouping memo never reruns. */
 const NO_RESULTS: readonly CommandSearchResult[] = Object.freeze([]);

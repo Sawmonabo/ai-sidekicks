@@ -1,24 +1,11 @@
-// A modal's BACKDROP is airspace, and this is what proves the wrappers register it.
+// A modal's backdrop is airspace, and this proves each wrapper registers it. The visibility
+// predicate in `features/preview/geometry/pane-geometry.ts` hides a native view only where a
+// registered overlay rectangle overlaps the pane, so an unregistered full-viewport backdrop
+// would leave a web page painted over a modal.
 //
-// WHAT WAS WRONG. Each modal wrapper registered the popup's rectangle and nothing
-// else, while the thing that actually covers the window — the fixed, full-viewport
-// backdrop — was registered nowhere. The visibility predicate in
-// `browser/geometry/pane-geometry.ts` hides a native view only where a registered
-// overlay rectangle OVERLAPS the pane, so in a multi-pane layout a `WebContentsView`
-// the dialog's own box did not cross stayed painted above the backdrop and kept its
-// input: a live web page over a modal, eating the click that should have dismissed
-// it. The registry has no "suppress everything" arm and needs none — a full-viewport
-// rectangle IS that suppression — so what was missing was the registration.
-//
-// WHY IT IS ASSERTED THROUGH A MOUNT. Only a mount can see that the ref reached the
-// element the library rendered and that the registration went away when the modal
-// closed.
-//
-// AND WHY THE NON-MODAL WRAPPER IS HERE TOO. The fix is worth nothing if it made
-// every anchored popup claim the whole window: a menu that suppressed every native
-// view in the window would be a far louder defect than the one it replaced. The menu
-// wrapper mounts no backdrop, and the cases below say so by counting; the combobox and
-// select popups, which belong to features, say the same in their own tests.
+// Asserted through a mount, since only a mount sees the ref reach the rendered element and the
+// registration go away on close. The non-modal menu wrapper is here too, to prove it does not
+// claim the whole window.
 
 import { render } from "@testing-library/react";
 import { AlertDialog } from "@base-ui/react/alert-dialog";
@@ -32,17 +19,10 @@ import { OverlayAlertDialogPopup } from "./OverlayAlertDialogPopup.js";
 import { OverlayDialogPopup } from "./OverlayDialogPopup.js";
 import { OverlayMenuPopup } from "./OverlayMenuPopup.js";
 
-/** The class every case below hangs on the backdrop so it can be found again. */
+/** The class that lets each case find the backdrop again. */
 const BACKDROP_CLASS = "probe-backdrop";
 
-/**
- * The box a fixed `inset: 0` backdrop occupies, stood in for.
- *
- * The shim lays nothing out, so the rectangle is planted rather than measured — which
- * is the honest instrument for this claim anyway: what is being asserted is that the
- * BACKDROP's own live box reaches the airspace, and a stand-in that no cascade could
- * have produced is one no accident could produce either.
- */
+/** The box a fixed `inset: 0` backdrop occupies; planted because the DOM shim lays nothing out. */
 const VIEWPORT_RECT: AirspaceRect = { x: 0, y: 0, width: 1440, height: 900 };
 
 /** One overlay primitive, opened and closed by the `open` this harness controls. */
@@ -99,8 +79,7 @@ function plantViewportBackdrop(): void {
 
 describe("a modal overlay's airspace", () => {
   it("covers every shared overlay wrapper", () => {
-    // The vacuity floor: a case removed would leave the loop below saying nothing
-    // about the wrapper it stopped covering.
+    // Vacuity floor: a removed case would leave the loop silent about its wrapper.
     expect(MODAL_CASES.map((modal) => modal.name)).toStrictEqual([
       "OverlayDialogPopup",
       "OverlayAlertDialogPopup",
@@ -123,9 +102,8 @@ describe("a modal overlay's airspace", () => {
     const before = registry.registeredCount;
     const mounted = render(open(true));
     plantViewportBackdrop();
-    // The popup and the backdrop are two rectangles and both are the modal's: the
-    // backdrop is what covers the window, and the popup registration is what still
-    // stands where a nested dialog renders no backdrop of its own.
+    // Both rectangles are the modal's: the backdrop covers the window, and the popup still
+    // registers where a nested dialog draws no backdrop.
     expect(registry.registeredCount).toBe(before + 2);
     mounted.rerender(open(false));
     expect(registry.registeredCount).toBe(before);

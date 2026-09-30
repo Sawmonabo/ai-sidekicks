@@ -1,17 +1,8 @@
-// The reply chokepoint on the PARSE arm: what `callDaemon` sends, and what it makes of
-// what comes back.
-//
-// Every case drives the REAL `callDaemon` over the REAL registry against a REAL
-// bridge — the shipped fixture, with one namespace member replaced so the suite can
-// decide what the daemon answers with. A hand-rolled parser here would assert
-// against a copy of the rule and pass with the shipped one deleted.
-//
-// The REJECTION arm is `daemon-reply.rejections.test.ts` beside this file. The two
-// are separated because they are two claims about one function, and each is an
-// enumeration in its own right: this one says a reply off the contract never
-// reaches a caller and a request off the contract never reaches the wire; that one
-// says no shape a rejection arrives in leaves `callDaemon` as an exception. The two
-// roles both suites play live in `daemon-reply.test-support.ts`.
+// The reply chokepoint on the parse arm: a reply off the contract never reaches a caller and a
+// request off the contract never reaches the wire. Every case drives the real `callDaemon` over the
+// real registry and the shipped fixture bridge, so a hand-rolled parser cannot pass with the
+// shipped one deleted. Rejections are in `daemon-reply.rejections.test.ts`; the shared helpers are
+// `tests/helpers/daemon-reply-refusal.ts` and `fixture-bridge.ts`.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 
@@ -21,18 +12,13 @@ import { describeFailingPaths } from "./failing-member-paths.js";
 import { refusalOf } from "@test/helpers/daemon-reply-refusal.js";
 import { bridgeAnswering } from "@test/helpers/fixture-bridge.js";
 
-/** A device id the response schema accepts. Same seam, same run-time check. */
+/** A device id the response schema accepts. */
 const DEVICE_ID = "device-workstation";
 
 /** A device state the response schema accepts. */
 const ONLINE = "online";
 
-/**
- * A value the response schema rejects, spelled so a leak is unmistakable.
- *
- * Shaped like the message content a refusal detail must never carry, so the
- * assertion that it is absent reads as the claim it is making.
- */
+/** A value the response schema rejects, shaped like content a refusal detail must never carry. */
 const OFF_CONTRACT = "the person said something private";
 
 /** One served presence reply, in the shape the registered schema admits. */
@@ -56,15 +42,14 @@ describe("callDaemon — a served reply is a parsed reply", () => {
     expect(calls).toStrictEqual([{ method: "presence.read", params: {} }]);
     expect(reply.status).toBe("served");
     if (reply.status === "served") {
-      // Read through the response TYPE the registry binds, so a row pointing at the
-      // wrong schema fails this file at compile time and not only at run time.
+      // Read through the bound response type, so a row pointing at the wrong schema also
+      // fails at compile time.
       expect(reply.value.devices[0]?.deviceId).toBe(DEVICE_ID);
     }
   });
 
   it("negative control: the same call refuses when one member is off-contract", async () => {
-    // Without this, the case above would pass for a `callDaemon` that parsed nothing
-    // and handed the reply straight back.
+    // Without it, the case above passes for a `callDaemon` that parsed nothing.
     const { bridge } = bridgeAnswering(async () => ({
       devices: [
         {
@@ -103,10 +88,8 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
   });
 
   it("never puts the refused VALUE in the sentence a person reads", async () => {
-    // A refused value never reaches a refusal's detail, which is why `callDaemon`
-    // composes its own sentence instead of rendering the validator's: a rejected
-    // member can be a user's words, a repo path, or a credential, and the validator
-    // interpolates it.
+    // `callDaemon` composes its own sentence because the validator's interpolates the
+    // rejected member, which can be a user's words, a path or a credential.
     const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT));
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
@@ -115,8 +98,7 @@ describe("callDaemon — a reply the contract does not admit is a refusal", () =
   });
 
   it("bounds how many paths it names", async () => {
-    // A reply wrong in twelve places is wrong in one way. The cap is what keeps the
-    // detail a sentence; without it the refusal card renders a list.
+    // The cap keeps the detail a sentence; without it the refusal card renders a list.
     const { bridge } = bridgeAnswering(async () => servedPresenceReply(OFF_CONTRACT, 12));
 
     const refusal = refusalOf(await callDaemon(bridge, "presence.read", {}));
@@ -130,9 +112,8 @@ describe("callDaemon — a request the contract does not admit is never sent", (
   it("refuses before the call, and the daemon sees nothing", async () => {
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
 
-    // The branded id is a compile-time marker over an opaque string, so a caller CAN
-    // hand this seam a value the wire would refuse; the parse is what stops it
-    // becoming a round trip that fails.
+    // The branded id is a compile-time marker over a string, so a caller can hand this seam a
+    // value the wire would refuse; the parse stops it becoming a failing round trip.
     const refusal = refusalOf(
       await callDaemon(bridge, "session.read", {
         sessionId: "not-a-session-id" as SessionId,
@@ -146,9 +127,8 @@ describe("callDaemon — a request the contract does not admit is never sent", (
   });
 
   it("what reaches the daemon is the parser's output, not the caller's object", async () => {
-    // The parsed request travels. A forwarded reference would let a caller keep
-    // mutating an object the console had already declared sendable, and would leave
-    // any member the schema normalizes un-normalized on the wire.
+    // A forwarded reference would let a caller keep mutating an object already declared
+    // sendable, and would skip any normalization the schema applies.
     const { bridge, calls } = bridgeAnswering(async () => servedPresenceReply(ONLINE));
     const request = {};
 
@@ -160,10 +140,8 @@ describe("callDaemon — a request the contract does not admit is never sent", (
 });
 
 describe("describeFailingPaths — a shape it cannot read yields no clause", () => {
-  // Driven directly rather than through `callDaemon`, because `callDaemon` always
-  // hands it a real validator error: the parameter is typed `unknown`
-  // precisely to disclaim that knowledge, and a claim that only holds for the one
-  // shape the one caller passes is not the claim the signature makes.
+  // Driven directly: `callDaemon` always passes a real validator error, but the parameter is
+  // typed `unknown`.
 
   it("answers an empty clause for the two values a property read throws on", () => {
     expect(describeFailingPaths(null)).toBe("");
@@ -196,18 +174,15 @@ describe("describeFailingPaths — a shape it cannot read yields no clause", () 
   });
 
   it("names a segment it cannot render rather than throwing on it", () => {
-    // A path segment is whatever the validator put there. `String(...)` runs
-    // ToPrimitive, which throws on a null-prototype value carrying no `toString`,
-    // so the segment goes through `lossyStringify`, which cannot throw, and the clause
-    // says the segment is unrenderable instead of taking the sentence down.
+    // `String(...)` throws on a null-prototype value, so the segment goes through
+    // `lossyStringify`, which cannot throw.
     const unrenderable: unknown = { issues: [{ path: [Object.create(null)] }] };
 
     expect(describeFailingPaths(unrenderable)).toBe(" (at [unrepresentable value])");
   });
 
   it("negative control: an ordinary validator error still names its members", () => {
-    // Without this, a guard that answered `""` for everything would pass all four
-    // cases above and silently delete the clause from every refusal sentence.
+    // Without it, a guard that answered `""` for everything passes the four cases above.
     const error: unknown = { issues: [{ path: ["devices", 0, "state"] }] };
 
     expect(describeFailingPaths(error)).toBe(" (at devices.0.state)");

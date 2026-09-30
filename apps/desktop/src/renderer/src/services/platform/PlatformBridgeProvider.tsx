@@ -1,20 +1,12 @@
-// The bridge provider: one context, one decision, made once at mount.
+// The bridge provider: one context, one decision, made once at mount. A window handed a bridge
+// plays it, one handed a composition plays what the composition builds, and one handed neither
+// reads the preload. The context holds a `PlatformBridge` and nothing else, and the provider
+// disposes only what it built, never what a caller handed it. The resolution carries the window's
+// clock beside the bridge.
 //
-// A window handed a bridge plays it; one handed a composition plays what the composition
-// builds; one handed neither reads the preload. The provider holds no fixture branch: the
-// fixture launch is a composition built in `app/`, and a release build has none to hand
-// over. The context holds a `PlatformBridge` and nothing else; no component reads
-// `window.desktopBridge` or subscribes to a bridge event directly.
-//
-// The resolution carries the clock the window runs on beside the bridge: a composition's
-// own clock, the one a caller hands over with its bridge, or one `RealClock` for a window
-// that reads the preload.
-//
-// The resolution is state, not a memo. A composition may build a `ScenarioEngine`, a mutable
-// resource (subscriptions, an advanced frozen clock, parked replies); React may discard and
-// recompute a memo, which would start a second engine at tick zero mid-scenario. A resource
-// also has an end, so replacement and teardown are explicit, and the provider disposes only
-// what it built, never what a caller handed it.
+// The resolution is state, not a memo: a composition may build a mutable `ScenarioEngine`, and
+// React may discard and recompute a memo, which would start a second engine at tick zero
+// mid-scenario.
 
 import { useEffect, useLayoutEffect, useState, type ReactNode } from "react";
 import { RealClock, type Clock } from "@renderer/lib/clock.js";
@@ -47,11 +39,8 @@ export interface PlatformBridgeProviderProps {
 }
 
 /**
- * Resolve the bridge once and hand it down.
- *
- * The resolution is held as STATE, replaced only when the props it was resolved
- * from change or what it built has been torn down — see the module header for why
- * neither a memo nor a plain re-creation is correct for a resource with a lifetime.
+ * Resolves the bridge once and hands it down. The resolution is held as state and replaced only
+ * when its inputs change or what it built has been torn down.
  */
 export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): React.JSX.Element {
   const { children, bridge, clock, composition, clockToRebind } = props;
@@ -59,12 +48,9 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
     () => new ResolvedConsoleBridge(bridge, clock, composition),
   );
 
-  // The one clock the window reads, handed to the identity a caller armed before this
-  // tree existed. From the LAYOUT phase for `useClock`'s own reason: every
-  // layout effect for a commit runs before any passive effect for it, so a consumer
-  // reading time from an effect reads the clock this commit resolved. An unavailable
-  // resolution has no clock to hand over and leaves the identity on whatever it was
-  // constructed with, which is the honest reading for a window that has no bridge.
+  // Hands the window's one clock to the identity armed before this tree existed. It runs in the
+  // layout phase so every passive effect of a commit reads the clock that commit resolved. An
+  // unavailable resolution has no clock, so the identity keeps the one it was constructed with.
   useLayoutEffect(() => {
     const resolution = resolved.resolution;
     if (clockToRebind === undefined || resolution.status !== "ready") {
@@ -73,12 +59,9 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
     clockToRebind.holdClock(resolution.clock);
   }, [clockToRebind, resolved]);
 
-  // One effect, because replacement and installation are one decision made in one
-  // order: the previous resolution's teardown has already run by the time this
-  // body sees a superseded one, so the replacement never disposes something a
-  // later commit still reads. Installed from an effect rather than during render
-  // because React may discard a render pass, and a handle installed during one would
-  // point at an engine no window is reading.
+  // One effect because replacement and installation are one decision: the previous resolution's
+  // teardown has already run when this sees a superseded one. It installs from an effect because
+  // React may discard a render pass, and a handle installed then would point at an unread engine.
   useEffect(() => {
     if (resolved.isSupersededBy(bridge, clock, composition)) {
       setResolved(new ResolvedConsoleBridge(bridge, clock, composition));
@@ -95,13 +78,9 @@ export function PlatformBridgeProvider(props: PlatformBridgeProviderProps): Reac
 }
 
 /**
- * One resolved bridge, the inputs it was resolved from, and what this provider built.
- *
- * A class rather than a bare object because the two questions a caller asks of it
- * are rules rather than fields — is this still the right resolution for these
- * props, and what does tearing it down actually mean — and both have an answer
- * that depends on whether the bridge was BUILT here or handed in. A caller's
- * bridge outlives this provider; one built here does not.
+ * One resolved bridge, the inputs it was resolved from, and what this provider built. A class
+ * because whether it is still right for the props, and what teardown means, both depend on
+ * whether the bridge was built here or handed in; a caller's bridge outlives this provider.
  */
 class ResolvedConsoleBridge {
   readonly #suppliedBridge: PlatformBridge | undefined;
@@ -131,22 +110,11 @@ class ResolvedConsoleBridge {
   }
 
   /**
-   * Is this resolution no longer the right one to serve?
-   *
-   * Two arms. The props it was resolved from changed, which is a deliberate
-   * replacement; or what it built has been disposed, which is the re-mint arm a
-   * double mount takes — React's StrictMode tears an effect down and runs it
-   * again, the teardown has already disposed the engine, and a second mount must
-   * take a fresh one rather than a corpse.
-   *
-   * The two window-lifetime resources one layer down answer the same pair, but in
-   * two places rather than one: `app/hooks/useSessionStoreRegistry.ts` and
-   * `app/hooks/useUiStateStore.ts` compare the bridge DURING the render that first
-   * sees a new one — `hooks/subject-scoped/useSubjectScopedResource.ts` is what holds
-   * that comparison — and keep only the disposed arm in an effect, because a resource
-   * that tore itself down did so in a cleanup the preceding render could not see. This
-   * one cannot split the same way: it is deciding what the bridge IS, so there is no
-   * resolved subject to compare against during render.
+   * Whether this resolution is no longer the right one to serve: its inputs changed, or what it
+   * built was disposed, as when StrictMode tears an effect down and reruns it and the second mount
+   * must not take a disposed engine. The window-lifetime resources in `app/hooks/` compare the
+   * bridge during render via `useSubjectScopedResource`; this one cannot, because it decides what
+   * the bridge is and has no resolved subject to compare against.
    */
   public isSupersededBy(
     suppliedBridge: PlatformBridge | undefined,
@@ -164,11 +132,8 @@ class ResolvedConsoleBridge {
   }
 
   /**
-   * Put the handles for the bridge the composition built on the page, and return the
-   * teardown for them and for what was built.
-   *
-   * A supplied bridge installs nothing: its caller owns it, and whatever a driver reads
-   * about it is the caller's to put up.
+   * Puts the handles for a composition-built bridge on the page and returns the teardown for them
+   * and for what was built. A supplied bridge installs nothing; its caller owns it.
    */
   public install(): () => void {
     const composed = this.#composed;

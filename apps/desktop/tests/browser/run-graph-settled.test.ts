@@ -1,32 +1,17 @@
-// What `tests/helpers/run-graph-settled.ts` is for, held to by a graph and by a view
-// that draws none.
+// What `tests/helpers/run-graph-settled.ts` is for, held to by a graph and by a view that
+// draws none.
 //
-// Neither tier that consumes the helper can check it. The screenshot tier takes images
-// and asserts nothing else, and the accessibility tier asserts an EMPTY violation list
-// — which is also what a run over a view that never settled returns. So without
-// this file the helper could return on its first call for the rest of its life, and
-// every reference would still be whatever frame the capture reached while every audit
-// stayed green over a graph it never saw.
+// Neither tier that consumes the helper can check it: the screenshot tier asserts nothing but
+// images, and the accessibility tier asserts an empty violation list, which is also what a run
+// over a view that never settled returns. Without this file the helper could return on its
+// first call and every audit would stay green over a graph it never saw.
 //
-// IN THE BROWSER TIER, BECAUSE A CHECKER MUST RUN WHEREVER ITS SUBJECT RUNS. This
-// file was in `screenshot/`, the one project the aggregate `test` script deliberately
-// omits — its references are committed per platform and it runs in its own pinned
-// job — while the helper it checks also runs in `accessibility/`, which the aggregate
-// invokes on every call. A regression in the settle predicate therefore hung or
-// green-washed the accessibility tier with the one test that would have named the
-// cause never running.
+// It runs in the browser tier because the aggregate `test` script runs that tier and the
+// accessibility tier the helper also serves, while the screenshot tier is not in it; and
+// because a Node project has no DOM, animation frame or layout engine to measure against.
 //
-// The browser tier rather than a Node one, and that is forced rather than preferred:
-// a Node project has no DOM, no animation frame, and no layout engine, and every claim
-// below is measured on all three. The browser tier is where "geometry a DOM shim cannot
-// answer" already lives — the graph-box cases are its neighbor — and it is on the
-// aggregate.
-//
-// THE UNSETTLED STATE IS MANUFACTURED, NEVER RACED FOR. Reading the predicate straight
-// after the mount and expecting `false` would be a claim about when the graph chunk
-// lands, and a negative control that depends on when a chunk arrives is not a control.
-// So every unsettled state below is produced through the cascade — the collapsing rule —
-// where it is exact, reversible, and independent of what the network did.
+// Every unsettled state is manufactured through the cascade (the collapsing rule), never raced
+// for: a negative control that depends on when a chunk arrives is not a control.
 
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -37,19 +22,13 @@ import {
 import { awaitRunGraphSettled, isRunGraphSettled } from "../helpers/run-graph-settled.js";
 
 /**
- * Take the canvas's stated block size away, which is what collapsed the graph.
+ * Take the canvas's stated block size away, which collapses the graph. The canvas is targeted
+ * rather than the library's root because the root's `height: 100%` is written inline and no
+ * stylesheet can outrank it; with the canvas on `auto` the percentage resolves to nothing and
+ * the root paints at zero inside a box still holding its 20rem floor.
  *
- * THE CANVAS AND NOT THE LIBRARY'S ROOT, because the root's height is an INLINE
- * `height: 100%` the library writes itself and no stylesheet can outrank. What decided
- * whether that percentage resolved to anything was always the box above it: with the
- * canvas back on `auto` its block size depends on its content, the percentage resolves
- * to nothing, and the root paints at zero inside a box still holding its 20rem floor —
- * the exact state a committed reference recorded.
- *
- * A STYLESHEET RATHER THAN A REWRITTEN ELEMENT, so the collapse is reached the way the
- * real one was: through the cascade, over the shipped rule, at equal specificity and
- * later in the sheet order. Marked so the file's teardown finds it however a case
- * ended, and so a case that lifts the collapse itself lifts exactly what it planted.
+ * It is a stylesheet, not a rewritten element, so the collapse comes through the cascade over
+ * the shipped rule. It is marked so teardown finds it however a case ended.
  */
 function collapseEveryGraphCanvas(): void {
   const collapsingRule = document.createElement("style");
@@ -66,12 +45,8 @@ function restoreEveryGraphCanvas(): void {
 }
 
 /**
- * How long the wait is watched for an early return before the collapse is lifted.
- *
- * Longer than the settle's own polling interval by a wide margin — `waitFor` re-reads
- * every 50 ms and on every DOM mutation — so a wait that returned on a false reading
- * has had many chances to do so before the timer wins, and short enough that a correct
- * wait costs the case a fraction of its budget rather than most of it.
+ * How long the wait is watched for an early return before the collapse is lifted: well over
+ * the settle's 50 ms `waitFor` polling interval, and a small fraction of the case's budget.
  */
 const EARLY_RETURN_WATCH_MS = 300;
 
@@ -98,23 +73,22 @@ describe("the capture's run-graph readiness", () => {
     await awaitRunGraphSettled(graph);
     expect(isRunGraphSettled(graph)).toBe(true);
 
-    // The negative control, and the whole reason the helper exists. The graph is
-    // fitted — that transform stays on the viewport throughout — and its picture is
-    // taken away, so a wait that read the style attribute alone would return here at
-    // once. It must not: for as long as the box is empty the wait is still pending.
+    // The negative control and the reason the helper exists. The graph stays fitted (the
+    // transform remains on the viewport) but its picture is gone, so a wait that read the
+    // style attribute alone would return here at once; it must stay pending while the box is
+    // empty.
     collapseEveryGraphCanvas();
     expect(isRunGraphSettled(graph)).toBe(false);
     const waitingForThePicture = awaitRunGraphSettled(graph);
     expect(await settlesWithin(waitingForThePicture, EARLY_RETURN_WATCH_MS)).toBe(false);
 
-    // And it is a wait rather than a refusal: the picture coming back is what resolves
-    // it, without a second call and without the mount being touched.
+    // It is a wait, not a refusal: the picture coming back resolves it with no second call.
     restoreEveryGraphCanvas();
     await waitingForThePicture;
     expect(isRunGraphSettled(graph)).toBe(true);
 
-    // Fitted AND still: the transform the capture will read is the one the last
-    // commit wrote, not one a further frame is about to replace.
+    // Fitted and still: the transform a capture reads is the last commit's, not one a further
+    // frame is about to replace.
     const viewport = graph.querySelector<HTMLElement>(".react-flow__viewport");
     const fitted = viewport?.style.transform;
     await new Promise<void>((resolve) => {
@@ -124,17 +98,15 @@ describe("the capture's run-graph readiness", () => {
   });
 
   it("negative control: a fitted graph whose root paints nothing is not settled", async () => {
-    // Without this the predicate is satisfied by the style attribute alone, which the
-    // library writes at any container size — including none. That is the state a
-    // committed reference recorded: a fitted transform over a root of zero height, a
-    // 20rem sunken box with no phase in it, and every tier green.
+    // Without this the predicate is satisfied by the style attribute alone, which the library
+    // writes at any container size, including none: a fitted transform over a zero-height root.
     const graph = await mountWorkflowRunPhaseGraph();
     await awaitRunGraphSettled(graph);
     expect(isRunGraphSettled(graph)).toBe(true);
 
     collapseEveryGraphCanvas();
-    // The fit is untouched — the transform the predicate used to read is still on the
-    // viewport — and the picture is gone, which is exactly the pair that used to pass.
+    // The fit is untouched and the picture is gone: the pair a style-attribute-only predicate
+    // would pass.
     expect(graph.querySelector<HTMLElement>(".react-flow__viewport")?.style.transform).not.toBe("");
     expect(isRunGraphSettled(graph)).toBe(false);
   });

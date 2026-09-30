@@ -1,22 +1,11 @@
 // Where the update stands, and who decides when it lands.
 //
-// The state read-out: `idle`, `checking`, `available` with the version found and its
-// release, `downloading` with its percent, `verifying`, `ready`, and `error` with its
-// message. `UpdateState` is a registered union on the preload contract and this file
-// renders exactly its members.
-//
-// NOTHING DOWNLOADS OR RESTARTS WITHOUT A PRESS, AND `ready` MEANS DOWNLOADED
-//
-// The download control exists only on the `available` arm, the update the updater found
-// and has not fetched. The restart control exists only on the `ready` arm, because that
-// arm is what the updater says when the download has completed; the console never derives
-// readiness from a percent, and it invents no percent for an arm that carries none — only
-// `downloading` has one, and only `downloading` renders a bar.
-//
-// A call that throws or rejects is not caught here; it propagates to the caller.
-//
-// Under the read-out sits the switch for checking on its own, on by default. Its value is
-// the machine setting `updatesAutomatic`.
+// The read-out renders exactly the members of the `UpdateState` union on the preload contract.
+// Nothing downloads or restarts without a press: the download control exists only on the
+// `available` arm and the restart control only on `ready`, the updater's word that the
+// download completed. The console never derives readiness from a percent, and only
+// `downloading` carries one and renders a bar. A call that throws or rejects is not caught
+// here. Under the read-out sits the switch for the machine setting `updatesAutomatic`.
 
 import type { UpdateState } from "@shared/preload-api.js";
 import type { ReactNode } from "react";
@@ -29,16 +18,11 @@ import { useUpdateReading } from "../hooks/useUpdateReading.js";
 import { UpdateReadOut } from "./UpdateReadOut.js";
 
 /**
- * What each settled arm of the updater's read SAYS, for the person who cannot see it.
+ * What each settled arm of the updater's read says, for the person who cannot see it.
  *
- * TOTAL over `UpdateState`'s own union, so an arm landing upstream is a compile
- * error here rather than a settlement that lands silently.
- *
- * Deliberately carries no percent. The `downloading` arm re-settles on every push the
- * updater sends, and a sentence carrying the figure would be a different sentence each
- * time — which the announcer would dutifully say, once per percentage point, over the
- * top of everything else in the window. The bar on screen is where a moving number
- * belongs; the announcement is that the read landed and what it found.
+ * Total over `UpdateState`, so a new upstream arm is a compile error. It carries no percent:
+ * `downloading` re-settles on every push and a sentence with the figure would be announced
+ * once per percentage point.
  */
 const UPDATE_STATUS_SETTLEMENTS: Readonly<Record<UpdateState["status"], string>> = {
   idle: "Update state read. No update is waiting.",
@@ -57,10 +41,7 @@ export interface UpdatesBlockProps {
   readonly preferences: Pick<MachineSettingsBinding, "settings" | "isPending" | "choose">;
 }
 
-/**
- * The update block: the updater's state, the controls that ask it to move, and the
- * switch for checking on its own.
- */
+/** The updater's state, the controls that ask it to move, and the automatic-check switch. */
 export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
   const { updater, preferences } = props;
   const reading = useUpdateReading(updater);
@@ -124,9 +105,7 @@ export function UpdatesBlock(props: UpdatesBlockProps): ReactNode {
 /**
  * The one sentence this block announces, or `undefined` while nothing has settled.
  *
- * The `error` arm appends the updater's message: it is a served reading whose content
- * is a failure, and dropping the message would announce that something failed while
- * withholding what.
+ * The `error` arm appends the updater's message so the announcement says what failed.
  */
 function updateSettlementSentence(reading: UpdateReading): string | undefined {
   if (reading.kind === "not-read") {

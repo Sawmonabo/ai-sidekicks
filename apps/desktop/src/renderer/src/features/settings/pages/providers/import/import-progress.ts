@@ -1,14 +1,10 @@
 // The progress half of a provider import, as a reading.
 //
-// The import is two calls and they answer different kinds of thing. `session.import`
-// is a write that settles once with an import id. `session.importSubscribe` is a
-// stream over one provider's imports, and a stream has a state no settlement
-// expresses: open and has said something, open and has said nothing yet, or closed.
-// So the two are held apart. What the stream carries, and why it is keyed by provider,
-// is the contract's `provider-import.ts`.
-//
-// Nothing is computed from the messages: the counts and the outcome are the service's
-// own words, rendered verbatim.
+// `session.import` is a write that settles once with an import id; `session.importSubscribe`
+// is a stream, which can be open and silent, open and speaking, or closed. The two are held
+// apart. What the stream carries, and why it is keyed by provider, is in the contract's
+// `provider-import.ts`. Nothing is computed from the messages: the counts and the outcome
+// are the service's own words.
 
 import type {
   ProviderImportId,
@@ -36,16 +32,14 @@ export type ImportProgressReading =
 /**
  * Whether an import is still being read.
  *
- * `startedImportId` is the id this screen's own start was answered with, if it made
- * one. It matters because a stream's first message may be the LAST import's outcome:
- * a settled message for any other import is history, and the one this screen started
- * is still going until its own settled message arrives. A progress message is always
- * a running import, whoever started it.
+ * `startedImportId` is the id this screen's own start was answered with, if any. A stream's
+ * first message may be the last import's outcome, so a settled message for any other import
+ * is history; this screen's import is still going until its own settled message arrives. A
+ * progress message always means a running import.
  *
- * Before the stream has said anything — including the frame between the start
- * settling and the effect that opens the stream — an import is underway exactly when
- * this screen started one. A closed stream reads nothing further, so it ends the
- * reading.
+ * Before the stream has spoken, including the frame between the start settling and the
+ * stream opening, an import is underway exactly when this screen started one. A closed
+ * stream reads nothing further, so it ends the reading.
  */
 export function isImportUnderway(
   startedImportId: ProviderImportId | undefined,

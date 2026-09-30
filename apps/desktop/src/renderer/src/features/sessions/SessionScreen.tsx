@@ -1,39 +1,12 @@
-// The session screen: the session header with its banners and the catching-up line
-// under it, the pane layout, and the composer's region.
+// The session screen: the header with its banners and catching-up line, the pane layout,
+// and the composer's region. It owns only the arrangement; panes and the composer come
+// through their registries.
 //
-// This is what a person is looking at when they are looking at a session. It
-// composes three things it does not own — `SessionHeader` (this feature's), the pane layout's
-// panes (six features', through the pane registry), and the composer (the composer
-// feature's, through its registered renderer) — and owns exactly one thing itself: the
-// arrangement.
-//
-// THE DECISIONS THIS SCREEN MAKES:
-//
-//   • **The layout is restored once, at mount, and saved through the persistence
-//     chokepoint.** Layout, scroll position, selection, pins, and expansion sets
-//     persist per install; projections never persist and are re-derived on
-//     reconnect. Nothing about a
-//     session's own state is written — the snapshot holds pane ids, kinds, entity
-//     refs, and widths, which is the `layout` value class and nothing beyond it.
-//   • **Saves are coalesced by the write itself.** Dragging a separator produces a
-//     transition per frame, and one durable write per frame would spend the store's
-//     whole budget on a gesture. `layout-writer.ts` holds one write in
-//     flight and one pending snapshot, so a drag costs what the database can absorb
-//     and every record it writes is the newest arrangement rather than a stale one.
-//   • **An empty pane layout opens the transcript.** This screen's own empty state, because no
-//     committed document states one: the session screen shows the transcript alone at full
-//     width, which is a `transcript` pane rather than a special case in the renderer.
-//   • **Refusals are rendered where they happened.** What a restore dropped belongs
-//     to the pane layout and renders inside it; a save that failed takes one banner under
-//     the session header in plain words, and its code goes to the window's diagnostic
-//     capture.
-//   • **A banner belongs to the session it was raised in.** This screen is NOT
-//     remounted between two open sessions, so a column held for the life of the mount
-//     would go on saying a save failed in the session somebody left, over the pane layout
-//     of the one they are looking at. The column rides `store/subject-scoped/session-subject.ts` on
-//     `(bridge, session)`, so the render that first sees the arriving session already
-//     reads an empty one, and a bridge replacement — which retires every call the
-//     refusals describe — clears it too.
+// The layout is restored once at mount and saved through the persistence hook. An empty
+// layout opens the transcript alone at full width. A save that failed raises one banner
+// under the header; its code goes to the window's diagnostic capture. The screen is not
+// remounted between two open sessions, so banners are scoped to (bridge, session): the
+// arriving session reads an empty column, and a bridge replacement clears it too.
 
 import "./SessionScreen.css";
 
@@ -88,10 +61,8 @@ export interface SessionScreenProps {
   readonly draftStore: DraftStore;
   readonly route: AppRoute;
   /**
-   * The pane board THIS composition filled, the same fact `ScreenContext`
-   * carries and on the same terms: required rather than defaulted to the process-wide
-   * singleton, because a default is the same hard-coding one parameter along and a
-   * caller that forgets it still mounts production's bodies into a composed window.
+   * The pane registry this composition filled. Required rather than defaulted to the
+   * process-wide one, so a caller cannot mount production's bodies into a composed window.
    */
   readonly paneRegistry: PaneRegistry;
   /**
@@ -108,24 +79,17 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
   const layout = usePaneLayoutStore({ restoredPaneCap: PANE_LAYOUT_RESTORED_PANE_CAP });
   const paneLayoutState = usePaneLayoutState(layout);
   const clock = useClock();
-  // WHAT THIS ROOM CANNOT DO, ADDRESSED BY THE SESSION IT CANNOT DO IT IN. The bridge
-  // is the subject and the session the key, which is this console's one session pairing:
-  // every refusal that lands here was raised by a call or a write made through that
-  // transport, so a replacement retiring those calls retires their sentences with them.
+  // The bridge is the subject and the session the key: every refusal here came through that
+  // transport, so replacing it retires their banners with them.
   const { value: banners, settle: settleBanners } = useSessionScopedState<readonly SessionBanner[]>(
     props.bridge,
     sessionId,
     () => NO_SESSION_BANNERS,
   );
 
-  // CAPTURED WHEN THE FAILURE LANDS, not when the handler was handed over, and that is
-  // forced rather than chosen: the save writer is held per STORE and built once, so
-  // it closes over the handler from the render that seeded it. A publisher captured at
-  // that render names the session that was on screen then and would go on dropping
-  // every later session's banner in silence — `settle` names the visit committed at
-  // the moment of the call instead, so the column stays writable for the life of the
-  // mount and the banner lands on the session a person is actually reading. The session
-  // the capture names is the one whose arrangement the save carried, for the same reason.
+  // The save writer is built once per store and closes over the handler from its first
+  // render, so the publisher is taken with `settle` when the failure lands. Taking it at
+  // render would drop every later session's banner.
   const saveRefused = useCallback(
     (refusal: Refusal, savedSessionId: string) => {
       recordRefusal(clock, "pane-layout-not-saved", savedSessionId, refusal);
@@ -154,10 +118,8 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
 
   const paneContextFor = useCallback(
     (pane: SessionPane): PaneContext | Refusal => {
-      // The kind and the entity arrived as a loose pair — off a restored snapshot, or
-      // off a route somebody typed — so they become an ADDRESS here or they become a
-      // refusal here. `parsePaneAddress` owns that rule and this screen applies it; deciding it
-      // again would be a second answer to which entities a pane kind is a view of.
+      // The kind and entity arrive as a loose pair (a restored snapshot or a typed route),
+      // so `parsePaneAddress` turns them into an address or a refusal here.
       const address = parsePaneAddress(pane.kind, pane.entity);
       if ("code" in address) {
         return address;
@@ -170,8 +132,7 @@ export function SessionScreen(props: SessionScreenProps): React.JSX.Element {
         sessionStore: props.sessionStore,
         uiStateStore: props.uiStateStore,
         draftStore: props.draftStore,
-        // The pane this one was opened beside, passed as an identifier and never as a
-        // handle, so a linked pane stays independently movable and closable.
+        // An identifier, never a handle, so a linked pane stays independently movable.
         linkedSourcePaneId: pane.sourcePaneId,
       };
     },

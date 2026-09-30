@@ -1,10 +1,5 @@
-// The seam itself: absent means no host, and never a host offering nothing.
-//
-// The chrome's own suite covers what the two states RENDER. This covers the
-// distinction they render from, which no rendering can witness: an empty object and
-// `undefined` produce the same head — no controls — so a context that quietly
-// defaulted to `{}` would be invisible there and would make "there is no host"
-// indistinguishable from a pane layout that supplied nothing.
+// The seam: absent means no host, never a host offering nothing. Rendering cannot witness this,
+// since `{}` and `undefined` both draw a head with no controls.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -34,8 +29,7 @@ describe("pane controls — the seam", () => {
   });
 
   it("negative control: the absent answer is not an empty host", () => {
-    // The whole distinction. Both render no controls, and only one of them means the
-    // pane is outside a pane layout.
+    // Both render no controls; only `undefined` means the pane is outside a pane layout.
     expect(readSeam((probe) => probe).value).not.toStrictEqual({});
   });
 
@@ -44,14 +38,13 @@ describe("pane controls — the seam", () => {
     const seam = readSeam((probe) => (
       <PaneControlsContext.Provider value={controls}>{probe}</PaneControlsContext.Provider>
     ));
-    // Identity, not equality: a seam that rebuilt the object would give every reader a
-    // fresh one and turn a memoized body into one that re-renders on every pane layout tick.
+    // Identity, not equality: a rebuilt object would re-render memoized bodies every tick.
     expect(seam.value).toBe(controls);
   });
 
   it("negative control: a partial host is not filled in", () => {
-    // A pane layout that provides the close alone. A seam that supplied a default for the
-    // other acts would hand the chrome controls the host cannot serve.
+    // The host provides close alone; a default for the other acts would offer controls it cannot
+    // serve.
     const seam = readSeam((probe) => (
       <PaneControlsContext.Provider value={{ onClose: () => undefined }}>
         {probe}

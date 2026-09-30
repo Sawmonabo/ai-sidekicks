@@ -1,22 +1,12 @@
 // Two dialogs up at once, and what the register says when one of them closes.
 //
-// THE CASE THAT WOULD HAVE CAUGHT THE DEFECT is the first one. While the window's
-// guard was a boolean each publisher wrote, a second dialog closing published `false`
-// under the first, and the background came back structurally reachable behind a
-// dialog still on screen. So the assertion here is not "closing publishes `false`" —
-// that was true of the broken shape too — but "closing publishes what the REST of the
-// register says", which is a different claim and the only one that bites.
+// The first case is the one that guards the regression: with a boolean each publisher wrote,
+// closing a second dialog published `false` under the first. The assertion is therefore that
+// closing publishes what the rest of the register says, not merely `false`.
 //
-// THE PUBLICATIONS ARE COLLECTED RATHER THAN SAMPLED. What the window renders is the
-// sequence, not the final value: a register that published `false` and then `true`
-// again would settle correctly and still have dropped `inert` for a frame. Every case
-// asserts the whole list.
-//
-// AND THE LIST IS THE REGISTER'S MOVES, NOT THE CELL'S. This register speaks whenever
-// it MOVED — so a release that leaves another claim standing repeats `true`, which is
-// the register saying the answer it has now rather than a claim that anything changed.
-// Whether an unchanged value reaches a subscriber is the store's own comparison, one
-// layer up, in the window store.
+// Publications are collected rather than sampled, because a `false` then `true` would settle
+// correctly yet drop `inert` for a frame. The list is the register's moves, so a release that
+// leaves another claim standing repeats `true`; the window store dedupes unchanged values.
 
 import { describe, expect, it } from "vitest";
 
@@ -48,9 +38,8 @@ describe("the modal dialog register — one claim per dialog", () => {
     claims.hold(SECOND_DIALOG);
     claims.release(SECOND_DIALOG);
 
-    // The first dialog is still on screen trapping focus. A `false` here is the
-    // defect: the window drops `inert` and the rail, the screen, and every
-    // control underneath become reachable by structural navigation.
+    // The first dialog is still on screen trapping focus; a `false` here drops `inert` and makes
+    // everything underneath reachable.
     expect(published).toStrictEqual([true, true, true]);
     expect(claims.heldClaimCount).toBe(1);
   });
@@ -68,10 +57,9 @@ describe("the modal dialog register — one claim per dialog", () => {
   });
 
   it("costs nothing to release a claim twice", () => {
-    // Strict mode invokes an effect's cleanup between its two invocations, and a
-    // close followed by an unmount releases the same claim twice. A register that
-    // underflowed or republished here would be a register no cleanup could call
-    // safely.
+    // Strict mode runs an effect's cleanup between its two invocations, and a close followed by
+    // an unmount releases twice; a register that underflowed or republished could not be called
+    // safely from a cleanup.
     const { claims, published } = registerUnderTest();
 
     claims.hold(FIRST_DIALOG);
@@ -82,8 +70,7 @@ describe("the modal dialog register — one claim per dialog", () => {
   });
 
   it("leaves every other claim alone when a stale release arrives", () => {
-    // The one operation the broken shape performed and this one cannot express: a
-    // caller that has already given up its claim clearing everybody else's.
+    // The broken shape let a caller that had given up its claim clear everybody else's.
     const { claims, published } = registerUnderTest();
 
     claims.hold(FIRST_DIALOG);
@@ -104,8 +91,8 @@ describe("the modal dialog register — one claim per dialog", () => {
   });
 
   it("control: a register nobody has claimed publishes nothing at all", () => {
-    // Which is what makes every list above a claim about the holds and releases that
-    // produced it, rather than about a register that publishes on construction.
+    // Makes every list above a claim about the holds and releases that produced it, not about a
+    // register that publishes on construction.
     const { claims, published } = registerUnderTest();
 
     expect(published).toStrictEqual([]);

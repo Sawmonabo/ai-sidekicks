@@ -1,16 +1,10 @@
-// The accessibility tier for the agents feature.
+// The accessibility tier for the agent card, audited as a component. The agents feature's
+// stylesheet is imported because contrast is measured on the rendered composition, so an
+// unstyled card would report a palette nobody ships.
 //
-// The card is audited as a component rather than through a destination, because the
-// host that mounts an agent roster has not landed. The agents feature's stylesheet is imported
-// because contrast is measured on the rendered composition rather than on the token
-// table, so a card audited unstyled would report a palette nobody ships.
-//
-// ONE STRUCTURAL RULE IS THE POINT OF THIS FILE. The resolved-configuration echo is
-// a `<dl>`, and axe's `definition-list` rule carries `wcag2a`, which is already in
-// this tier's tag set — so the audit below is what catches a `<p>` or any other
-// foreign child appearing among its groups. A list whose content model is broken is
-// one assistive technology may fold or renumber, and the note that used to sit there
-// would have been heard as part of the goal above it.
+// The resolved-configuration echo is a `<dl>`, and axe's `definition-list` rule (`wcag2a`) is
+// what catches a `<p>` or other foreign child among its groups, which assistive technology
+// may fold or renumber.
 
 import { describe, expect, it } from "vitest";
 
@@ -59,9 +53,8 @@ describe("accessibility — the agent card", () => {
   });
 
   it("negative control: the tier's rule set does find a violation when there is one", async () => {
-    // axe returning nothing is the expected result above, and a misconfigured run —
-    // wrong root, wrong tags, an exception swallowed — returns exactly the same
-    // nothing.
+    // A misconfigured run (wrong root, wrong tags, a swallowed exception) returns the same
+    // empty list the case above expects.
     const planted = plantAxeViolation();
     try {
       const violations = await runTierAxe(planted);

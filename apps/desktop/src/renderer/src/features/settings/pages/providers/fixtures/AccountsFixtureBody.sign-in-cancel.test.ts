@@ -1,11 +1,8 @@
-// What the sign-in card does when a flow ends.
-//
-// A flow ends in two ways: a cancel the daemon answered, and the registry reporting the
-// attempt finished. Either way the card goes, the start controls come back, and the
-// registry is read again, because a flow ending says nothing about the account.
-// `sign-in-flow-tracker.test.ts` states the same rules on the tracker; these drive them
-// through the fixture body, because "the card is gone and the control is offered" is a
-// claim about the rendered page.
+// What the sign-in card does when a flow ends. A flow ends by a cancel the daemon answered or
+// by the registry reporting the attempt finished; either way the card goes, the start controls
+// come back, and the registry is read again, since a flow ending says nothing about the
+// account. `sign-in-flow-tracker.test.ts` states the same rules on the tracker; these drive
+// them through the fixture body because the card and control are claims about the rendered page.
 
 import { act, cleanup, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -74,8 +71,8 @@ describe("the sign-in card, when a flow ends", () => {
     expect(requestRegistryRead).toHaveBeenCalledTimes(1);
   });
 
-  // The registry's report is node-wide, so another window's brokered flow completes on
-  // it too. A completion naming a different attempt must leave this card where it was.
+  // The registry's report is node-wide, so another window's flow completes on it too; a
+  // completion naming a different attempt must leave this card where it was.
   it("leaves the card alone for a completion naming another attempt", async () => {
     const { container, requestRegistryRead, showRegistry } = await mountWithLiveSignIn();
 

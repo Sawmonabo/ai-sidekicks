@@ -1,14 +1,6 @@
-// What a pane layout is made of: the pane shape, the state shape, and the arithmetic that
-// keeps a row of panes summing to a whole pane layout.
-//
-// Split out of `pane-layout-store.ts` because that file was doing three jobs — these
-// shapes, the persisted grammar, and the live store — and the three have different
-// readers. This one is the vocabulary layer of the pane layout: it holds no state, touches
-// no React, and every function in it is pure, so the width arithmetic can be
-// checked without constructing a layout at all.
-//
-// The dependency runs one way and only one way: `pane-layout` → `pane-layout-snapshot` →
-// `pane-layout-store`. Nothing here imports either of the other two.
+// The pane shape, the state shape, and the arithmetic that keeps a row of panes summing to a
+// whole layout. Stateless, pure and free of React. Imports run one way:
+// `pane-layout-store` → `pane-layout-snapshot` → `pane-layout`.
 
 import type { EntityRef } from "@renderer/lib/entity-kinds.js";
 import type { PaneKind } from "@renderer/routing/panes/pane-kinds.js";
@@ -17,16 +9,14 @@ import type { PaneLayoutDensity } from "./pane-layout-measures.js";
 /**
  * Pane widths are carried as permille of the pane layout, summing to this.
  *
- * Integers rather than fractions because the value is persisted, and a float that
- * round-trips through JSON reintroduces the accumulation error the normalization
- * step exists to remove. Permille rather than percent so a pane layout of five panes divides
- * evenly.
+ * Integers because the value is persisted and floats accumulate error through JSON; permille
+ * rather than percent so five panes divide evenly.
  */
 export const PANE_LAYOUT_TOTAL_PERMILLE = 1000;
 
 /** One pane in the pane layout. Immutable; every mutation produces a new one. */
 export interface SessionPane {
-  /** Stable across a layout restore — the identity `PaneContext` carries. */
+  /** Stable across a layout restore; the identity `PaneContext` carries. */
   readonly paneId: string;
   readonly kind: PaneKind;
   /** The entity this pane is a view of, or `undefined` for a session-scoped pane. */
@@ -49,33 +39,18 @@ export interface PaneLayoutState {
 }
 
 /**
- * The separator between an address key's fields.
- *
- * A control character no pane kind, no entity kind, and no wire-minted id carries.
- * It is not load-bearing for injectivity even so: every field before the last comes
- * from a closed set, and the one free-form field — the entity id — is last, so a key
- * cannot be re-parsed into a different address whatever an id contains.
+ * The separator between an address key's fields: a control character no kind or id carries.
+ * The key stays injective regardless, since the one free-form field, the entity id, is last.
  */
 const ADDRESS_KEY_SEPARATOR = "\u001f";
 
 /**
- * One pane layout address, rendered as a string that equals another exactly when the two
- * name the same thing.
+ * One pane address as a string that is equal to another exactly when both name the same pane.
  *
- * Kind PLUS entity, because the same run legitimately appears in a `runs` pane and
- * an `inspector`, and collapsing them onto one pane would make the second open
- * silently steal the first.
- *
- * A KEY rather than only a predicate, because two callers ask two different
- * questions of one rule. {@link addressesMatch} asks "is this the pane I want",
- * which a comparison answers; the snapshot decoder asks "have I already adopted
- * this address", which a comparison answers only in quadratic time and only by
- * re-stating the rule at a second site. Both now derive from this one function, so
- * the restore path and the open path cannot disagree about what "the same address"
- * means.
- *
- * Takes the two members the address is made of rather than either named type, so a
- * `SessionPane` and an opened `PaneAddress` are keyed by the same call.
+ * Kind plus entity, because the same run legitimately appears in a `runs` pane and an
+ * `inspector`. A key rather than a predicate so the snapshot decoder can test "already
+ * adopted" in a set instead of quadratically. Takes only the two members an address is made
+ * of, so a `SessionPane` and an opened address are keyed by the same call.
  */
 export function paneAddressKey(address: Pick<SessionPane, "kind" | "entity">): string {
   const { entity } = address;
@@ -84,13 +59,7 @@ export function paneAddressKey(address: Pick<SessionPane, "kind" | "entity">): s
     : `${address.kind}${ADDRESS_KEY_SEPARATOR}${entity.kind}${ADDRESS_KEY_SEPARATOR}${entity.id}`;
 }
 
-/**
- * Whether an open pane is already the pane an address asks for.
- *
- * Expressed through {@link paneAddressKey} rather than beside it: two copies of one
- * equality rule drift, and the drift is invisible — the pane layout would go on focusing
- * the right pane while a restore adopted the same one twice.
- */
+/** Whether an open pane is already the pane an address asks for, by {@link paneAddressKey}. */
 export function addressesMatch(
   pane: SessionPane,
   address: Pick<SessionPane, "kind" | "entity">,
@@ -98,7 +67,7 @@ export function addressesMatch(
   return paneAddressKey(pane) === paneAddressKey(address);
 }
 
-/** Move one pane from `from` to `to`. Returns the input unchanged on a bad index. */
+/** Moves one pane from `from` to `to`. Returns the input unchanged on a bad index. */
 export function reorder(
   panes: readonly SessionPane[],
   from: number,
@@ -113,7 +82,7 @@ export function reorder(
   return next;
 }
 
-/** Give every pane an equal share. What opening and closing leave behind. */
+/** Gives every pane an equal share, as opening and closing leave the row. */
 export function distributeEvenly(panes: readonly SessionPane[]): readonly SessionPane[] {
   if (panes.length === 0) {
     return panes;
@@ -121,29 +90,21 @@ export function distributeEvenly(panes: readonly SessionPane[]): readonly Sessio
   const share = Math.floor(PANE_LAYOUT_TOTAL_PERMILLE / panes.length);
   return panes.map((pane, position) => ({
     ...pane,
-    // The remainder goes to the first pane rather than being spread, so the sum is
-    // exact and the arithmetic is one line a reader can check.
+    // The remainder goes to the first pane, so the sum is exact.
     sizePermille: position === 0 ? PANE_LAYOUT_TOTAL_PERMILLE - share * (panes.length - 1) : share,
   }));
 }
 
 /**
- * Permille per percent — the whole of the translation between the pane layout's grammar
- * and `react-resizable-panels`' one.
- *
- * The library speaks percentages of the group as floats (0..100); the persisted
- * grammar speaks integer permille, and stays integer permille, because a float that
- * round-trips through JSON reintroduces exactly the accumulation error `normalize`
- * exists to remove. So the conversion is a factor of ten and lives here, beside the
- * total it is derived from, rather than being written out at each of the three call
- * sites that need it.
+ * Permille per percent: the translation between the persisted integer permille and the
+ * float percentages (0..100) `react-resizable-panels` speaks.
  */
 export const PERMILLE_PER_PERCENT: number = PANE_LAYOUT_TOTAL_PERMILLE / 100;
 
 /** A layout as the panels library states it: panel id to percentage of the group. */
 export type PaneSizePercentages = Readonly<Record<string, number>>;
 
-/** The store's widths, as the percentages the panel group takes as its default. */
+/** The store's widths as the percentages the panel group takes as its default. */
 export function toPaneSizePercentages(panes: readonly SessionPane[]): PaneSizePercentages {
   const percentages: Record<string, number> = {};
   for (const pane of panes) {
@@ -153,22 +114,12 @@ export function toPaneSizePercentages(panes: readonly SessionPane[]): PaneSizePe
 }
 
 /**
- * Adopt a layout the panel group settled on, held above the pane layout's own floor.
+ * Adopts the layout the panel group settled on, holding every pane above `minimumPermille`.
  *
- * THE FLOOR IS APPLIED HERE AND NOT LEFT TO THE LIBRARY. The panels library clamps
- * its own drag against each panel's `minSize`, and the pane layout hands it the same
- * number, so in practice the two agree. They are still two clamps: the library's
- * runs over measured pixels in the DOM, and this one runs over the value that gets
- * persisted. A width below the floor reaching the store would be written to disk and
- * restored on the next launch, at which point no drag is happening for the library's
- * clamp to run in. So the store clamps what it keeps.
- *
- * A pane the layout does not name keeps the width it had — the group reports only
- * the panels it currently holds, and a pane mid-mount is legitimately absent.
- *
- * The floor is capped at an equal share, because a floor that cannot be met by
- * every pane at once has no solution and silently discarding it would leave the
- * pane layout summing to something other than a whole.
+ * The floor is applied here as well as by the library, because the library clamps measured
+ * pixels during a drag while this clamps the value that is persisted and restored later. A pane
+ * the group does not name keeps its width (it may be mid-mount). The floor is capped at an
+ * equal share, since a floor not every pane can meet has no solution.
  */
 export function applyPaneSizePercentages(
   panes: readonly SessionPane[],
@@ -206,13 +157,11 @@ export function sizesAreEqual(
 }
 
 /**
- * Make a clamped row sum to the whole pane layout again, without breaking the floor.
+ * Makes a clamped row sum to the whole again without breaking the floor.
  *
- * `normalize` cannot do this job: it rescales every pane by one ratio, which pulls
- * a pane that was just raised to the floor straight back under it. So the drift is
- * taken from the panes that have room for it, widest headroom first, and a shortfall
- * is given to the widest pane. Bounded by construction — one pass over a sorted
- * copy, and the floor's own cap guarantees the headroom exists.
+ * `normalize` cannot, because rescaling by one ratio would pull a pane raised to the floor back
+ * under it. Drift is taken from the panes with the most headroom first, and a shortfall goes
+ * to the widest pane. One pass over a sorted copy.
  */
 function settleToTotal(panes: readonly SessionPane[], floor: number): readonly SessionPane[] {
   const sizes = panes.map((pane) => pane.sizePermille);
@@ -238,33 +187,16 @@ function settleToTotal(panes: readonly SessionPane[], floor: number): readonly S
   }));
 }
 
-/**
- * The narrowest a rescaled pane may become. One permille, so a pane on disk with a
- * width of nearly nothing still comes back as a pane rather than as a zero-width
- * column the panel group has no way to grab.
- */
+/** The narrowest a rescaled pane may become; a zero-width column cannot be grabbed. */
 const MINIMUM_NORMALIZED_PERMILLE = 1;
 
 /**
- * Place arriving panes in front of an arrangement a person already made.
+ * Places arriving panes in front of an arrangement a person already made.
  *
- * {@link distributeEvenly}'s counterpart for the merge path, and the difference is the
- * whole point: equalizing a pane layout that already holds panes destroys the drag the person
- * finished while the record was being read, which is exactly the work
- * `PaneLayoutStore.adoptBeneath` exists to protect.
- *
- * HOW THE REMAINDER IS CARVED WHEN THE LIVE PANES ALREADY FILL THE TOTAL, which they
- * always do — every commit leaves the row summing to {@link PANE_LAYOUT_TOTAL_PERMILLE}, so
- * there is no unclaimed space for an arriving pane to take. Each arriving pane takes the
- * equal share it would have been given had the whole pane layout opened at once, and the live
- * row is rescaled INTO what is left, in proportion to the widths it already carried. So
- * the live panes keep their arrangement — a seventy-thirty pane layout stays seventy-thirty
- * across the space it still holds — while an adopted pane arrives at an ordinary width
- * rather than at whatever a subtraction happened to leave it.
- *
- * The sum is settled by {@link settleToTotal}, the same pass `normalize` and
- * `applyPaneSizePercentages` run, so one rule decides where a rounding remainder goes
- * and the row sums to a whole pane layout on every path.
+ * {@link distributeEvenly}'s counterpart for the merge path, which must not equalize widths the
+ * person just dragged. The live row already fills the total, so each arriving pane takes the
+ * equal share it would have had if all had opened together, and the live row is rescaled into
+ * what is left in proportion to its widths. {@link settleToTotal} fixes the rounding remainder.
  */
 export function distributeAdoptedBeneath(
   adopted: readonly SessionPane[],
@@ -297,20 +229,12 @@ export function distributeAdoptedBeneath(
 }
 
 /**
- * Rescale restored sizes so they sum to the total, whatever was on disk.
+ * Rescales restored sizes so they sum to the total, whatever was on disk.
  *
- * ROUNDING ALONE DOES NOT SUM. Each pane's share is rounded independently, so three
- * equal saved widths become `333 + 333 + 333 = 999` and the panel group is handed an
- * incomplete layout — and these widths come from the explicitly untrusted persisted
- * snapshot, so the case is reached rather than theoretical. The remainder is
- * therefore settled after rounding, by the same pass `applyPaneSizePercentages`
- * uses: the drift goes to the WIDEST pane first, narrowing stops at the floor, and a
- * tie keeps the panes' own order because the sort is stable. Deterministic, so one
- * snapshot restores to one arrangement every time.
- *
- * Reusing `settleToTotal` rather than adding a second remainder rule is the point:
- * two rules for one job drift, and the sum is exactly the property that would stop
- * holding when they did.
+ * Rounding alone does not sum (three equal widths become 333 + 333 + 333 = 999), and these
+ * widths come from the untrusted persisted snapshot. The remainder is settled after rounding
+ * by {@link settleToTotal}: the widest pane first, ties in the panes' own order, so one snapshot
+ * always restores to one arrangement.
  */
 export function normalize(panes: readonly SessionPane[]): readonly SessionPane[] {
   const total = panes.reduce((sum, pane) => sum + pane.sizePermille, 0);
@@ -330,11 +254,8 @@ export function normalize(panes: readonly SessionPane[]): readonly SessionPane[]
 }
 
 /**
- * The highest `pane-<n>` ordinal among restored panes.
- *
- * Read rather than reset, so a pane opened after a restore cannot be minted with an
- * id a restored pane already holds — which would make `close` remove two panes and
- * `focus` land on whichever the array reached first.
+ * The highest `pane-<n>` ordinal among restored panes, so a pane opened after a restore is
+ * never minted an id a restored pane already holds.
  */
 export function highestOrdinal(panes: readonly SessionPane[]): number {
   let highest = 0;
@@ -348,22 +269,12 @@ export function highestOrdinal(panes: readonly SessionPane[]): number {
 }
 
 /**
- * Place an arriving pane by halving ONE pane's share, leaving every other alone.
+ * Places an arriving pane by halving one pane's share and leaving every other pane alone.
  *
- * THE SPLIT ACT'S WIDTH RULE, and the whole difference between splitting a pane and
- * opening one. {@link distributeEvenly} re-divides the pane layout, which is right for a pane
- * that arrives at the end and wrong for one arriving INSIDE an arrangement a person
- * made: splitting the third of four panes would resize the other three, and somebody
- * who asked for a companion to one pane would get a pane layout they had to rebuild.
- *
- * So the arriving pane takes half the source's share and the source keeps the rest,
- * remainder included — an odd share leaves the pane that was already there the wider
- * of the two. The sum is preserved by construction rather than by a settling pass:
- * one pane's number is divided and the two halves add back to it.
- *
- * A pane too narrow to halve cannot be split — a zero-width column is one the panel
- * group has no way to grab — so this answers `undefined` and the caller applies its
- * own fallback rather than being handed a silently equalized row.
+ * The split width rule: re-dividing the whole row would resize panes the person did not touch.
+ * The arriving pane takes half the source's share and the source keeps the rest, so an odd
+ * share leaves the source wider and the sum is preserved. Returns `undefined` when the source
+ * is too narrow to halve, so the caller applies its own fallback.
  */
 export function carveSplitFrom(
   panes: readonly SessionPane[],

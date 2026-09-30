@@ -1,22 +1,10 @@
-// Which frames a call swap paints, which no assertion on a settled state can see.
+// Which frames a call swap paints, which an assertion on a settled state cannot see. A commit
+// that shows the previous node's session list for one frame still ends on the right answer, and
+// `act` replaces it before the DOM can be read, so `CommittedFrameRecorder` reads each commit.
 //
-// The hook's sibling suite reads STATES — what one read settles on — and this one reads
-// FRAMES. They are different claims: a hook that reached the right final answer by way of
-// one commit showing the previous node's session list would satisfy every case in
-// `useSessionDirectory.test.tsx`, and that commit is exactly the defect. It is one frame
-// long, and `act` has already replaced it by the time an assertion could look at the DOM,
-// so the reading is `CommittedFrameRecorder` — a `Profiler` over the tree, called once
-// per commit, before any passive effect runs.
-//
-// The control is the shape this hook replaced: a `useState` cell reset from the first
-// statement of the effect body. That reset cannot run before the commit of the render
-// that installed the new call, so the swap paints the previous node's list under the
-// new source — a stale list reading as a current one. It is kept runnable here and
-// asserted to do exactly that, which is what makes the clean case a claim about the
-// holder rather than about the script.
-//
-// TWO PLAIN CALLS: one serves a session and the other serves none, so the stale frame
-// is nameable text rather than an inferred state.
+// The negative control is a `useState` cell reset inside the effect; it must paint the old list
+// under the new call, which shows the clean case discriminates. One call serves a session and
+// the other serves none, so the stale frame is nameable text.
 
 import { act, cleanup, render } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -29,18 +17,9 @@ import { type SessionDirectoryReadCall, type SessionDirectoryState } from "./ses
 import { NO_TRANSPORT_RECONNECT } from "@renderer/lib/transport-reconnect.js";
 
 /**
- * The shape this hook replaced: a `useState` cell reset from inside the effect.
- *
- * Not a stand-in for the holder — it is the OLD code on the one axis this suite
- * measures, kept only so the frame claim above it is shown to discriminate. The reset
- * is the first statement of the effect body, so it cannot run before the commit of the
- * render that installed the new call, and the mounted latch is the boolean the
- * holder's publisher replaced.
- *
- * IT READS THE SAME WAY THE SHIPPED HOOK DOES, and that is what makes it a control
- * rather than a second experiment: the only thing that differs between the two
- * components below is WHEN the state is reset — which is the whole of what a frame
- * recorder can see.
+ * Negative control: a `useState` cell reset inside the effect, so the reset runs one commit
+ * after the render that installs the new call. It reads like the shipped hook, so only the
+ * reset timing differs.
  */
 function useSessionDirectoryWithEffectTimeReset(
   read: SessionDirectoryReadCall,
@@ -91,7 +70,7 @@ function DirectoryFrame(props: { readonly read: SessionDirectoryReadCall }): Rea
   return <output>{directoryText(useSessionDirectory(props.read, NO_TRANSPORT_RECONNECT))}</output>;
 }
 
-/** The pre-holder hook, painted — the same component over the shape this replaced. */
+/** The negative-control hook, painted. */
 function EffectTimeResetFrame(props: {
   readonly read: SessionDirectoryReadCall;
 }): React.JSX.Element {
@@ -112,12 +91,9 @@ interface CallSwapFrames {
 }
 
 /**
- * Mount against one node's call, settle, swap in another node's, and settle again.
- *
- * One script for both the shipped hook and the shape it replaced, so the control
- * differs from the claim by the hook alone. The frames are read through
- * `CommittedFrameRecorder` rather than off the DOM because the frame at issue is one
- * commit long: `act` has already replaced it by the time an assertion could look.
+ * Mount against one node's call, settle, swap in another node's, and settle again. One script
+ * for the shipped hook and the control; frames come from `CommittedFrameRecorder` because the
+ * stale frame is one commit long.
  */
 async function framesAcrossACallSwap(
   DirectoryComponent: (props: { readonly read: SessionDirectoryReadCall }) => React.JSX.Element,
@@ -152,8 +128,7 @@ describe("useSessionDirectory — no committed frame carries the previous node's
     const { frames, beforeSwap } = await framesAcrossACallSwap(DirectoryFrame);
     const afterSwap = frames.slice(beforeSwap);
 
-    // The whole sequence, and the middle term is the claim: served(old) → reading →
-    // served(new), with nothing between the swap and `reading`.
+    // served(old) -> reading -> served(new); `reading` must directly follow the swap.
     expect(frames.slice(0, beforeSwap).at(-1)).toBe(BUSY_NODE_DIRECTORY_TEXT);
     expect(afterSwap[0]).toBe("reading");
     expect(afterSwap).not.toContain(BUSY_NODE_DIRECTORY_TEXT);
@@ -161,11 +136,8 @@ describe("useSessionDirectory — no committed frame carries the previous node's
   });
 
   it("negative control: an effect-time reset paints the old list under the new call", async () => {
-    // The identical script over the shape this hook replaced. The reset runs one
-    // commit late, so the frame that installs the new call carries the previous
-    // bridge's session — which is a stale list under a fresh source, reading as a
-    // current one. Both claims above fail here, which is what makes them claims about
-    // the holder rather than about the script.
+    // The reset runs one commit late, so the swap frame carries the previous node's session
+    // under the new call.
     const { frames, beforeSwap } = await framesAcrossACallSwap(EffectTimeResetFrame);
     const afterSwap = frames.slice(beforeSwap);
 

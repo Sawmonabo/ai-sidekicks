@@ -1,39 +1,18 @@
-// What every session THIS WINDOW has open can say about itself.
+// What every session this window has open can say about itself.
 //
-// WHY THIS IS NOT ONE STORE. The all-sessions destination is mounted at
-// `kind: "sessions"`, an address that names no session — so the frame opens no
-// route-scoped store and hands the screen `undefined` for it, permanently. A list
-// built from that one store was therefore built from nothing, and every locally open
-// session was reduced to its identifier: no projected touched time, so the recency
-// ordering the design opens with had nothing to order by, and no users, so a
-// row carrying people rendered as a bare id. The set the screen needs is the one
-// `SessionStoreRegistry` holds, and that set has no fixed size.
-//
-// WHICH IS WHY IT IS A SUBSCRIPTION AND NOT N HOOKS. A hook per open store cannot be
-// written: React fixes the number of hooks a render performs, and this number changes
-// whenever a session opens or closes. So the fan-out lives in the class below and the
-// component takes ONE `useSyncExternalStore` over it — the registry's own change
-// emitter says when the SET moved, each open store's own subscription says when its
+// The all-sessions destination is mounted at an address that names no session, so the frame
+// opens no route-scoped store for it. The set it needs is the one `SessionStoreRegistry`
+// holds, which has no fixed size. React fixes the number of hooks per render, so the fan-out
+// lives in the class below and the component takes one `useSyncExternalStore` over it: the
+// registry's emitter says when the set moved, each open store's subscription says when its
 // projection moved, and both invalidate one cached array.
 //
-// BOUNDED, AND RELEASED WITH THE SESSION. A subscription is taken for exactly the
-// sessions the registry reports open and dropped the moment one closes, so a closed
-// session leaves no listener behind on a store nothing else holds. The whole fan-out
-// is released when the last React subscriber goes, which is what makes the projection
-// safe to hold for the life of a window rather than of a mount.
-//
-// IT ALSO CARRIES THE DEGRADATION FOLD, and that is a consequence of the fan-out
-// rather than a second job: the set of stores whose degradation the destination has
-// to report is exactly the set already subscribed here, and a second class walking
-// the same registry would take a second subscription per open session to answer a
-// question this one is already awake for. The RULE it folds by is
-// `store/degradation.ts`' own — the worst standing cause wins, so a milder later
-// fact never reads as a repair — and this module reimplements none of it.
-//
-// IT PROJECTS AND DOES NOT MERGE. `session-directory-rows.ts` owns the merge with the
-// node's directory and owns which kind of nothing an empty list is; this module
-// answers only "what do the open stores say", and answers with an empty array when
-// they say nothing — which is a projection with no rows, never a claim about the node.
+// A subscription is taken for exactly the sessions the registry reports open and dropped when
+// one closes, and the whole fan-out is released when the last React subscriber goes, so the
+// projection is safe to hold for the life of a window. It also folds the degradation cause
+// over the stores it already subscribes to, by `store/session-degradation.ts`'s rule (the
+// worst standing cause wins). It projects and does not merge: `session-directory-rows.ts`
+// merges with the node's directory, and an empty array here claims nothing about the node.
 
 import { useRef, useSyncExternalStore } from "react";
 
@@ -45,10 +24,7 @@ import type { SessionStore } from "@renderer/store/session/session-store.js";
 import type { SessionStoreRegistry } from "@renderer/store/session/session-store-registry.js";
 import type { SessionListRow } from "../rows/session-rows.js";
 
-/**
- * One frozen empty projection, so a change that produces no rows does not hand React
- * a new array identity and re-render the list for nothing.
- */
+/** One shared empty projection, so a change with no rows keeps the array identity React sees. */
 const NO_PROJECTED_ROWS: readonly SessionListRow[] = [];
 
 /** What the open stores say about themselves, and about how well they are following. */
@@ -56,25 +32,18 @@ export interface OpenSessionProjectionReading {
   readonly rows: readonly SessionListRow[];
   readonly degradedCause: SessionDegradedCause | undefined;
   /**
-   * The same cause, asked at DISPATCH rather than read off this render.
-   *
-   * The projection's own live read, published rather than re-derived: a control that
-   * fails closed has to ask again the moment a press reaches it, because the cause can
-   * land in the frame between the render that enabled the control and the click. The
-   * function identity is the projection's and therefore stable for the life of the
+   * The same cause, asked at dispatch rather than read off this render, because it can land
+   * between the render that enabled a control and the click. Stable for the life of the
    * registry, so a caller may hold it.
    */
   readonly readDegradedCause: () => SessionDegradedCause | undefined;
 }
 
 /**
- * Every open session's projected row, kept current across the open set.
- *
- * A class rather than a hook body because it holds four pieces of state that outlive
- * a render — the registry subscription, one subscription per open store, the React
- * subscribers, and the cached rows — and because the cache is the load-bearing part:
- * `useSyncExternalStore` compares consecutive reads with `Object.is` and re-renders
- * while they differ, so a read that rebuilt the array on every call would spin.
+ * Every open session's projected row, kept current across the open set. A class because it
+ * holds state that outlives a render, and the row cache is load-bearing:
+ * `useSyncExternalStore` compares reads with `Object.is`, so rebuilding the array per read
+ * would spin.
  */
 export class OpenSessionRowProjection {
   readonly #registry: SessionStoreRegistry;
@@ -86,12 +55,9 @@ export class OpenSessionRowProjection {
   #rows: readonly SessionListRow[] | undefined = undefined;
 
   /**
-   * Follow the open set and every store in it, for as long as anyone is listening.
-   *
-   * The fan-out is attached on the FIRST subscriber and released with the last, so a
-   * projection whose component has unmounted holds no listener anywhere. An arrow
-   * property rather than a prototype method because `useSyncExternalStore` compares
-   * this function's identity and re-subscribes when it moves.
+   * Follow the open set and every store in it while anyone is listening: attached on the first
+   * subscriber, released with the last. An arrow property, because `useSyncExternalStore`
+   * re-subscribes when this function's identity moves.
    */
   public readonly subscribe = (onProjectionChange: () => void): (() => void) => {
     this.#reactSubscribers.add(onProjectionChange);
@@ -107,11 +73,9 @@ export class OpenSessionRowProjection {
   };
 
   /**
-   * The rows, rebuilt only when something has actually changed.
-   *
-   * Correct before `subscribe` runs — React reads a snapshot on the first render,
-   * ahead of the effect that subscribes — because the build reads the registry
-   * directly rather than anything the subscription set up.
+   * The rows, rebuilt only when something changed. Correct before `subscribe` runs, since the
+   * build reads the registry directly and React reads a snapshot ahead of the subscribing
+   * effect.
    */
   public readonly readRows = (): readonly SessionListRow[] => {
     this.#rows ??= this.#buildRows();
@@ -119,10 +83,8 @@ export class OpenSessionRowProjection {
   };
 
   /**
-   * The worst degraded cause standing across every open store, or `undefined`.
-   *
-   * A primitive rather than a cached object, so `useSyncExternalStore`'s `Object.is`
-   * comparison is satisfied by the VALUE and this read needs no cache of its own.
+   * The worst degraded cause standing across every open store, or `undefined`. A primitive,
+   * so `Object.is` compares it by value and it needs no cache.
    */
   public readonly readDegradedCause = (): SessionDegradedCause | undefined => {
     return worstDegradedCause(
@@ -159,12 +121,9 @@ export class OpenSessionRowProjection {
   }
 
   /**
-   * Bring the subscribed set in line with the open set: drop what closed, take what
-   * opened, and leave what was already there alone.
-   *
-   * Leaving the survivors alone is the point rather than an optimization — tearing
-   * every subscription down and re-taking it on each registry change would drop a
-   * store's notification for the window between the two calls.
+   * Bring the subscribed set in line with the open set: drop what closed, take what opened.
+   * Survivors are left alone, since re-taking every subscription would drop a notification
+   * between the two calls.
    */
   #followOpenSessions(): void {
     const openSessionIds = new Set(this.#registry.openSessionIds);
@@ -188,13 +147,9 @@ export class OpenSessionRowProjection {
   }
 
   /**
-   * Listen to one store, and wake only for the two partitions this projection reads.
-   *
-   * The partitioned store replaces the identity of exactly the partition a mutation
-   * touched, so a burst of run events leaves both of these references untouched and
-   * the list does not re-render — which is the whole reason the store is partitioned
-   * by kind, held here rather than given up at the one place that fans out over N of
-   * them.
+   * Listen to one store, waking only for the two partitions this projection reads and the
+   * degraded cause. The store replaces only the partition a mutation touched, so a burst of
+   * run events leaves these references alone and the list does not re-render.
    */
   #subscribeToStore(store: SessionStore): () => void {
     return store.readable.subscribe((state, previousState) => {
@@ -211,8 +166,7 @@ export class OpenSessionRowProjection {
 
   #invalidate(): void {
     this.#rows = undefined;
-    // Copied before iterating: a subscriber React removes during notification would
-    // otherwise change the set being walked.
+    // Copied first: a subscriber React removes during notification would change the set.
     for (const notifySubscriber of [...this.#reactSubscribers]) {
       notifySubscriber();
     }
@@ -232,17 +186,13 @@ export class OpenSessionRowProjection {
 }
 
 /**
- * What every session this window has open can describe, as a subscription.
+ * What every session this window has open can describe, as a subscription. The projection is
+ * built once per registry and held in a ref, so a replaced registry is followed and a render
+ * does not re-subscribe.
  *
- * The projection is built once per registry and held in a ref: a fresh one per render
- * would re-subscribe every pass, and a fresh one per registry is what makes a window
- * that replaces its registry follow the new one rather than the object it dropped.
- *
- * TWO SNAPSHOTS OVER ONE SUBSCRIPTION, deliberately, rather than one snapshot over a
- * composed object: `useSyncExternalStore` compares consecutive reads with `Object.is`
- * and re-renders while they differ, so a read that composed `{ rows, degradedCause }`
- * would hand React a new identity on every call and spin. The returned object is
- * composed AFTER both reads settle, where nothing compares it.
+ * Two snapshots over one subscription, because a read composing `{ rows, degradedCause }`
+ * would hand `Object.is` a new identity every call and spin; the returned object is composed
+ * after both reads.
  */
 export function useOpenSessionProjection(
   registry: SessionStoreRegistry,
@@ -265,11 +215,8 @@ export function useOpenSessionProjection(
 }
 
 /**
- * What one open session's store can say, as list rows.
- *
- * The users are attached only to the store's OWN session. A store projects the
- * people it has seen in the session it is for, so lending that roster to a row for
- * some session it merely heard about would attribute the wrong people to it.
+ * What one open session's store can say, as list rows. The users attach only to the store's
+ * own session, since its roster would misattribute people to a session it merely heard about.
  */
 function projectOneStore(store: SessionStore): readonly SessionListRow[] {
   const { partitions } = store.snapshot();
@@ -279,9 +226,8 @@ function projectOneStore(store: SessionStore): readonly SessionListRow[] {
     state: entity.state,
     touchedAtIso: entity.touchedAt,
     userIds: entity.id === store.sessionId ? userIds : [],
-    // Attention is one projection for the whole destination and is stamped over the
-    // merged list by the screen. Reading it per source would give one session two
-    // severities and let the merge decide which a person saw.
+    // Attention is one projection for the destination, stamped over the merged list by the
+    // screen; reading it per source could give one session two severities.
     attentionSeverity: undefined,
   }));
 }

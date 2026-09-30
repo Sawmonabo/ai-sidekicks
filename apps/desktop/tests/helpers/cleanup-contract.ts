@@ -1,18 +1,10 @@
-// What a bounded cleanup is TOLD, and what it is told about.
+// The contract of a bounded cleanup: the collaborators it is handed, the clock it charges its
+// phases against, and the verdict it returns. The race that produces the verdict is
+// `bounded-cleanup.ts`.
 //
-// Split out of `bounded-cleanup.ts` on the seam between its two subjects. This is
-// the contract — the three collaborators a cleanup is handed,
-// the clock it charges its phases against, and the verdict it returns — and the
-// file beside it is the race that produces one. The seams are the whole reason
-// that race is checkable: no fixture makes a browser process refuse to close on
-// demand, no `rmSync` over a directory this process owns fails on a POSIX
-// runner, no platform can be asked to refuse a kill, and no real clock spends a
-// five-second host query on request.
-//
-// The one binding with a body is `ELECTRON_PROCESS_TERMINATOR`, and it belongs
-// here rather than beside the class for the reason the interface does: it is
-// what a caller is HANDED, and its whole content is which shared implementation
-// each seam member resolves to and what it forwards.
+// The seams make that race checkable: no fixture makes a browser refuse to close, no `rmSync`
+// over an owned directory fails on POSIX, no platform can be asked to refuse a kill, and no real
+// clock spends a five-second host query on request.
 
 import { terminateProcessTree } from "./process-tree/termination.js";
 import { processHasTerminated } from "./process-tree/liveness.js";
@@ -21,10 +13,8 @@ import { type ProfileRemovalFailure } from "./launch-profile.js";
 /**
  * The launched application, reduced to what cleanup needs of it.
  *
- * An interface rather than Playwright's `ElectronApplication` so a stub whose
- * `close()` never settles is one object literal. That case cannot be produced
- * with a real Electron — no fixture makes a browser process refuse to close on
- * demand — which is exactly why it was the case nothing checked.
+ * An interface rather than Playwright's `ElectronApplication` so a test can stub a `close()`
+ * that never settles.
  */
 export interface ClosableApplication {
   readonly close: () => Promise<void>;
@@ -35,150 +25,87 @@ export interface ClosableApplication {
 /**
  * Force-termination, as a seam.
  *
- * A constructor argument so a test can assert the SIGKILL happened without
- * signaling anything: a spy is an object literal, and these cases run INSIDE
- * the runner, where a terminator that really killed something would deliver to
- * a whole process group — the launched tree only because playwright-core spawns
- * detached, and somebody else's group for any other pid it is handed.
+ * A constructor argument so a test can assert the SIGKILL without signaling anything: a real
+ * terminator would signal a whole process group from inside the runner.
  */
 export interface ProcessTerminator {
   /**
-   * Kill the tree led by `processId`. Returns whether a signal was delivered.
+   * Kills the tree led by `processId`. Returns whether a signal was delivered.
    *
-   * `remainingBudgetMilliseconds` is what is LEFT of this cleanup's termination
-   * deadline, and it is a parameter rather than a figure the implementation
-   * reads because the implementation cannot know it: a tree kill is several
-   * blocking host commands — a start-stamp read, a process-table listing, the
-   * `taskkill` itself — each held to `HOST_QUERY_TIMEOUT_MS` on its own and to
-   * nothing collectively. `runBoundedHostCommand` takes the smaller of that ceiling and
-   * this, and spawns nothing at all once it reaches zero.
-   *
-   * It is a REMAINDER AT THE MOMENT OF THE CALL and not an allowance for each of
-   * those commands: the implementation turns it into one deadline and subtracts
-   * afresh before every one of them, so this figure bounds the whole call rather
-   * than each step of it. A caller may therefore charge what it hands over here
-   * against its own clock exactly once.
+   * `remainingBudgetMilliseconds` is what is left of the termination deadline at the call. A tree
+   * kill is several blocking host commands, each held to `HOST_QUERY_TIMEOUT_MS` alone; the
+   * implementation turns this figure into one deadline for the whole call and spawns nothing once
+   * it reaches zero. A caller therefore charges it against its own clock once.
    */
   readonly terminate: (processId: number, remainingBudgetMilliseconds: number) => boolean;
   /**
-   * Whether that process may still EXECUTE, asked without signaling it.
+   * Whether that process may still execute, asked without signaling it.
    *
-   * On the same seam as `terminate` rather than a fourth constructor argument,
-   * because the two are one subject: `terminationSucceeded` already decides a
-   * kill by asking this question, and a cleanup that must decide whether a
-   * FAILED close left anything running asks exactly the same one.
-   *
-   * A pid that still ANSWERS is not the question, and answering that one was a
-   * defect on both of this class's verdict paths. A process that has exited and
-   * not been reaped holds its pid, answers signal 0, and will never run another
-   * instruction — and a group SIGKILL produces exactly that state for every
-   * grandchild, for as long as whichever init inherited it takes to reap.
-   * Reading it as alive reports `unterminable` over a tree that is gone, and
-   * `unterminable` is the settlement that fails a tier.
-   *
-   * Charged to the same deadline as `terminate` and for the same reason: on
-   * macOS this reading runs `ps` for the process-table state code, so a probe
-   * taken between attempts is another blocking command nothing was charging.
-   * Read at or below zero it spawns nothing and answers "still there", which
-   * keeps this cleanup escalating rather than reporting a tree clean because
-   * there was no time left to look at it.
+   * A pid that still answers is not the question: an exited, unreaped process holds its pid and
+   * will never run again, which is what a group SIGKILL leaves every grandchild as, and reading
+   * it as alive reports `unterminable` over a tree that is gone. Charged to the same deadline as
+   * `terminate` (on macOS this runs `ps`); at or below zero it spawns nothing and answers "still
+   * there", so the cleanup keeps escalating.
    */
   readonly isRunning: (processId: number, remainingBudgetMilliseconds: number) => boolean;
 }
 
 /**
- * The wall clock this cleanup charges its phases against, as a seam.
+ * The wall clock a cleanup charges its phases against, as a seam.
  *
- * Injected for the one case no real clock produces on demand: a synchronous host
- * query spending its whole `HOST_QUERY_TIMEOUT_MS` ceiling, which is what
- * `#terminateUntilGone` charges to the deadline. A case driving three of those
- * cannot afford fifteen real seconds, and cannot move the SIGKILL onto a fake
- * timer either — the pause below still needs a real macrotask.
+ * Injected so a test can spend a whole `HOST_QUERY_TIMEOUT_MS` per synchronous host query without
+ * waiting for it; the pause between attempts still needs a real macrotask.
  */
 export type CleanupClock = () => number;
 
 /**
  * How the close settled.
  *
- * `unterminable` is deliberately distinct from `terminated` rather than folded
- * into it: it means a process may still be running and holding a profile, which
- * is the one cleanup outcome that can affect a LATER launch, and a reader who
- * cannot tell it from a successful kill has lost the only actionable half.
- *
- * `closed-after-rejection` is distinct from `closed` for the mirror reason. The
- * close failed and the process is nonetheless gone, so nothing leaked and no kill
- * was needed — but a caller told plain `closed` would have no way to surface the
- * rejection, and this cleanup used to discard it silently.
+ * `unterminable` is distinct from `terminated` because it means a process may still be running and
+ * holding a profile, the one outcome that can affect a later launch. `closed-after-rejection` is
+ * distinct from `closed` because the close failed while the process is gone: nothing leaked, but
+ * the rejection must still be surfaced.
  */
 export type CleanupSettlement = "closed" | "closed-after-rejection" | "terminated" | "unterminable";
 
+/** The verdict of one bounded cleanup. */
 export interface CleanupOutcome {
   readonly settlement: CleanupSettlement;
-  /**
-   * Why `application.close()` rejected, when it did.
-   *
-   * Present on every settlement reached through a rejection and absent
-   * otherwise, so a caller can attach it rather than lose it. It used to be
-   * caught and dropped on the floor, which is how a close that failed outright
-   * could be reported as one that succeeded.
-   */
+  /** Why `application.close()` rejected; present on every settlement reached through it. */
   readonly closeRejection?: unknown;
   /** Wall milliseconds spent closing, measured driver-side. */
   readonly waitedMs: number;
   /**
    * The bound this close was held to, in milliseconds.
    *
-   * `CLEANUP_BUDGET_MS` for every launched console, and reported rather than
-   * re-derived by its readers so the sentence a reader sees and the race that
-   * produced it cannot disagree: the cases that exercise a hung close supply a
-   * bound short enough to exhaust, and a message naming the constant there would
-   * misdescribe the very measurement it is reporting.
+   * Reported rather than re-derived by readers so a message and the race that produced it cannot
+   * disagree when a test supplies a shorter bound.
    */
   readonly budgetMs: number;
-  /**
-   * The process the settlement is about, when one was still addressable.
-   *
-   * Carried so a failure can NAME it: an operator told only that termination was
-   * refused has nothing to look for in `ps`.
-   */
+  /** The process the settlement is about, when still addressable, so a failure can name it. */
   readonly processId?: number | undefined;
   /**
    * The launch profile still on disk, when removing it failed.
    *
-   * On the verdict rather than raised where it happens, and independent of the
-   * settlement rather than folded into it: a close can go perfectly while the
-   * removal fails, and the two facts are separately actionable. Absent means the
+   * Independent of the settlement: a close can succeed while the removal fails. Absent means the
    * directory is gone.
    */
   readonly profileRemovalFailure?: ProfileRemovalFailure | undefined;
 }
 
 /**
- * The terminator every real launch uses, over the one shared implementation.
+ * The terminator every real launch uses, over the shared implementation in `process-tree/`.
  *
- * A thin binding rather than a body: the platform facts live in
- * `tests/helpers/process-tree/`, shared with the smoke probe, because
- * two copies of them had already disagreed about whether `taskkill`'s exit
- * status counts. `BoundedCleanup` still takes the seam as a constructor
- * argument — a terminator that really killed something would signal a whole
- * process group from inside the runner, and a test must signal nothing.
+ * `BoundedCleanup` still takes the terminator as an argument so a test signals nothing.
  */
 export const ELECTRON_PROCESS_TERMINATOR: ProcessTerminator = {
-  // `processHasTerminated` and never `processExists`: the reading this verdict
-  // needs counts an unreaped zombie as gone, which is the state a group SIGKILL
-  // leaves every grandchild in.
-  //
-  // BOTH MEMBERS FORWARD THE REMAINING BUDGET, and dropping it on either one
-  // would put the whole of `HOST_QUERY_TIMEOUT_MS` back outside this cleanup's
-  // deadline: the shared implementations bound every command they run by the
-  // smaller of their own ceiling and what is passed here, so an argument that
-  // stops here is a bound that stops with it.
+  // `processHasTerminated`, not `processExists`: it counts an unreaped zombie as gone. Both
+  // members forward the remaining budget; dropping it would put the whole
+  // `HOST_QUERY_TIMEOUT_MS` back outside this cleanup's deadline.
   isRunning: (processId: number, remainingBudgetMilliseconds: number): boolean =>
     !processHasTerminated(processId, remainingBudgetMilliseconds),
-  // The two middle arguments are passed as `undefined` rather than restated:
-  // the signal and the unverified root identity are `terminateProcessTree`'s own
-  // defaults, and spelling either one here would be a second place for it to
-  // drift from the module that owns it.
+  // The signal and the unverified root identity are `terminateProcessTree`'s own defaults, so
+  // they are passed as `undefined`.
   terminate: (processId: number, remainingBudgetMilliseconds: number): boolean =>
     terminateProcessTree(processId, undefined, undefined, remainingBudgetMilliseconds),
 };

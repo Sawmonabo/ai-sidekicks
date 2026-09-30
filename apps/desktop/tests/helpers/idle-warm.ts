@@ -1,17 +1,12 @@
-// A warm scheduler a case drives by hand.
-//
-// Shared because `lazy-body-warm.test.ts` drives the walk directly and the idle-warm hook
-// suites drive it through the effect that arms it, and all of them need the same thing — a
-// scheduler that arms nothing on its own so the case decides when an idle callback happens.
+// A warm scheduler a case drives by hand: it arms nothing on its own, so the case decides when an
+// idle callback runs. Shared by `lazy-body-warm.test.ts` and the idle-warm hook suites.
 
 import { type IdleWarmScheduler } from "@renderer/components/LazyBody/lazy-body-warm.js";
 
 /**
- * A scheduler whose steps run when the case says so.
- *
- * Handles are minted rather than counted from the pending set, so a handle stays
- * meaningful after its step has run — which is what lets a case assert that a cancel
- * released the handle the walk was actually holding.
+ * A scheduler whose steps run when the case says so. Handles are minted, not counted from the
+ * pending set, so a handle stays meaningful after its step ran and a case can assert a cancel
+ * released the handle the walk held.
  */
 export class ManualIdleWarmScheduler implements IdleWarmScheduler {
   readonly #stepsByHandle = new Map<number, () => void>();
@@ -37,10 +32,8 @@ export class ManualIdleWarmScheduler implements IdleWarmScheduler {
   }
 
   /**
-   * Run armed steps until nothing is armed, or until `stepLimit` have run.
-   *
-   * Bounded rather than looping to exhaustion: a walk that re-armed on a key it never
-   * cleared would otherwise hang the suite instead of failing it.
+   * Run armed steps until nothing is armed, or until `stepLimit` have run. Bounded so a walk that
+   * re-armed on a key it never cleared fails the suite instead of hanging it.
    */
   public runToQuiescence(stepLimit = 20): void {
     for (let taken = 0; taken < stepLimit && this.#stepsByHandle.size > 0; taken += 1) {

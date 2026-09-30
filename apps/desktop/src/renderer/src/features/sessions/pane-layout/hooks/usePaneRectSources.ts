@@ -4,21 +4,12 @@ import { observeElementResize } from "@renderer/lib/element-resize.js";
 import { type PaneRectTracker } from "../pane-rect-tracker.js";
 
 /**
- * Wire the four invalidation sources to a tracker, for as long as `container` is
- * mounted.
+ * Wires the host-resize, window-resize, ancestor-scroll and layout-mover sources to a tracker
+ * while `container` is mounted.
  *
- * All four in ONE effect, because they are one subscription to one question — "has
- * anything moved?" — and splitting them across effects would make the teardown
- * order decide whether a listener outlives the observer it was installed beside.
- *
- * Scroll is listened for in the CAPTURE phase on the document: a scroll inside any
- * ancestor of a pane moves that pane on screen, and scroll events do not bubble
- * from an element to the window, so a bubble-phase window listener would miss every
- * one that mattered.
- *
- * `layoutRevision` is the fourth source — the layout movers. Passing the layout's
- * own revision counter means a pane width change, a reorder, and a density change
- * all re-measure without this module having to know what any of them are.
+ * Scroll is listened for in the capture phase on the document because scroll events do not
+ * bubble to the window. Passing the layout's revision counter as `layoutRevision` re-measures
+ * on any width, order or density change.
  */
 export function usePaneRectSources(
   tracker: PaneRectTracker,
@@ -30,15 +21,10 @@ export function usePaneRectSources(
     if (element === null) {
       return;
     }
-    // Through the console's one size-observer site rather than a second construction:
-    // `primitives/element-resize.ts` owns the feature detection and the teardown, and
-    // its degrade is what makes the guard above an element test alone — a platform
-    // with no observer arms nothing THERE while the window and scroll sources below
-    // still fire, where the construction this replaced returned before arming any of
-    // the four and left a pane's rect answering from a measurement nothing refreshed.
+    // `observeElementResize` does nothing on a platform with no observer, so the window and
+    // scroll sources below still fire.
     const releaseHostSizeSource = observeElementResize(element, () => {
-      // A READ, queued. Mutating layout from inside this callback re-enters the
-      // observer, which is the loop the tracker's reads-in-the-callback rule forbids.
+      // A read, queued: mutating layout inside this callback would re-enter the observer.
       tracker.invalidate("host-resize");
     });
 
