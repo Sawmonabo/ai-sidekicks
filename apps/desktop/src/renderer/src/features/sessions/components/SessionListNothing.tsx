@@ -8,21 +8,18 @@ import { type ReactNode } from "react";
 import type { SessionDirectoryState } from "@renderer/store/session-directory/session-directory.js";
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 
-/** What stands in for an empty list: a read still in flight, or a node that answered with none. */
+/** What stands in for an empty list: a read still in flight, or a served list with no rows. */
 export function SessionListNothing(props: SessionListNothingProps): React.JSX.Element {
   const { directory } = props;
   if (directory.status === "reading") {
     // No action here: a `not-loaded` Nothing renders as a skeleton and cannot show a control.
-    return (
-      <Nothing kind="not-loaded" placement="block" title="Reading the sessions on this node." />
-    );
+    return <Nothing kind="not-loaded" placement="block" title="Loading…" />;
   }
   return (
     <Nothing
       kind="empty"
       placement="block"
-      title="There are no sessions on this node yet."
-      detail="The node answered, and it has none. Starting one is the way to have the first."
+      title="No sessions yet. Press New session to start with a chat or a project."
       action={props.action}
     />
   );

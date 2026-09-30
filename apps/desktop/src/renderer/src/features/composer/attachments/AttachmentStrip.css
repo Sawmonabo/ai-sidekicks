@@ -18,8 +18,6 @@
   background: var(--meridian-surface-raised);
 }
 
-.meridian-composer-attachments__drop,
-.meridian-composer-attachments__fill,
 .meridian-composer-attachments__hold {
   display: flex;
   flex-wrap: wrap;
@@ -28,10 +26,6 @@
   margin: 0;
   font-size: var(--meridian-text-xs);
   color: var(--meridian-text-muted);
-}
-
-.meridian-composer-attachments__fill-source {
-  color: var(--meridian-text-faint);
 }
 
 .meridian-composer-attachments__list {
@@ -75,7 +69,7 @@
   border: none;
 }
 
-/* What to do about a refused upload, and what cancel does. Full text color so the one line that
+/* What to do about a refused upload, and what the × does. Full text color so the one line that
    names an act is not muted; a line of its own because a tooltip is unreachable by touch and
    keyboard. */
 .meridian-composer-attachment__remedy {
