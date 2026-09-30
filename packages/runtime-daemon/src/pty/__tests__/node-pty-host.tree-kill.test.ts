@@ -20,8 +20,7 @@ import type {
   TaskkillResult,
 } from "../node-pty-host.js";
 import { makeFakeChild } from "./_fakes.js";
-
-import type { SpawnRequest } from "@ai-sidekicks/contracts";
+import type { SpawnRequest } from "../pty-host-protocol.js";
 
 // Default pid 67890 differs from the kill-translation suite's 12345, so a failing assertion
 // names the fixture. `makeFakeChild` comes from `_fakes.ts`.

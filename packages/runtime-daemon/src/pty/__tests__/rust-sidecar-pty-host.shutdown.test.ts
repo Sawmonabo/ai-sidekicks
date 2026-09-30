@@ -24,8 +24,8 @@ import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 import { RustSidecarPtyHost } from "../rust-sidecar-pty-host.js";
 import type { SidecarChildProcess, SidecarSpawnFn } from "../sidecar-child-supervisor.js";
 import type { TaskkillResult } from "../taskkill-windows.js";
-
-import type { DrainResult, Envelope } from "@ai-sidekicks/contracts";
+import type { Envelope } from "../pty-host-protocol.js";
+import type { DrainResult } from "../pty-host.js";
 
 // Fake sidecar child
 

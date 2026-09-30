@@ -9,8 +9,8 @@ import { selectPtyHost } from "../pty-host-selector.js";
 import type { PtyHostSelectorDeps } from "../pty-host-selector.js";
 import { PtyBackendUnavailableError } from "../sidecar-binary-path.js";
 
-import type { PtyHost } from "@ai-sidekicks/contracts";
 import { PTY_BACKEND_UNAVAILABLE_CODE } from "@ai-sidekicks/contracts";
+import type { PtyHost } from "../pty-host.js";
 
 // ----------------------------------------------------------------------------
 // Test fixtures

@@ -57,8 +57,6 @@ export * from "./provider-driver-transcript.js";
 export * from "./provider-driver-wire.js";
 export * from "./provider-import.js";
 export * from "./provider.js";
-export * from "./pty-host-protocol.js";
-export * from "./pty-host.js";
 export * from "./pty.js";
 export * from "./push.js";
 export * from "./question.js";

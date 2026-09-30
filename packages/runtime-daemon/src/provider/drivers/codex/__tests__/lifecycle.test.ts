@@ -20,14 +20,9 @@ import {
   type DriverCapabilityFlag,
   type DriverCompactionResult,
   type DriverResumeResult,
-  type PtyHost,
-  type PtySignal,
   type RunId,
   type SessionId,
-  type SpawnRequest,
-  type SpawnResponse,
   type ApplyInterventionParams,
-  type DrainResult,
   type ExecutionPosture,
   type CallbackToolInvocation,
   type CallbackToolResult,
@@ -115,6 +110,8 @@ import {
   type CodexSessionServerRequest,
 } from "../server-requests.js";
 import { CODEX_COMPACTION_WAIT_MS } from "../provider-commands.js";
+import type { PtySignal, SpawnRequest, SpawnResponse } from "../../../../pty/pty-host-protocol.js";
+import type { PtyHost, DrainResult } from "../../../../pty/pty-host.js";
 
 // --------------------------------------------------------------------------
 // Fakes

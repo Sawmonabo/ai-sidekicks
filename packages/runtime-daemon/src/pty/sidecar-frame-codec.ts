@@ -4,7 +4,7 @@
  */
 
 import { Buffer } from "node:buffer";
-import { type Envelope } from "@ai-sidekicks/contracts";
+import type { Envelope } from "./pty-host-protocol.js";
 
 /**
  * A sidecar frame the daemon cannot decode: bad JSON, a non-object, an unknown `kind` (ignoring it

@@ -17,16 +17,10 @@
 
 import { randomUUID } from "node:crypto";
 
-import type {
-  DrainResult,
-  PtyHost,
-  PtySignal,
-  SpawnRequest,
-  SpawnResponse,
-} from "@ai-sidekicks/contracts";
-
 import { PtyBackendUnavailableError } from "./sidecar-binary-path.js";
 import { defaultSpawnTaskkill, type TaskkillResult } from "./taskkill-windows.js";
+import type { PtySignal, SpawnRequest, SpawnResponse } from "./pty-host-protocol.js";
+import type { DrainResult, PtyHost } from "./pty-host.js";
 
 // Local types instead of `node-pty`'s own: the file never imports `node-pty` at the type layer
 // (it is loaded lazily), and the types list exactly what is consumed: `pid`, `onData`,
