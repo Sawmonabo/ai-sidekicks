@@ -7,13 +7,8 @@ const WEIGHT_CLASS_NAMES: Readonly<Record<ToolAllowlistWeight, string>> = {
 };
 
 /**
- * One tool-grant reading, at the weight its position carries.
- *
- * Its own component because the card states a grant in two places — the governance
- * line and the echo's Tools row — and the mapping from weight to class is the half
- * they share. Written twice, one of them would eventually mute a restriction
- * somebody chose or give an absence the weight of a decision, and the card's whole
- * rule is that those two never read alike.
+ * One tool-grant reading, at the weight its position carries. Shared by the grant line and the
+ * echo's Tools row so an absence never reads like a restriction somebody chose.
  */
 export function ToolAllowlistReading(props: {
   readonly weight: ToolAllowlistWeight;

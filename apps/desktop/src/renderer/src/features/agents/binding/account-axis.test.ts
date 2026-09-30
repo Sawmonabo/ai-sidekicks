@@ -1,18 +1,7 @@
-// The account axis over one registry reading: five answers, and only one is a list.
-//
-// The rule this suite exists for is that the four non-list answers are DIFFERENT
-// answers. The axis it replaced was a free-text input, so every one of them rendered
-// identically — as a blank field — and the case that matters is the one where a
-// person types an account under the wrong driver and the form composes a request the
-// daemon can only refuse after the request has been submitted.
-//
-// AND WHICH ACCOUNT A SENTENCE IS ABOUT IS ASKED HERE TOO, because it is a selection
-// over the same reading rather than a wording question. What those sentences SAY is
-// `account-advisories.test.ts`'s, beside the module that composes them.
-//
-// The model is a pure function over a reading, which is why every case here builds an
-// object rather than standing up a bridge: a state a live reading reaches only through
-// a particular sequence of pushes is one literal here.
+// The account axis over one registry reading: five answers, only one a list, and the four
+// non-list ones must stay distinct rather than all rendering as a blank field. Which account
+// a sentence is about is asked here; what it says is `account-advisories.test.ts`. Cases
+// build plain objects, since the model is a pure function over a reading.
 
 import type { ProviderReadiness } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -80,10 +69,8 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("refuses a driver it cannot match to a provider rather than offering another provider's accounts", () => {
-    // The defect this arm exists for: `driverName` is a bare wire string and an
-    // account's provider is a closed set, so a driver outside that set has no
-    // accounts of its own — and falling through to a list would pin a run to an
-    // account belonging to a provider nobody chose.
+    // `driverName` is a bare wire string and provider is a closed set; falling through to a
+    // list would pin a run to an account of a provider nobody chose.
     const reading = accountAxisReadingFor(served([account()]), "gemini");
 
     expect(reading).toEqual({ kind: "unknown-provider", driverName: "gemini" });
@@ -100,8 +87,8 @@ describe("the account axis — which accounts it may offer", () => {
   });
 
   it("reports a healed reading as served even though it once refused", () => {
-    // The phase-aware accessor is the whole point: the member survives the failure
-    // and a reader that took it bare would render one refusal for the window's life.
+    // The phase-aware accessor matters: the member survives the failure, and a bare read
+    // would show one refusal for the window's life.
     const reading = accountAxisReadingFor(
       {
         phase: "read",
@@ -150,9 +137,8 @@ describe("the account axis — which account a readiness entry is about", () => 
   });
 
   it("carries the entry belonging to this provider and no other provider's", () => {
-    // The projection is per provider, so a row is only ever spoken for by ITS
-    // provider's entry. An entry read off the array by resolved id alone would let
-    // another provider's verdict land on this row — a state nobody computed for it.
+    // The projection is per provider, so an entry matched by resolved id alone could land
+    // another provider's verdict on this row.
     const crossProvider: ProviderReadiness = {
       provider: "codex",
       state: "reauth_required",
@@ -174,8 +160,7 @@ describe("the account axis — which account a readiness entry is about", () => 
   });
 
   it("derives the provider's entry once, on the reading itself", () => {
-    // Named on the served arm so no component re-finds it: two readers matching the
-    // projection by hand are two answers to which entry this axis is about.
+    // Named on the served arm so no component re-finds the entry.
     const resolved = resolvedTo("acct-team");
     const reading = accountAxisReadingFor(served([account()], [resolved]), "claude");
 
@@ -185,10 +170,8 @@ describe("the account axis — which account a readiness entry is about", () => 
 
 describe("the account axis — the account an unpinned run resolves to", () => {
   it("speaks for the entry's resolved account where the form pins nothing", () => {
-    // The defect this exists for: pinning nothing is the state a person meets the
-    // field in and it is a REQUEST for the provider's default, so an axis that
-    // answered `undefined` here left a known-unhealthy default unmentioned until the
-    // daemon refused the request.
+    // Pinning nothing is a request for the provider's default, so answering `undefined` here
+    // left an unhealthy default unmentioned until the daemon refused.
     const reading = accountAxisReadingFor(
       served(
         [
@@ -209,10 +192,8 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("takes the entry's account and never the row the registry marks default", () => {
-    // The flag is what the registry MARKS default; the entry is what resolution
-    // REACHED, computed by the same resolution the spawn path performs. Where they
-    // disagree the entry is the spawn path's answer, so a field keyed on the flag
-    // would report the health of an account this run is not going to use.
+    // The flag is what the registry marks default; the entry is what resolution reached, as
+    // the spawn path does. Where they disagree the entry wins.
     const reading = accountAxisReadingFor(
       served(
         [
@@ -248,8 +229,8 @@ describe("the account axis — the account an unpinned run resolves to", () => {
   });
 
   it("negative control: a pinned value the registry lacks never falls through to the default", () => {
-    // Without this the pinned arm could answer the default, and the field would show
-    // one account's readings under a value naming another.
+    // Otherwise the pinned arm could answer the default, showing one account's readings under
+    // a value naming another.
     const reading = accountAxisReadingFor(
       served([account({ accountId: registryAccountId("acct-team") })], [resolvedTo("acct-team")]),
       "claude",

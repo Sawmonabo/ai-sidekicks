@@ -1,6 +1,5 @@
-// The scaffolding the `AgentBindingColumn` suites are driven with: the daemon scripts,
-// the bridge, the roster fixtures, and the DOM queries needed by more than one suite,
-// so they live here once rather than being copied into the file written second.
+// The scaffolding the `AgentBindingColumn` suites share: the daemon scripts, the bridge, the
+// roster fixtures and the DOM queries.
 
 import type {
   AgentDefinitionId,
@@ -19,24 +18,16 @@ import {
 import { SessionStore } from "@renderer/store/session/session-store.js";
 
 /**
- * What the test daemon below exposes to the bridge.
- *
- * `answer` rather than `call`, and held to that name deliberately: this object is a
- * per-method reply script, not the bridge every view shares. A stand-in whose
- * operation were named `call` on a holder named for the daemon would be
- * indistinguishable in source text from a view reaching the real `callDaemon` —
- * which is what a reviewer sweeping for one would flag, and it would flag this file.
+ * What the test daemon below exposes to the bridge. `answer`, not `call`, so this per-method
+ * reply script cannot be mistaken for a view reaching the real `callDaemon`.
  */
 export interface ScriptedDaemon {
   readonly answer: (method: string, params?: unknown) => Promise<unknown>;
 }
 
 /**
- * The real fixture bridge, answering this suite's scripted daemon through `callDaemon`,
- * and the engine whose frozen clock its window runs on.
- *
- * The calls reach the bridge's own call arm through the shared `withDaemonCall`, which is
- * where the reach lives; this file holds no copy of the bridge's namespace shape.
+ * The real fixture bridge, answering this suite's scripted daemon through `callDaemon`, and the
+ * engine whose frozen clock its window runs on.
  */
 export function bridgeCalling(scriptedDaemon: ScriptedDaemon): FixtureBridge {
   const base = createFixtureBridge({ scenario: unscriptedScenario("agent-binding-column") });
@@ -49,12 +40,7 @@ export function bridgeCalling(scriptedDaemon: ScriptedDaemon): FixtureBridge {
   };
 }
 
-/**
- * The console's two roster-side reads, answered by the same scripted daemon.
- *
- * The roster and the child-run links are taken as calls by the models, so a suite decides
- * their answers here rather than through the bridge.
- */
+/** The roster and child-run link reads the models take, answered by the scripted daemon. */
 function callsAnswering(scriptedDaemon: ScriptedDaemon): AgentsPaneCalls {
   return {
     listAgents: async (request) =>
@@ -86,10 +72,8 @@ export class AgentListDaemon {
 }
 
 /**
- * Dispose every models object a case opened. Each suite calls it from its own
- * `afterEach`, rather than this module registering one on import: a hook that
- * attaches itself to whichever file happens to import a helper is a lifecycle a
- * reader of that file cannot see.
+ * Dispose every models object a case opened. Each suite calls it from its own `afterEach`: a
+ * hook attached on import would be a lifecycle a reader of that file cannot see.
  */
 export function disposeOpenedModels(): void {
   for (const models of openedModels.splice(0, openedModels.length)) {

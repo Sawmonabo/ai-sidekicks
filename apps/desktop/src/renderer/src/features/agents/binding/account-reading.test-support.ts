@@ -1,12 +1,5 @@
-// The registry reading the account axis's two model suites are driven with.
-//
-// TYPED ROWS: the rows a model suite hands the axis directly, in the registered shape and
-// nothing narrower, so neither suite writes a row of its own.
-//
-// A FUNCTION PER FIXTURE rather than a held object, so one case's reading is never the
-// object a previous case was handed: nothing here mutates one today, and a fixture
-// that could be mutated across cases is the shape that makes a suite order-dependent
-// later.
+// The registry reading the account axis's two model suites are driven with. Each fixture is
+// a function, so no case is handed an object a previous case held.
 
 import type {
   ProviderAccount,
@@ -20,12 +13,8 @@ import type { AccountRegistryReading } from "./account-axis.js";
 export const OBSERVED_AT = "2026-09-01T10:00:00.000Z";
 
 /**
- * One registry account id, branded the way the contract brands one.
- *
- * The cast is this tree's established shape for a branded wire id in a fixture
- * (`settings/pages/providers/fixtures/quota-rows.test.ts`): the brand exists to
- * stop a caller passing any string on the wire, and a test that parsed one through
- * the schema would be asserting the schema rather than the model under test.
+ * One registry account id, branded as the contract brands one. A cast, because parsing it
+ * through the schema would test the schema rather than the model.
  */
 export function registryAccountId(value: string): ProviderAccountId {
   return value as ProviderAccountId;
@@ -63,12 +52,9 @@ export function served(
 }
 
 /**
- * The `claude` entry that resolved to one account and is waiting on a sign-in.
- *
- * The `sign_in` arm on purpose, and its `accountId` is the entry's own
- * `resolvedAccountId` because the contract's parser refuses any other pairing: the arm
- * names a credential home, and a home belonging to a different account is the
- * cross-account election the account plane exists to refuse.
+ * The `claude` entry that resolved to one account and awaits a sign-in. The `sign_in`
+ * arm's `accountId` equals `resolvedAccountId` because the contract's parser refuses any
+ * other pairing.
  */
 export function resolvedTo(accountId: string): ProviderReadiness {
   return {

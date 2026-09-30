@@ -1,18 +1,7 @@
-// The two catalog readings the binding suites drive against.
-//
-// Shared rather than copied: `driver-catalog.test.ts` measures the selectors over the
-// first and `dependent-axis-chain.test.ts` drives the second, and two copies would
-// eventually disagree about which driver declares what — which is the exact
-// distinction both suites exist to hold.
-//
-// TWO READINGS BECAUSE TWO QUESTIONS. The first keeps its drivers APART — they share
-// no model id at all — which is what makes it the right fixture for asking which
-// controls a driver produces, and the wrong one for asking what survives a change of
-// driver or model, where the whole question is the overlap. The second overlaps on
-// purpose, and is driven by every suite that measures the dependent-axis chain.
-//
-// The flag record is TOTAL by construction, derived from the contract's own closed
-// list, so a flag added upstream cannot leave a fixture silently missing a member.
+// The two catalog readings the binding suites drive against, shared so the suites cannot
+// disagree about which driver declares what. The first keeps drivers apart (no shared model
+// id) for asking which controls a driver produces; the second overlaps on purpose, for the
+// dependent-axis chain. The flag record is derived from the contract's closed list.
 
 import { DRIVER_CAPABILITY_FLAGS, type DriverCapabilityFlag } from "@ai-sidekicks/contracts";
 
@@ -30,11 +19,9 @@ export function driverCapabilityFlags(
 }
 
 /**
- * Two drivers that differ on exactly the axes the console branches on.
- *
- * `claude` declares model mutation AND an output-speed vocabulary; `codex` declares
- * model mutation and no speed axis at all. One model publishes an effort vocabulary
- * and its sibling publishes none, which is the per-model shape the wire actually has.
+ * Two drivers that differ on the axes the console branches on: `claude` declares model
+ * mutation and an output-speed vocabulary, `codex` model mutation only. One model publishes
+ * an effort vocabulary and its sibling none.
  */
 export const DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
   models: {
@@ -82,13 +69,8 @@ export const DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
 };
 
 /**
- * Two drivers that OVERLAP on one model id and disagree about its effort levels.
- *
- * `shared-model` is carried by both drivers; `claude-only` by one; and the shared
- * model publishes a wider vocabulary under `claude` than under `codex`, so a level
- * can be retired by moving either the driver or the model. Both drivers declare model
- * mutation and neither declares a speed axis, which keeps every case here about the
- * chain rather than about a capability gate.
+ * Two drivers that overlap on one model id and disagree about its effort levels, so a level
+ * can be retired by moving either the driver or the model. Neither declares a speed axis.
  */
 export const OVERLAPPING_DRIVER_CATALOG_FIXTURE: DriverCatalogReading = {
   models: {

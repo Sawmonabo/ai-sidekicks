@@ -1,12 +1,6 @@
-/* The axis field: one provider axis, or the paying account, as a control.
- *
- * Two components in this folder draw the block: `AxisCombobox.tsx` for the provider
- * axes and `AccountAxisField.tsx` for the account, whose own selectors (`__option-label`,
- * `__advisories`, `__clear`) join it. Every selector is `.meridian-axis-field*`, so the
- * rules are this control's alone and not the pane's; the pane's chunk root imports the
- * sheet.
- *
- * Meridian tokens throughout. No literal color and no literal length. */
+/* The axis field, drawn by `AxisCombobox.tsx` (provider axes) and `AccountAxisField.tsx`
+ * (provider account). Every selector is `.meridian-axis-field*`, so the rules are this
+ * control's alone. Tokens only: no literal color or length. */
 
 .meridian-axis-field {
   display: flex;
@@ -58,8 +52,8 @@
   font-size: var(--meridian-text-sm);
 }
 
-/* An account row carries two readings — the operator's own label and the opaque
-   handle the wire takes — so the row is a column and the label leads it. */
+/* An account row carries the operator's label and the opaque id, so the row is a column and
+   the label leads it. */
 .meridian-axis-field__option-label {
   display: block;
   font-family: var(--meridian-font-sans);

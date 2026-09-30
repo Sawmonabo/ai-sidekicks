@@ -1,5 +1,3 @@
-// One saved definition, and the things that can be done to it.
-
 import type { Refusal } from "@renderer/lib/refusal.js";
 import { DerivedFigure } from "@renderer/components/DerivedFigure/DerivedFigure.js";
 import { InlineRefusal } from "@renderer/components/Refusal/InlineRefusal.js";
@@ -13,13 +11,9 @@ export function SavedDefinitionRow(props: {
   readonly isArmed: boolean;
   readonly isDeleting: boolean;
   /**
-   * Whether ANY row's delete is running, this one's included.
-   *
-   * Delete is the one act here with no undo and the carrier admits one at a time, so
-   * every row's delete control stops taking presses while one is in flight — the
-   * refusal the carrier raises for a press that gets through anyway is the belt, not
-   * the ordinary path. The pending row keeps its own treatment through `isDeleting`
-   * above, so a person can still see which record is going.
+   * Whether any row's delete is running, this one's included. Delete has no undo and the
+   * carrier admits one at a time, so every row's delete stops taking presses while one is in
+   * flight; `isDeleting` still marks which record is going.
    */
   readonly isAnyDeleteInFlight: boolean;
   /** Whether the editor is currently open on this record. */

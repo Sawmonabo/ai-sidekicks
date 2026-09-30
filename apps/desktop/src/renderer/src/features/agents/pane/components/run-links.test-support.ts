@@ -1,9 +1,5 @@
-// The bridge and calls both agents pane suites are driven with.
-//
-// THE BRIDGE SCRIPTS NOTHING AND THE CALLS REJECT, ON PURPOSE. Both suites are about WHEN
-// a read is performed and who owns it, never about what it answers, so every read settling
-// as failed is the honest fixture: a scripted reply would invite a case to assert on a
-// value neither file is about.
+// The bridge and calls both agents pane suites are driven with. The bridge scripts nothing and the
+// calls reject: the suites are about when a read is performed and who owns it, not what it answers.
 import {
   createFixtureBridge,
   type FixtureBridge,
@@ -11,7 +7,7 @@ import {
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import type { AgentsPaneCalls } from "../../agent-reads.js";
 
-/** A real fixture bridge that scripts no reply, and the engine whose frozen clock its window runs on. */
+/** A fixture bridge that scripts no reply, and the engine whose frozen clock its window runs on. */
 export function unscriptedBridge(id: string): FixtureBridge {
   return createFixtureBridge({ scenario: unscriptedScenario(id) });
 }

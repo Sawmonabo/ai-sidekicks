@@ -1,25 +1,7 @@
-// The two LIVE-NOW driver reads, and the selectors every axis control asks of them.
-//
-// `driver.listModels` and `driver.listCapabilities` are registered daemon methods
-// today — the only wires these forms have that are not fixture-only — and both
-// are no-arg group lists keyed by driver name. They are read TOGETHER because no
-// axis control can be composed from either alone: a model's effort vocabulary comes
-// from the model catalog, the output-speed vocabulary and the capability gate come
-// from the capability report, and a form that asked for one and then the other would
-// render half its axes before deciding whether it may render the rest.
-//
-// ALL-OR-NOTHING IS THE DAEMON'S RULE AND THIS MODULE KEEPS IT. A driver that fails
-// fails the whole read rather than silently reporting no models, so the pair is read
-// with `Promise.all` and a rejection from either becomes the read's rejection. A
-// partial catalog would let a control offer a vocabulary that is missing exactly the
-// entries the failed driver would have supplied, which reads as "this provider has
-// no models" — the conflation the five kinds of nothing exist to prevent.
-//
-// THE SELECTORS DERIVE NOTHING THEY COULD READ. An effort vocabulary is per MODEL
-// and provider-published: a provider-wide list is wrong for some model in the same
-// reply, and an absent list means the model exposes no effort selection at all —
-// which is a different answer from an empty one and is preserved as `undefined`
-// rather than flattened to `[]`.
+// The driver catalog reads (`driver.listModels`, `driver.listCapabilities`) and the selectors
+// every axis control asks of them. The two are read together, all or nothing, because a
+// partial catalog would read as "this provider has no models". Effort levels are per model,
+// and an absent list (`undefined`) is a different answer from an empty one.
 
 import type {
   DriverCapabilityFlag,
@@ -51,11 +33,8 @@ export function modelsFor(
 }
 
 /**
- * One model's effort vocabulary.
- *
- * `undefined` means the model publishes no effort levels, and a form that gets it
- * shows NO effort control at all rather than an empty one — an empty select asserts
- * an axis exists with nothing on it, which is a claim no provider makes.
+ * One model's effort vocabulary. `undefined` means the model publishes none, so a form shows
+ * no effort control rather than an empty select.
  */
 export function effortLevelsFor(
   catalog: DriverCatalogReading,
@@ -69,11 +48,8 @@ export function effortLevelsFor(
 }
 
 /**
- * One driver's declared output-speed vocabulary.
- *
- * Statically declared by the driver and client-visible for exactly this reason. An
- * absent or empty vocabulary makes the axis unsettable and the mutation refuses
- * fail-closed, so a control is never drawn over one.
+ * One driver's declared output-speed vocabulary. An absent or empty one makes the axis
+ * unsettable (the mutation refuses fail-closed), so no control is drawn.
  */
 export function outputSpeedLevelsFor(
   catalog: DriverCatalogReading,
@@ -87,12 +63,8 @@ export function outputSpeedLevelsFor(
 }
 
 /**
- * One capability flag as the driver declared it.
- *
- * `undefined` where the catalog named no such driver — which is not `false`. A
- * control gated on an unanswered flag is absent for the same reason a control gated
- * on a `false` one is: the console does not assert a capability it was not told
- * about, in either direction.
+ * One capability flag as the driver declared it. `undefined` where the catalog named no such
+ * driver, which is not `false`: the console asserts no capability it was not told about.
  */
 export function capabilityFlagFor(
   catalog: DriverCatalogReading,
@@ -109,13 +81,8 @@ export function capabilityFlagFor(
 }
 
 /**
- * Whether the catalog lists this model under this driver.
- *
- * An UNREAD catalog answers no, which is why this pair takes `undefined` where the
- * selectors above require a reading: a membership question asked before the read
- * lands has one honest answer, and it is not "yes". Callers that must distinguish
- * "not carried" from "not yet read" test the catalog itself — the form does, so it
- * can name the missing read rather than blaming the value.
+ * Whether the catalog lists this model under this driver. An unread catalog answers no;
+ * callers that must tell "not carried" from "not yet read" test the catalog itself.
  */
 export function catalogCarriesModel(
   catalog: DriverCatalogReading | undefined,
@@ -128,11 +95,8 @@ export function catalogCarriesModel(
 }
 
 /**
- * Whether this model publishes this effort level. Unread catalog: no.
- *
- * An ABSENT vocabulary is not an empty one on the wire — it means the model exposes
- * no effort selection at all — and both readings answer the same thing to this
- * question: nothing vouches for the entered level.
+ * Whether this model publishes this effort level. Unread catalog: no. An absent vocabulary
+ * and an empty one answer the same: nothing vouches for the level.
  */
 export function catalogCarriesEffortLevel(
   catalog: DriverCatalogReading | undefined,

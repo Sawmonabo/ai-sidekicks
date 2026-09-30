@@ -1,21 +1,14 @@
-// How every Agents pane suite lets a scheduled read land.
-//
-// THE ADVANCE IS DERIVED, NOT TYPED OUT. What the settle has to do is pass the refresh
-// scheduler's TRAILING debounce, and what it must not do is reach the absolute deadline:
-// a settle that crossed `REFRESH_MAX_WAIT_MS` would fire the starvation arm and a case
-// counting reads would be counting the harness.
+// How every Agents pane suite lets a scheduled read land. The advance passes the refresh
+// scheduler's trailing debounce but stays short of `REFRESH_MAX_WAIT_MS`, so a case counting
+// reads does not count the starvation arm.
 
 import { act } from "@testing-library/react";
 import type { ScenarioEngine } from "@renderer/services/daemon/engine.fixture.js";
 import { REFRESH_DEBOUNCE_MS } from "@renderer/lib/reads/refresh-caps.js";
 
 /**
- * How far a settle moves the scenario clock.
- *
- * Comfortably past {@link REFRESH_DEBOUNCE_MS} so a requested read actually fires, and
- * well short of the absolute deadline so the settle never fires the starvation arm
- * itself. Four debounce windows rather than a round number, because the multiple is
- * the claim: the headroom is measured in the bound it is clearing.
+ * How far a settle moves the scenario clock: four debounce windows, past
+ * {@link REFRESH_DEBOUNCE_MS} so a requested read fires, well short of the absolute deadline.
  */
 const SETTLE_ADVANCE_MS: number = REFRESH_DEBOUNCE_MS * 4;
 
@@ -27,11 +20,8 @@ export async function settleReads(scenarioEngine: ScenarioEngine): Promise<void>
 }
 
 /**
- * Move the scenario clock past the debounce and let every settled reply land.
- *
- * The microtask passes drain the read's own `await` chain — the call, the parse, and
- * the store apply — which is why a single `await Promise.resolve()` is not enough and
- * why the count lives here rather than being rediscovered per suite.
+ * Move the scenario clock past the debounce and let every settled reply land. The microtask
+ * passes drain the read's `await` chain (call, parse, store apply); one is not enough.
  */
 async function drainScheduledReads(scenarioEngine: ScenarioEngine): Promise<void> {
   scenarioEngine.advance(SETTLE_ADVANCE_MS);

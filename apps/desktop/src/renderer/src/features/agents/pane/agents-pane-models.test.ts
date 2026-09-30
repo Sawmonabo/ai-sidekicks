@@ -1,17 +1,7 @@
-// Who owns the Agents pane's reads, and for how long.
-//
-// Two lifetime claims are checked here, because both are claims a rendered pane
-// cannot make on its own:
-//
-//   • **A model never belongs to a session it is not for.** State replaced from an
-//     effect lags its inputs by a frame, so the mismatched frame has to be watched
-//     as it happens rather than after it settles.
-//   • **Acquiring a linkage read is not starting one.** The split exists so a
-//     render body can never open a subscription, and "never started" is only
-//     observable on the model itself.
-//
-// What REFRESHES each read is `../agent-reads.test.ts`, beside the factories
-// that decide it.
+// The Agents pane models' lifetime claims, which a rendered pane cannot make: a model never
+// belongs to a session, bridge or store it is not for (state replaced from an effect lags its
+// inputs by a frame, so the mismatched frame is watched as it happens), and acquiring a linkage
+// read does not start it. What refreshes each read is `../agent-reads.test.ts`.
 
 import { renderHook } from "@testing-library/react";
 import { useEffect, useState } from "react";
@@ -37,8 +27,6 @@ function windowOver(
   return bridgeWrapper(fixture.bridge, fixture.scenarioEngine.clock);
 }
 
-// --- A model never belongs to a session it is not for -------------------------
-
 /** Every value the hook answered, in render order, including uncommitted frames. */
 function recordedModelSessionIds(
   fixture: FixtureBridge,
@@ -60,11 +48,8 @@ function recordedModelSessionIds(
 }
 
 /**
- * The shape this finding replaced: the held set answered without the match check.
- *
- * The negative control, so the recorder above is shown to REPORT a mismatched frame
- * when there is one — without it the clean case would also pass over a hook that
- * answered `undefined` forever.
+ * A stand-in without the match check. The negative control: it shows the recorder reports a
+ * mismatched frame when there is one, rather than passing over a hook that answers `undefined`.
  */
 function useUnguardedAgentsPaneModels(
   bridge: PlatformBridge,
@@ -74,10 +59,8 @@ function useUnguardedAgentsPaneModels(
 }
 
 /**
- * The second shape this finding replaced: the guard compared the SESSION ID.
- *
- * A replacement bridge or a rebuilt store under one session passes it, so the first
- * committed render after either hands back a set bound to what was just retired.
+ * A stand-in whose guard compares the session id. A replacement bridge or rebuilt store under
+ * one session passes it, so the first committed render hands back a set bound to the retired one.
  */
 function useSessionIdGuardedAgentsPaneModels(
   bridge: PlatformBridge,
@@ -87,7 +70,7 @@ function useSessionIdGuardedAgentsPaneModels(
   return models !== undefined && models.sessionId === sessionStore.sessionId ? models : undefined;
 }
 
-/** The lifecycle both stand-ins share — a set built and disposed by an effect. */
+/** The lifecycle both stand-ins share: a set built and disposed by an effect. */
 function useHeldAgentsPaneModels(
   bridge: PlatformBridge,
   sessionStore: SessionStore,
@@ -114,9 +97,8 @@ describe("the Agents pane's models — the session they belong to", () => {
       initializedStore("session-b"),
     );
 
-    // The pane's binding column dispatches attach, config-update, and detach
-    // through whatever this answers, so one frame carrying the left session's
-    // models would mutate a session the console is no longer showing.
+    // The binding column dispatches mutations through this, so a frame carrying the left
+    // session's models would mutate a session the console has left.
     expect(afterSwitch).not.toContain("session-a");
     expect(afterSwitch.at(-1)).toBe("session-b");
   });
@@ -148,8 +130,6 @@ describe("the Agents pane's models — the session they belong to", () => {
   });
 });
 
-// --- Acquiring a linkage read is not starting one -----------------------------
-
 describe("the Agents pane's models — the linkage lease", () => {
   it("hands out a read that has not subscribed and has read nothing", () => {
     const { bridge, scenarioEngine } = unscriptedBridge("agent-linkage-acquire");
@@ -165,8 +145,7 @@ describe("the Agents pane's models — the linkage lease", () => {
     expect(lease.read.readCount).toBe(0);
     expect(models.holdsLinkage).toBe(true);
 
-    // And the caller starting it DOES subscribe, so the case above is about who
-    // starts the read rather than about a lease that hands back a dead object.
+    // The caller starting it does subscribe, so the case above is about who starts the read.
     lease.read.start();
     expect(lease.read.isSubscribed).toBe(true);
 
@@ -185,7 +164,7 @@ describe("the Agents pane's models — the linkage lease", () => {
     const second = models.acquireLinkage();
     first.read.start();
 
-    // One read, joined — never two projections of one session's tree.
+    // One read, joined.
     expect(second.read).toBe(first.read);
     expect(models.outstandingLinkageLeaseCount).toBe(2);
 
@@ -200,8 +179,6 @@ describe("the Agents pane's models — the linkage lease", () => {
     expect(second.read.isSubscribed).toBe(false);
   });
 });
-
-// --- A model never belongs to a BRIDGE or a STORE it is not for ---------------
 
 /** The two inputs a mount is handed, replaced one at a time by the cases below. */
 interface ModelsProbeInputs {
@@ -244,8 +221,7 @@ describe("the Agents pane's models — the exact bridge and store they answer fo
       { bridge: replacement, sessionStore },
     );
 
-    // The retired bridge's reads are bound to a transport this mount no longer
-    // holds, and the binding column would dispatch every mutation through it.
+    // The retired bridge's reads are bound to a transport this mount has dropped.
     expect(afterReplacement[0]).toBeUndefined();
     expect(afterReplacement.at(-1)?.subject.bridge).toBe(replacement);
   });
@@ -260,15 +236,14 @@ describe("the Agents pane's models — the exact bridge and store they answer fo
       { bridge, sessionStore: rebuilt },
     );
 
-    // Same session id, a different projection: the held roster answers from the
-    // stream the previous store owned, which nothing is appending to any more.
+    // Same session id, a different projection: the held roster answers from the previous store's
+    // stream, which nothing appends to any more.
     expect(afterReplacement[0]).toBeUndefined();
     expect(afterReplacement.at(-1)?.subject.sessionStore).toBe(rebuilt);
   });
 
   it("negative control: an unchanged pair keeps answering with the set it holds", () => {
-    // Without this, the two cases above would pass over a hook that answered
-    // `undefined` on every frame it ever rendered.
+    // Guards against a hook that answered `undefined` on every frame.
     const fixture = unscriptedBridge("agent-models-unchanged");
     const inputs: ModelsProbeInputs = {
       bridge: fixture.bridge,
@@ -279,8 +254,7 @@ describe("the Agents pane's models — the exact bridge and store they answer fo
   });
 
   it("negative control: the session-id guard hands the retired bridge's set back", () => {
-    // The shape this finding replaced. It is the instrument's proof: the recorder
-    // above reports a mismatched frame when the guard cannot see one.
+    // The session-id guard's shape, shown to fail: the recorder reports what it cannot see.
     const sessionStore = initializedStore("session-id-only");
     const retiredFixture = unscriptedBridge("agent-models-id-only-a");
     const retired = retiredFixture.bridge;
@@ -303,21 +277,11 @@ describe("the Agents pane's models — the exact bridge and store they answer fo
   });
 });
 
-// --- A model reads on the window's clock, never on one it minted --------------
-
 /**
- * Let continuations run WITHOUT crossing a macrotask boundary.
- *
- * Deliberately not the shared drain `crossMacrotaskBoundary` in
- * `tests/helpers/macrotask-boundary.ts`, and deliberately not under its name: that one
- * is a `setTimeout(…, 0)` boundary, and every case below asserts that nothing fell due
- * while the window's clock stood still.
- * Yielding to the macrotask queue is exactly what would let a due timer fire, so it
- * would settle the reads these cases claim are unscheduled and each one would pass
- * with its subject removed. A counted number of passes is the price of that: four,
- * one more than the deepest `.then` chain a model opening a read arms, and a count
- * this file may tune because what it bounds is its own settling rather than the
- * implementation's.
+ * Let continuations run without crossing a macrotask boundary. Not the shared
+ * `crossMacrotaskBoundary`: yielding to the macrotask queue would let a due timer fire, and
+ * every case below asserts nothing fell due while the window's clock stood still. Four passes,
+ * one more than the deepest `.then` chain a model opening a read arms.
  */
 async function settleWithoutCrossingATimer(): Promise<void> {
   for (let pass = 0; pass < 4; pass += 1) {
@@ -327,11 +291,9 @@ async function settleWithoutCrossingATimer(): Promise<void> {
 
 describe("the Agents pane's models — whose clock their reads run on", () => {
   it("performs its opening reads when the window's clock advances", async () => {
-    // Driven rather than asserted about a private field. Under the fixture the window
-    // runs on the scenario engine's FROZEN clock, and every read a model opens is armed
-    // through the refresh chokepoint — so a model that minted its own `RealClock` would
-    // arm on wall time inside a window whose scenario beats advance on frozen time, and
-    // nothing here would fall due.
+    // Under the fixture the window runs on the scenario engine's frozen clock, and reads arm
+    // through the refresh chokepoint, so a model that minted its own `RealClock` would arm on
+    // wall time and nothing here would fall due.
     const { bridge, scenarioEngine } = unscriptedBridge("agent-models-clock");
     const sessionStore = initializedStore("session-clock");
     const models = new AgentsPaneModels(
@@ -351,9 +313,8 @@ describe("the Agents pane's models — whose clock their reads run on", () => {
   });
 
   it("negative control: with the window's clock held still nothing falls due", async () => {
-    // Without this, the case above would pass over a model whose reads were performed
-    // eagerly on construction — which is a read nobody scheduled and a clock nothing
-    // consults, and would make the advance above incidental rather than the subject.
+    // Guards against reads performed eagerly on construction, which would make the advance
+    // above incidental.
     const { bridge, scenarioEngine } = unscriptedBridge("agent-models-clock-held");
     const sessionStore = initializedStore("session-clock-held");
     const models = new AgentsPaneModels(

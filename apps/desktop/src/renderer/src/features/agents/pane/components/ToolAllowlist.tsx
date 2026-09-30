@@ -8,17 +8,9 @@ import {
 import { ToolAllowlistReading } from "./ToolAllowlistReading.js";
 
 /**
- * The tool allowlist as applied: the names, or the reading its position carries.
- *
- * IT READS THE POSITION AND NEVER THE MEMBER. This row used to take
- * `toolAllowlist` alone, which cannot tell a configuration that carried no allowlist
- * from a reply that carried no configuration — so it answered "not reported" for a
- * state the governance line three lines above called the driver's default set. One
- * wire value now has one reading on this card, and `tool-grant.ts` holds it.
- *
- * IT SAYS NOTHING THE LINE ALREADY SAID. The position's sentence belongs to the line;
- * what the disclosure adds is the NAMES, and where a position has none it states that
- * position in the fewest words that are true.
+ * The tool allowlist as applied: the names, or the reading its position carries. It reads the
+ * position, not the raw member, which cannot tell "no allowlist" from "no configuration". It adds
+ * only the names; the position's sentence belongs to the line.
  */
 export function ToolAllowlist(props: {
   readonly position: AgentToolAllowlistPosition;

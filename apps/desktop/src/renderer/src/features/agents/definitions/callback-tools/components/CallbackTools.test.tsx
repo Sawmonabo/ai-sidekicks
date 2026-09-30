@@ -1,14 +1,7 @@
-// States that must never collapse into each other.
-//
-// "No driver hosts a registry", "this build has not read the driver's flags",
-// "the registry read has not settled", and "the registry is withheld" are different
-// facts with different next moves — and an exposed registry that happens to be empty
-// reads identically to the withheld one unless the component keeps them apart. Each
-// case below is the one that fails when two of them merge.
-//
-// The capability and the registry are separate props because they are separate
-// reads: the flag comes from `driver.listCapabilities` and the entries from the
-// registry read, so the cases pair them independently rather than deriving one.
+// The states that must never collapse: no driver registry, an unread capability, an unsettled
+// read, and a withheld registry all differ, and an exposed-but-empty registry would read like
+// a withheld one if merged. Capability and registry are separate props because they come
+// from separate reads.
 
 import { type SessionCallbackTool } from "@ai-sidekicks/contracts";
 import { render, screen } from "@testing-library/react";
@@ -33,16 +26,15 @@ function exposed(tools: readonly SessionCallbackTool[]): CallbackToolRegistryRea
 
 describe("the capability gate", () => {
   it("pins the flag to the registered union", () => {
-    // A literal here rather than an inferred string is the point: the annotation on
-    // the constant makes a contracts-side rename a compile error, and this asserts
-    // the value that annotation admits.
+    // A literal, not an inferred string: the constant's annotation makes a contracts-side
+    // rename a compile error, and this asserts the value it admits.
     expect(CALLBACK_TOOLS_CAPABILITY).toBe("callback_tools");
   });
 
   it("renders nothing at all when the driver declares no registry", () => {
     const { container } = render(<CallbackTools capability="undeclared" registry={exposed([])} />);
-    // Absent, not empty: a heading over an empty list would report a registry that
-    // exists and holds nothing, which is a different claim about the driver.
+    // Absent, not empty: a heading over an empty list would report a registry that exists and
+    // holds nothing.
     expect(container.innerHTML).toBe("");
   });
 
@@ -63,8 +55,8 @@ describe("an unread capability is not an empty registry", () => {
   });
 
   it("negative control: an unread capability lists nothing it might have assembled", () => {
-    // The failure this guards is a component that synthesized the registry from
-    // tool rows it had seen, which would list only tools already called.
+    // Guards against synthesizing the registry from tool rows already seen, which would list
+    // only tools already called.
     render(<CallbackTools capability="unknown" registry={exposed([TOOL])} />);
     expect(screen.queryByText("approval_request")).toBeNull();
   });
@@ -91,8 +83,8 @@ describe("withheld is not empty either", () => {
       <CallbackTools capability="declared" registry={withheld([TOOL])} />,
     );
     expect(screen.getByText("approval_request")).not.toBeNull();
-    // The chip on the ROW, not the word in the paragraph above it: the entry is
-    // registered and unreachable, and the row is what says so.
+    // The chip on the row, not the paragraph's word: the row is what says the entry is
+    // unreachable.
     const chipLabels = [...container.querySelectorAll(".meridian-chip__label")].map(
       (label) => label.textContent,
     );
@@ -119,8 +111,7 @@ describe("an exposed registry", () => {
     render(<CallbackTools capability="declared" registry={exposed([TOOL])} />);
     const trigger = screen.getByRole("button", { name: "Input schema" });
     expect(trigger).not.toBeNull();
-    // Closed by default — the row stays one line, and the schema is available to a
-    // reader who asks for it rather than spent on everyone who does not.
+    // Closed by default: the row stays one line.
     expect(trigger.getAttribute("aria-expanded")).toBe("false");
   });
 });

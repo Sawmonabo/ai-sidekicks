@@ -1,13 +1,6 @@
-// What refreshes each of the Agents pane's reads.
-//
-// One claim, checked on the two shapes the factories carry: a read with a push
-// signal re-reads when the session stream admits a kind it watches and never when
-// it admits one it does not, and a read whose subscription is a stated no-op
-// re-reads never. Both are counted on the read itself rather than inferred from a
-// rendered row, because a view can show a stale figure for either reason.
-//
-// The lifetime half — who holds these reads and what disposes them — is
-// `pane/agents-pane-models.test.ts`.
+// What re-reads the Agents pane's child-links read, counted on the read itself rather than
+// inferred from a rendered row (a view can show a stale figure either way). The read's
+// lifetime is `pane/agents-pane-models.test.ts`.
 
 import type { SessionId } from "@ai-sidekicks/contracts";
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
@@ -110,9 +103,8 @@ describe("the Agents pane's models — what re-reads the session's child links",
   });
 
   it("negative control: the read whose subscribe is a stated no-op re-reads zero times", async () => {
-    // The driver catalog is the shape the linkage had — no signal at all — and it
-    // sits beside it in this module. Without this the cases above would pass over
-    // an instrument that counted something other than a re-read.
+    // The driver catalog has no push signal. Without this control the cases above could pass
+    // while counting something other than a re-read.
     const sessionStore = initializedStore("session-no-signal");
     const clock = new ManualClock();
     const catalog = createDriverCatalogRead(

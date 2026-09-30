@@ -1,9 +1,6 @@
-// What each position says on the line, and that the line is actually on the card.
-//
-// The last case is the one that matters most: the per-agent control the governance
-// rules name is only a control if a person meets it, and a component nothing mounts
-// is exactly the state this line was built to leave. The NODE-WIDE ceiling is no
-// longer said here — `AgentBindingColumn.roster.test.tsx` holds it, once per roster.
+// What each position says on the line, and that the line is on the card: a component nothing
+// mounts is no control. The node-wide ceiling is held once per roster in
+// `AgentBindingColumn.agent-list.test.tsx`.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -18,7 +15,7 @@ function lineTextOf(container: HTMLElement): string {
   return container.querySelector(".meridian-agent-card__tool-allowlist")?.textContent ?? "";
 }
 
-/** A list of exactly `count` distinct tool names, which is all these cases need. */
+/** A list of exactly `count` distinct tool names. */
 function toolNames(count: number): readonly string[] {
   return Array.from({ length: count }, (_unused, index) => `tool-${String(index)}`);
 }
@@ -32,18 +29,13 @@ describe("tool grant line — what each position says", () => {
   });
 
   it("says WHY nothing was answered in text, not in a tooltip", () => {
-    // The badge carried the whole explanation as `detail`, which the inline shape
-    // renders as a `title` attribute — so the one position whose entire meaning is
-    // "no question was put" explained itself to nobody using a keyboard or a screen
-    // reader. The sentence is in the line now, and it has one home.
+    // A `title` reaches no keyboard or screen-reader user, so the sentence is visible text.
     const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     expect(lineTextOf(container)).toContain("not started from a saved definition");
   });
 
   it("negative control: the sentence is read from the line's own text, not an attribute", () => {
-    // Without this the case above would pass over a badge that had put the sentence
-    // back on `title`, since `textContent` and `getAttribute` are different reads and
-    // only one of them is what a person hears.
+    // Guards against the sentence moving back to `title`; `textContent` and `getAttribute` differ.
     const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     const badgeLabel = container.querySelector(".meridian-nothing__badge-label");
     expect(badgeLabel?.getAttribute("title")).toBeNull();
@@ -81,9 +73,8 @@ describe("tool grant line — what each position says", () => {
   });
 
   it("promises only what the echo below it actually names", () => {
-    // The disclosure names the first `TOOL_ALLOWLIST_NAMED_CAP` and folds the rest to
-    // a figure, so an agent with fifteen tools was promised all fifteen
-    // below a list showing six.
+    // The disclosure names the first `TOOL_ALLOWLIST_NAMED_CAP` and folds the rest, so promising
+    // all of a longer list would describe names that are not shown.
     const { container } = render(
       <ToolAllowlistLine position={{ kind: "named", toolNames: toolNames(15) }} />,
     );
@@ -94,8 +85,7 @@ describe("tool grant line — what each position says", () => {
   });
 
   it("negative control: at the cap it still promises the whole list", () => {
-    // Without this the case above would pass over a line that had started hedging
-    // every populated allowlist, including the ones the echo does name in full.
+    // Guards against hedging every populated allowlist, including ones the echo names in full.
     const { container } = render(
       <ToolAllowlistLine
         position={{ kind: "named", toolNames: toolNames(TOOL_ALLOWLIST_NAMED_CAP) }}
@@ -105,8 +95,7 @@ describe("tool grant line — what each position says", () => {
   });
 
   it("composes no verdict about whether this agent may browse", () => {
-    // The console derives no eligibility the daemon owns: the line states the
-    // per-agent position and never a conjunction with the node-wide ceiling.
+    // The line states the per-agent position and never a conjunction with the node-wide ceiling.
     const { container } = render(
       <ToolAllowlistLine position={{ kind: "named", toolNames: toolNames(4) }} />,
     );
@@ -115,9 +104,7 @@ describe("tool grant line — what each position says", () => {
   });
 
   it("states the per-agent position and leaves the node-wide ceiling to the roster", () => {
-    // Under the unanswered position the ceiling note asserted that an allowlist had
-    // been applied at spawn — a claim about a reply that named none — and it said so
-    // again under every other card in the roster.
+    // The ceiling note is said once by the roster, not per card.
     const { container } = render(<ToolAllowlistLine position={{ kind: "not-reported" }} />);
     expect(container.textContent ?? "").not.toContain("an allowlist cannot turn them back on");
   });
@@ -134,8 +121,7 @@ describe("tool grant line — it is on the card", () => {
   });
 
   it("negative control: an agent with no configuration draws the unanswered arm", () => {
-    // Without this the case above would pass over a card that printed one position
-    // unconditionally, which is the failure a governance line can least afford.
+    // Guards against a card that printed one position unconditionally.
     const { container } = render(<AgentBindingCard agent={agentEntry()} />);
     expect(lineTextOf(container)).toContain("Not reported");
     expect(lineTextOf(container)).not.toContain("tools");

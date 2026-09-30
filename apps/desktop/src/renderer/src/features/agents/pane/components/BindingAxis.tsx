@@ -10,11 +10,8 @@ export function BindingAxis(props: BindingAxisProps): React.JSX.Element {
 }
 
 /**
- * One axis of the effective binding.
- *
- * An axis the binding always carries takes its value alone. An axis the binding may
- * leave unset is not blank and is not a fault: each unset state MEANS something
- * specific, so the caller must say which.
+ * One axis of the effective binding. An axis that may be unset is neither blank nor a fault:
+ * each unset state means something specific, so the caller says which.
  */
 type BindingAxisProps =
   | { readonly label: string; readonly value: string }

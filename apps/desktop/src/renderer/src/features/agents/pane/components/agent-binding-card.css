@@ -1,18 +1,6 @@
-/* The agents feature's own styles: the agent card, and the control shape every view
- * in the feature wears.
- *
- * The axis field, the agent library and the pane's column each carry their own sheet
- * (`axis-field.css`, `agent-library.css`, `agents-pane.css`). What stays here is the
- * agent card, and the grouped rules that give the card and the allowlist note
- * (`.meridian-agents__allowlist-note`) one button and one label.
- *
- * Hand-authored composition over generated values, like every other console sheet —
- * no literal color below, and the only literal length is the hairline that separates
- * two cards.
- *
- * An absent axis is text, never a gap. Every absence carries a sentence, so the row
- * keeps its rhythm and a reader never has to work out whether a blank means "default"
- * or "nobody asked".
+/* The agent card and the roster's allowlist note; the axis field, library and pane column have
+ * their own sheets. An absent axis is text, never a gap, so a blank never has to be read as
+ * "default" or "nobody asked".
  */
 
 .meridian-agent-card {

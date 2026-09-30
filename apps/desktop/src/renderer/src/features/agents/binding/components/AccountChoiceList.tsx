@@ -1,21 +1,7 @@
-// The account picker itself, over the accounts this driver's provider carries.
-//
-// A MODULE OF ITS OWN rather than a private declaration beside its one caller: a
-// `.tsx` file declares exactly one component, private ones counted, which is the rule
-// that keeps a component's identity and its file name the same fact.
-//
-// THE HANDLE IS THE ITEM AND THE LABEL IS A PROJECTION OF IT. What the request
-// carries is the daemon-minted opaque `accountId`, so that is what the combobox holds
-// and hands back — a picker whose items were labels would put the operator's own
-// mutable word where the wire's identity belongs, and two accounts relabeled alike
-// would become indistinguishable to it. The label is what a person reads, filters on,
-// and sees in the trigger, and it is resolved through the library's own label seam
-// rather than by a second list beside the items.
-//
-// AND THE FIELD'S OWN NAME COMES IN, because it is not this module's to invent. The
-// trigger renders as `role="combobox"`, which takes no name from its own content, and
-// the visible "Provider account" word belongs to the field that composes this picker
-// beside four other absences. So the caller mints the id and this points at it.
+// The account picker over the accounts this driver's provider carries. The combobox holds the
+// daemon-minted `accountId` and resolves the label through the library's label seam, so a
+// relabeled account never changes the wire identity. The caller mints the label id because
+// `role="combobox"` takes no name from its own content.
 
 import { Combobox } from "@base-ui/react/combobox";
 
@@ -23,6 +9,7 @@ import { OverlayComboboxPopup } from "../../components/OverlayComboboxPopup/Over
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { AccountAxisReading } from "../account-axis.js";
 
+/** What the account picker reads, and the id of the label that names its trigger. */
 export interface AccountChoiceListProps {
   readonly reading: Extract<AccountAxisReading, { kind: "served" }>;
   readonly value: string | undefined;
@@ -32,13 +19,12 @@ export interface AccountChoiceListProps {
   readonly overlayContainer?: HTMLElement | null | undefined;
 }
 
+/** The account picker over a served reading; holds the daemon-minted id, shows the label. */
 export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Element {
   const { reading, value } = props;
   const accountIds = reading.choices.map((choice) => choice.accountId);
-  // An id the registry does not carry falls back to ITSELF rather than to an empty
-  // string, so a value this field is holding is never rendered blank — an empty
-  // trigger over a set member would read as "no account pinned", which is the one
-  // thing it is not.
+  // An id the registry does not carry falls back to itself, so a held value never renders as
+  // a blank trigger, which would read as "no account pinned".
   const labelFor = (accountId: string): string =>
     reading.choices.find((choice) => choice.accountId === accountId)?.displayLabel ?? accountId;
   return (
@@ -53,9 +39,8 @@ export function AccountChoiceList(props: AccountChoiceListProps): React.JSX.Elem
       <Combobox.Trigger className="meridian-axis-field__trigger" aria-labelledby={props.labelId}>
         <Combobox.Value />
       </Combobox.Trigger>
-      {/* The anchored part of the tree is the primitive's, which is what puts this
-          list in the window's airspace: a field that mounted its own portal would be
-          a popup a native browser-pane view paints over and takes the input of. */}
+      {/* The primitive's anchored part keeps this list in the window's airspace; a field
+          mounting its own portal would be painted over by a native browser-pane view. */}
       <OverlayComboboxPopup
         container={props.overlayContainer}
         positionerClassName="meridian-axis-field__positioner"

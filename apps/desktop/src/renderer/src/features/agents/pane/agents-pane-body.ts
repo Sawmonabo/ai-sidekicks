@@ -1,7 +1,5 @@
-// The Agents pane body, as the registry loads it.
-//
-// A LOADER-BACKED BODY, so the cards and their sheets are not on the initial import
-// graph: nothing paints the pane before a person asks for one.
+// The Agents pane body as the registry loads it. Loader-backed, so the cards and their sheets
+// stay off the initial import graph.
 import "./agents-pane.css";
 import "./components/agent-binding-card.css";
 import "../binding/components/axis-field.css";
@@ -30,20 +28,12 @@ export function agentsPaneBody(calls: AgentsPaneCalls): (context: PaneContext) =
 }
 
 /**
- * A pane body wearing the console's chrome, at an address the pane layout resolved.
+ * A pane body wearing the shared pane chrome, at an address the pane layout resolved. The chrome
+ * gets the session, agent reference and hue off the address. It gets no `actions` (this kind has
+ * no head control) and no host controls: the pane layout supplies those through context.
  *
- * THE CHROME IS COMPOSED HERE RATHER THAN INSIDE THE BODY, so the body draws no frame of
- * its own. Everything the chrome is handed is read off the pane's address: the session
- * the pane's store is open on, the agent reference the address carries, and the hue the
- * pane layout attributed the pane with. It is handed no `actions` — this kind has no head
- * control of its own today, and an empty strip is what that honestly renders as — and
- * neither host control, because closing a pane and tearing one off are the PANE LAYOUT's acts
- * and reach the chrome through the context the pane layout provides around every pane it lays
- * out.
- *
- * `children` is passed as a PROP rather than as `createElement`'s third argument: the
- * chrome declares it required, and the variadic overload does not satisfy a required
- * `children` — it type-checks the props object on its own.
+ * `children` is a prop, not `createElement`'s third argument: the chrome declares it required
+ * and the variadic overload does not satisfy that.
  */
 function paneBodyInChrome(
   renderBody: (context: PaneContextOf<"agents">) => React.ReactNode,

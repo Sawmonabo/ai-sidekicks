@@ -1,5 +1,5 @@
-// Three absences on this card each MEAN something specific, so none of them may render
-// as blank, as "off", or as the value beside it.
+// Three absences on this card each mean something specific, so none may render as blank, "off",
+// or the value beside it.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -24,11 +24,8 @@ function observedTextOf(container: HTMLElement): string {
 }
 
 /**
- * One row of the echo, addressed by its own term rather than by position.
- *
- * The `<dd>` carries no class of its own — every resolved row wears the same one — so
- * a positional query would silently become a different row the day an axis is added
- * above it.
+ * One row of the echo, addressed by its own term: a positional query would drift when an axis
+ * is added.
  */
 function resolvedRowTextOf(container: HTMLElement, term: string): string {
   const row = [...container.querySelectorAll(".meridian-agent-card__resolved-row")].find(
@@ -62,8 +59,7 @@ describe("agent card — the effective binding", () => {
   });
 
   it("negative control: a carried axis does not print its absence sentence", () => {
-    // Without this, the case above would pass over a card that printed every
-    // absence meaning unconditionally.
+    // Guards against a card that printed every absence meaning unconditionally.
     const { container } = render(<AgentBindingCard agent={RUNNING} />);
     const effective = container.querySelector(".meridian-agent-card__effective")?.textContent ?? "";
     expect(effective).not.toContain("the provider's default for this model");
@@ -79,8 +75,7 @@ describe("agent card — the declared output speed is never the requested one", 
   });
 
   it("negative control: a declared reading does appear on that same line", () => {
-    // Without this, the case above would pass over a card whose observed line was a
-    // fixed sentence that could never carry a provider reading at all.
+    // Guards against an observed line that is a fixed sentence and can never carry a reading.
     const { container } = render(
       <AgentBindingCard
         agent={{
@@ -136,8 +131,7 @@ describe("agent card — the resolved configuration", () => {
   });
 
   it("renders an empty allowlist as the restriction it is", () => {
-    // "No tools at all" is the applied configuration and the strictest posture the
-    // agent can have — a choice somebody made, not the daemon staying silent.
+    // "No tools at all" is the strictest posture, a choice somebody made, not the daemon silent.
     const { container } = render(
       <AgentBindingCard
         agent={{ ...RUNNING, resolvedConfiguration: resolvedConfiguration({ toolAllowlist: [] }) }}
@@ -148,9 +142,7 @@ describe("agent card — the resolved configuration", () => {
   });
 
   it("negative control: an echo whose allowlist is null is not read as an empty one", () => {
-    // Without this, the case above would pass over a card that reported an empty
-    // allowlist for an axis the daemon never answered — the same conflation, in the
-    // other direction.
+    // Guards against reporting an empty allowlist for an axis the daemon never answered.
     const { container } = render(
       <AgentBindingCard agent={{ ...RUNNING, resolvedConfiguration: resolvedConfiguration() }} />,
     );
@@ -159,11 +151,8 @@ describe("agent card — the resolved configuration", () => {
   });
 
   it("counts the unnamed tail through the console's own figure formatter", () => {
-    // The allowlist is the daemon's, so its length is unbounded by anything this
-    // console decides. Four figures is where the two spellings part company: a
-    // stringified tail reads "1200" beside every other quantity in the console
-    // reading "1,200", which is a second formatting path in the one place the
-    // chokepoint exists to keep single.
+    // The allowlist length is the daemon's. At four figures a stringified tail ("1200") parts
+    // from the console's grouped figures ("1,200"), a second formatting path.
     const unnamedToolCount = 1200;
     const toolAllowlist = Array.from(
       { length: TOOL_ALLOWLIST_NAMED_CAP + unnamedToolCount },
@@ -179,8 +168,7 @@ describe("agent card — the resolved configuration", () => {
   });
 
   it("negative control: the two spellings of that tail are different strings", () => {
-    // Without this the case above would pass over a host whose locale groups
-    // nothing, and would prove nothing about which formatter the tail reaches for.
+    // Guards against a host whose locale groups nothing, which would prove nothing.
     expect(formatCount(1200, "en-US")).not.toBe(String(1200));
   });
 
@@ -202,10 +190,8 @@ describe("agent card — the resolved configuration", () => {
 
 describe("agent card — one wire state, one reading of it", () => {
   it("gives an echo with a null allowlist the same reading in both places", () => {
-    // The line read the grant projection and the Tools row read `toolAllowlist` for
-    // itself, so one wire state was "the provider's default tool set" on the line and
-    // "not reported" three lines below it — a card contradicting itself about the one
-    // axis its whole tool-governance section exists to state.
+    // The line and the Tools row once read the wire separately, so one state was "default tool
+    // set" on the line and "not reported" below it.
     const { container } = render(
       <AgentBindingCard agent={{ ...RUNNING, resolvedConfiguration: resolvedConfiguration() }} />,
     );
@@ -217,9 +203,7 @@ describe("agent card — one wire state, one reading of it", () => {
   });
 
   it("negative control: an agent with no resolved configuration does say so, on the line", () => {
-    // Without this the case above would pass over a card that had stopped saying
-    // "not reported" anywhere at all — which loses the fourth position outright and
-    // is the same conflation the projection was built to refuse.
+    // Guards against a card that never says "not reported".
     const { container } = render(<AgentBindingCard agent={agentEntry()} />);
 
     expect(grantLineTextOf(container)).toContain("Not reported");
@@ -227,9 +211,8 @@ describe("agent card — one wire state, one reading of it", () => {
   });
 
   it("says the empty-allowlist sentence once on the card, not once per renderer", () => {
-    // Both renderers spelled the whole sentence, so the `no-tools` arm printed
-    // "No tools." twice on one card. The line states the position; the disclosure adds
-    // only what the line left out.
+    // The line states the position; the disclosure adds only what the line left out, so the
+    // `no-tools` arm must not print "No tools." twice.
     const { container } = render(
       <AgentBindingCard
         agent={{ ...RUNNING, resolvedConfiguration: resolvedConfiguration({ toolAllowlist: [] }) }}

@@ -1,52 +1,21 @@
-// The saved-definition registry, projected into what a page can render — and nothing
-// else. No React, no bridge call, no state: a function from the stored rows to what the
-// rows say.
-
-// WHAT AN AXIS IS, AND WHY EACH ONE CARRIES ITS SOURCE
-//
-// A row is the record's identity (the id and its label) plus one axis per member the
-// list reads, and every axis says whether what it shows came off the wire or is the
-// console's own reading. That is a provenance signature made a value rather than a
-// rendering decision taken twice: the page maps `wire` to the mono figure and `console`
-// to the derived one, and no component has to know which axis is which.
-//
-// The distinction is load-bearing exactly where the stored grammar is. Every
-// nullable axis materializes the inherit state as `null`, so "this row pins nothing
-// here" is a fact the record states and the console REPHRASES — "The provider's
-// default" is our sentence, not the daemon's, and rendering it in mono would claim
-// the registry sent those words.
-//
-// WHAT IS DELIBERATELY NOT PROJECTED
-//
-// Of the bindings, only the default: it is the one used when a caller names no
-// driver, so it is what the row says the definition runs on.
-//
-// The instruction and goal PROSE. Both are free text an operator wrote and either
-// may be pages long; what a list row can honestly say is whether there is any, and
-// the text itself belongs to the editor. A clamped passage in a list is a third
-// rendering of a body that already has two homes.
-//
-// The timestamps are carried VERBATIM rather than through `formatClockTime`, which
-// fixes to hours, minutes, and seconds because a transcript's day divider carries the
-// date. A saved record has no day divider and its two instants span whatever period
-// the person has been tuning agents over, so the formatted reading would be
-// wrong rather than merely terse — and a wire string is rendered exactly as it arrived.
+// The saved-definition registry projected into rows a page can render: no React, no bridge
+// call, no state. Each axis carries its source so the page shows a wire string verbatim in
+// mono and the console's own sentence (an inherit `null` rephrased) in the derived style.
+// Timestamps stay verbatim: `formatClockTime` drops the date, which a saved record needs.
 
 import type { AgentDefinition } from "@ai-sidekicks/contracts";
 import { formatCount } from "@renderer/lib/wire-figures.js";
 
 /**
- * Where an axis's text came from. Declared once; the page derives its rendering.
- *
- * `wire` is the registry's own string, shown verbatim in mono. `console` is a
- * sentence or a count this module composed, which mono would misattribute.
+ * Where an axis's text came from. `wire` is the registry's own string, shown verbatim in
+ * mono; `console` is a sentence or count this module composed, which mono would misattribute.
  */
 export const AGENT_AXIS_SOURCES = ["wire", "console"] as const;
 
-/** One axis's provenance. Derived, so the vocabulary has one home. */
+/** One axis's provenance. */
 export type AgentAxisSource = (typeof AGENT_AXIS_SOURCES)[number];
 
-/** One line of a row: what is being named, what it says, and who said it. */
+/** One line of a row: what is named, what it says, and who said it. */
 export interface AgentDefinitionAxis {
   /** Stable across renders and independent of the label's wording. */
   readonly key: string;
@@ -68,11 +37,9 @@ export interface AgentDefinitionRow {
 }
 
 /**
- * What the page knows about the registry right now.
- *
- * Three arms, and the first two are absences kept apart: a read in flight and a read
- * that came back with nothing in it. Collapsing them would let the page tell a person
- * they have saved no definitions on the strength of a question that was never answered.
+ * What the page knows about the registry right now. The first two arms are kept apart on
+ * purpose: a read in flight is not a read that came back empty, and merging them would tell
+ * a person they saved nothing before the question was answered.
  */
 export type AgentDefinitionReading =
   | { readonly kind: "not-loaded" }
@@ -80,11 +47,8 @@ export type AgentDefinitionReading =
   | { readonly kind: "rows"; readonly rows: readonly AgentDefinitionRow[] };
 
 /**
- * A reading that has settled.
- *
- * Narrowed rather than guarded inside {@link describeDefinitionSettlement}: a
- * caller announcing before the read lands is then a compile error rather than a
- * sentence about a settlement that has not happened.
+ * A reading that has settled. Narrowed so announcing before the read lands is a compile
+ * error rather than a sentence about a settlement that has not happened.
  */
 export type SettledAgentDefinitionReading = Exclude<
   AgentDefinitionReading,
@@ -105,19 +69,11 @@ export function readDefinitions(
 }
 
 /**
- * One row per definition, in the order a reader scans them.
+ * One row per definition, sorted by name with ties broken by id.
  *
- * SORTED BY NAME, TIES BROKEN BY ID. The name is what a person is looking for, so
- * it orders the list; the id is what makes the order TOTAL. The registry holds the
- * name unique per node under full Unicode case folding, so a tie should be
- * unreachable — but an ordering that rests on a guarantee it cannot check is an
- * ordering that stops being stable the day the guarantee slips, and an unstable
- * list reshuffles under a person's cursor between two reads of the same data.
- *
- * Comparison runs through `Intl.Collator`, so a name is ordered the way the
- * reader's language orders it rather than by code unit. The id falls back to a
- * code-unit comparison deliberately: it is an opaque daemon-minted token, and
- * collating one would be treating an identifier as text in a language.
+ * Names collate in the reader's locale; the id is the tiebreak that makes the order total
+ * (the registry keeps names unique per node, but an unstable order would reshuffle the list
+ * between reads). Ids compare by code unit: they are opaque tokens, not text.
  */
 export function projectDefinitionRows(
   definitions: readonly AgentDefinition[],
@@ -155,9 +111,7 @@ function projectDefinitionRow(definition: AgentDefinition): AgentDefinitionRow {
     definitionId: definition.definitionId,
     name: definition.name,
     description: definition.description,
-    // In the order the stored shape declares them, so a reader can check the
-    // projection against the shape by reading down. An axis for a member that is not
-    // there would be a field invented by a view.
+    // Declared-shape order, so the projection can be checked against the shape by reading down.
     axes: [
       wireAxis("driver", "Driver", binding.driverName),
       wireAxis("model", "Model", binding.modelId),
@@ -182,12 +136,8 @@ function consoleAxis(key: string, label: string, reading: string): AgentDefiniti
 }
 
 /**
- * An axis that is either pinned to a wire value or left at the inherit state.
- *
- * The two arms carry different sources on purpose: a pinned value is the
- * registry's string and the inherit state is a sentence this console wrote about
- * an absence, and rendering the second in mono would attribute our words to the
- * daemon.
+ * An axis either pinned to a wire value or left at the inherit state. The inherit sentence is
+ * ours, so it carries the `console` source; rendering it in mono would attribute it to the daemon.
  */
 function pinnedAxis(
   key: string,
@@ -199,12 +149,8 @@ function pinnedAxis(
 }
 
 /**
- * The allowlist's three states, said in three different ways.
- *
- * `null` is the driver's defaults, `[]` is no tools at all, and a populated list is
- * exactly those. The first two read alike and mean opposite things, so neither is
- * allowed to render as the other — which is the reason the stored shape keeps them
- * apart in the first place.
+ * The allowlist's three states: `null` is the driver's defaults, `[]` is no tools, a list is
+ * exactly those. The first two must never render as each other.
  */
 function describeToolAllowlist(allowlist: readonly string[] | null): string {
   if (allowlist === null) {
@@ -216,7 +162,7 @@ function describeToolAllowlist(allowlist: readonly string[] | null): string {
   return `${formatCount(allowlist.length)} ${allowlist.length === 1 ? "tool" : "tools"}`;
 }
 
-/** Whether there is prose, never the prose. See the header. */
+/** Whether there is prose, never the prose: the text belongs to the editor. */
 function describeProsePresence(prose: string | null): string {
   return prose !== null && prose.length > 0 ? "Written" : "None";
 }

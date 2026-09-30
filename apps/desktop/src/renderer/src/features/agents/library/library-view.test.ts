@@ -1,10 +1,5 @@
-// The carrier behind the agent library, driven without a DOM.
-//
-// The page's own file asserts what a person sees; this one asserts the state machine
-// underneath, because the property that matters here is about two calls in flight and
-// the rendered page can only show the second half of it. The registry stub, the
-// records, and the flush are the page's own — one home per role, and a view test
-// that hand-rolled a second registry would be asserting against calls no window makes.
+// The library view's state machine, driven without a DOM. The page test shows what a person
+// sees; the property here is about two calls in flight. It shares the page's registry stub.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,16 +36,13 @@ describe("the agent registry view — one delete at a time", () => {
     expect(refusal?.code).toBe("delete-already-running");
     expect(refusal?.origin).toBe(AGENT_LIBRARY_REFUSAL_ORIGIN);
     expect(refusal?.detail).toContain("Another sidekick is being deleted");
-    // The running delete is untouched: it still owns the lock and its row still
-    // renders as the one going.
+    // The running delete still owns the lock.
     expect(view.snapshot().deletingId).toBe(REVIEWER.definitionId);
   });
 
   it("still re-reads for the delete that was running when the second was refused", async () => {
-    // The defect this replaces. Under a generation counter the second confirm
-    // superseded the first, so the first's settlement was discarded, its re-read
-    // never ran, and the record the registry really did remove stayed on the screen
-    // for the life of the page — explained only by the OTHER row's refusal.
+    // If a second confirm superseded the first, the first's re-read would never run and the
+    // removed record would stay on screen.
     const { view, stub } = viewOverHeldDeletes();
     view.start();
     await settle();
@@ -70,8 +62,7 @@ describe("the agent registry view — one delete at a time", () => {
   });
 
   it("says a different sentence when the row already going is pressed again", async () => {
-    // Same code, different next move: their own record is already on its way out,
-    // and telling them another one is in the way would be false.
+    // Same code, different next move: telling them another row is in the way would be false.
     const { view, stub } = viewOverHeldDeletes();
     view.start();
     await settle();
@@ -87,9 +78,7 @@ describe("the agent registry view — one delete at a time", () => {
   });
 
   it("negative control: with nothing running, a second row's delete IS performed", async () => {
-    // Without this, the cases above would pass over a carrier that refused every
-    // delete after the first for the life of the page — which would leave a person
-    // unable to delete anything else without reloading the window.
+    // Guards against a view that refuses every delete after the first.
     const stub = new RegistryStub({
       lists: [[REVIEWER, AUDITOR], [AUDITOR], []],
     });
@@ -109,8 +98,7 @@ describe("the agent registry view — one delete at a time", () => {
 
 describe("the agent registry view — a delete the daemon rejects", () => {
   it("surfaces the rejection and gives the lock back so the next delete is performed", async () => {
-    // A held lock would leave every delete control disabled for the life of the page,
-    // and a caught rejection would show the person nothing went wrong.
+    // A held lock would disable every delete control; a caught rejection would hide the failure.
     const stub = new RegistryStub({ lists: [[REVIEWER, AUDITOR]] });
     const attempts: string[] = [];
     const view = new AgentLibraryView(stub.clock, {

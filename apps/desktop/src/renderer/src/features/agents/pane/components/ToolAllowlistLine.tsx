@@ -1,26 +1,8 @@
-// The per-agent tool allowlist, on the card, as one line.
-//
-// The per-agent tool control belongs here and the node-wide one in settings. Neither
-// half is a control on this card: the first is set when an agent starts from a
-// definition and the second on the browser settings page.
-//
-// WHY THIS IS ITS OWN LINE AND NOT A ROW IN THE ECHO. The echo answers "what did the
-// configuration resolve to", and every axis in it is a provider axis a switch can
-// later move. This answers "what may this agent reach", which is a governance question with
-// a ceiling above it, and it is the only one of the two a reader needs without
-// opening a disclosure. The tool NAMES stay in the echo and are not repeated here —
-// `tool-grant.ts` records why this line carries a count instead.
-//
-// THE CEILING IS NOT HERE, AND THAT IS THE POINT. The node-wide switch that withholds
-// the browser page tool set is a fact about the NODE, true of every agent in the
-// roster and of agents nobody has started yet. Stated under each card it was three
-// lines repeated per agent, and under the unanswered position it asserted that an
-// allowlist had been applied to a reply that named none. `ToolAllowlistCeiling.tsx` states
-// it once, beside the roster, with the mechanism as its subject.
-//
-// WHAT THIS LINE SAYS IS `tool-grant.ts`'s, not this file's. The echo's Tools row
-// states the same position a few pixels below, and one wire state that reads two ways
-// on one card is the defect that module's table exists to close.
+// The per-agent tool allowlist on the card, as one line. Neither half of the control is here: the
+// per-agent list is set when an agent starts from a definition and the node-wide switch is on
+// the browser settings page. It is a line, not an echo row, because it answers "what may this
+// agent reach", which a reader needs without opening a disclosure. It carries a count, never the
+// names, and the words come from `tool-allowlist.ts` so the echo's Tools row cannot disagree.
 
 import { Nothing } from "@renderer/components/Nothing/Nothing.js";
 import {
@@ -43,12 +25,8 @@ export function ToolAllowlistLine(props: {
 }
 
 /**
- * What each position says, in the console's own words.
- *
- * `not-reported` carries a badge AND its sentence as visible text. The badge alone
- * said "Not reported" and hid the explanation in a `title` attribute, which reaches
- * no keyboard and no screen-reader user — so the one position whose whole meaning is
- * "no question was put" was the one position that never explained itself.
+ * What each position says, in the console's own words. `not-reported` shows a badge and its
+ * sentence as visible text, since a `title` alone reaches no keyboard or screen-reader user.
  */
 function positionSentence(position: AgentToolAllowlistPosition): React.JSX.Element {
   if (position.kind === "named") {

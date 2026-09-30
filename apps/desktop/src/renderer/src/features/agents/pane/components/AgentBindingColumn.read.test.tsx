@@ -1,10 +1,5 @@
-// The one arm of this column a person could not get out of.
-//
-// A refused agent roster read is terminal by construction: the effect that opened the
-// read runs once per (models) pair and nothing re-runs it, so the column said one line
-// of error text for the life of the window and a refusal that would clear in thirty
-// seconds was indistinguishable from one that never would. The column's other three
-// subjects have their own files; this one is about the read.
+// The column's recovery from a refused roster read, which is terminal: nothing re-runs the
+// effect that opened it, so the column needs its own retry. Other subjects have their own files.
 
 import { act, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -72,9 +67,7 @@ describe("agent binding column — a refused roster read", () => {
   });
 
   it("negative control: a roster that answered offers no way back", async () => {
-    // Without this, the case above would pass over a column that rendered the control
-    // on every arm — a retry beside a roster that is already current, which reads as a
-    // refresh this column does not have.
+    // Guards against a retry control rendered on every arm, beside a roster that is current.
     const scriptedDaemon = new RefusingRosterDaemon(0);
     const fixture = bridgeCalling(scriptedDaemon);
     const { container } = render(

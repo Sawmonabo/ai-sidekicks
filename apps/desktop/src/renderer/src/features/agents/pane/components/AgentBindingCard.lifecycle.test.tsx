@@ -1,12 +1,5 @@
-// The card's identity-and-lifecycle half, which is a different subject from its
-// binding half and now has its own file.
-//
-// `AgentBindingCard.test.tsx` is about keeping the EFFECTIVE line apart from the PENDING
-// one — five suites, all of them about the provider axes. This is about what the
-// roster reply says regarding the agent's own row rather than its binding, which is
-// exactly the distinction the card draws by putting the instant in the head instead
-// of on the effective line. Splitting it out also keeps that file inside the module
-// budget rather than pushing it past it with an unrelated sixth suite.
+// The card's identity and lifecycle half: what the roster reply says about the agent's own row
+// rather than its binding, which `AgentBindingCard.test.tsx` covers.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -21,9 +14,8 @@ const RUNNING = agentEntry();
 
 describe("agent card — the row's own lifecycle", () => {
   it("says when the roster row was created", () => {
-    // Carried on `AgentListEntry` and rendered nowhere, so a roster of several
-    // agents gave no way to tell the one attached this morning from the one that has
-    // been in the session since it opened.
+    // `createdAt` is on `AgentListEntry`; without it a roster gives no way to tell a new agent
+    // from one that has been in the session since it opened.
     const { container } = render(
       <AgentBindingCard agent={{ ...RUNNING, createdAt: ATTACHED_AT }} />,
     );
@@ -37,9 +29,8 @@ describe("agent card — the row's own lifecycle", () => {
   });
 
   it("keeps the instant out of the effective binding line", () => {
-    // The effective line's members are all provider axes. An instant sitting among
-    // them would read as one more axis of the binding rather than as a fact about
-    // the row, which is why it shares the head with the name instead.
+    // The effective line's members are all provider axes; an instant among them would read as
+    // one more axis of the binding.
     const { container } = render(
       <AgentBindingCard agent={{ ...RUNNING, createdAt: ATTACHED_AT }} />,
     );

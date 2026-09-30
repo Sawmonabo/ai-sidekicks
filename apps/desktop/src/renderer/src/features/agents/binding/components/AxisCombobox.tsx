@@ -1,35 +1,17 @@
-// One provider axis, as a combobox over a provider-published vocabulary.
-//
-// COMPOSITION. `@base-ui/react` 1.7.0 is the console's one adopted widget library,
-// combobox and autocomplete included, so the roles, the listbox keyboard model,
-// `aria-activedescendant`, the focus management, and the portal are the library's.
-// Nothing about any of that is re-implemented here — that is the whole reason the
-// library was adopted, and the palette composes the same primitives for the same
-// reason.
-//
-// WHY BOTH THE ATTACH FORM AND THE SWITCH CONTROL REACH THIS FILE. They render the
-// same three axes over the same two vocabularies, and a second copy would be two
-// components that had to agree about the one rule below and eventually would not.
-//
-// THE RULE: A VOCABULARY THAT DOES NOT EXIST GETS NO CONTROL AT ALL.
-// A control that cannot be used is ABSENT rather than disabled, and the composer
-// restates that for exactly these capability-gated axes: a disabled control asserts
-// that a capability exists and is momentarily unavailable — which would be false. An
-// absent or empty vocabulary makes the axis unsettable and the mutation refuses
-// fail-closed, so drawing a control over one would be offering a choice the daemon
-// will not take.
+// One provider axis as a combobox over a provider-published vocabulary, built on
+// `@base-ui/react`'s combobox primitives. Shared by the attach form and the switch control.
+// A vocabulary that does not exist gets no control: a disabled one would assert the
+// capability exists but is momentarily unavailable, and the daemon refuses an unsettable axis.
 
 import { Combobox } from "@base-ui/react/combobox";
 
 import { OverlayComboboxPopup } from "../../components/OverlayComboboxPopup/OverlayComboboxPopup.js";
 
+/** What the axis combobox shows and hands back. */
 export interface AxisComboboxProps {
   /** The field label a person reads, e.g. "Effort". */
   readonly label: string;
-  /**
-   * The provider-published choices. `undefined` or empty renders NOTHING — see the
-   * header; the caller decides whether to say why.
-   */
+  /** The provider-published choices. `undefined` or empty renders nothing (see the header). */
   readonly options: readonly string[] | undefined;
   readonly value: string | undefined;
   readonly onValueChange: (value: string | undefined) => void;
@@ -41,6 +23,7 @@ export interface AxisComboboxProps {
   readonly isOverridden?: boolean | undefined;
 }
 
+/** A provider axis as a combobox; renders nothing when the vocabulary is absent or empty. */
 export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null {
   const { options } = props;
   if (options === undefined || options.length === 0) {
@@ -62,9 +45,8 @@ export function AxisCombobox(props: AxisComboboxProps): React.JSX.Element | null
         <Combobox.Trigger className="meridian-axis-field__trigger">
           <Combobox.Value />
         </Combobox.Trigger>
-        {/* The anchored part of the tree is the primitive's, which is what puts this
-            list in the window's airspace. A field that mounted its own portal would be
-            a popup a native browser-pane view paints over and takes the input of. */}
+        {/* The primitive's anchored part keeps this list in the window's airspace; a field
+            mounting its own portal would be painted over by a native browser-pane view. */}
         <OverlayComboboxPopup
           container={props.overlayContainer}
           positionerClassName="meridian-axis-field__positioner"

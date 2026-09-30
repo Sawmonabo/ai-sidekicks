@@ -1,10 +1,5 @@
-// The Agents pane's binding column: the roster and one card per agent.
-//
-// WHY THIS IS A SEPARATE COMPONENT FROM THE PANE. Every read here needs the models,
-// and the models need a bridge and a session store — both of which an auxiliary
-// address may legitimately fail to name. Hooks cannot be called conditionally, so the
-// column that NEEDS them is its own component, mounted only where they exist, and the
-// pane renders the absence when they do not.
+// The Agents pane's binding column: the roster and one card per agent. It is its own component
+// because its hooks need models, which need a bridge and session store an address may not name.
 
 import { useCallback, useMemo } from "react";
 
@@ -27,13 +22,10 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
   const { models, agentId } = props;
   const rosterState = usePushDrivenRead(models.roster);
 
-  // The roster read's OWN re-open. A refused subscribe is terminal — nothing re-runs
-  // the effect that opened it — so without this the column says one line of error text
-  // for as long as it stays open, and a cap that clears in thirty seconds is
-  // indistinguishable from a refusal that never will.
+  // The roster's own re-open: a refused subscribe is terminal, so without this the column shows
+  // one line of error for as long as it stays open.
   const reopenRoster = useCallback(() => {
-    // ONE CALL, because the seam owns the stream-then-read order: `refresh` takes
-    // the subscription first where it is not held and requests the read either way.
+    // One call: `refresh` takes the subscription first where not held, then requests the read.
     models.roster.refresh("user-request");
   }, [models]);
 
@@ -59,10 +51,8 @@ export function AgentBindingColumn(props: AgentBindingColumnProps): React.JSX.El
         />
       ) : null}
 
-      {/* ONCE FOR THE ROSTER, NEVER PER CARD. The ceiling an allowlist cannot raise
-          is a fact about this NODE, so it is stated where the roster is rather than
-          repeated under every agent — and it is stated only where there is at least
-          one agent to state it about, since an empty roster has no grant it qualifies. */}
+      {/* Once for the roster: the ceiling is a node-wide fact, and an empty roster has no grant
+          it qualifies. */}
       {shownAgents.length === 0 ? null : <ToolAllowlistCeiling />}
 
       {shownAgents.map((agent) => (

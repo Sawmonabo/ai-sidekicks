@@ -1,10 +1,5 @@
-// What the column says about the roster as a whole rather than about one agent.
-//
-// The node-wide tool-grant ceiling is the case here, and it is a case about a COUNT:
-// the sentence was written under every card, so a session with four agents said the
-// same three lines four times, and under a card whose reply carried no configuration
-// it asserted that an allowlist had been applied at spawn. It is one statement about
-// this node now, said once above the cards.
+// What the column says about the roster as a whole. The node-wide tool-grant ceiling is stated
+// once above the cards, not under each agent.
 
 import { render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
@@ -22,7 +17,7 @@ import { AgentBindingColumn } from "./AgentBindingColumn.js";
 
 afterEach(disposeOpenedModels);
 
-/** The one phrase the ceiling ends on, so a second copy of it is countable. */
+/** The phrase the ceiling ends on, so a second copy of it is countable. */
 const CEILING_PHRASE = "an allowlist cannot turn them back on";
 
 function ceilingCountIn(container: HTMLElement): number {
@@ -48,8 +43,7 @@ describe("agent binding column — the node-wide tool-grant ceiling", () => {
   });
 
   it("still says it where the roster holds exactly one agent", async () => {
-    // Without this the case above would be satisfied by a column that had stopped
-    // saying the ceiling at all in the shape a reader most often meets.
+    // Guards against a column that stopped saying the ceiling for a single agent.
     const container = await columnOver([AGENT_ON_CLAUDE]);
 
     expect(container.querySelectorAll(".meridian-agent-card")).toHaveLength(1);
@@ -57,18 +51,14 @@ describe("agent binding column — the node-wide tool-grant ceiling", () => {
   });
 
   it("states the mechanism rather than this agent's own grant", async () => {
-    // The subject is what makes it true under every position. "Applied at spawn",
-    // with an agent as its implied subject, was a claim about a particular attach —
-    // and under a reply that carried no configuration it was a claim about nothing.
+    // The mechanism is the subject, which keeps it true under every position.
     const container = await columnOver([AGENT_ON_CLAUDE]);
 
     expect(container.textContent ?? "").toContain("A tool allowlist is applied at spawn");
   });
 
   it("negative control: an empty roster states no ceiling", async () => {
-    // There is no grant to qualify, so the sentence would be a governance note
-    // hanging over an absence — and the empty state's own line is what a person came
-    // for.
+    // With no grant to qualify, a governance note would hang over an absence.
     const container = await columnOver([]);
 
     expect(container.querySelectorAll(".meridian-agent-card")).toHaveLength(0);

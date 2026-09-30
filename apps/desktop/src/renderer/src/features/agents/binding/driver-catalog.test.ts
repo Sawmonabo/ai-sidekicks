@@ -1,9 +1,6 @@
-// The catalog selectors, and the two distinctions they exist to preserve.
-//
-// An ABSENT effort vocabulary means the model publishes no effort levels; an EMPTY
-// one would assert an axis with nothing on it, a claim no provider makes. And an
-// unanswered capability flag is not `false` — the console asserts no capability it
-// was not told about, in either direction.
+// The catalog selectors. An absent effort vocabulary means the model publishes none (an empty
+// one would assert an axis with nothing on it), and an unanswered capability flag is not
+// `false`.
 
 import { describe, expect, it } from "vitest";
 
@@ -41,14 +38,13 @@ describe("driver catalog — effort is per model", () => {
   });
 
   it("answers undefined for a model that publishes no effort levels", () => {
-    // Not `[]`: the form shows NO effort control at all in this case, and an empty
-    // array would be a control with an empty choice set.
+    // Not `[]`: the form shows no effort control here, and an empty array would be a control
+    // with an empty choice set.
     expect(effortLevelsFor(DRIVER_CATALOG_FIXTURE, "claude", "claude-haiku")).toBeUndefined();
   });
 
   it("negative control: a sibling model in the same reply still has one", () => {
-    // Without this, the case above would pass over a selector that always answered
-    // undefined — which is exactly the provider-wide-list mistake it guards.
+    // Otherwise the case above would pass for a selector that always answered undefined.
     expect(effortLevelsFor(DRIVER_CATALOG_FIXTURE, "claude", "claude-sonnet")).toBeDefined();
   });
 });

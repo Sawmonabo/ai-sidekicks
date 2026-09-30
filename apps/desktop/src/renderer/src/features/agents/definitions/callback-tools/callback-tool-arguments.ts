@@ -1,23 +1,7 @@
-// The argument names a registered callback tool's input schema declares.
-//
-// SEPARATE FROM THE ROW THAT RENDERS THEM because the row was doing this by eye and
-// got it wrong: `SessionCallbackTool.inputSchema` is typed `Record<string, unknown>`,
-// so `Object.keys` compiles, reads plausibly, and answers with the schema's own
-// KEYWORDS — `type`, `properties`, `required`, `additionalProperties`. The panel that
-// said "Input schema" therefore named none of the tool's arguments. Narrowing is the
-// job, so it is a module with the narrowing's own cases beside it rather than an
-// expression inside a list render.
-//
-// IT IS A READER AND NOT A VALIDATOR. Nothing here decides whether the daemon's
-// schema is well-formed or reports that it is not: the registry is daemon-curated and
-// daemon-trusted, and a console that refused to draw a row over a keyword it did not
-// recognize would be asserting a schema dialect the wire never promised. A member
-// that is not the shape JSON Schema names simply contributes no argument.
-//
-// REQUIRED FIRST, AND ORDER IS THE SCHEMA'S OWN OTHERWISE. What a person opening this
-// panel wants first is what they must supply; within each group the declaration order
-// is the daemon's and is left alone, because re-sorting names would be the console
-// composing a schema of its own.
+// The argument names a registered callback tool's input schema declares. A reader, not a
+// validator: a member that is not the shape JSON Schema names contributes no argument.
+// Required arguments come first, then the schema's own declaration order. `Object.keys` on
+// the schema would list its keywords, which is why this is a module of its own.
 
 /** One argument a tool takes, as the disclosure panel names it. */
 export interface CallbackToolArgument {
@@ -33,11 +17,8 @@ const PROPERTIES_KEYWORD = "properties";
 const REQUIRED_KEYWORD = "required";
 
 /**
- * Read the arguments one registered tool's input schema declares.
- *
- * An argument the schema REQUIRES but does not describe still gets a row: JSON Schema
- * admits that shape, and dropping it would report the tool as taking fewer arguments
- * than it does.
+ * The arguments one tool's input schema declares. A required argument the schema does not
+ * describe still gets a row, so the tool is not reported as taking fewer than it does.
  */
 export function callbackToolArguments(
   inputSchema: Record<string, unknown>,
@@ -58,8 +39,7 @@ function declaredPropertyNames(inputSchema: Record<string, unknown>): readonly s
     return [];
   }
   const properties = inputSchema[PROPERTIES_KEYWORD];
-  // An array is an object too, and its keys are indices — which would list `0`, `1`
-  // as argument names — so it is excluded here rather than surviving a `typeof`.
+  // An array is an object too and its keys are indices, so it is excluded explicitly.
   if (typeof properties !== "object" || properties === null || Array.isArray(properties)) {
     return [];
   }

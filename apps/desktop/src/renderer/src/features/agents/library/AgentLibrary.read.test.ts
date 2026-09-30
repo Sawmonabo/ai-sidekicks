@@ -1,15 +1,6 @@
-// What the agent library reads, shows, and says out loud.
-//
-// Two of the ways this page could go wrong quietly are here. It could order rows by
-// whatever order the registry answered in, which makes a list a person is scanning
-// unstable between visits. And it could say nothing at all when the read lands, which
-// is invisible to everyone who can see the screen and total for everyone who cannot.
-//
-// The third — deleting on one press, the one act here with no undo — is
-// `AgentLibrary.acts.test.ts`, with the mounted editor and the pending-delete state.
-//
-// The registry, the announcer and the presses live in the support module beside this
-// one; the registry calls are plain functions the stub there answers.
+// What the agent library reads, shows and says out loud: rows ordered by name rather than by
+// the registry's answer order, and a polite announcement when the read lands. Deleting is
+// `AgentLibrary.acts.test.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -28,7 +19,7 @@ import {
 
 describe("the agent library — the read", () => {
   it("says a read is in flight before the registry answers", () => {
-    // Asserted before `settle`, which is the only moment this arm exists.
+    // Asserted before `settle`, the only moment this arm exists.
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[]] }));
     const saved = savedRegionOf(container);
     expect(saved.querySelector(".meridian-nothing--not-loaded")).not.toBeNull();
@@ -64,8 +55,8 @@ describe("the agent library — a row", () => {
   });
 
   it("renders a wire value in mono and the console's own reading as derived", async () => {
-    // The provenance signature. "The provider's default" is this console's
-    // sentence about an absence, and mono would attribute it to the daemon.
+    // The provenance signature: "The provider's default" is this console's sentence about an
+    // absence, and mono would attribute it to the daemon.
     const { container } = renderAgentLibrary(
       new RegistryStub({ lists: [[definition({ defaultBinding: { providerAccountId: null } })]] }),
     );
@@ -79,8 +70,7 @@ describe("the agent library — a row", () => {
   });
 
   it("negative control: a pinned account is NOT rendered as the console's reading", async () => {
-    // Without this, the case above would pass over a projection that reported every
-    // axis as derived, which would put the daemon's own strings outside mono.
+    // Otherwise the case above would pass for a projection that reported every axis as derived.
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
     const derived = [...savedRegionOf(container).querySelectorAll(".meridian-figure--derived")].map(
@@ -117,14 +107,13 @@ describe("the agent library — the settlement it announces", () => {
     );
     await settle();
     expect(politeText(container)).toBe("Read 2 saved sidekicks.");
-    // The interrupting lane is for room-wide refusals; a settled read is not one.
+    // The assertive region is for room-wide refusals; a settled read is not one.
     expect(liveRegionText(container, "assertive")).toBe("");
   });
 
   it("speaks again when a re-read settles on something different", async () => {
-    // The repetition rule is keyed on the SENTENCE, not on whether this page has
-    // ever spoken. A delete that re-read to a shorter list is a different fact, and
-    // the person who asked for it is the one entitled to hear that it landed.
+    // The repetition rule is keyed on the sentence, not on whether the page has spoken: a
+    // delete that re-read to a shorter list is a different fact.
     const stub = new RegistryStub({
       lists: [
         [definition(), definition({ definitionId: "definition-2", name: "Auditor" })],
@@ -143,10 +132,9 @@ describe("the agent library — the settlement it announces", () => {
   });
 
   it("negative control: a settlement that says the same thing again is silent", async () => {
-    // Without this, the case above would pass over a page that announced on every
-    // settled reading — a screen reader hearing the list re-counted for a re-read that
-    // changed nothing. The registry here still holds both records after the delete, so
-    // the re-read answers with the list this page already spoke.
+    // Otherwise the case above would pass for a page that announced every settled reading. The
+    // registry here still holds both records after the delete, so the re-read repeats what was
+    // already spoken.
     const stub = new RegistryStub({
       lists: [[definition(), definition({ definitionId: "definition-2", name: "Auditor" })]],
     });
@@ -183,8 +171,7 @@ describe("the agent library — the facts it teaches without asking anything", (
   });
 
   it("negative control: the page is not simply blank", async () => {
-    // Without this, the case above would pass over a page that rendered nothing,
-    // which is a different failure wearing the same result.
+    // Otherwise the case above would pass for a blank page.
     const { container } = renderAgentLibrary(new RegistryStub({ lists: [[definition()]] }));
     await settle();
     expect((container.textContent ?? "").length).toBeGreaterThan(200);

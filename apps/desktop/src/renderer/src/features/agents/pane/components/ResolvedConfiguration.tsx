@@ -1,12 +1,6 @@
-// The configuration an agent runs under, drawn as the card reads it.
-//
-// Split out of `AgentBindingCard.tsx` because it answers a different question: the card
-// draws an agent's LIVE state — its binding, its run, the axes it is switching — and
-// this draws the resolved configuration the roster reported, fixed for the agent's
-// life. The two change for different reasons.
-//
-// IT IS NEVER RE-READ FROM THE DEFINITION REGISTRY. The registry row may already have
-// moved, and the agent keeps what it was given.
+// The configuration an agent runs under, as the roster reported it. Split from
+// `AgentBindingCard.tsx` because it is fixed for the agent's life, where the card's binding is
+// live. It is never re-read from the definition registry, whose row may already have moved.
 
 import { WireFigure } from "@renderer/components/WireFigure/WireFigure.js";
 import type { AgentResolvedConfiguration } from "@ai-sidekicks/contracts";
@@ -17,13 +11,7 @@ import { ProseRow } from "./ProseRow.js";
 /** The resolved configuration, fixed for the agent's life and never re-read. */
 export function ResolvedConfiguration(props: {
   readonly resolved: AgentResolvedConfiguration;
-  /**
-   * The grant the card already read, handed down rather than re-read here.
-   *
-   * The Tools row and the governance line above the disclosure state one wire value,
-   * and a second read of `resolved.toolAllowlist` in this subtree is how they came to
-   * state it two different ways.
-   */
+  /** The grant the card already read, so the Tools row and the line above state it one way. */
   readonly toolGrant: AgentToolAllowlistPosition;
 }): React.JSX.Element {
   const { resolved } = props;

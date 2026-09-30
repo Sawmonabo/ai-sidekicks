@@ -1,8 +1,5 @@
-// The one rule this control exists to hold: no vocabulary, no control.
-//
-// A disabled combobox would assert that the axis exists and is momentarily
-// unavailable, which is a claim the daemon never made — so an absent or empty
-// vocabulary renders nothing at all, and the caller says why beside it.
+// No vocabulary, no control: a disabled combobox would claim the axis is momentarily
+// unavailable, which the daemon never said, so an absent or empty vocabulary renders nothing.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
@@ -31,8 +28,7 @@ describe("axis combobox — an unavailable axis is absent, never disabled", () =
   });
 
   it("negative control: a published vocabulary does render the field", () => {
-    // Without this, the two cases above would pass over a component that rendered
-    // nothing under every input.
+    // Otherwise the cases above would pass for a component that always renders nothing.
     const { container } = render(
       <AxisCombobox
         label="Effort"
@@ -46,8 +42,7 @@ describe("axis combobox — an unavailable axis is absent, never disabled", () =
   });
 
   it("draws no disabled control in any of the three cases", () => {
-    // The distinction the header turns on: absence is the degradation, and a
-    // disabled control anywhere here would be the wrong one.
+    // Absence is the degradation; a disabled control anywhere here would be wrong.
     for (const options of [undefined, [], ["low"]] as (readonly string[] | undefined)[]) {
       const { container } = render(
         <AxisCombobox

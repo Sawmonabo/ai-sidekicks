@@ -1,35 +1,7 @@
-// Which daemon-hosted tools an agent can reach, and the difference between "none
-// registered" and "withheld".
-//
-// THREE STATES THAT MUST NOT COLLAPSE, the console's collapse prohibition read for this
-// registry, since a renderer that collapses two of these into one is wrong. Keeping the
-// three apart is the whole job:
-//
-//   • **Capability undeclared** — the section is ABSENT, not empty. A driver that
-//     does not declare `callback_tools` hosts no registry at all, and an empty list
-//     under a heading would report a registry that exists and holds nothing.
-//   • **Withheld** — the daemon has no registered approval-create seam, so spawn
-//     withholds the registry, the tools are not exposed, and the host's runtime
-//     backstop answers any stray invocation `denied` with a driver diagnostic. The
-//     section says "withheld". It never says "none registered", and it never
-//     presents an empty agent capability.
-//   • **Exposed** — entries, described as daemon-constructed and daemon-trusted
-//     rather than provider output, each carrying the governance fact.
-//
-// TWO READINGS, NOT ONE. The capability flag and the registry are separate facts
-// with separate readers: the flag says whether this driver hosts a registry at all
-// and comes from `driver.listCapabilities`, while the entries and their exposure
-// come from `callback-tool-registry.ts`. Either can be unknown without the other
-// being, so each has its own arm here and neither stands in for the other — a
-// component that read one flag and inferred both would report an unread driver as a
-// registry that holds nothing.
-//
-// TWO THINGS THIS COMPONENT WILL NOT DO. It never synthesizes the registry from
-// observed tool rows, which would report only tools that have already been called.
-// And it never presents a callback tool as ungoverned or as a provider tool: every
-// daemon-registered callback tool is Cedar-governed identically to a provider tool,
-// its invocations land as tool-activity rows, and none of them bypasses the
-// approval pipeline.
+// Which daemon-hosted tools an agent can reach. Three states never merge: capability undeclared
+// (section absent), registry withheld (no approval-create seam, so a stray invocation is
+// denied), and exposed. The flag and the registry come from separate reads, so each has its
+// own arm, and the registry is never synthesized from observed tool rows.
 
 import "./CallbackTools.css";
 
@@ -42,31 +14,21 @@ import { CallbackToolRows } from "./CallbackToolRows.js";
 import { type CallbackToolRegistryReading } from "../callback-tool-registry.js";
 
 /**
- * The flag this section is gated on, pinned to the registered union.
- *
- * Annotated rather than written as a bare literal so a rename in
- * `packages/contracts` is a compile error here instead of a section that silently
- * gates on a flag no driver declares.
+ * The flag this section gates on. The annotation makes a contracts-side rename a compile
+ * error rather than a section gated on a flag no driver declares.
  */
 export const CALLBACK_TOOLS_CAPABILITY: DriverCapabilityFlag = "callback_tools";
 
 /** What the daemon-hosted tools section renders from: the capability and the registry. */
 export interface CallbackToolsProps {
   /**
-   * What this build knows about the capability, in the console's one vocabulary.
-   *
-   * `unknown` and not `undefined`: the reading is the bridge's closed set, so this
-   * section and the two run controls that gate on a driver flag cannot answer
-   * the same question in three different spellings.
+   * What this build knows about the capability. `unknown` rather than `undefined`: the reading
+   * is the bridge's closed set, so every gate on a driver flag answers in the same spelling.
    */
   readonly capability: DriverCapabilityReading;
   /**
-   * What the registry read settled on, or `undefined` while it is still in flight.
-   *
-   * A discriminated reading rather than a `tools` list beside an `isWithheld` flag:
-   * withheld and empty are two of the three facts the header refuses to collapse,
-   * and a pair of independent props admits the two combinations that mean neither.
-   * This component is a rendering of its arms and derives none of them.
+   * What the registry read settled on, or `undefined` while in flight. A discriminated reading
+   * rather than a list beside a flag, which would admit combinations that mean neither.
    */
   readonly registry: CallbackToolRegistryReading | undefined;
 }
@@ -74,7 +36,7 @@ export interface CallbackToolsProps {
 /** The daemon-hosted tools section: absent, withheld, or exposed, never merged. */
 export function CallbackTools(props: CallbackToolsProps): React.JSX.Element | null {
   if (props.capability === "undeclared") {
-    // Absent, not empty. Returning `null` is the rule rendered.
+    // Absent rather than empty.
     return null;
   }
   if (props.capability === "unknown") {

@@ -1,10 +1,6 @@
-// The chain rule, driven directly rather than through either form that keeps it.
-//
-// The case both forms got wrong is the MIXED chain: one axis chosen by a person and
-// the rest inherited from a definition row or from the agent's own binding. So every
-// case here composes a chain whose halves came from different places, which is what a
-// resolved reading is, and asserts against the vocabulary the catalog actually
-// publishes rather than against the value that was typed.
+// The chain rule driven directly. The case both forms got wrong is the mixed chain, one axis
+// chosen by a person and the rest inherited, so each case composes a chain from different
+// places and asserts against the vocabulary the catalog publishes, not the value typed.
 
 import { describe, expect, it } from "vitest";
 
@@ -33,9 +29,8 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
   });
 
   it("refuses an effort the named model does not publish", () => {
-    // The defect in one line: `high` is `claude`'s reading of `shared-model` and
-    // `codex` publishes only `low` for the same id, so an inherited effort is wrong
-    // the moment the driver above it moves — with nothing about the effort edited.
+    // `high` is `claude`'s reading of `shared-model` while `codex` publishes only `low`, so an
+    // inherited effort goes wrong when the driver above it moves.
     expect(
       findAxesOutsideCatalog(
         { driverName: "codex", modelId: "shared-model", effort: "high" },
@@ -58,16 +53,15 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
   });
 
   it("negative control: an unsettled axis is not a refused one", () => {
-    // Without this the cases above would pass over a rule that refused everything it
-    // could not find, which would make an empty form report three refusals.
+    // Otherwise the cases above would pass for a rule that refuses whatever it cannot find, so
+    // an empty form would report three refusals.
     expect(findAxesOutsideCatalog({}, CATALOG)).toEqual([]);
     expect(findAxesOutsideCatalog({ driverName: "claude" }, CATALOG)).toEqual([]);
   });
 
   it("refuses a settled axis whose parent is unsettled rather than excusing it", () => {
-    // An effort chosen against a model that has since been dropped is exactly the
-    // entry the rule exists to catch: there is no vocabulary that could carry it, and
-    // treating the second absence as permission is how it survived to the daemon.
+    // An effort chosen against a since-dropped model has no vocabulary that could carry it; a
+    // second absence must not excuse it.
     expect(findAxesOutsideCatalog({ driverName: "claude", effort: "low" }, CATALOG)).toEqual([
       "effort",
     ]);
@@ -83,8 +77,8 @@ describe("the dependent-axis chain — what a published vocabulary vouches for",
   });
 
   it("negative control: an unread catalog still refuses nothing that was never settled", () => {
-    // Without this, the case above would pass over a rule that reported every axis
-    // whenever the catalog was missing, which would name fields nobody had filled.
+    // Otherwise the case above would pass for a rule that reports every axis whenever the
+    // catalog is missing.
     expect(findAxesOutsideCatalog({}, undefined)).toEqual([]);
   });
 });

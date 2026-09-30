@@ -1,6 +1,5 @@
-// The combobox popup's airspace, driven through a real mount: opening it puts exactly
-// its own popup in the window's airspace, with no backdrop, and closing it takes that
-// back out.
+// The popup's airspace through a real mount: open registers only its own rectangle, with no
+// backdrop, and close releases it.
 
 import { render } from "@testing-library/react";
 import { Combobox } from "@base-ui/react/combobox";
