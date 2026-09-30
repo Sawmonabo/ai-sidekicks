@@ -35,42 +35,16 @@ import type {
   ListModelsResult,
   ListModesResult,
   ListProviderCommandsRequest,
+  MethodDescriptor,
   ProviderCommandListResult,
 } from "@ai-sidekicks/contracts";
 import {
-  ApplyInterventionParamsSchema,
-  CompactContextRequestSchema,
-  DriverAckResultSchema,
-  DriverCompactionResultSchema,
-  DriverEventSchema,
-  DriverInterventionResultSchema,
-  DriverReadParamsSchema,
-  DriverSubscribeEventsParamsSchema,
-  InterruptRunParamsSchema,
-  ListCapabilitiesResultSchema,
-  ListModelsRequestSchema,
-  ListModelsResultSchema,
-  ListModesResultSchema,
-  ListProviderCommandsRequestSchema,
-  ProviderCommandListResultSchema,
+  DRIVER_EVENT_METHOD_DESCRIPTORS,
+  DRIVER_METHOD_DESCRIPTORS,
 } from "@ai-sidekicks/contracts";
 
 import { JsonRpcSchemaError, type JsonRpcClient } from "./transport/json-rpc-client.js";
 import type { LocalSubscriptionConsumer } from "./transport/types.js";
-
-/**
- * The eight client-facing `driver.*` JSON-RPC method names. The daemon registers the same strings
- * from the method descriptors in `@ai-sidekicks/contracts`; the round-trip tests dispatch these
- * exact strings against a registry the daemon bound.
- */
-const DRIVER_METHOD_LIST_CAPABILITIES = "driver.listCapabilities";
-const DRIVER_METHOD_LIST_MODELS = "driver.listModels";
-const DRIVER_METHOD_LIST_MODES = "driver.listModes";
-const DRIVER_METHOD_INTERRUPT_RUN = "driver.interruptRun";
-const DRIVER_METHOD_APPLY_INTERVENTION = "driver.applyIntervention";
-const DRIVER_METHOD_SUBSCRIBE_EVENTS = "driver.subscribeEvents";
-const DRIVER_METHOD_COMPACT_CONTEXT = "driver.compactContext";
-const DRIVER_METHOD_LIST_PROVIDER_COMMANDS = "driver.listProviderCommands";
 
 /** The request the two no-arg reads send, frozen so no caller can alter what a later call sends. */
 const EMPTY_READ_PARAMS: DriverReadParams = Object.freeze({});
@@ -156,56 +130,40 @@ export interface DriverClient {
 export function createDaemonProviderClient(client: JsonRpcClient): DriverClient {
   return {
     listCapabilities: () =>
-      client.call(
-        DRIVER_METHOD_LIST_CAPABILITIES,
+      callDriverMethod(
+        client,
+        DRIVER_METHOD_DESCRIPTORS["driver.listCapabilities"],
         EMPTY_READ_PARAMS,
-        DriverReadParamsSchema,
-        ListCapabilitiesResultSchema,
       ),
     interruptRun: (params) =>
-      client.call(
-        DRIVER_METHOD_INTERRUPT_RUN,
-        params,
-        InterruptRunParamsSchema,
-        DriverAckResultSchema,
-      ),
+      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.interruptRun"], params),
     applyIntervention: (params) =>
-      client.call(
-        DRIVER_METHOD_APPLY_INTERVENTION,
-        params,
-        ApplyInterventionParamsSchema,
-        DriverInterventionResultSchema,
-      ),
+      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.applyIntervention"], params),
     listModels: (params) =>
-      client.call(
-        DRIVER_METHOD_LIST_MODELS,
-        params,
-        ListModelsRequestSchema,
-        ListModelsResultSchema,
-      ),
+      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModels"], params),
     listModes: () =>
-      client.call(
-        DRIVER_METHOD_LIST_MODES,
-        EMPTY_READ_PARAMS,
-        DriverReadParamsSchema,
-        ListModesResultSchema,
-      ),
+      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listModes"], EMPTY_READ_PARAMS),
     compactContext: (params) =>
-      client.call(
-        DRIVER_METHOD_COMPACT_CONTEXT,
-        params,
-        CompactContextRequestSchema,
-        DriverCompactionResultSchema,
-      ),
+      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.compactContext"], params),
     listProviderCommands: (params) =>
-      client.call(
-        DRIVER_METHOD_LIST_PROVIDER_COMMANDS,
-        params,
-        ListProviderCommandsRequestSchema,
-        ProviderCommandListResultSchema,
-      ),
+      callDriverMethod(client, DRIVER_METHOD_DESCRIPTORS["driver.listProviderCommands"], params),
     subscribeEvents: (params) => daemonSubscribeEvents(client, params),
   };
+}
+
+// Calls one `driver.*` method by its contract descriptor, so the name and both schemas come from
+// the one table the daemon registers from.
+function callDriverMethod<RequestType, ResponseType>(
+  client: JsonRpcClient,
+  descriptor: MethodDescriptor<string, RequestType, ResponseType>,
+  params: RequestType,
+): Promise<ResponseType> {
+  return client.call(
+    descriptor.method,
+    params,
+    descriptor.requestSchema,
+    descriptor.responseSchema,
+  );
 }
 
 /**
@@ -224,18 +182,15 @@ function daemonSubscribeEvents(
   client: JsonRpcClient,
   params: DriverSubscribeEventsParams,
 ): LocalSubscriptionConsumer<DriverEvent> {
-  const parsed = DriverSubscribeEventsParamsSchema.safeParse(params);
+  const descriptor = DRIVER_EVENT_METHOD_DESCRIPTORS["driver.subscribeEvents"];
+  const parsed = descriptor.requestSchema.safeParse(params);
   if (!parsed.success) {
     throw new JsonRpcSchemaError(
       "params",
-      `Request params for ${DRIVER_METHOD_SUBSCRIBE_EVENTS} failed schema validation`,
+      `Request params for ${descriptor.method} failed schema validation`,
       parsed.error.issues,
     );
   }
 
-  return client.subscribe<DriverEvent>(
-    DRIVER_METHOD_SUBSCRIBE_EVENTS,
-    parsed.data,
-    DriverEventSchema,
-  );
+  return client.subscribe<DriverEvent>(descriptor.method, parsed.data, descriptor.emissionSchema);
 }
