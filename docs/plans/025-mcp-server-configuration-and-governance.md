@@ -85,7 +85,7 @@ A trust revocation — initiated by the person or drift-driven — rewrites ever
 
 ### CP-025-1 — Event registration rides Plan-005 T1.10
 
-The `mcp.*` event literals and the `mcp_governance` category are Plan-005-owned registry surface, registered by [Plan-005 §Event Taxonomy Coverage](./005-session-event-taxonomy-and-audit-log.md#event-taxonomy-coverage)'s T1.10 registration task. Plan-025 authors the payload schemas (emitter-authors-payload precedent, the Plan-010 `ApprovalFlowEventPayloadSchema` shape) and MUST NOT add the literals to `packages/contracts/src/event.ts` itself.
+The `mcp.*` event literals and the `mcp_governance` category are Plan-005-owned registry surface, registered by [Plan-005 §Event Taxonomy Coverage](./005-session-event-taxonomy-and-audit-log.md#event-taxonomy-coverage)'s T1.10 registration task. Plan-025 authors the payload schemas (emitter-authors-payload precedent, the Plan-010 `ApprovalFlowEventPayloadSchema` shape) and MUST NOT add the literals to `packages/contracts/src/event-registry.ts` itself.
 
 **Resolution.** Plan-005 T1.10 — the registration task this obligation rides — merges before Plan-025 Phase 1; the phase-scoped precondition below enforces it.
 
@@ -218,7 +218,7 @@ Plan-025 implementation lands one PR per phase. Each PR carries a `**Preconditio
 
 - **T28.1.4 — The `mcp_governance` event payload schemas.**
   - Files: `packages/contracts/src/mcp-governance.ts` (EXTEND)
-  - Author the payloads over a shared `McpServerBindingAuditRef` (path-free: `scopeRefDigest`, never raw `scopeRef`). `mcp.server_config_changed` carries the removal conditionality — `previousConfigHash` required and `configHash` structurally absent for `removed`. `mcp.server_status_changed` carries `origin: 'session_feed' | 'node_probe'` with `bindingId` required for `session_feed` and absent for `node_probe`. Author payloads only — the type literals and the `mcp_governance` category are Plan-005-owned (CP-025-1); this task MUST NOT edit `packages/contracts/src/event.ts`.
+  - Author the payloads over a shared `McpServerBindingAuditRef` (path-free: `scopeRefDigest`, never raw `scopeRef`). `mcp.server_config_changed` carries the removal conditionality — `previousConfigHash` required and `configHash` structurally absent for `removed`. `mcp.server_status_changed` carries `origin: 'session_feed' | 'node_probe'` with `bindingId` required for `session_feed` and absent for `node_probe`. Author payloads only — the type literals and the `mcp_governance` category are Plan-005-owned (CP-025-1); this task MUST NOT edit `packages/contracts/src/event-registry.ts` (the type literals) or `packages/contracts/src/event-envelope.ts` (the category).
   - **Spec coverage:** Spec-025 §Status Observation and Events
   - **Verifies invariant:** I-025-1
   - **Consumes:** the `mcp.*` type literals + the `mcp_governance` category ← Plan-005 T1.10 (shipped); `EventEnvelope` ← Plan-005 Phase 1 (shipped).

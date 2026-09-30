@@ -509,7 +509,7 @@ router.register<SessionSubscribeRequest, SessionSubscribeResponse>(
 );
 ```
 
-Subscribe handler returns `LocalSubscriptionProducer<EventEnvelope>` per the streaming primitive from T-006p-2-5; the EventEnvelope shape comes from Plan-001 Phase 2 (`packages/contracts/src/event.ts`). [Spec-006 §Acceptance Criteria](../specs/006-local-ipc-and-daemon-control.md#acceptance-criteria) carries the per-method ACs (AC-N1..N3). **Spec coverage:** Spec-006 §Interfaces And Contracts (session.\* handler namespace — CP-006-1 contract owed to Plan-001 Phase 5). **Verifies invariant:** I-006-7, I-006-8.
+Subscribe handler returns `LocalSubscriptionProducer<EventEnvelope>` per the streaming primitive from T-006p-2-5; the EventEnvelope shape comes from Plan-001 Phase 2 (`packages/contracts/src/event-envelope.ts`). [Spec-006 §Acceptance Criteria](../specs/006-local-ipc-and-daemon-control.md#acceptance-criteria) carries the per-method ACs (AC-N1..N3). **Spec coverage:** Spec-006 §Interfaces And Contracts (session.\* handler namespace — CP-006-1 contract owed to Plan-001 Phase 5). **Verifies invariant:** I-006-7, I-006-8.
 
 - **T-006p-3-2** (Files: `packages/client-sdk/src/transport/jsonRpcClient.ts` (CREATE) + `packages/client-sdk/src/transport/types.ts` (CREATE)) — Implement the typed JSON-RPC transport-layer + Zod-wrapping primitive following the [MCP TypeScript SDK pattern](https://github.com/modelcontextprotocol/typescript-sdk). The transport file owns:
 
