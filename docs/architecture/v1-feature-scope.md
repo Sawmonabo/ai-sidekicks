@@ -75,7 +75,7 @@ Cross-cutting V1 specs that multiple V1 features depend on. These are required b
 
 ## Spec Coverage Assessment
 
-- **V1 features:** all 21 have a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-23, SA-25, SA-26, SA-27 and SA-28 items in its own body; SA-24, SA-29, SA-30 and SA-31 live in Plan-015 as implementation detail.
+- **V1 features:** all 21 have a governing spec. Spec-015 (workflow authoring and execution) carries its SA-1…SA-23, SA-25, SA-27 and SA-28 items in its own body; SA-24, SA-29, SA-30 and SA-31 live in Plan-015 as implementation detail.
 
 ## Backlog Coverage Assessment
 

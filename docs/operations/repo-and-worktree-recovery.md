@@ -29,7 +29,7 @@ Recover RepoMount records, workspace bindings, and worktrees when execution root
 2. Refresh repo and workspace projections before changing filesystem state.
 3. If a worktree is failed or incompatible, retire it — `Remove` on it under its project on Settings › Runtime, or in the worktree switcher — and create a new clean worktree instead of mutating the broken one in place.
 4. Rebind the workspace to the healthy execution root and refresh branch context.
-5. Regenerate diff artifacts only after the workspace and worktree state is healthy again.
+5. Reopen Review only after the workspace and worktree state is healthy again, so its diff is read from the healthy tree.
 
 ## Validation
 

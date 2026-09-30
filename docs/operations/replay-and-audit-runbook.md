@@ -8,7 +8,7 @@ Recover replay and audit projections when session history appears incomplete, st
 
 - Timeline is missing known events
 - Audit history stops before the current session state
-- The daemon is in its degraded read-only mode after a projection rebuild failed, or `sidekicks daemon status` prints a line for a session its integrity check halted
+- The daemon is in its degraded read-only mode after a projection rebuild failed
 - Scope and blast radius: one session projection, or the machine's local event store
 
 ## Detection
@@ -34,7 +34,7 @@ Recover replay and audit projections when session history appears incomplete, st
 
 ## Validation
 
-- `sidekicks daemon status` reads the service as running with its store open, and prints no halted-session line for the affected session
+- `sidekicks daemon status` reads the service as running with its store open
 - Timeline and audit projections match canonical event ranges for the affected session
 - No duplicate side effects appear after replay rebuild
 - `ReplayReadAfterCursor` from the prior failure point returns the expected missing range without divergence
@@ -46,7 +46,7 @@ Recover replay and audit projections when session history appears incomplete, st
 ## CLI Commands
 
 ```bash
-sidekicks daemon status          # the store, and one line per halted session
+sidekicks daemon status          # the service and its store
 sidekicks daemon restart         # startup rebuilds every projection
 sidekicks export-data <folder>   # every session's events, decrypted, one per line
 ```

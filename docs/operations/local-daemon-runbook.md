@@ -13,7 +13,7 @@ Recover the user-local execution daemon, the Local Runtime Daemon, when local ex
 
 ## Detection
 
-- Run `sidekicks daemon status` on the machine, or open Settings › Runtime. It says whether the service is up, since when, its version, its processor and memory use, the approval rules in force, and one line per session the integrity check halted. A service that is not answering says so, and on Windows the status names the reason the service cannot start.
+- Run `sidekicks daemon status` on the machine, or open Settings › Runtime. It says whether the service is up, since when, its version, its processor and memory use, and the approval rules in force. A service that is not answering says so, and on Windows the status names the reason the service cannot start.
 - Check the most recent start or restart outcome on Settings › Runtime or from the CLI client.
 - Inspect Local Runtime Daemon logs for one of these categories before acting:
   - IPC bind failure

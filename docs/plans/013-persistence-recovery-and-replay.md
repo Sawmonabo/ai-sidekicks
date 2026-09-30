@@ -198,7 +198,7 @@ preconditions:
     - `runtime-binding-store.ts` (Plan-004-owned module).
     - `RuntimeBindingRead` { runId } → { runId, driverName, contractVersion, resumeHandle?, runtimeMetadata } ← `docs/architecture/contracts/api-payload-contracts.md §Plan-013 — Persistence Recovery And Replay`.
     - `DriverResumeResult` discriminated union incl. `recoveryCondition: RecoveryCondition` ← `docs/architecture/contracts/api-payload-contracts.md §Plan-004 — Provider Driver Contract (Internal Interface)`; [Spec-004 §Fallback Behavior](../specs/004-provider-driver-contract-and-capabilities.md#fallback-behavior), per [Spec-013 §Idempotency Classes and Recovery Behavior](../specs/013-persistence-recovery-and-replay.md#idempotency-classes-and-recovery-behavior).
-    - `RunFailureCategory` ∈ {provider failure, transport failure, local persistence failure, projection failure} ← `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
+    - `RunFailureCategory` ∈ {provider failure, transport failure, local persistence failure, projection failure, refused} ← `docs/architecture/contracts/api-payload-contracts.md §Shared Enums`.
     - `tool.replayed` / `tool.skipped_during_recovery` event types (category `tool_activity`), registered in Spec-005 ← [Spec-013 §Recovery Events](../specs/013-persistence-recovery-and-replay.md#recovery-events).
     - `command_receipts` in-flight predicate (`started_at IS NOT NULL AND completed_at IS NULL`) ← [Spec-013 §Idempotency Classes and Recovery Behavior](../specs/013-persistence-recovery-and-replay.md#idempotency-classes-and-recovery-behavior).
 

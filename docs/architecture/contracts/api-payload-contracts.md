@@ -15,11 +15,11 @@ Every control-plane endpoint defined in this document is implicitly scoped to th
 - **Principal identity.** The Cedar `principal` is the `sub` claim of the caller's PASETO v4.public access token (a `UserId`). This is the only identity Cedar evaluates. See [RFC 9068 §2.2 — `sub` claim](https://datatracker.ietf.org/doc/html/rfc9068#section-2.2) for the `sub`-as-principal pattern and [ADR-010 Tokens, Passkeys And The Remote Channel](../../decisions/010-tokens-passkeys-and-the-remote-channel.md) for the V1 PASETO profile.
 - **Proof-of-possession binding.** Each access token carries a DPoP-style confirmation claim (`cnf.jkt`, per [RFC 9449 §3.1 — Public Key Confirmation via Thumbprint](https://datatracker.ietf.org/doc/html/rfc9449#section-3.1)) whose value is the SHA-256 thumbprint of the caller's bound JWK. A token is valid only when accompanied by a DPoP proof signed by the matching private key. The bound access token is presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1) — never `Bearer`, which a conforming resource server rejects for a DPoP-bound token — and the accompanying proof carries the token's `ath` hash per [RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3); see [security-architecture.md §DPoP sender-constraining](../security-architecture.md#control-plane-authentication) for the canonical statement. `cnf.jkt` is a replay-protection binding — **not** a second principal identity; Cedar never reads it as a `principal` input.
 - **Informational body fields.** Any body field that names a user — `approver`, `requester`, `initiatorId`, `actor`, and equivalents — is routing/audit metadata only. Cedar does **not** read these fields as authorization input. Servers must reject a request when the body-supplied actor disagrees with the verified `sub`, rather than trusting the body. The converse is an application of this same rule rather than an exception to it: a request that needs no user input declares **no principal member at all**, and `ReasoningSurfaceReadRequest` (§Plan-011) is the worked instance — its caller is resolved from the transport and its schema is strict, so a caller-supplied principal is refused rather than ignored. That is a resolution-side application of this bullet and deliberately not a sixth entry in the durable-recording list below, which enumerates only where an already-resolved principal is **retained** on a durable carrier — this read retains nothing.
-- **Run-control resource context.** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and user-triggered `driver.compactContext` identically — authorization evaluates against session ownership, never run authorship. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)) — the daemon binds the Cedar principal to its **node-owner user identity** — the daemon's standing control-plane-authentication posture ([daemon.md §Responsibilities](../daemon.md#responsibilities)) — resolved through the Plan-016-gated credential/identity provider seam the §Signing-Key Registration Method Registry below already rides (the CP-005-13 constructor-injected credential-provider and `resolveCurrentUserId` pattern), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — run control needs that provider registered first ([Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions)); a linked device reaches run-control only inside its encrypted channel to the machine, from a device key the account's statement chain trusts, and binds the same node-owner identity, since one account owns the machine; each event it originates carries its signature, which the machine verifies before it appends ([security-architecture.md §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)). Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
+- **Run-control resource context.** For run-control adjudication — the Cedar `Action::"intervene"` evaluation on the target `Run` resource, covering interventions, the orchestration-layer `run.pause` / `run.resume` verbs, and user-triggered `driver.compactContext` identically — authorization evaluates against session ownership, never run authorship. The principal is transport-verified on both run-control paths: on the daemon's local socket — which admits only the node owner's own clients under the layered socket-reachability + session-token model and carries no PASETO token (the Local-daemon endpoints bullet below; [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)) — the daemon binds the Cedar principal to its **node-owner user identity** — the daemon's standing control-plane-authentication posture ([daemon.md §Responsibilities](../daemon.md#responsibilities)) — resolved through the Plan-016-gated credential/identity provider seam (the CP-005-13 constructor-injected credential-provider and `resolveCurrentUserId` pattern), daemon-resolved, never read from a body actor field, and failing closed while the provider is unwired — run control needs that provider registered first ([Plan-003 §Preconditions](../../plans/003-queue-steer-pause-resume.md#preconditions)); a linked device reaches run-control only inside its encrypted channel to the machine, from a device key the account's statement chain trusts, and binds the same node-owner identity, since one account owns the machine; each event it originates carries its signature, which the machine verifies before it appends ([security-architecture.md §Relay Authentication And Encryption](../security-architecture.md#relay-authentication-and-encryption)). Contract text: [Spec-003 §Interfaces And Contracts](../../specs/003-queue-steer-pause-resume.md#interfaces-and-contracts); rule owner: [Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior).
 - **Local-daemon endpoints.** Endpoints reachable only over the daemon's local IPC socket (JSON-RPC 2.0 per [ADR-009 JSON-RPC IPC Wire Format](../../decisions/009-json-rpc-ipc-wire-format.md)) are authorized by socket reachability plus a required 256-bit session token presented by the desktop app or the CLI client (see [security-architecture.md §Local Daemon Authentication](../security-architecture.md#local-daemon-authentication)); they do not require a PASETO access token. The renderer is not a direct daemon client — renderer-originated requests are brokered by the main process through the preload bridge. **Where a local handler reads that identity:** socket reachability authorizes the _connection_, and a handler adjudicating per-caller policy needs the _principal_ — so the gateway resolves the node-owner user identity through the same Plan-016-gated credential/identity provider seam the run-control bullet above names and stamps it on the dispatch context every handler already receives ([Plan-006](../../plans/006-local-ipc-and-daemon-control.md) I-006-21, its Phase 2B). It is daemon-resolved and never read from a body actor field, so the informational-body-fields rule applies to local handlers unchanged; while the identity provider is unwired the member is absent and a handler that requires one **refuses**, never substituting a default — a placeholder identity is indistinguishable from a real caller to a policy check, which would turn a fail-closed read into a fail-open one. First consumer: [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md)'s reasoning-surface read (CP-006-17), whose `policy_redacted` decision is exactly such an adjudication.
 - **Durable principal recording on admitting writes.** The bullets above govern how a principal is _resolved_ for one request. This bullet governs how it is _retained_. **Every admitting write records the daemon-resolved transport-authenticated principal on its own durable row.** An admitting write is one whose acceptance authorizes later work that the original request no longer accompanies — a subsequent turn, a drained queue item, a remembered grant — so the identity must survive the request that carried it. The recorded value is resolved by exactly the mechanisms above (node-owner binding on the local socket, the verified PASETO `sub` on authenticated surfaces), never read from a body actor field; a body-supplied actor disagreeing with the verified identity refuses as the existing `auth.principal_mismatch` error rather than being trusted or silently normalized. Recording it on the row it admits — rather than deriving it later from event history — is what makes the identity **replay-stable**: an accumulating history offers no single answer to "under whose authority was _this_ unit of work admitted", and the informational-body-fields rule above already forbids the only wire-carried candidate. Where the row can also be written by a non-user path, a daemon-resolved origin discriminator on the same row carries which admission path produced it, with the principal required exactly on the user arm and forbidden on the system arm — enforced by the storage engine wherever the carrier is a table row, and by the recorded value's own closed shape where it is not, so the user arm cannot persist unidentified and the system arm cannot smuggle an identity in. Instances — **(1)**-**(3)** each one column per owning surface under cross-plan-dependencies.md one-writer discipline, **(4)** a payload member for the reason the shape-deviation paragraph below gives, and **(5)** a member inside a durable JSON slot rather than a column of its own: **(1)** `approval_resolutions.approver_id` ([Spec-010 §Required Behavior](../../specs/010-approvals-permissions-and-trust-boundaries.md#required-behavior), Plan-010 D-010-12), the approver whose decision a remembered grant later re-applies; **(2)** `interventions.admitting_principal_id` beside its `origin` discriminator — the intervention caller whose principal a steer-opened turn executes under ([Spec-003 §Required Behavior](../../specs/003-queue-steer-pause-resume.md#required-behavior), Plan-003 D-003-4; consumed by Plan-010's turn-scoped resolution, CP-003-14 ⇄ CP-010-12); **(3)** the chat-borne workflow start's authoring user, adjudicated as `Action::"workflow::start"` ([Spec-015 §Start authorization (SA-39)](../../specs/015-workflow-authoring-and-execution.md#start-authorization-sa-39)) — [Plan-015](../../plans/015-workflow-authoring-and-execution.md) instantiates its own column on its own surface when that surface lands, since the rule is a class and not a shared column; **(4)** the turn-scoped effective principal on `usage.cost_update`'s payload — the party whose causation a unit of metered spend is attributed to ([Spec-005 §Usage Telemetry](../../specs/005-session-event-taxonomy-and-audit-log.md#usage-telemetry-usage_telemetry); produced by [Plan-003](../../plans/003-queue-steer-pause-resume.md) under CP-003-16 and consumed by [Spec-014 §Session Cost Receipt](../../specs/014-multi-agent-orchestration.md#session-cost-receipt)); **(5)** `agents.pending_switch.admittingPrincipalId` — the user who admitted a same-agent provider switch whose application can outlive both the request and the daemon that took it ([Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch)); it carries no `origin` discriminator because `agent.configUpdate` is its only producer, which that block states as a claim under this rule rather than leaving silent.
 
-  Instance (4) differs from the first three in **two** deliberate ways, and neither is an exception to the rule. First, it is not itself an admitting write: it is the **carrier by which an admitting write's principal reaches a downstream fold**, resolved daemon-side from instance (2)'s rows. The retention discipline binds it for the same reason it binds the others — a fold that had to find the principal by ordering a metered row against turn-boundary events would be "deriving it later from event history", which is precisely what this bullet forbids, and that derivation would additionally rest on an event type the corpus types as forward and non-state. Second, its durable home is a **canonical event payload rather than a projection column**, because the unit it must attach to is a metered turn and no per-turn table exists — minting one to hold a single derived identity would add a second record of boundaries the log already orders, which [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rejects on its own terms. The `session_events` row is durable, replay-stable, and integrity-chained, and a typed event's fields live in its payload, so the class's requirement — recorded on the row, never re-derived — is met exactly. The origin discriminator the paragraph above requires is carried by the value's own closed two-arm shape (`EffectivePrincipal`, §Plan-014): the user reference is required on the user arm and absent on the system arm, enforced by the union rather than by a table CHECK, since a wire payload has no table to constrain.
+  Instance (4) differs from the first three in **two** deliberate ways, and neither is an exception to the rule. First, it is not itself an admitting write: it is the **carrier by which an admitting write's principal reaches a downstream fold**, resolved daemon-side from instance (2)'s rows. The retention discipline binds it for the same reason it binds the others — a fold that had to find the principal by ordering a metered row against turn-boundary events would be "deriving it later from event history", which is precisely what this bullet forbids, and that derivation would additionally rest on an event type the corpus types as forward and non-state. Second, its durable home is a **canonical event payload rather than a projection column**, because the unit it must attach to is a metered turn and no per-turn table exists — minting one to hold a single derived identity would add a second record of boundaries the log already orders, which [ADR-029](../../decisions/029-canonical-transcript-is-authoritative.md) rejects on its own terms. The `session_events` row is durable and replay-stable, and a typed event's fields live in its payload, so the class's requirement — recorded on the row, never re-derived — is met exactly. The origin discriminator the paragraph above requires is carried by the value's own closed two-arm shape (`EffectivePrincipal`, §Plan-014): the user reference is required on the user arm and absent on the system arm, enforced by the union rather than by a table CHECK, since a wire payload has no table to constrain.
 
 **See also:** [Security Architecture §Permission Matrix](../security-architecture.md#permission-matrix), [ADR-010 Tokens, Passkeys And The Remote Channel](../../decisions/010-tokens-passkeys-and-the-remote-channel.md), [Cedar terminology — principal, action, resource, context](https://docs.cedarpolicy.com/overview/terminology.html).
 
@@ -140,7 +140,8 @@ type RunFailureCategory =
   | "provider failure"
   | "transport failure"
   | "local persistence failure"
-  | "projection failure";
+  | "projection failure"
+  | "refused"; // the provider's safety check refused a turn and no other model could take it (Spec-005 §Run Lifecycle)
 
 type QueueItemState = "queued" | "admitted" | "superseded" | "canceled" | "not_delivered";
 type InterventionType = "steer" | "interrupt" | "cancel"; // Spec-003 §Required Behavior; the same arms as ApplyInterventionParams (Plan-004 T1.8). Undo is `session.restore`, never an intervention
@@ -245,8 +246,8 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `account.delete` | `sidekicks delete-account`: every refresh-token family revoked, then the hosted account's rows deleted in one transaction | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-016](../../plans/016-identity-and-user-state.md) Phase 5 |
-| `account.export` | The hosted account's own records, for `Export all data`'s `hosted-account.json` | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-016](../../plans/016-identity-and-user-state.md) Phase 5 |
+| `account.delete` | `sidekicks delete-account`: every refresh-token family revoked, then the hosted account's rows deleted in one transaction | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-016](../../plans/016-identity-and-user-state.md) Phase 5 T5.10 |
+| `account.export` | The hosted account's own records, for `Export all data`'s `hosted-account.json` | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-016](../../plans/016-identity-and-user-state.md) Phase 5 T5.10 |
 
 ### `agent.*`
 
@@ -255,12 +256,12 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `agent.configUpdate`, settling with `agent.provider_binding_changed` or `agent.provider_binding_change_failed` | Switch a running agent's binding: model, effort or speed settles in place; a pick under the other provider switches provider at the run's end | [Spec-014 §Same-Agent Provider Switch](../../specs/014-multi-agent-orchestration.md#same-agent-provider-switch) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.1, T3.20, T2.16, T1.13 |
 | `agent.definitionCreate` | Save a new definition (`New sidekick`, `Duplicate`) with `bindings`, `icon`, `accentHue`, `turnCap` | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionDelete` | Delete a definition; discard an orphaned record | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
-| `agent.definitionExport`, writing to the path the save dialog picked | Export one or many definitions to one file: accounts cleared, schema marker, a note in the file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 |
-| `agent.definitionImport`, reading the file the open dialog picked | Import a file: creates only, never overwrites, suffixes a colliding name, refuses an unknown schema marker whole, applies nothing partially | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 |
+| `agent.definitionExport`, writing to the path the save dialog picked | Export one or many definitions to one file: accounts cleared, schema marker, a note in the file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
+| `agent.definitionImport`, reading the file the open dialog picked | Import a file: creates only, never overwrites, suffixes a colliding name, refuses an unknown schema marker whole, applies nothing partially | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
 | `agent.definitionList`, with reply members `workflowUsage` and **`lastUsedAt`** | Read the agent registry: every definition from every origin, the plugin origin read-only, `plugin · <name>`, from the daemon's plugin homes, each with `origin`, `scope`, `sourcePath`, `orphaned`, `disabledInProvider` (the provider has it switched off) and `loadError` (it failed to load, with the reason), each its own field and not one exclusive state, plus the agent's own `hooks` and `memoryScope` on every origin, `workflowUsage` and `lastUsedAt` (both derived per reply). The agent card draws the orphaned state: set apart, the extras the record still holds, the last known path, `Reattach` and `Discard`. One read serves the library, the composer's Sidekicks group, the workflow node's chooser and the pane's name/icon/color labels. | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.definitionUpdate` | Save edits: rename, replace `bindings` whole, every core field; also reattach an orphaned record to a file | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T2.2 |
 | `agent.list` (a live list: the list, then each change, like `session.list`) | The session's agents, the lead and every child: binding, state, resolved-from definition, which provider runs it | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.1, T3.2 |
-| `agent.definitionSubscribe` | Follow the agent registry: the whole `agent.definitionList` reply again each time a definition changes (a save, delete or import from any window; a provider's file added, changed or removed on disk; a plugin landing or leaving), so every open window's library, composer group and workflow chooser stay current | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 |
+| `agent.definitionSubscribe` | Follow the agent registry: the whole `agent.definitionList` reply again each time a definition changes (a save, delete or import from any window; a provider's file added, changed or removed on disk; a plugin landing or leaving), so every open window's library, composer group and workflow chooser stay current | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 2 T2.2 |
 
 ### `approval.*`
 
@@ -276,59 +277,59 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `artifact.list` | The session's artifacts | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) |
-| error `artifact.picture_refused {reason: pixel_limit \| damaged}` | A picture from outside the daemon is refused before it is decoded, or when it is damaged | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) |
+| `artifact.list` | The session's artifacts | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.20 |
+| error `artifact.picture_refused {reason: pixel_limit \| damaged}` | A picture from outside the daemon is refused before it is decoded, or when it is damaged | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.16 |
 | `artifact.read` | One artifact's content | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.1, T14.5 |
 
 ### `attention.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `attention.deliveryRead {}` → `{webAddress: {saved, host, lastOutcome}, emailDigest: {passwordSaved, lastOutcome}}`, `lastOutcome` being `{at, result: delivered \| refused \| unreachable \| timedOut \| signInRefused \| notEncrypted, httpStatus?, undelivered}` or `null`; `attention.deliveryTest {channel: webAddress \| emailDigest}` → `{outcome}`; refusals `attention.delivery_store_unavailable` (`cause: locked \| unavailable`) and `attention.delivery_not_configured` (`missing: address \| password`) | What each delivery channel last did, and a test send for each | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) |
-| `attention.mailPasswordSave {password}` → `{}` and `attention.mailPasswordRemove {}` → `{}`; the digest's settings (`sendTo`, `mailServer?`, `port?`, `userName?`, `after: hour \| fourHours \| day`, default `day`) are keys in the machine settings file, which the service writes; `digested_at` on each attention entry | The email digest: `Email me what I have not seen`, at most one email per `After` period through the person's own mail account, its password sealed by the service | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) |
-| `attention.projectionRead`, served live: the whole projection, then every change; `attention.bannerSettle {entryId, state}`, main-only, a no-op once the entry is past `pending` | The bell's count and its list, one stable id per moment; main mirrors the count to the app icon and posts and withdraws the OS notification from the same projection, and while no main is connected the daemon's attention service starts the app windowless to post it | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T2.6, T1.2 |
-| one entry on `attention.projectionRead` with trigger `workflow_notify`, its `momentId` from the run, node and execution index and its `stepId`, posted by main | The Notify node posts a notification | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `attention.seenUpdate` {sessionId} | Mark a session seen (its done dot filled or hollow) | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) |
-| `attention.webAddressSave {address}` → `{host, signingSecret?}`, `attention.webAddressSecretRotate {}` → `{signingSecret}`, `attention.webAddressRemove {}` → `{}`; refusal `attention.web_address_invalid` (`reason: unparseable \| notHttps \| notPrivateHttp`); the channel's switch and kinds are keys in the machine settings file, which the service writes; `web_address_state` (`pending \| delivered \| undelivered`) and an attempt count on each attention entry | The web address: `Send to a web address`, one signed message per moment of the kinds picked for it, the address and its signing secret sealed by the service | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) |
+| `attention.deliveryRead {}` → `{webAddress: {saved, host, lastOutcome}, emailDigest: {passwordSaved, lastOutcome}}`, `lastOutcome` being `{at, result: delivered \| refused \| unreachable \| timedOut \| signInRefused \| notEncrypted, httpStatus?, undelivered}` or `null`; `attention.deliveryTest {channel: webAddress \| emailDigest}` → `{outcome}`; refusals `attention.delivery_store_unavailable` (`cause: locked \| unavailable`) and `attention.delivery_not_configured` (`missing: address \| password`) | What each delivery channel last did, and a test send for each | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.3 |
+| `attention.mailPasswordSave {password}` → `{}` and `attention.mailPasswordRemove {}` → `{}`; the digest's settings (`sendTo`, `mailServer?`, `port?`, `userName?`, `after: hour \| fourHours \| day`, default `day`) are keys in the machine settings file, which the service writes; `digested_at` on each attention entry | The email digest: `Email me what I have not seen`, at most one email per `After` period through the person's own mail account, its password sealed by the service | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.5 |
+| `attention.projectionRead`, served live: the whole projection, then every change; `attention.bannerSettle {entryId, state}`, main-only, a no-op once the entry is past `pending` | The bell's count and its list, one stable id per moment; main mirrors the count to the app icon and posts and withdraws the OS notification from the same projection, and while no main is connected the daemon's attention service starts the app windowless to post it | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T2.4, T1.2 |
+| one entry on `attention.projectionRead` with trigger `workflow_notify`, its `momentId` from the run, node and execution index and its `stepId`, posted by main | The Notify node posts a notification | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.24 |
+| `attention.seenUpdate` {sessionId} | Mark a session seen (its done dot filled or hollow) | [Spec-017](../../specs/017-notifications-and-attention-model.md) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T2.4 |
+| `attention.webAddressSave {address}` → `{host, signingSecret?}`, `attention.webAddressSecretRotate {}` → `{signingSecret}`, `attention.webAddressRemove {}` → `{}`; refusal `attention.web_address_invalid` (`reason: unparseable \| notHttps \| notPrivateHttp`); the channel's switch and kinds are keys in the machine settings file, which the service writes; `web_address_state` (`pending \| delivered \| undelivered`) and an attempt count on each attention entry | The web address: `Send to a web address`, one signed message per moment of the kinds picked for it, the address and its signing secret sealed by the service | [Spec-017 §Cross-Device Delivery](../../specs/017-notifications-and-attention-model.md#cross-device-delivery) | [Plan-017](../../plans/017-notifications-and-attention-model.md) T1.3, T3.4 |
 
 ### `browser.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `browser.chromiumFetch` | `Fetch it again` | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.chromiumRead` | Which Chromium is in use, its version, when fetched | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.chromiumRead` answers `cannotStart {reason: missingSystemLibraries, installStep}`, `installStep` being Playwright's own `sudo npx playwright@<version> install-deps chromium` for the version the service carries | The daemon's headless Chromium cannot start for missing Linux system libraries | [ADR-036](../../decisions/036-embedded-browser-for-preview.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.siteCookiesClear {origin}` | `Clear cookies` for one site | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.siteDataClear` | Clear all site data | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.siteDataForget` | Forget one site | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.siteDataList` → rows with `hasCookies` | Sites with saved data, each saying whether it holds an unexpired cookie | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `browser.siteSignIn {origin}` | Sign a site in | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
+| `browser.chromiumFetch` | `Fetch it again` | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.chromiumRead` | Which Chromium is in use, its version, when fetched | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.chromiumRead` answers `cannotStart {reason: missingSystemLibraries, installStep}`, `installStep` being Playwright's own `sudo npx playwright@<version> install-deps chromium` for the version the service carries | The daemon's headless Chromium cannot start for missing Linux system libraries | [ADR-036](../../decisions/036-embedded-browser-for-preview.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.siteCookiesClear {origin}` | `Clear cookies` for one site | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.siteDataClear` | Clear all site data | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.siteDataForget` | Forget one site | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.siteDataList` → rows with `hasCookies` | Sites with saved data, each saying whether it holds an unexpired cookie | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `browser.siteSignIn {origin}` | Sign a site in | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
 
 ### `callbackTool.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `callbackTool.list` | Allowlist catalog, source 1: the daemon's callback tools, each with the label a person reads | [Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior), [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 3 |
+| `callbackTool.list` | Allowlist catalog, source 1: the daemon's callback tools, each with the label a person reads | [Spec-004 §Required Behavior](../../specs/004-provider-driver-contract-and-capabilities.md#required-behavior), [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 3 T3.4 |
 
 ### `cloud.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| event `cloud.task_updated` | A task's reported state changed | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `cloud.taskApply {taskId, attempt?}` | Bring a task back | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `cloud.taskDiffRead {taskId, attempt?}` | A ready Codex attempt's diff | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `cloud.taskList {sessionId}` (live) | The session's cloud tasks | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `cloud.taskRead {taskId}` | One task's last reported state and attempts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `cloud.taskStart {sessionId, prompt, environment?, attempts?}` → `{taskId}` | Send a message to the provider's cloud as a new cloud task | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| event `cloud.task_updated` | A task's reported state changed | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.37 |
+| `cloud.taskApply {taskId, attempt?}` | Bring a task back | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.37 |
+| `cloud.taskDiffRead {taskId, attempt?}` | A ready Codex attempt's diff | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.37 |
+| `cloud.taskList {sessionId}` (live) | The session's cloud tasks | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.37 |
+| `cloud.taskRead {taskId}` | One task's last reported state and attempts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.37 |
+| `cloud.taskStart {sessionId, prompt, environment?, attempts?}` → `{taskId}` | Send a message to the provider's cloud as a new cloud task | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.37 |
 
 ### `command.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `command.background` | `Move to background` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `command.list` (subscription) | The running commands | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `command.stop` | Stop a running command; `Stop all commands` sends it once per command | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `command.write {sessionId, commandId, text?, endOfInput?}` | Typed input to a command that is waiting for it, and `End input` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| `command.background` | `Move to background` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.34 |
+| `command.list` (subscription) | The running commands | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.34 |
+| `command.stop` | Stop a running command; `Stop all commands` sends it once per command | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.34 |
+| `command.write {sessionId, commandId, text?, endOfInput?}` | Typed input to a command that is waiting for it, and `End input` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.34 |
 
 ### `controlPlane.*`
 
@@ -340,27 +341,27 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `daemon.backupKeySyncUpdate {enabled}` → `{state: on \| off \| refused {reason}}`; the state rides `daemon.backupRead` | On a Mac, keep the backups' master key in the person's iCloud Keychain, so another Mac on the same Apple account restores with no passphrase | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.backupRead` → the last run, the folder, the total size, and each backup with its time, its size and the app version that wrote it | Read the backups: the last run, the folder, the total size and the list | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.backupStart`; events `backup.completed`, `backup.failed` and `backup.restored` on the daemon's sentinel session | `Back up now`, and the daily backup | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.configRead` | Read the machine-wide service settings: listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns`, a number of runs or `null` for `Never ask`, `Max steps per turn`, tool memory cap, the package cache limit, traces, replay log | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.configUpdate` | Change one of those settings | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.dataErase {}` | `Erase all data`: remove everything the app keeps on this machine, and the keys that could read it | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) |
-| `daemon.dataExport {destination}` → a job; `daemon.dataExportSubscribe` for its progress | `Export all data`: everything this machine keeps for the person, as a readable folder | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) |
+| `daemon.backupKeySyncUpdate {enabled}` → `{state: on \| off \| refused {reason}}`; the state rides `daemon.backupRead` | On a Mac, keep the backups' master key in the person's iCloud Keychain, so another Mac on the same Apple account restores with no passphrase | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-16 |
+| `daemon.backupRead` → the last run, the folder, the total size, and each backup with its time, its size and the app version that wrote it | Read the backups: the last run, the folder, the total size and the list | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-16 |
+| `daemon.backupStart`; events `backup.completed`, `backup.failed` and `backup.restored` on the daemon's sentinel session | `Back up now`, and the daily backup | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-16 |
+| `daemon.configRead` | Read the machine-wide service settings: listener port, `Stop a run after`, `Ask me after one start leads to` as `workflowChainAskAfterRuns`, a number of runs or `null` for `Never ask`, `Max steps per turn`, tool memory cap, the package cache limit, traces, replay log | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-13 |
+| `daemon.configUpdate` | Change one of those settings | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-13 |
+| `daemon.dataErase {}` | `Erase all data`: remove everything the app keeps on this machine, and the keys that could read it | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) T22.4.2 |
+| `daemon.dataExport {destination}` → a job; `daemon.dataExportSubscribe` for its progress | `Export all data`: everything this machine keeps for the person, as a readable folder | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) T22.4.1 |
 | `daemon.keyRotate {passphrase?, recoveryPassphrase?}`: the machine's passphrase on the passphrase-file tier, the recovery passphrase when one is set | `sidekicks rotate-keys`: replaces the master key in six crash-safe steps — the new key's custody entry written and verified, with its recovery envelope and iCloud Keychain item where those are on, and the key recorded `incoming` in `master_keys` before anything is wrapped under it; every content key re-wrapped and every daemon private key re-sealed in the one transaction that makes the new key active; the old key `retired` once no sealed blob's header names it and its recovery envelope deleted, its custody entry deleted when the last backup sealed with it ages out, and at once when no backup names it — and a start after a crash resumes or rolls back | [Spec-020 §Daemon Master Key](../../specs/020-data-retention-and-gdpr.md#daemon-master-key) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) T22.4.3 |
-| `daemon.machineSettingsRead` | Read the machine's settings file; `machineSettings.read()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `daemon.machineSettingsUpdate {change}` → the file as written | Write a change to the machine's settings file; the service is the file's one writer, and `machineSettings.write(change)` hands the change here | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `daemon.packageCacheClear {cache: bun \| uv \| all}` | Clear one package cache or both | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `daemon.packageCacheRead` | Read what each package cache holds: bun's, `uv`'s, and the time each was read | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `daemon.recoveryPassphraseSet {passphrase}` | Set or change the recovery passphrase the backups' master-key envelope is wrapped under | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
+| `daemon.machineSettingsRead` | Read the machine's settings file; `machineSettings.read()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-2-10, [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-14 |
+| `daemon.machineSettingsUpdate {change}` → the file as written | Write a change to the machine's settings file; the service is the file's one writer, and `machineSettings.write(change)` hands the change here | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-2-10, [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-14 |
+| `daemon.packageCacheClear {cache: bun \| uv \| all}` | Clear one package cache or both | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.14 |
+| `daemon.packageCacheRead` | Read what each package cache holds: bun's, `uv`'s, and the time each was read | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.14 |
+| `daemon.recoveryPassphraseSet {passphrase}` | Set or change the recovery passphrase the backups' master-key envelope is wrapped under | [Spec-013 §Backup Policy](../../specs/013-persistence-recovery-and-replay.md#backup-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-16 |
 | `daemon.restart` | Restart the service | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-2, T-006r-1-5, T-006r-1-7 |
-| `daemon.retentionPurge` | `Delete old data` | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.retentionRead` | Read the three retention bounds, and the counts `Delete old data` would remove | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020 §Retention Policy](../../specs/020-data-retention-and-gdpr.md#retention-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
-| `daemon.retentionUpdate` | Change a retention bound | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 |
+| `daemon.retentionPurge` | `Delete old data` | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
+| `daemon.retentionRead` | Read the three retention bounds, and the counts `Delete old data` would remove | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020 §Retention Policy](../../specs/020-data-retention-and-gdpr.md#retention-policy) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
+| `daemon.retentionUpdate` | Change a retention bound | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) Phase R1 T-006r-1-12 |
 | `daemon.status.read` | The service's facts: version, start time, processor and memory with the time each was read. `Check again` calls it again. | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-1, T-006r-1-4, T-006r-1-7 |
 | `daemon.stop` | Stop the service (the confirm counts the Codex sessions typed in a terminal) | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md) | [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-2, T-006r-1-5, T-006r-1-7 |
-| `daemon.machineSettingsSubscribe` | Each written change to the machine's settings file, the first delivery being the current file; `machineSettings.subscribe()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `daemon.unlock {passphrase}` | Unlock a service whose master key is on the passphrase file | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md); [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) |
+| `daemon.machineSettingsSubscribe` | Each written change to the machine's settings file, the first delivery being the current file; `machineSettings.subscribe()` carries it | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-2-10, [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-1-14 |
+| `daemon.unlock {passphrase}` | Unlock a service whose master key is on the passphrase file | [Spec-020](../../specs/020-data-retention-and-gdpr.md) | [Plan-020](../../plans/020-data-retention-and-gdpr.md) T22.1.3, T22.4.4; [Plan-006](../../plans/006-local-ipc-and-daemon-control.md) T-006r-3-26 |
 
 ### `device.*`
 
@@ -380,29 +381,35 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| event `git.settled`, cause `committed \| pushed \| pulled \| pull_request_opened \| review_posted` (`pulled {branch, commitId}`, `review_posted {requestNumber, verdict}`) | Durable record of a commit, a push, a pull, a pull request opened or a review posted | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-005](../../plans/005-session-event-taxonomy-and-audit-log.md) |
+| event `git.settled`, cause `committed \| pushed \| pulled \| pull_request_opened \| review_posted` (`pulled {branch, commitId}`, `review_posted {requestNumber, verdict}`) | Durable record of a commit, a push, a pull, a pull request opened or a review posted | [Spec-005](../../specs/005-session-event-taxonomy-and-audit-log.md) | [Plan-005](../../plans/005-session-event-taxonomy-and-audit-log.md) T1.13, [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.2, T11.4, T11.9 |
 
 ### `gitflow.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `gitflow.branchContextRead` | Branch and ship facts: uncommitted count, ahead/behind, pushed, open change request, pending merge/rebase/bisect with the command that ends it, default branch, the hosting service's name and its request word, pull request or merge request, whether the branch never left this machine, and everything the change-request form opens with | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.1 |
-| `gitflow.changeRequestSubscribe {sessionId, depth: summary \| full}` | Live read of the open change request: state, can-merge, review decision, threads, checks | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.changeRequestTextGenerate` | Generate change-request title and body | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.checkLogRead` | A failing check's raw log | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.commitMessageGenerate` | Generate a commit message | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.diffRead` | Review's diff: Changes, Branch (with its commits, narrowable to one commit) or Pull request scope against a base; file kind words, binary, cut-short, untracked, one patch per path | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
+| `gitflow.changeRequestSubscribe {sessionId, depth: summary \| full}` | Live read of the open change request: state, can-merge, review decision, threads, checks | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.8 |
+| `gitflow.changeRequestTextGenerate` | Generate change-request title and body | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.5 |
+| `gitflow.checkLogRead` | A failing check's raw log | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.8 |
+| `gitflow.commitMessageGenerate` | Generate a commit message | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.5 |
+| `gitflow.diffRead` | Review's diff: Changes, Branch (with its commits, narrowable to one commit) or Pull request scope against a base; file kind words, binary, cut-short, untracked, one patch per path | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.3 |
 | `gitflow.gitActionExecute` | Ship acts: commit, push, pull, open change request (base, draft, reviewers, labels); retry from the failed command | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.3 |
-| `gitflow.gitActionPreview {sessionId, act, formValues}` → `{commands}` | Show the exact commands an act will run, before the press | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.gitActionSubscribe` | Per-command progress of a running ship act | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.hostAdd {host}` | Add a host (checked; refused in place, nothing saved) | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) Phase 3 |
-| `gitflow.hostList` | List self-hosted git hosts | [Spec-009 §Git Hosting Adapter](../../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) Phase 3 |
-| `gitflow.hostRemove` | Remove a host | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) Phase 3 |
-| `gitflow.labelList` | Label candidates | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.reviewSubmit` | Submit a review with a verdict | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.reviewerList` | Reviewer candidates | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.threadReply` | Reply on a thread | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `gitflow.threadResolve` | Resolve a thread | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
+| `gitflow.gitActionPreview {sessionId, act, formValues}` → `{commands}` | Show the exact commands an act will run, before the press | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.4 |
+| `gitflow.gitActionSubscribe` | Per-command progress of a running ship act | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.4 |
+| `gitflow.hostAdd {host}` | Add a host (checked; refused in place, nothing saved) | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) Phase 4 T11.7 |
+| `gitflow.hostList` | List self-hosted git hosts | [Spec-009 §Git Hosting Adapter](../../specs/009-gitflow-pr-and-diff-attribution.md#git-hosting-adapter) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) Phase 4 T11.7 |
+| `gitflow.hostRemove` | Remove a host | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) Phase 4 T11.7 |
+| `gitflow.labelList` | Label candidates | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.8 |
+| `gitflow.reviewSubmit` | Submit a review with a verdict | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.9 |
+| `gitflow.reviewerList` | Reviewer candidates | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.8 |
+| `gitflow.threadReply` | Reply on a thread | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.8 |
+| `gitflow.threadResolve` | Resolve a thread | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.8 |
+
+### `highlight.*`
+
+| Method and members | What it serves | Spec | Plan |
+| --- | --- | --- | --- |
+| `highlight.read` | Syntax color spans the daemon computes once per file and caches; every surface paints the spans it is handed | [Spec-021 §Console Libraries](../../specs/021-desktop-app-and-renderer.md#console-libraries), [ADR-035](../../decisions/035-one-syntax-colourer-in-the-daemon.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-6-4 |
 
 ### `mcp.*`
 
@@ -413,9 +420,9 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `mcp.list` | List MCP servers | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.2.4 |
 | a `mcp.list` and `mcp.get` server entry reading `failed` carries `failedReason: commandNotRunnable` | A tool server whose command cannot run after a move | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.2.4 |
 | `mcp.oauthLogin` | Sign in to a server (returns the sign-in URL; the app opens it) | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.5.1, T28.5.2 |
-| `mcp.oauthLogout {serverId}` | Sign out of a server: delete the service's refresh token, and its signing key for a server that demands proof-of-possession tokens, and refuse every access token it handed out | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 |
+| `mcp.oauthLogout {serverId}` | Sign out of a server: delete the service's refresh token, and its signing key for a server that demands proof-of-possession tokens, and refuse every access token it handed out | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.11 |
 | `mcp.reconnect` | Reconnect a server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.5.4 |
-| `mcp.registrySearch {query, cursor?}` → `{servers: [...], nextCursor?}` | Search the public MCP Registry and fill `Add a server` from a result | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 3 |
+| `mcp.registrySearch {query, cursor?}` → `{servers: [...], nextCursor?}` | Search the public MCP Registry and fill `Add a server` from a result | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 3 T28.3.13 |
 | `mcp.removeServer` | Remove a server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.3.1, T28.3.4 |
 | `mcp.setEnabled` | Turn a server on or off | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.3.3 |
 | `mcp.setToolOverride` | Set a per-tool override | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) T28.4.8 |
@@ -436,20 +443,20 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `plan.resolve` | Answer the plan card: keep, build, or build in a fresh session | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md) | [Plan-010](../../plans/010-approvals-permissions-and-trust-boundaries.md) |
+| `plan.resolve` | Answer the plan card: keep, build, or build in a fresh session | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md) | [Plan-010](../../plans/010-approvals-permissions-and-trust-boundaries.md) T3.11 |
 
 ### `plugin.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `plugin.appList {provider: "codex", pluginId}` → `{apps: [{appId, name, accounts: [{providerAccountId, linked, connectUrl}]}]}` | A Codex plugin's apps: each app's link state on every Codex account, and `Connect <App>` per account | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.catalogList {provider, query?, cursor?}` → `{plugins: [{id, provider, name, displayName, description, marketplace, carries: {agents, skills, mcpServers, hooks}, installed, installedInTerminal}], nextCursor?}` | Browse each provider's plugin catalog, filtered as the person types | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.install {provider, id}`, event `plugin.installed` | Install a plugin, and `Use in Sidekicks` for one installed in the person's own terminal | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.installedList {provider?}` | The installed plugins, and those installed in the person's own terminal | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.marketplaceAdd {provider, source}` | Add a marketplace by repository address or folder | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.marketplaceRemove {provider, name}` | Remove a marketplace | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.read {provider, id}` | Read what one plugin carries, each item by name and description, and its source | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
-| `plugin.uninstall {provider, id}`, event `plugin.uninstalled` | Remove a plugin | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) |
+| `plugin.appList {provider: "codex", pluginId}` → `{apps: [{appId, name, accounts: [{providerAccountId, linked, connectUrl}]}]}` | A Codex plugin's apps: each app's link state on every Codex account, and `Connect <App>` per account | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.catalogList {provider, query?, cursor?}` → `{plugins: [{id, provider, name, displayName, description, marketplace, carries: {agents, skills, mcpServers, hooks}, installed, installedInTerminal}], nextCursor?}` | Browse each provider's plugin catalog, filtered as the person types | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.install {provider, id}`, event `plugin.installed` | Install a plugin, and `Use in Sidekicks` for one installed in the person's own terminal | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.installedList {provider?}` | The installed plugins, and those installed in the person's own terminal | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.marketplaceAdd {provider, source}` | Add a marketplace by repository address or folder | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.marketplaceRemove {provider, name}` | Remove a marketplace | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.read {provider, id}` | Read what one plugin carries, each item by name and description, and its source | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
+| `plugin.uninstall {provider, id}`, event `plugin.uninstalled` | Remove a plugin | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md), [Spec-030](../../specs/030-skills.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T6.1; [Plan-030](../../plans/030-skills.md) |
 
 ### `presence.*`
 
@@ -463,39 +470,39 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `preview.devServerList` | Discovered dev servers | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.marksSend` | Send frozen marks to the provider | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.navigate` | Navigate, back, forward, reload | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageActivate` | Activate a page | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageClose` | Close a page | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageCookiesClear` | Clear one site's cookies in the desktop host | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageCookiesRead` | Cookie carry: read the desktop host's cookies at handover | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageCookiesWrite` | Cookie carry: write cookies into the desktop host at handover | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageList` subscription | The session's pages, live (address, title, back/forward depth, active, order, zoom), read by the renderer and by main | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageList`'s record carries `released`, favicon, load state and zoom | The page budget: bounded by the machine's memory, the oldest idle page released first with its address kept, a page unseen ten minutes released; main destroys the view when the list says released | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageOpen` | Open a page | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageOpen`, called by main with the popup's address | A popup the page opens becomes a page in the list, never a window | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageOpen` and `preview.navigate` answer the address Preview loads, with `movedFrom: port` when the carry took the next free port | Preview reaches a port WSL does not carry to Windows | [ADR-036](../../decisions/036-embedded-browser-for-preview.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `preview.pageReorder` | Reorder pages | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| main reports each view as `preview.pageTargetReport {pageId, targetId}`; the daemon sends debugger commands through `preview.pageDebuggerSend {pageId, message}`, and main returns replies and events as `preview.pageDebuggerReport {pageId, message}`; Playwright joins with `connectOverCDP(transport)` | The page host's debugger link and the relay: Playwright reaches the desktop's Preview pages with no listening port | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
+| `preview.devServerList` | Discovered dev servers | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.marksSend` | Send frozen marks to the provider | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.navigate` | Navigate, back, forward, reload | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.pageActivate` | Activate a page | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.pageClose` | Close a page | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.pageCookiesClear` | Clear one site's cookies in the desktop host | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-1 |
+| `preview.pageCookiesRead` | Cookie carry: read the desktop host's cookies at handover | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-1 |
+| `preview.pageCookiesWrite` | Cookie carry: write cookies into the desktop host at handover | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-1 |
+| `preview.pageList` subscription | The session's pages, live (address, title, back/forward depth, active, order, zoom), read by the renderer and by main | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.pageList`'s record carries `released`, favicon, load state and zoom | The page budget: bounded by the machine's memory, the oldest idle page released first with its address kept, a page unseen ten minutes released; main destroys the view when the list says released | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2, T-021r-9-1 |
+| `preview.pageOpen` | Open a page | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.pageOpen`, called by main with the popup's address | A popup the page opens becomes a page in the list, never a window | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-1 |
+| `preview.pageOpen` and `preview.navigate` answer the address Preview loads, with `movedFrom: port` when the carry took the next free port | Preview reaches a port WSL does not carry to Windows | [ADR-036](../../decisions/036-embedded-browser-for-preview.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| `preview.pageReorder` | Reorder pages | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
+| main reports each view as `preview.pageTargetReport {pageId, targetId}`; the daemon sends debugger commands through `preview.pageDebuggerSend {pageId, message}`, and main returns replies and events as `preview.pageDebuggerReport {pageId, message}`; Playwright joins with `connectOverCDP(transport)` | The page host's debugger link and the relay: Playwright reaches the desktop's Preview pages with no listening port | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-1 |
 | `preview.portShareList` (a live read), `preview.portShareAdd {port}`, `preview.portShareRemove {port}` | The shared-ports list | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 7 |
 | `preview.portTicketIssue {port}` → `{address}` | A shared port's own address for a browser tab | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 8 |
 | `preview.portTunnelOpen {port}` → a stream on the channel, `preview.portTunnelClose` | A tunnel from another device to a shared port | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 4 |
 | `preview.screencastSubscribe` | Screencast plus input for another device | [Spec-028](../../specs/028-remote-control.md) | [Plan-028](../../plans/028-remote-control.md) Phase 7 |
-| `preview.zoom` | Per-page zoom factor | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
+| `preview.zoom` | Per-page zoom factor | [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-9-2 |
 
 ### `provider.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `provider.install {provider}`; `provider.installSubscribe` → `{state: running \| installed \| failed {reason, command}}`, its first message the last outcome; `provider.installStop` | Install a missing provider with one press, where the service runs, on every platform | [Spec-026 §Interfaces And Contracts](../../specs/026-provider-accounts-and-credential-homes.md#interfaces-and-contracts) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.list` | Provider status (installed, version, too old) and the provider's own knobs | [Spec-026 §Interfaces And Contracts](../../specs/026-provider-accounts-and-credential-homes.md#interfaces-and-contracts), [Spec-004 §Provider Parameter Vocabularies](../../specs/004-provider-driver-contract-and-capabilities.md#provider-parameter-vocabularies) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.probe {provider}` | `Check again` on a provider's Command: resolve the executable again and re-read its version | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.protectedPathList` | Read the protected paths, with the source of each | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.standingRuleList` | Read the provider's own standing rules on this machine, each in the provider's own words | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.standingRuleRevoke` | Revoke one of them where the provider keeps it | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.terminalPluginUpdate {provider, enabled}` | `Use Sidekicks in terminal Claude Code`: put the app's terminal plugin into the person's own Claude Code, or take it out | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `provider.update` | Change one provider knob. A command-path change also re-checks the command and re-reads its models. | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
+| `provider.install {provider}`; `provider.installSubscribe` → `{state: running \| installed \| failed {reason, command}}`, its first message the last outcome; `provider.installStop` | Install a missing provider with one press, where the service runs, on every platform | [Spec-026 §Interfaces And Contracts](../../specs/026-provider-accounts-and-credential-homes.md#interfaces-and-contracts) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.6 |
+| `provider.list` | Provider status (installed, version, too old) and the provider's own knobs | [Spec-026 §Interfaces And Contracts](../../specs/026-provider-accounts-and-credential-homes.md#interfaces-and-contracts), [Spec-004 §Provider Parameter Vocabularies](../../specs/004-provider-driver-contract-and-capabilities.md#provider-parameter-vocabularies) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
+| `provider.probe {provider}` | `Check again` on a provider's Command: resolve the executable again and re-read its version | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
+| `provider.protectedPathList` | Read the protected paths, with the source of each | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
+| `provider.standingRuleList` | Read the provider's own standing rules on this machine, each in the provider's own words | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
+| `provider.standingRuleRevoke` | Revoke one of them where the provider keeps it | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
+| `provider.terminalPluginUpdate {provider, enabled}` | `Use Sidekicks in terminal Claude Code`: put the app's terminal plugin into the person's own Claude Code, or take it out | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
+| `provider.update` | Change one provider knob. A command-path change also re-checks the command and re-reads its models. | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.5 |
 
 ### `providerAccount.*`
 
@@ -504,7 +511,7 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | `providerAccount.list` | List accounts, with usage windows and read times | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) T2.4 |
 | `providerAccount.login` | Start a sign-in | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) T2.6 |
 | `providerAccount.loginCancel` | Cancel a sign-in | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) T2.6 |
-| `providerAccount.memoryImport` | Copy memories into an account's folder, once | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
+| `providerAccount.memoryImport` | Copy memories into an account's folder, once | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.8 |
 | `providerAccount.probe` | `Check now` | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) T2.4 |
 | `providerAccount.register` | Register an account | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) T2.4 |
 | `providerAccount.remove` | Remove an account (refused while a run holds it) | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) T2.4 |
@@ -519,20 +526,20 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `pty.close {sessionId, terminalId, force?}`, sent once per shell | Close a shell and end it: `×`, middle-click, `Close`, `Close others`, `Close to the right`; refused while a run holds the shell, confirmed in place (`<device> holds this shell. Close it?`) while another device holds it | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
-| `pty.list` (a live list) | List and follow the session's shells; a shell opened on another device arrives as a new tab | [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
-| `pty.open` | Open a shell with `+`; the machine's own limit is refused in words | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
-| `pty.outputSubscribe` | A shell's live output: replay at its last size, then tail | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
-| `pty.reorder` | Reorder shell tabs; the order is held by the daemon | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
-| `pty.resize` | Resize a shell: only the device holding it sets its rows and columns | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
-| `pty.write` | Type into a shell; gated by the lease | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) |
+| `pty.close {sessionId, terminalId, force?}`, sent once per shell | Close a shell and end it: `×`, middle-click, `Close`, `Close others`, `Close to the right`; refused while a run holds the shell, confirmed in place (`<device> holds this shell. Close it?`) while another device holds it | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
+| `pty.list` (a live list) | List and follow the session's shells; a shell opened on another device arrives as a new tab | [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
+| `pty.open` | Open a shell with `+`; the machine's own limit is refused in words | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
+| `pty.outputSubscribe` | A shell's live output: replay at its last size, then tail | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
+| `pty.reorder` | Reorder shell tabs; the order is held by the daemon | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
+| `pty.resize` | Resize a shell: only the device holding it sets its rows and columns | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
+| `pty.write` | Type into a shell; gated by the lease | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-8 |
 
 ### `question.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | the session's own question card, `question.asked` carrying the wait's `waitId`, answered by `question.resolve` | Wait-for-chat-reply: the person's answer resumes the step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T3.4 |
-| `question.resolve` | Answer an agent's question | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
+| `question.resolve` | Answer an agent's question | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.11 |
 
 ### `repo.*`
 
@@ -540,53 +547,53 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 | --- | --- | --- | --- |
 | `repo.attach` refused as `repo.folder_unreachable` | A folder picked in another distribution | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.1, T1.2, T2.3 |
 | `repo.attach` | Attach a project folder (new-session picker, Settings › Projects) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.1, T1.2, T2.3 |
-| `repo.branchList` | Ordered branch list for both base pickers, with ↑/↓ figures and the tree holding each branch | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
-| `repo.clone {url, parentFolder?, projectId?}` → `{projectId}`, ending in `repo.attached` | Clone a repository from a URL; the session is minted at once and the finished folder attaches as `Open folder…` attaches one | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T2.2, T2.3 |
-| `repo.cloneAnswer {projectId, questionId, answer}` | Answer git's question during a clone: a user name, a password or token, a key's passphrase, or whether to trust a host's key | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
-| `repo.cloneCancel {projectId}` | Cancel a clone | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
-| `repo.cloneFolderRead {}` → `{folder, source: setting \| lastProject \| home}` | Where a clone goes, and where that folder came from | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
-| `repo.cloneSubscribe {projectId}` | The clone card's live state | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
+| `repo.branchList` | Ordered branch list for both base pickers, with ↑/↓ figures and the tree holding each branch | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.9 |
+| `repo.clone {url, parentFolder?, projectId?}` → `{projectId}`, ending in `repo.attached` | Clone a repository from a URL; the session is minted at once and the finished folder attaches as `Open folder…` attaches one. Refused before anything is fetched with `repo.clone_refused`, reason `unsupported_address` (neither https nor ssh) or `destination_not_empty` | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T2.2, T2.3 |
+| `repo.cloneAnswer {projectId, questionId, answer}` | Answer git's question during a clone: a user name, a password or token, a key's passphrase, or whether to trust a host's key | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
+| `repo.cloneCancel {projectId}` | Cancel a clone | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
+| `repo.cloneFolderRead {}` → `{folder, source: setting \| lastProject \| home}` | Where a clone goes, and where that folder came from | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
+| `repo.cloneSubscribe {projectId}` | The clone card's live state | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
 | `repo.detach` | Delete a project, from Projects' `Delete` or Runtime's `Remove` on the project's folder (sessions and folder stay) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.7, T1.2, T2.3 |
 | `repo.executionRootPrepare` (+ `carryUncommitted`) | New worktree from a base, optionally carrying uncommitted work | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.3, T1.2, T2.4 |
-| `repo.fileRead` | Read a working-tree file not in the diff, and the lines inside a collapsed gap | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `repo.folderList {folderToken?, filter?, showHidden?}` → the folder in view and up to 500 entries, each with a token, and `more: true` when the filter would narrow more | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
-| `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
-| `repo.mountList` | Every folder the service can reach, each with what is using it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
+| `repo.fileRead` | Read a working-tree file not in the diff, and the lines inside a collapsed gap | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.3 |
+| `repo.folderList {folderToken?, filter?, showHidden?}` → the folder in view and up to 500 entries, each with a token, and `more: true` when the filter would narrow more | The machine's folders, listed in place for another device | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.11 |
+| `repo.largeFilesPull {projectId}` | Get the large files a clone left as placeholders when Git LFS was not installed | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.10 |
+| `repo.mountList` | Every folder the service can reach, each with what is using it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.2 |
 | `repo.mountRead` | One mount's facts: its origin (`attached`, a project's folder; `managed`, a chat's workspace; `worktree`, a worktree the app made, under its project) and what uses it | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.2, T1.2, T2.3 |
-| `repo.projectArchive` | Archive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectBranchPatternUpdate {projectId, pattern \| null}` | Set or clear a project's own branch-name pattern (`Every project`'s pattern is a key in the machine's settings file, written through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectEnvironmentUpdate` | Save a project's own environment rows (the machine-wide rows go through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectList` | List projects (name, folder, session count) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectList` and `repo.mountList` rows carry `onOtherSideDisk: boolean` | A project or worktree folder on the other side's disk | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectReactivate` | Unarchive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectRename` | Rename a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.projectSetupUpdate` | Save a project's worktree setup steps | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 |
-| `repo.removedWorktreeDelete {removedWorktreeId}` | Delete a kept worktree now | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
-| `repo.removedWorktreeList {projectId?}` → rows `{removedWorktreeId, projectId, name, branch, headCommit, removedAt, sizeBytes, sizeReadAt}` | The kept worktrees, for Runtime | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
-| `repo.workingTreeSubscribe` | Tree-staleness signal from the watch on the working folder (watch or slow-tick mode) | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
+| `repo.projectArchive` | Archive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.projectBranchPatternUpdate {projectId, pattern \| null}` | Set or clear a project's own branch-name pattern (`Every project`'s pattern is a key in the machine's settings file, written through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.projectEnvironmentUpdate` | Save a project's own environment rows (the machine-wide rows go through `daemon.machineSettingsUpdate`) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.projectList` | List projects (name, folder, session count) | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.projectList` and `repo.mountList` rows carry `onOtherSideDisk: boolean` | A project or worktree folder on the other side's disk | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.2, T3.9 |
+| `repo.projectReactivate` | Unarchive a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.projectRename` | Rename a project | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.projectSetupUpdate` | Save a project's worktree setup steps | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) Phase 3 T3.9 |
+| `repo.removedWorktreeDelete {removedWorktreeId}` | Delete a kept worktree now | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.11 |
+| `repo.removedWorktreeList {projectId?}` → rows `{removedWorktreeId, projectId, name, branch, headCommit, removedAt, sizeBytes, sizeReadAt}` | The kept worktrees, for Runtime | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.11 |
+| `repo.workingTreeSubscribe` | Tree-staleness signal from the watch on the working folder (watch or slow-tick mode) | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.12 |
 | `repo.workspaceBind` (+ `executionMode`) | Bind a session to its project and where it works — a worktree of its own, or the checkout the project already has — on convert; a new session binds in `session.create`'s own step | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.1, T1.3, T2.4 |
-| `repo.worktreeRestore {removedWorktreeId}` → `{worktreeId, path, branch, onNewBranch}`, or a refusal with `reason` | Put a kept worktree back | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
+| `repo.worktreeRestore {removedWorktreeId}` → `{worktreeId, path, branch, onNewBranch}`, or a refusal with `reason` | Put a kept worktree back | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.11 |
 | `repo.worktreeRetire {worktreeId, discard}` | Remove a worktree, from the switcher or from Runtime's `Remove` on an app-made worktree | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.4, T1.2, T2.2 |
-| `repo.worktreeSetupRetry` | Retry setup from the failed step | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
-| `repo.worktreeSetupSubscribe` | Setup progress per step, surviving leaving the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
+| `repo.worktreeSetupRetry` | Retry setup from the failed step | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.12 |
+| `repo.worktreeSetupSubscribe` | Setup progress per step, surviving leaving the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.12 |
 | `repo.worktreeStatusRead` (keyed by project) | Worktree switcher list: repo-root row plus each worktree with base, ahead/behind, dirty count, occupying sessions, `countsAsOf`; project-wide | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.4, T1.2, T2.5 |
 
 ### `run.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `run.childInterrupt` {targetRunId, childHandle, expectedRunVersion, clientIdempotencyKey} | Interrupt one named child | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) |
-| `run.childPauseSet` {targetRunId, childHandle, paused, expectedRunVersion, clientIdempotencyKey} | Pause one named child, and continue it (the toggle's two presses) | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) |
+| `run.childInterrupt` {targetRunId, childHandle, expectedRunVersion, clientIdempotencyKey} | Interrupt one named child | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T3.21 |
+| `run.childPauseSet` {targetRunId, childHandle, paused, expectedRunVersion, clientIdempotencyKey} | Pause one named child, and continue it (the toggle's two presses) | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T3.21 |
 | `run.childSteer` {targetRunId, childHandle, content, expectedRunVersion, clientIdempotencyKey}; `run.queueList`, `run.subscribeQueue`, `run.queueCancel` and `run.queueReorder` take `childHandle` too | Steer one named child: its box, onto the child's own queue held by the daemon, with pending rows, `Remove`, `Edit` and reorder as the lead's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.1, T2.3, T4.1 |
-| `run.childrenStop` {runId} | Stop every running child at every depth (`Stop all running`, and the child half of `Interrupt everything`, whose lead half is `run.intervene`) | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) |
+| `run.childrenStop` {runId} | Stop every running child at every depth (`Stop all running`, and the child half of `Interrupt everything`, whose lead half is `run.intervene`) | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T3.21 |
 | `run.intervene` {type: "interrupt"} | `Interrupt` the lead (Escape or the word): pending messages go as the next turn, and a live exchange ends on both sides | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.2, T2.4, T4.1; [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
 | `run.pause` | `Pause` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.6, T3.4, T4.1 |
 | `run.queueCancel` | Remove a pending message | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.1, T2.3, T4.1 |
 | `run.queueCreate`, with `replacesQueueItemId` for an edit | Send: one Send to the lead; pending rows; `Retry`; `Edit` replaces a queued item in place in one call, the old item reading `superseded`, and is refused once the agent has taken the message; reorder is `run.queueReorder` | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
 | `run.queueCreate` with an addressee member `to` | The person writes to another session with `@name` from the composer | [Spec-003](../../specs/003-queue-steer-pause-resume.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.1, T2.1, T4.1 |
 | `run.queueList` | The pending messages | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.1, T4.1 |
-| `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) |
-| `run.recoveryResolve {runId, choice: keep_provider \| undo_to_agreed \| continue_provider \| hand_over}`, event `run.recovery_resolved` | After a restart, settle a mismatch between the session's record and the provider's: a read-only surplus is added with no question, and any other asks with two named choices | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) |
+| `run.queueReorder {sessionId, childHandle?, queueItemIds}` | Reorder the waiting messages: one daemon-held order over the items still waiting, on the lead's queue or a child's | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T2.11 |
+| `run.recoveryResolve {runId, choice: keep_provider \| undo_to_agreed \| continue_provider \| hand_over}`, event `run.recovery_resolved` | After a restart, settle a mismatch between the session's record and the provider's: a read-only surplus is added with no question, and any other asks with two named choices | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.5 |
 | `run.resume` | The second press of `Pause`, which continues | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.6, T3.5, T4.1 |
 | `run.subscribeQueue` | The queue stream | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T4.1 |
 | `run.subscribeState` | The run-state stream: state slot, activity, the row dots | [Spec-003](../../specs/003-queue-steer-pause-resume.md) | [Plan-003](../../plans/003-queue-steer-pause-resume.md) T1.3, T4.1 |
@@ -595,61 +602,61 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `session.archive`, event `session.archived` | Archive a session; its provider process stays as it was, and sleeps when idle as any session's does | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
-| `session.attachmentAdd` | Stage a file: copied to the daemon at staging time and kept outside the checkout; also stages an MCP resource (Preview's marks chip is `preview.marksSend`'s) | [Spec-001](../../specs/001-session-core.md), [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) |
-| `session.attachmentCover {attachmentId, boxes: [{x, y, width, height}]}` → the new attachment | Cover part of a staged picture before Send | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) |
-| `session.attachmentRemove` | Unstage a file with a chip's `×` | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) |
-| `session.autoCompactUpdate` | This session's own auto-compact point (slider, `/autocompact`) | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
-| `session.autoMemoryUpdate` | The `Auto memory` switch | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md); [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| event `session.branch_changed` | A branch changed outside the app is written back to the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
-| `session.close`, event `session.closed` | Close a session; its provider process ends with it, and the session sits in the `Archived` group, dimmed, with `Closed` where `Unarchive` would be, readable and searchable until `Delete old data` purges it and counts it in its confirm | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
-| `session.contextSubscribe` | What fills the context: one read feeds the ring and the inspector's section | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
-| `session.convert` {sessionId, repo path}, event `session.converted` | Convert a chat to a project: attach, copy the files in, skip paths the repo already has, keep the workspace, send the agent a note | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md); [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
+| `session.archive`, event `session.archived` | Archive a session; its provider process stays as it was, and sleeps when idle as any session's does | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.5 |
+| `session.attachmentAdd` | Stage a file: copied to the daemon at staging time and kept outside the checkout; also stages an MCP resource (Preview's marks chip is `preview.marksSend`'s) | [Spec-001](../../specs/001-session-core.md), [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.19 |
+| `session.attachmentCover {attachmentId, boxes: [{x, y, width, height}]}` → the new attachment | Cover part of a staged picture before Send | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.18 |
+| `session.attachmentRemove` | Unstage a file with a chip's `×` | [Spec-012](../../specs/012-artifacts-files-and-attachments.md) | [Plan-012](../../plans/012-artifacts-files-and-attachments.md) T14.19 |
+| `session.autoCompactUpdate` | This session's own auto-compact point (slider, `/autocompact`) | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.9 |
+| `session.autoMemoryUpdate` | The `Auto memory` switch | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.36; [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-6-4 |
+| event `session.branch_changed` | A branch changed outside the app is written back to the session | [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.12 |
+| `session.close`, event `session.closed` | Close a session; its provider process ends with it, and the session sits in the `Archived` group, dimmed, with `Closed` where `Unarchive` would be, readable and searchable until `Delete old data` purges it and counts it in its confirm | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.5 |
+| `session.contextSubscribe` | What fills the context: one read feeds the ring and the inspector's section | [Spec-011 §Context Window and Usage Meters](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md#context-window-and-usage-meters) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.8 |
+| `session.convert` {sessionId, repo path}, event `session.converted` | Convert a chat to a project: attach, copy the files in, skip paths the repo already has, keep the workspace, send the agent a note | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.7; [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.8 |
 | `session.create` with `leadDefinitionId` and **`scratch: true`** → `resolvedConfiguration`; session record member **`scratchForDefinitionId`** | Try it, step 1: start the scratch session (no repo) whose lead is the definition, and get the resolved-binding echo. Reuse the open one if it exists. | [Spec-001](../../specs/001-session-core.md), [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) Phase 3 |
 | A step of `session.create`, and of `session.fork` for a chat, done by the daemon's managed-workspace service | Create the chat's git-initialized managed workspace at `<home>/.ai-sidekicks/workspaces/<session-id>` and register it as a mount with a managed origin | [Spec-001](../../specs/001-session-core.md), [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
 | `session.create` | Create a session with the lead's model and effort and, in a project, a `binding` naming the project and where it works (a worktree of its own or the project's checkout, `executionMode`: `provisioned-worktree` or `bound-root`), bound in the same step; a chat's managed workspace is made and registered as a mount in the same step; the created record names the lead | [Spec-001 §Interfaces And Contracts](../../specs/001-session-core.md#interfaces-and-contracts) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
-| `session.definitionsReload` | `/reload`: refresh agent and skill definitions by hand | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md); [Plan-030](../../plans/030-skills.md) Phase 3 |
-| `session.fileSearch` {query} | `@` file search in the working folder | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
+| `session.definitionsReload` | `/reload`: refresh agent and skill definitions by hand | [Spec-027](../../specs/027-agent-definitions-and-peer-invocation.md) | [Plan-027](../../plans/027-agent-definitions-and-peer-invocation.md) T3.6; [Plan-030](../../plans/030-skills.md) Phase 3 |
+| `session.fileSearch` {query} | `@` file search in the working folder | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.9 |
 | `session.fork`; the parent is recorded on the new `session.created` | Fork a session from a message anchor (a chat fork gets its own managed workspace) | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T2.2, T3.3 |
 | `session.goalClear`, event `session.goal_cleared` | `/goal clear` | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.1, T2.10, T1.2 |
 | `session.goalUpdate` | `/goal <condition>` sets or replaces the goal | [Spec-014 §Session Goals](../../specs/014-multi-agent-orchestration.md#session-goals) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.1, T2.10, T1.2 |
-| `session.hookList` | Inspector `Hooks` section: Codex `hooks/list {cwds}` with its errors and warnings; the Claude Code hook files | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md); [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `session.import` | Start an import | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `session.importPreview` | Count the projects an import would attach before it runs | [Spec-026 §Interfaces And Contracts](../../specs/026-provider-accounts-and-credential-homes.md#interfaces-and-contracts) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `session.importStop` | Stop an import | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `session.importSubscribe` | Follow an import's progress | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 |
-| `session.list` | The sessions list: rows grouped by shape, each a title and a state, with archived and closed sessions in the `Archived` group; live | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
-| `session.maxStepsUpdate` | This session's own `Max steps per turn` override | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) |
-| `session.mcpResourceList {sessionId, serverName}` → `{serverName, resources, complete}` | A server's resources for `Attach a resource…`; the pick stages through `session.attachmentAdd` | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 |
-| `session.mcpServerList {sessionId}` (a live list) | This session's tool servers, live, grouped by state | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 |
-| `session.mcpServerUpdate {sessionId, serverName, enabled}` | A per-session on/off switch for one server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 |
-| `session.memoryRead` | Inspector `Memory` section: the memory paths and the account's own store | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md); [Plan-021](../../plans/021-desktop-app-and-renderer.md) |
-| `session.modeUpdate {sessionId, mode: build \| plan}` | The Build or Plan mode chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| `session.hookList` | Inspector `Hooks` section: Codex `hooks/list {cwds}` with its errors and warnings; the Claude Code hook files | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.36; [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-6-4 |
+| `session.import` | Start an import | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
+| `session.importPreview` | Count the projects an import would attach before it runs | [Spec-026 §Interfaces And Contracts](../../specs/026-provider-accounts-and-credential-homes.md#interfaces-and-contracts) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
+| `session.importStop` | Stop an import | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
+| `session.importSubscribe` | Follow an import's progress | [Spec-026](../../specs/026-provider-accounts-and-credential-homes.md) | [Plan-026](../../plans/026-provider-accounts-and-credential-homes.md) Phase 4 T4.7 |
+| `session.list` | The sessions list: rows grouped by shape, each a title and a state, with archived and closed sessions in the `Archived` group; live. Each entry carries `activity` (`running`, `waiting`, `done`, `failed` or `idle`) and `activityRenewedAt`: the daemon republishes a quiet run's entry every 15 s, and a reader treats a `running` or `waiting` reading older than 45 s as `idle` and never ages a `failed` one | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.2 |
+| `session.maxStepsUpdate` | This session's own `Max steps per turn` override | [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T2.20, T3.1 |
+| `session.mcpResourceList {sessionId, serverName}` → `{serverName, resources, complete}` | A server's resources for `Attach a resource…`; the pick stages through `session.attachmentAdd` | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
+| `session.mcpServerList {sessionId}` (a live list) | This session's tool servers, live, grouped by state | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
+| `session.mcpServerUpdate {sessionId, serverName, enabled}` | A per-session on/off switch for one server | [Spec-025](../../specs/025-mcp-server-configuration-and-governance.md) | [Plan-025](../../plans/025-mcp-server-configuration-and-governance.md) Phase 5 T28.5.12 |
+| `session.memoryRead` | Inspector `Memory` section: the memory paths and the account's own store | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md), [Spec-021](../../specs/021-desktop-app-and-renderer.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.36; [Plan-021](../../plans/021-desktop-app-and-renderer.md) T-021r-6-4 |
+| `session.modeUpdate {sessionId, mode: build \| plan}` | The Build or Plan mode chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.33 |
 | `session.mute {sessionId}` and `session.unmute {sessionId}` → `{}`, events `session.muted {sessionId, at}` and `session.unmuted {sessionId, at}`; `muted` on `session.list` and `session.read` entries | Mute and unmute a session's notifications; held by the daemon, seen by every device | [Spec-017](../../specs/017-notifications-and-attention-model.md), [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3; [Plan-017](../../plans/017-notifications-and-attention-model.md) |
-| `session.overviewRead {afterRevision}` → `{revision, sessions: [{id, title, provider, state, agents: [{name, provider, state}]}], remoteControl: {state}}` | The terminal pane's read: every session with its agents and Remote Control's state, answered when anything moves | [ADR-037](../../decisions/037-claude-code-mods-are-an-optional-terminal-bridge.md) | — |
+| `session.overviewRead {afterRevision}` → `{revision, sessions: [{id, title, provider, state, agents: [{name, provider, state}]}], remoteControl: {state}}` | The terminal pane's read: every session with its agents and Remote Control's state, answered when anything moves | [Spec-001](../../specs/001-session-core.md), [ADR-037](../../decisions/037-claude-code-mods-are-an-optional-terminal-bridge.md) | [Plan-001](../../plans/001-session-core.md) T6.14 |
 | `session.permissionLevelUpdate {sessionId, level: readonly \| ask \| reviewed \| sandboxed \| yolo}` → `{sessionId, level}` | The permission level chip | [Spec-010](../../specs/010-approvals-permissions-and-trust-boundaries.md) | [Plan-010](../../plans/010-approvals-permissions-and-trust-boundaries.md) T3.12 |
-| `session.pin` and `session.unpin`, events `session.pinned` and `session.unpinned` | Pin and unpin a session inside its group, pin order kept; held by the daemon | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) |
+| `session.pin` and `session.unpin`, events `session.pinned` and `session.unpinned` | Pin and unpin a session inside its group, pin order kept; held by the daemon | [Spec-001 §Required Behavior](../../specs/001-session-core.md#required-behavior) | [Plan-001](../../plans/001-session-core.md) T6.6 |
 | `session.providerCommandsSubscribe` | The live `/` list: the process's slash commands plus each working server's prompts | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T4.9 |
-| `session.reactivate`, event `session.reactivated` | Unarchive a session; a closed session offers no `Unarchive` | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
+| `session.reactivate`, event `session.reactivated` | Unarchive a session; a closed session offers no `Unarchive` | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.5 |
 | Field `shape: "chat" \| "project"` on the session snapshot, read through `session.read` and `session.list` | The durable shape column: chat or project | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
-| The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) |
+| The `shape: "chat"` field on `session.read`; no read of its own | The strip's `Session workspace` label | [Spec-007](../../specs/007-repo-attachment-and-workspace-binding.md) | [Plan-007](../../plans/007-repo-attachment-and-workspace-binding.md) T3.8 |
 | `session.read` | One session's facts: title, shape, state, project, worktree, base, elapsed time, ahead count, snapshot count, pending folder move, address, draft and staged files, lead binding | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T2.1, T3.3 |
-| `session.rename`, event `session.renamed` | Rename a session | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
-| `session.restart` | Restart a provider process that ended, or restart after a provider update | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| `session.rename`, event `session.renamed` | Rename a session | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.4 |
+| `session.restart` | Restart a provider process that ended, or restart after a provider update | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.35 |
 | `session.restore`; result `requested`, `restored`, per-part `conversation` and `files` failures, and `reason`; a `resend` member makes Edit and resend one call, and a call carrying `resend` takes the scope `conversation-and-files`, and `includeAlsoChanged: boolean`, false unless the ask's include line was pressed, puts back the dry run's `alsoChangedBy` paths too | Undo: conversation and files, conversation only, or files only | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.7 |
 | `session.restorePreview` {sessionId, target: a message id or a snapshot id, scope} | Undo's dry run: files, lines, skipped files with reasons, the lines on what is not put back, the running commands, which agents would stop and whether they can resume | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.7 |
-| `session.reviewNoteAdd` | Add a held review note | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `session.reviewNoteList` | The session's notes, live, each with `stranded` computed against the current diff | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `session.reviewNoteRemove` | Discard a note | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `session.reviewNoteUpdate` | Edit a note | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) |
-| `session.reviewStart` {target: working tree, staged, or branch} | `/review [target]` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `session.search` | Search across sessions | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) |
+| `session.reviewNoteAdd` | Add a held review note | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.9 |
+| `session.reviewNoteList` | The session's notes, live, each with `stranded` computed against the current diff | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.9 |
+| `session.reviewNoteRemove` | Discard a note | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.9 |
+| `session.reviewNoteUpdate` | Edit a note | [Spec-009](../../specs/009-gitflow-pr-and-diff-attribution.md) | [Plan-009](../../plans/009-gitflow-pr-and-diff-attribution.md) T11.9 |
+| `session.reviewStart` {target: working tree, staged, or branch} | `/review [target]` | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.33 |
+| `session.search` | Search across sessions | [Spec-001](../../specs/001-session-core.md) | [Plan-001](../../plans/001-session-core.md) T6.9 |
 | `session.setTerminalFlowControl` {sessionId, terminalId, paused} | Flow control to the shell's process, per shell and per watching connection | [Spec-002](../../specs/002-runtime-node-attach.md) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-7 |
-| `session.setWorkingFolder` | Move the working folder; re-targeting the current folder is the cancel; the pending intent sits on the session row | [Spec-001](../../specs/001-session-core.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-001](../../plans/001-session-core.md); [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) |
-| `session.sideQuestionAsk` {question} | `/btw`: a side question on a throwaway copy | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `session.snapshotList` | List snapshots in the inspector | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) |
+| `session.setWorkingFolder` | Move the working folder; re-targeting the current folder is the cancel; the pending intent sits on the session row | [Spec-001](../../specs/001-session-core.md), [Spec-008](../../specs/008-worktree-lifecycle-and-execution-modes.md) | [Plan-001](../../plans/001-session-core.md) T6.10; [Plan-008](../../plans/008-worktree-lifecycle-and-execution-modes.md) T3.1 |
+| `session.sideQuestionAsk` {question} | `/btw`: a side question on a throwaway copy | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md), [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.33 |
+| `session.snapshotList` | List snapshots in the inspector | [Spec-013](../../specs/013-persistence-recovery-and-replay.md) | [Plan-013](../../plans/013-persistence-recovery-and-replay.md) T15.6 |
 | `session.takeControl` {sessionId, terminalId, force?}, event `pty.control_changed` (with `holderRunId`) | Take one shell's lease, ordinary or forced; there is no release | [Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior) | [Plan-022](../../plans/022-rust-pty-sidecar.md) T-022-3B-3 |
-| `session.terminalCodexList {}` | Name the Codex sessions typed in a terminal that are inside the shared Codex service, each working, idle or not reachable | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) |
+| `session.terminalCodexList {}` | Name the Codex sessions typed in a terminal that are inside the shared Codex service, each working, idle or not reachable | [Spec-006](../../specs/006-local-ipc-and-daemon-control.md), [Spec-014](../../specs/014-multi-agent-orchestration.md) | [Plan-014](../../plans/014-multi-agent-orchestration.md) T3.2 |
 
 ### `skill.*`
 
@@ -669,84 +676,85 @@ Every desktop ↔ backend operation below has its name, its owning spec and its 
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
+| `timeline.bodyRead` {sessionId, rowId} | A row's large body or whole output, read only when its control is pressed | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.5 |
 | `timeline.childRunExpand` | A child's rows, fetched on demand, including a finished child's stored record | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T3.1 |
-| `timeline.patchRead` {sessionId, toolCallId} | Every patch a call did not carry, in one read | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
+| `timeline.patchRead` {sessionId, toolCallId} | Every patch a call did not carry, in one read | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.6 |
 | `timeline.read` | Read the transcript | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T2.4 |
 | `timeline.reasoningSurfaceRead` | The reasoning surface | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T1.3, T3.2 |
-| `timeline.search` | Search one session's unloaded history | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
+| `timeline.search` | Search one session's unloaded history | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.7 |
 | `timeline.subscribe` | The transcript stream, in batched frames | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T1.4, T1.5, T2.4 |
 
 ### `turn.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `turn.tasks` (subscription) | The turn's task list | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
-| `turn.usage` (subscription) | Tokens received this turn | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
+| `turn.tasks` (subscription) | The turn's task list | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.10 |
+| `turn.usage` (subscription) | Tokens received this turn | [Spec-011](../../specs/011-live-timeline-visibility-and-reasoning-surfaces.md) | [Plan-011](../../plans/011-live-timeline-visibility-and-reasoning-surfaces.md) T3.10 |
 
 ### `voice.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
-| `voice.callStart {sessionId, offerSdp}` → `{answerSdp}`, sent at the first Space in a Codex session; Codex `thread/realtime/start {threadId, transport: {type: "webrtc", sdp}, version: "v3", outputModality: "audio", voice, initialItems, clientManagedHandoffs: true, includeStartupContext: false}` and its `thread/realtime/sdp`, `voice` read from the machine settings file and `initialItems` the session's earlier spoken exchange, oldest dropped first to fit 128 items and 8,192 estimated tokens | Start a Codex call | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.callStop`; Codex `thread/realtime/stop` | End a Codex call | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.callSubscribe`; from Codex's `thread/realtime/*` notifications, routed by `threadId` | A call's events | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.dictationStart {sessionId}` | Start dictation on a Claude Code session | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.dictationStop {cancel}` | End or drop the recording | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.dictationSubscribe` | The words in progress and settled, and a refusal | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.dictationWrite` (16 kHz 16-bit mono, 100 ms frames) | The recording's audio | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.stateUpdate {sessionId \| null}` → `{sessionId \| null}`; `voice.stateSubscribe`, live, the first delivery the current state | Which session voice is on in | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
-| `voice.voiceList`; Codex `thread/realtime/listVoices` (its `v1` list and `defaultV1`); the pick is written through the machine settings verb, never into Codex's configuration | The voices Codex offers | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) |
+| `voice.callStart {sessionId, offerSdp}` → `{answerSdp}`, sent at the first Space in a Codex session; Codex `thread/realtime/start {threadId, transport: {type: "webrtc", sdp}, version: "v3", outputModality: "audio", voice, initialItems, clientManagedHandoffs: true, includeStartupContext: false}` and its `thread/realtime/sdp`, `voice` read from the machine settings file and `initialItems` the session's earlier spoken exchange, oldest dropped first to fit 128 items and 8,192 estimated tokens | Start a Codex call | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.callStop`; Codex `thread/realtime/stop` | End a Codex call | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.callSubscribe`; from Codex's `thread/realtime/*` notifications, routed by `threadId` | A call's events | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.dictationStart {sessionId}` | Start dictation on a Claude Code session | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.dictationStop {cancel}` | End or drop the recording | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.dictationSubscribe` | The words in progress and settled, and a refusal | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.dictationWrite` (16 kHz 16-bit mono, 100 ms frames) | The recording's audio | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.stateUpdate {sessionId \| null}` → `{sessionId \| null}`; `voice.stateSubscribe`, live, the first delivery the current state | Which session voice is on in | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
+| `voice.voiceList`; Codex `thread/realtime/listVoices` (its `v1` list and `defaultV1`); the pick is written through the machine settings verb, never into Codex's configuration | The voices Codex offers | [Spec-004](../../specs/004-provider-driver-contract-and-capabilities.md) | [Plan-004](../../plans/004-provider-driver-contract-and-capabilities.md) T3.38 |
 
 ### `workflow.*`
 
 | Method and members | What it serves | Spec | Plan |
 | --- | --- | --- | --- |
 | `workflow.definitionCreate` | Save a new workflow; also Duplicate and sharing to shared scope | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.2, T1.5, T1.7 |
-| `workflow.definitionDelete` | Delete a workflow (soft) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.definitionExport` | Export a version as a file | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.definitionImport` | Import a file | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.definitionDelete` | Delete a workflow (soft) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.10 |
+| `workflow.definitionExport` | Export a version as a file | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.6 |
+| `workflow.definitionImport` | Import a file | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.6 |
 | `workflow.definitionList` | List definitions (Workflows tab, tab count, `/workflow` name completion) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.2, T1.5 |
 | `workflow.definitionRead` | Read one definition (builder, Duplicate, `open` and `schedule` verbs) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.2 |
-| `workflow.definitionUpdate` | Save a new version: Save, Restore, `schedule` verb | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.draftRead` | Read the builder's draft back after a reload | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.draftUpdate` | Save the builder's unsaved draft | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.enabledSet` | Turn a workflow on or off | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.expressionPreview` | Preview an expression's value against the last run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.fixSessionCreate` | Fix a failed step in a fresh session; the run keeps a link to it | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.definitionUpdate` | Save a new version: Save, Restore, `schedule` verb | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.5 |
+| `workflow.draftRead` | Read the builder's draft back after a reload | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.25 |
+| `workflow.draftUpdate` | Save the builder's unsaved draft | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.25 |
+| `workflow.enabledSet` | Turn a workflow on or off | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.16 |
+| `workflow.expressionPreview` | Preview an expression's value against the last run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.25 |
+| `workflow.fixSessionCreate` | Fix a failed step in a fresh session; the run keeps a link to it | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.21 |
 | `workflow.gateResolve` | Approve or Reject in the step panel, and the `Answer this run` key | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.3 |
 | `workflow.humanFormDraftSave` | Save a form as it is typed | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.2 |
-| `workflow.humanFormRead` | Load a waiting form: prompt, fields, saved draft, revisions | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.humanFormRead` | Load a waiting form: prompt, fields, saved draft, revisions | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T3.2 |
 | `workflow.humanFormSubmit` | Submit a form | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T3.2 |
-| `workflow.keptVarsClear` | Clear the values `Keep for later runs` kept for one workflow | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.kindList` | Node catalog | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.layoutSet` | Save the canvas layout without a new version | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.nodeExecute` with scope `"node"` or `"fromHere"` | Run this node, and Run from here | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.pinDataSet` | Pin or unpin a node's test data: inspector, step panel Pin, Copy this run into the builder | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.keptVarsClear` | Clear the values `Keep for later runs` kept for one workflow | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.11 |
+| `workflow.kindList` | Node catalog | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.19 |
+| `workflow.layoutSet` | Save the canvas layout without a new version | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
+| `workflow.nodeExecute` with scope `"node"` or `"fromHere"` | Run this node, and Run from here | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.9 |
+| `workflow.pinDataSet` | Pin or unpin a node's test data: inspector, step panel Pin, Copy this run into the builder | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.8 |
 | the `workflow.results_posted` and `workflow.step_*` events, drawn as transcript row kind `workflow_run` | The progress row, then the results row, in the session that asked | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.3, T5.8 |
-| `workflow.resultsPost` | Pull a run's results into this session | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.runAttentionList` | The runs-needing-you section and Next waiting (N) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.resultsPost` | Pull a run's results into this session | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.17 |
+| `workflow.runAttentionList` | The runs-needing-you section and Next waiting (N) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.22 |
 | `workflow.runCancel` | Cancel a run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.11, T5.14 |
-| `workflow.runDelete` | Delete one run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.runKeepSet` | Keep a run's step data past the time limit | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.runList` | List runs (table, count, latest run for `results <name>`) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.runDelete` | Delete one run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
+| `workflow.runKeepSet` | Keep a run's step data past the time limit | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
+| `workflow.runList` | List runs (table, count, latest run for `results <name>`) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.5 |
 | `workflow.runRead` | Read one run and its steps | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.14 |
 | `workflow.runResume` | Resume a parked run | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.12, T5.14 |
-| `workflow.runRetry` | Retry from a step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.runRetry` | Retry from a step | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.8 |
 | `workflow.runStart` | Start a run: Run now in two places, Re-run, `/workflow run`, the inputs panel | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.10 |
-| `workflow.runsDelete` | Delete runs older than a date; Keep runs and waiting runs are untouched | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.runsDeletePreview` | Count what `Delete runs older than…` would remove, before it runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.runsPauseSet` | Pause new runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.secretCreate {scope, scopeRef, name, secretValue}` → `{secretId, scope, scopeRef, name}` | Create a workflow secret from the Credential chooser's `New secret` | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.secretDelete {secretId}` | `Delete` a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.secretList {scopeRef?}` → `[{secretId, scope, scopeRef, name}]` | List the secrets the chooser offers: this project's and the shared ones, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.secretReplace {secretId, secretValue}` → `{secretId}` | `Replace value` on a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.stepRead` | Read a step's input, output or log (step panel, inspector data panels) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.subscribe` | Live updates: runs, steps, schedules, the start hold | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.versionChainRead` | Version history (Versions panel list, the pinned-version chip) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.versionDiffRead` | Structural difference between two versions (panel count, canvas highlight, old and new params) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.runsDelete` | Delete runs older than a date; Keep runs and waiting runs are untouched | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
+| `workflow.runsDeletePreview` | Count what `Delete runs older than…` would remove, before it runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.20 |
+| `workflow.runsPauseSet` | Pause new runs | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.16 |
+| `workflow.secretCreate {scope, scopeRef, name, secretValue}` → `{secretId, scope, scopeRef, name}` | Create a workflow secret from the Credential chooser's `New secret` | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.12 |
+| `workflow.secretDelete {secretId}` | `Delete` a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.12 |
+| `workflow.secretList {scopeRef?}` → `[{secretId, scope, scopeRef, name}]` | List the secrets the chooser offers: this project's and the shared ones, by name | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.12 |
+| `workflow.secretReplace {secretId, secretValue}` → `{secretId}` | `Replace value` on a secret | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.12 |
+| `workflow.stepRead` | Read a step's input, output or log (step panel, inspector data panels) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T2.7 |
+| `workflow.subscribe` | Live updates: runs, steps, schedules, the start hold | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.18 |
+| `workflow.versionChainRead` | Version history (Versions panel list, the pinned-version chip) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.11 |
+| `workflow.versionDiffRead` | Structural difference between two versions (panel count, canvas highlight, old and new params) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.11 |
 | `workflow.versionRead` | Read one saved version (Versions panel, run graph) | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T1.2 |
-| `workflow.webhookListenerRead` | Webhook listener state: port, and whether it is listening or the port is taken | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
-| `workflow.webhookTokenRotate` | Create or rotate a workflow's webhook token; the token is shown once | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) |
+| `workflow.webhookListenerRead` | Webhook listener state: port, and whether it is listening or the port is taken | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.23 |
+| `workflow.webhookTokenRotate` | Create or rotate a workflow's webhook token; the token is shown once | [Spec-015](../../specs/015-workflow-authoring-and-execution.md) | [Plan-015](../../plans/015-workflow-authoring-and-execution.md) T5.23 |
 
 ### `worktree.*`
 
@@ -1226,9 +1234,9 @@ const ProtocolVersionSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
 ## Plan-028 — Machine Registration
 
-The `runtimenode` namespace names the one machine that runs the daemon; "runtime node" is the backend's word for it. The machine registers with the control plane through `runtimenode.register` when it first connects, keyed by its id and its owning user and never by a session ([Plan-028](../../plans/028-remote-control.md)). Other devices read whether the machine is reachable from its relay connection, so the namespace has no attach, heartbeat, capability or roster method, and no session carries a `runtime_node.*` event. This document specifies the `runtimenode.*` methods: the machine's own in the §Machine Registration Method Registry below, and the Plan-005 signing-key registration/resolution pair `runtimenode.signingkeyregister` / `runtimenode.signingkeyroster` (T4.10 per CP-005-7 leg B), in the §Signing-Key Registration Method Registry below, where their verification-key context lives.
+The `runtimenode` namespace names the one machine that runs the daemon; "runtime node" is the backend's word for it. The machine registers with the control plane through `runtimenode.register` when it first connects, keyed by its id and its owning user and never by a session ([Plan-028](../../plans/028-remote-control.md)). Other devices read whether the machine is reachable from its relay connection, so the namespace has no attach, heartbeat, capability or roster method, and no session carries a `runtime_node.*` event. This document specifies the `runtimenode.*` methods in the §Machine Registration Method Registry below.
 
-Method-name strings are `dotted-camelCase` per `METHOD_NAME_FORMAT`, defined in §Plan-006-Partial — Local IPC Daemon Control above (the `register(method, …)` guard at the regex constant). The `runtimenode` namespace token is the concatenated domain noun: `runtimeNode` would also validate, but the concatenated root is the registered form and stays as it is. The underscore `runtime_node` form is **rejected** as a method name by `METHOD_NAME_FORMAT` (no underscores). The signing-key pair uses an all-lowercase run-on tail (`signingkeyregister`), which the regex permits beside the camelCase tail that `session.goalUpdate`/`session.goalClear`, `session.takeControl` and `session.setTerminalFlowControl` carry.
+Method-name strings are `dotted-camelCase` per `METHOD_NAME_FORMAT`, defined in §Plan-006-Partial — Local IPC Daemon Control above (the `register(method, …)` guard at the regex constant). The `runtimenode` namespace token is the concatenated domain noun: `runtimeNode` would also validate, but the concatenated root is the registered form and stays as it is. The underscore `runtime_node` form is **rejected** as a method name by `METHOD_NAME_FORMAT` (no underscores).
 
 ### Machine Registration Method Registry
 
@@ -1271,8 +1279,7 @@ interface RuntimeNodeCertificateChallengeSetRequest {
   nodeId: NodeId;
   challengeValue: string; // the ACME DNS-01 value for the machine's wildcard name
   // 128-char lowercase hex signature by the machine's identity key over the JCS-canonical
-  // { nodeId, challengeValue } of this request, checked against runtime_nodes.public_key for nodeId,
-  // the same machine binding runtimenode.signingkeyregister carries
+  // { nodeId, challengeValue } of this request, checked against runtime_nodes.public_key for nodeId
   machineSignature: string;
 }
 ```
@@ -1344,68 +1351,6 @@ interface SessionSetTerminalFlowControlResponse {
 ```
 
 Refusals are typed in [Error Contracts §PTY](./error-contracts.md#pty): ownership authorization precedes lease state — `session.takeControl` is owner-only per the [Security Architecture permission matrix](../security-architecture.md#permission-matrix) row 'Take terminal control', refused `pty.permission_denied` (403) for a caller that does not own the session before any lease-state comparison — the refusal is ownership-determined and stable rather than varying with mutable lease state; holder identity itself is deliberately session-visible presence metadata (the `pty.control_changed` broadcast exposes it to the account's own devices), so the ordering guards the authorization boundary, not a secret; a take while another of the account's devices holds the lease returns `pty.control_held_by_other` with `data.fields.holderDeviceId`; a terminal write with no lease held returns `pty.control_not_held`. A take by the current holder is idempotent success — no transition occurs and nothing broadcasts. Every successful transition broadcasts `pty.control_changed` ([Spec-005 census](../../specs/005-session-event-taxonomy-and-audit-log.md#pty-control-session_lifecycle)), authored by the terminal-owning daemon; transitions include the two auto-release classes — holder disconnect and the agent-run write-burst release (the acquiring run's first lifecycle transition out of `running` after an agent-path take; the acquiring run and its agent are set by the daemon on the lease record, never taken from a request field, and move to the new run on an agent-path take from a different run on the same device, which broadcasts like any change of holder). A take broadcasts `reason: 'taken'`, a forced take `'taken_by_force'`, and the auto-release classes `'auto_released_disconnect' | 'auto_released_run_idle'` ([Spec-002 §Required Behavior](../../specs/002-runtime-node-attach.md#required-behavior)); every broadcast carries `terminalId`. A client reads a broadcast carrying `released` or `auto_released_authorization_lost` as an unread transition. The take request carries no caller field — the principal binds per the V1 transport rule: a local daemon JSON-RPC caller binds to the **device co-located with the node**, which is the daemon's own recorded local device, the same absent-actor rule `ApprovalResolveRequest.approver` documents (absent on the local socket → the daemon's own binding; every runtime node has exactly one owning user per [runtime-node-model](../../domain/runtime-node-model.md), and that user's devices are what contend for a shell) — and the node's own agent runs take their write bursts through the daemon's in-process lease authority on that **same device** (no wire hop): the user authorized those runs on their node and their terminal bytes exercise that authority, but a run's hold is a holder of its own. The lease record keeps the run, and the `pty.control_changed` broadcast names it as `holderRunId`, absent while a device holds the shell, while `holderDeviceId` stays the machine's own device identity; the agent is read from the run, so every device reads that an agent's running command holds the shell and is offered the run's own stop rather than a take, and a take against a run's hold — from the node's own device included — is refused with `pty.control_held_by_other` rather than treated as the idempotent self-retake case. A future relay-borne remote leg binds the relay peer's PASETO-verified **device identity** ([§Authenticated Principal And Authorization Model](#authenticated-principal-and-authorization-model)) and rides the terminal-byte channel per Spec-002's forward constraint — so `controlHolder` and the idempotent self-retake comparison are well-defined on every path that can reach the lease authority.
-
-### Signing-Key Registration Method Registry
-
-The per-event daemon-signature verification protocol ([Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)) resolves the emitting daemon's Ed25519 PUBLIC key by `NodeId` from the session verification-key roster. This registry is that roster's signing-key surface: the daemon registers its session-scoped public key (the value `DaemonSigningKeyProvisioner.create(sessionId)` returned, or its row-verified `readPublicKey` re-read after a restart) when the session is admitted, the write gated on the caller owning the machine and bound to the machine that makes it, on the daemon-held CP-005-13 credential — via `runtimenode.signingkeyregister`, persisting it as its `(session, node)` pair's current key into the Plan-005-owned [`daemon_signing_public_keys` table](../schemas/shared-postgres-schema.md#daemon-signing-public-keys-plan-005--verification-key-roster); any verifier — forensic export, control-plane-connected client — resolves keys via `runtimenode.signingkeyroster`. Both methods are **control-plane tRPC ONLY** (the store is control-plane-owned; the register mutation is **daemon-called**). Registered by Plan-005 T4.10 per CP-005-7 leg B: procedure registrations on the control plane's `runtimenode.*` router, which [Plan-028](../../plans/028-remote-control.md) Phase 3 builds with the machine's registration, and the `runtime-node.ts` schema exports, with the register/resolve service in the Plan-005-owned `signing-key-service.ts`. The daemon-side registrar re-attempts a failed transport on a bounded exponential backoff capped at 15 seconds for the locally-materialized session's lifetime. The registrar starts at the daemon-local session-establishment moment and publishes through a thin PASETO-authenticated tRPC caller deliberately scoped to `runtimenode.signingkeyregister` (the daemon takes no `client-sdk` dependency), authenticating as the **node-owner user** — the daemon's standing control-plane-authentication posture per [daemon.md §Responsibilities](../daemon.md#responsibilities) ("authenticate to the Control Plane using PASETO v4 tokens per Spec-028") — with a PASETO v4.public access token whose per-request DPoP proof is signed by a daemon-held key the token's `cnf.jkt` binds ([§Authenticated Principal](#authenticated-principal-and-authorization-model)), obtained per attempt through the constructor-injected credential-provider interface CP-005-13 registers against Plan-016's PASETO wiring (whose refresh token `sidekicks sign-in` issues, [Plan-016](../../plans/016-identity-and-user-state.md) T5.9, so an auth failure is a retryable transport failure on the backoff), treating the collapsed `runtimenode.permission_denied` refusal as final: the registrar logs it and does not retry, since the attempt fires only after the machine has registered and a retry cannot change ownership. The request carries no attachment id: the registrar's `nodeId` reads the daemon's own node registry (`node_trust_state`), populated at daemon startup before any session materializes, so the attempt preconditions are the credential and the daemon's node identity, both daemon-local. Registration fires for every locally-materialized session, chat-only sessions included, because [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature) requires roster registration at join time — a daemon authors durable rows ([Spec-005 §User Message Events](../../specs/005-session-event-taxonomy-and-audit-log.md#user-message-events)'s `user.message`) from the session's start.
-
-The register write is **producer-bound, with one current key per pair**: the control plane applies a write only when (1) the caller's verified PASETO `sub` owns the machine the request's `nodeId` names — `runtime_nodes.user_id` (without this predicate a revoked owner's daemon could keep minting durable, erasure-durable roster rows) — and the request's `machineSignature` verifies under the public key `runtime_nodes` holds for that `nodeId`. The control plane keeps no session record, so the `sessionId` names the pair the key signs for and is checked against no stored session. The machine's identity key signs every registration, so registration is bound to the machine that makes it: one machine cannot register a key into another machine's slot, even within the one account. A device checks the same signature, which is stored with the key and served on the roster, against the machine key its own statement chain trusts, so the binding never rests on the control plane's word. The DPoP thumbprint stays proof of the caller's token and is not the binding. A caller failing either predicate — another user's machine, an unknown `nodeId`, or a machine signature that is missing or does not verify, all collapsed — is refused with the typed `runtimenode.permission_denied` error ([error-contracts.md §Runtime Node](./error-contracts.md#runtime-node) — HTTP 403 / tRPC `FORBIDDEN`, one collapsed refusal disclosing neither machine existence nor ownership, per that family's no-info-leak header, and deliberately never tRPC `NOT_FOUND`) before the key comparison is reached — an unauthorized caller never reaches a key-existence oracle; and (2) the presented key is registrable for the `(session_id, node_id)` pair: the pair has no current key; or the presented key byte-equals the current one (an acknowledged idempotent no-op — the retry-safe path); or the request is a rotation. Signing keys rotate only through `sidekicks rotate-keys` (`daemon.keyRotate`), which mints new per-session signing keys; its registration carries the `rotation` member, naming the pair's current key and that key's signature over the new registration beside the machine's own, and the control plane marks the current key retired and registers the new one as current in the same transaction. The key before it stays in the roster marked retired, so rows signed before a rotation keep verifying under the key that signed them; a retired key is refused for good ([Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature)). Any other registration presenting a key that differs from the current one — a retired key included — is refused with the typed `runtimenode.signingkeyregister_conflict` error ([error-contracts.md §Runtime Node](./error-contracts.md#runtime-node) — HTTP 409 / tRPC `CONFLICT`, registry-only code+message) and no row write — never a silent overwrite; outside a rotation the key is stable (the control-plane mirror of Plan-005 T4.2's `refuse_on_rotation`). A genuine daemon's 409 for its own slot is an integrity alarm, not a caller bug — its slot holds a key it does not hold (its own key store was lost and re-minted). The refused daemon therefore appends the durable `audit_integrity_failed` event with the `failureMode: 'signing_key_slot_conflict'` ([Spec-005 §Audit Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#audit-integrity-audit_integrity)) to its session event log — session-visible and anchor-covered — rather than holding only a local log line: the alarm row is signed with the very key the roster refused, so roster-resolving external verifiers see it only as one more `signature_mismatch` among every row this daemon signs — the durable append serves local replay, the anchor-covered post-repair forensic record (authenticatable once the refused daemon's true key is established out-of-band), and operator surfacing, while the independently verifiable trust path for the conflict is the open design item recorded at [Spec-005 §Audit Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#audit-integrity-audit_integrity)'s prose on the registrar mode `signing_key_slot_conflict`. The checks and the write are ATOMIC — one transaction at READ COMMITTED closes both TOCTOU windows: the machine's `runtime_nodes` row is read `FOR SHARE` and held to commit, taken FIRST: ownership and the machine signature are both checked against that locked row — `user_id` never moves, and `FOR SHARE` conflicts with the `UPDATE` a `runtimenode.key_rotated` makes to `public_key`, so the key the signature was checked under cannot be replaced before the write commits (this is an authorization READ: the transaction writes nothing outside the key table); and the key write applies as `INSERT ... ON CONFLICT DO NOTHING` with no conflict target, so both unique arbiters — the primary key `(session_id, node_id, public_key)` and the current-key partial unique index on `(session_id, node_id) WHERE retired_at IS NULL` — settle a conflict without raising ([INSERT §ON CONFLICT Clause](https://www.postgresql.org/docs/current/sql-insert.html#SQL-ON-CONFLICT) — with no target, "conflicts with all usable constraints (and unique indexes) are handled"; `DO NOTHING` "simply avoids inserting a row" and `RETURNING` returns "only rows that were successfully inserted or updated", so the zero-row arm is the loser's signal), with in-transaction classification of the zero-row arm — a presented key byte-equal to the current one is the idempotent success, a retired key or a different key throws the typed conflict — so a raw `23505` is never RAISED rather than caught: the `Querier` contract has no SAVEPOINTs, a raised unique violation aborts the transaction ("`ROLLBACK TO` is the only way to regain control of a transaction block that was put in aborted state by the system due to an error" — [PostgreSQL Tutorial §3.4 Transactions](https://www.postgresql.org/docs/current/tutorial-transactions.html)), and every subsequent command fails `25P02 in_failed_sql_transaction` ([PostgreSQL Appendix A — Error Codes](https://www.postgresql.org/docs/current/errcodes-appendix.html#ERRCODES-TABLE): `23505 unique_violation`, `25P02`) — no legal re-read. A rotation first verifies `previousKeySignature` under the key the `rotation` member names, then retires that key — `UPDATE ... SET retired_at = now()` on the pair's row holding it whose `retired_at` is still NULL — then inserts the new key; a signature that does not verify, or an update that touches no row because the named key is not the pair's current key, throws the typed conflict and the transaction rolls back with the current key still current. Two rotations racing for one current key resolve on that row's lock: the loser's update waits for the winner, and "The search condition of the command (the `WHERE` clause) is re-evaluated to see if the updated version of the row still matches the search condition" ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so it finds the row retired, touches nothing and is refused. Two racing different-key registrations therefore resolve to exactly ONE current key: the INSERT winner returns the `null` success, while the zero-row loser's in-transaction re-read — a new statement, and Read Committed "starts each command with a new snapshot that includes all transactions committed up to that instant" ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so it legally sees the winner's committed row — classifies the stored different key into the typed 409: one success plus one 409, the shape T4.10's concurrency test asserts, never a raw `23505`. The lock order is registered in [`docs/architecture/schemas/shared-postgres-schema.md` §Lock Ordering Across Shared Tables](../schemas/shared-postgres-schema.md#lock-ordering-across-shared-tables). The roster query is NOT authorization-free: [§Authenticated Principal](#authenticated-principal-and-authorization-model) scopes every control-plane endpoint — queries included — to its authenticated caller, so `runtimenode.signingkeyroster` returns only the keys registered by machines the caller's verified principal owns (the Permission Matrix read posture). The ownership filter and the roster read are ONE SQL statement — `daemon_signing_public_keys` joined to `runtime_nodes` on `node_id` with `runtime_nodes.user_id` equal to the caller — because two separate statements at READ COMMITTED take two snapshots, letting a device revocation commit between probe and read and hand a just-revoked caller a roster newer than their authorization; one statement is one snapshot ([PostgreSQL §13.2.1 Read Committed Isolation Level](https://www.postgresql.org/docs/current/transaction-iso.html#XACT-READ-COMMITTED)), so the authorization and the returned entries are atomic WITHOUT a lock (the shipped `readRoster` single-statement principle). The control plane keeps no session record, so a session for which no owned machine registered a key reads as `{ entries: [] }`, and the answer discloses nothing about a session the caller cannot see. Each entry's `registeredAt`, and its `retiredAt` when present, normalize through the `readRoster` `toIsoString` convention before the response parse: `TIMESTAMPTZ` hydrates as a JS `Date` under both shipped drivers (`pg`, PGlite) while the wire field is an ISO-8601 string whose `z.iso.datetime({ offset: true })` schema REJECTS a `Date`, so the T4.10 roster test runs against a real PGlite database through the response schema — exercising the hydration path rather than mocking it away. Primary sources for those three claims, each verified at content level: `pg` delegates result parsing to `pg-types`, whose [`lib/textParsers.js`](https://github.com/brianc/node-pg-types/blob/master/lib/textParsers.js) registers OID `1184` (`timestamptz`) to the `Date`-returning `postgres-date` parser (`register(1184, parseTimestampTz)` where `parseTimestampTz = require('postgres-date')`); PGlite's parser for the timestamp family is `parse: (x) => new Date(x)` in [`packages/pglite/src/types.ts`](https://github.com/electric-sql/pglite/blob/main/packages/pglite/src/types.ts); and [Zod §ISO datetimes](https://zod.dev/api#iso-datetimes) documents `z.iso.datetime()` as ISO-8601 STRING validation, so a `Date` instance fails its string precondition before any format check. No operator arm exists on this transport in V1 — the recorded residual against the reader list above: a "forensic export" reader reaches the roster through the machine's owning principal (or direct database access under the operator's own custody), never an ungated query. The store deliberately carries no user FK — key material is machine-generated, carries no personal data, and sits outside the [Spec-020 §Erasure Paths](../../specs/020-data-retention-and-gdpr.md#erasure-paths) Path-2 `REFERENCES users(id)` closure, so registered keys SURVIVE user erasure and the session event streams the person's machines keep, which account deletion never erases, plus `event_log_anchors` rows stay verifiable.
-
-| Method | Procedure type | Request schema | Response schema |
-| --- | --- | --- | --- |
-| `runtimenode.signingkeyregister` | `mutation` | `RuntimeNodeSigningKeyRegisterRequest` | `null` — HTTP 200 `{ result: { data: null } }`; `RuntimeNodeSigningKeyRegisterResponseSchema` (`z.null()`) — control-plane tRPC ONLY, **daemon-called** from the session-establishment registrar, landing at session admission (ownership-gated + machine-bound + one current key per pair per the contract paragraph above; no daemon JSON-RPC registration; Plan-005 T4.10) |
-| `runtimenode.signingkeyroster` | `query` | `RuntimeNodeSigningKeyRosterRequest` | `RuntimeNodeSigningKeyRosterResponse` — control-plane tRPC ONLY (the roster is control-plane-owned; Plan-005 T4.10) |
-
-```ts
-// RuntimeNodeSigningKeyRegister — control-plane tRPC ONLY, daemon-called from the session-establishment
-// registrar, landing at session admission (Plan-005 T4.10 per CP-005-7 leg B;
-// ownership-gated + machine-bound)
-interface RuntimeNodeSigningKeyRegisterRequest {
-  sessionId: SessionId;
-  nodeId: NodeId; // the calling machine's own id: registration is bound to the machine that makes it
-  daemonSigningPublicKey: string; // 64-char lowercase hex of the 32-byte Ed25519 public key (the Plan-005 T2.3 wire convention); hex-decoded to BYTEA at persist
-  // 128-char lowercase hex Ed25519 signature by the machine's identity key over the JCS-canonical
-  // { sessionId, nodeId, daemonSigningPublicKey } of this request, checked against runtime_nodes.public_key
-  // for nodeId; a missing or failing signature is refused runtimenode.permission_denied, the same
-  // collapsed refusal as another machine's nodeId. Stored with the key and served on the roster.
-  machineSignature: string;
-  rotation?: RuntimeNodeSigningKeyRotation; // present only on the registration sidekicks rotate-keys makes
-}
-interface RuntimeNodeSigningKeyRotation {
-  previousDaemonSigningPublicKey: string; // the pair's current key, which this registration retires; 64-char lowercase hex
-  previousKeySignature: string; // 128-char lowercase hex Ed25519 signature by that key over the JCS-canonical { sessionId, nodeId, daemonSigningPublicKey } of this request
-}
-// Response: null — HTTP 200 { result: { data: null } } (RuntimeNodeSigningKeyRegisterResponseSchema = z.null(),
-// the null-success pattern shared by daemon-called mutations). A replay of the current key is acknowledged null too (retry-safe);
-// a rotation retires the named current key and registers the new one as current in one transaction;
-// any other different-key registration (a retired key, or a rotation whose signature fails) is refused with typed
-// runtimenode.signingkeyregister_conflict (409/CONFLICT) and no row write;
-// a caller that does not own the machine nodeId names, or sends no verifying machine signature
-// (another user's machine, an unknown machine, a bad or missing signature — all collapsed), is refused
-// typed runtimenode.permission_denied
-// (403/FORBIDDEN) before the key comparison is reached; a genuine daemon refused the
-// 409 for its own slot appends audit_integrity_failed failureMode 'signing_key_slot_conflict'
-// durably (see the contract paragraph above).
-
-// RuntimeNodeSigningKeyRoster — control-plane tRPC ONLY (the NodeId-keyed verification-key
-// resolution surface per Security Architecture §Per-Event Daemon Signature). Ownership-scoped:
-// only keys registered by machines the caller owns are returned, the filter and the read ONE SQL
-// statement — one READ COMMITTED snapshot, so nothing can interleave. The control plane keeps no
-// session record, so a session no owned machine registered a key for reads as { entries: [] }.
-interface RuntimeNodeSigningKeyRosterRequest {
-  sessionId: SessionId;
-}
-interface RuntimeNodeSigningKeyRosterEntry {
-  nodeId: NodeId;
-  daemonSigningPublicKey: string; // 64-char lowercase hex
-  machineSignature: string; // 128-char lowercase hex: the machine identity key's signature the key was registered under; a device checks it against the machine key its statement chain trusts
-  retiredAt?: string; // ISO 8601 — absent for the pair's current key; set when a rotation retired it, never cleared: rows signed before the rotation keep verifying under this key, and the key is refused for good
-  registeredAt: string; // ISO 8601 — daemon_signing_public_keys.registered_at with no server-side derivation or masking; TIMESTAMPTZ hydrates as a JS Date under both shipped drivers (pg, PGlite), so the projection normalizes both timestamps through the readRoster toIsoString convention before the response parse — z.iso.datetime({ offset: true }), the file convention, REJECTS a Date (the pg-types/PGlite/Zod primary sources are cited at the roster paragraph above)
-}
-interface RuntimeNodeSigningKeyRosterResponse {
-  entries: RuntimeNodeSigningKeyRosterEntry[]; // one entry per registered key: each (session, node) pair's current key and every key it retired
-}
-```
 
 ---
 
@@ -1542,8 +1487,7 @@ interface ProviderDriver {
 //     registered `session.not_found`, whose registered description is "does not exist or is not
 //     accessible" — an inaccessible session and an unknown one collapse into one byte-identical refusal,
 //     so neither operation is a session-existence oracle (the runtimenode family's no-info-leak rule).
-//   * `session.providerCommandsSubscribe` needs nothing beyond that: any caller that reaches the session reads, the
-//     `runtimenode.signingkeyroster` precedent.
+//   * `session.providerCommandsSubscribe` needs nothing beyond that: any caller that reaches the session reads.
 //   * `driver.compactContext` mutates the bound run's provider context, so it is adjudicated by
 //     the IDENTICAL `Action::"intervene"` evaluation the intervention path runs on the run that
 //     owns the named binding — the `run.pause` / `run.resume` precedent above (§Authenticated
@@ -2734,7 +2678,7 @@ interface EventEnvelope {
 // run_lifecycle branch never admit it (stragglers absorb, never append). Absent on
 // every current-epoch row — absence means current-epoch, and the stamp is never
 // fabricated at read time. The pair rides INSIDE payload, so it sits in the RFC 8785
-// canonical bytes (signed, hash-chained, shred-safe) with no envelope-level field
+// canonical bytes with no envelope-level field
 // added — the canonical set above is unchanged — and no version bump: the
 // registration precedes ADR-018 §Reversibility Assessment's point of no return,
 // which is an emission event, not a code merge — pre-first-release, no production
@@ -2768,14 +2712,13 @@ type EventCategory =
   | "approval_flow"
   | "usage_telemetry"
   // Extended per Spec-005 §Runtime Node Lifecycle, §Recovery Events,
-  // §Audit Integrity, §Security Events, §Event Maintenance, §Policy Events,
+  // §Security Events, §Event Maintenance, §Policy Events,
   // §Orchestration Admission, §MCP Governance and the
   // workflow families (§Workflow Lifecycle through §Workflow Gate Resolution). The
   // category list and its event types are Spec-005 §Event Type Summary's, which
   // carries the table; read them there, never restated here.
   | "runtime_node_lifecycle"
   | "recovery_events"
-  | "audit_integrity"
   | "security_events"
   | "event_maintenance"
   | "policy_events"
@@ -2792,135 +2735,21 @@ type EventCategory =
 // Individual event types within each category are enumerated in Spec-005 §Event Type Enumeration.
 
 // ---------------------------------------------------------------------------
-// The Plan-005-emitted payload variants (Plan-005 T1.11) — authored in
-// packages/contracts/src/event.ts, which Plan-005 owns, rather than imported
-// from an emitting plan's module (contrast the repo/workspace/worktree family,
-// authored in repo.ts / worktree.ts under emitter-authors-payload). Registering
-// a payload variant is additive-MINOR per ADR-018 §Decision #8; these type
-// strings are listed in Spec-005 §Event Type Summary, so registering them
-// adds no event type.
+// Payload variants authored in packages/contracts/src/event.ts, which Plan-005
+// owns, rather than imported from an emitting plan's module (contrast the
+// repo/workspace/worktree family, authored in repo.ts / worktree.ts under
+// emitter-authors-payload); Plan-005 T1.11 registers event.compacted.
+// Registering a payload variant is additive-MINOR per ADR-018 §Decision #8;
+// these type strings are listed in Spec-005 §Event Type Summary, so
+// registering them adds no event type.
 //
-// Session binding (Spec-005 §Daemon-Scope Event Binding And Node-Scope
-// Anchoring): key_reuse_detected and the event_maintenance types bind the
-// reserved RFC 9562 §5.10 Max UUID sentinel session_id (lowercase);
-// audit_integrity_verified / audit_integrity_failed carry the verified range's
-// real session_id — the sentinel only when verifying the node-scope chain, and
-// the signing_key_slot_conflict arm always the refused registration's real id.
-// Binding is an emitter obligation: the envelope's SessionId already admits the
-// sentinel, so no schema carve-out exists.
+// Session binding (Spec-005 §Daemon-Scope Event Binding): relay.pin_refused and
+// the event_maintenance types bind the reserved RFC 9562 §5.10 Max UUID sentinel
+// session_id (lowercase). Binding is an emitter obligation: the envelope's
+// SessionId already admits the sentinel, so no schema carve-out exists.
 //
-// None of these is run-scoped (no payload carries runId), so none composes
-// the sourceEpoch + sourcePosition pair documented above.
-
-// audit_integrity payload base — {sessionId, anchorId?, verifierNodeId}, per
-// Spec-005 §Audit Integrity. anchorId is an opaque bounded string, deliberately
-// not a branded/UUID id: the control-plane anchor id is UUID while the local
-// pending_anchor_uploads.id is TEXT, and no AnchorId vocabulary is declared.
-// key_reuse_detected does NOT carry this base (its spec cell has no "base +"
-// prefix) — it is an observer's node-level finding. The audit_integrity_failed
-// REGISTRAR arm takes a REDUCED base, {sessionId, verifierNodeId}, anchorId
-// excluded (Spec-005) — see that arm below.
-
-interface AuditIntegrityVerifiedPayload {
-  sessionId: SessionId;
-  anchorId?: string;
-  verifierNodeId: NodeId;
-  treeSize: number; // int >= 0; RFC 9162 tree_size (leaf count of the verified tree)
-  rootHash: string; // house form is 64-char lowercase hex; the wire contract is a bounded string
-  fromSeq: number; // int >= 0, bounded by the EventEnvelope.sequence ceiling
-  toSeq: number;
-  verifiedAt: string; // ISO 8601
-  signatureAlgorithm: string; // no algorithm vocabulary is specified; bounded free-form
-}
-
-// audit_integrity_failed is DISCRIMINATED on failureMode (Spec-005 §Audit
-// Integrity): the fifteen read-side verifier modes walked
-// a range and REQUIRE the Merkle triple; the registrar's
-// signing_key_slot_conflict walked none, so requiring the triple there would
-// force it to fabricate roots for a tree it never touched. One event type, one
-// wire schema, two arms. The verified RANGE splits the same way:
-// fromSeq/toSeq are REQUIRED on the verifier arm — I-005-4-01's consumer dedupe
-// key — and absent from the registrar's, which walked no range.
-type VerifierFailureMode =
-  | "hash_mismatch"
-  | "signature_mismatch"
-  | "anchor_mismatch"
-  | "inclusion_proof_failed"
-  | "consistency_proof_failed"
-  | "log_file_missing"
-  | "log_file_moved"
-  | "anchor_missing_for_compacted_range"
-  | "anchor_signature_invalid"
-  | "stub_signature_invalid"
-  | "stub_scalar_mismatch"
-  | "signature_placeholder"
-  | "occurred_at_not_canonical"
-  | "pii_ciphertext_digest_unbound"
-  | "content_ciphertext_digest_unbound"
-  | "signing_key_slot_conflict"; // registrar-emitted, outside the verifier arm;
-// the union holds the verifier modes, ending with
-// content_ciphertext_digest_unbound, and the registrar's mode.
-// failurePath names the verification GUARANTEE that failed, not the column the
-// defect occupies — which is why the signature-survives-but-binding-broke
-// modes all pair with "signature".
-// NINE of the fifteen verifier modes have their path FIXED by Security
-// Architecture §Verification Rules and the schema enforces the pairing at parse:
-// hash_mismatch → "inclusion"; anchor_mismatch → "consistency"; and
-// signature_mismatch / signature_placeholder / occurred_at_not_canonical /
-// pii_ciphertext_digest_unbound / content_ciphertext_digest_unbound /
-// stub_signature_invalid / stub_scalar_mismatch → "signature". The other SIX
-// (inclusion_proof_failed, consistency_proof_failed, log_file_missing,
-// log_file_moved, anchor_missing_for_compacted_range, anchor_signature_invalid)
-// have no corpus-fixed path and keep the full three-value latitude — pinning
-// one would mint an authority that does not exist.
-type VerifierFailurePath = "inclusion" | "consistency" | "signature";
-
-type AuditIntegrityFailedPayload =
-  | {
-      // Verifier arm — the fifteen read-side modes.
-      sessionId: SessionId;
-      anchorId?: string;
-      verifierNodeId: NodeId;
-      treeSize: number;
-      expectedRootHash: string;
-      observedRootHash: string;
-      // The verified range's endpoints — REQUIRED on this arm. I-005-4-01's
-      // dedupe key is (verifierNodeId, fromSeq, toSeq, verifiedAt); verifiedAt
-      // stays an audit_integrity_verified member, so the fourth key member is
-      // read from the envelope's occurredAt and T4.1's IdempotencyClass keys
-      // these rows on the first three.
-      fromSeq: number;
-      toSeq: number;
-      failureMode: Exclude<VerifierFailureMode, "signing_key_slot_conflict">;
-      failurePath: VerifierFailurePath;
-      offendingSeq?: number; // absent when no single row is implicated
-      detail: string;
-    }
-  | {
-      // Registrar arm — no range was verified, so no Merkle triple and no
-      // range endpoints.
-      sessionId: SessionId; // the refused registration's real id, never the sentinel
-      // No anchorId — REDUCED base, the member excluded rather than optional
-      // (Spec-005). It is permanently absent on this row: the signed
-      // payload is never mutated, and later coverage is represented by the
-      // subsequently appended anchor spanning this row's range, exactly as for
-      // any appended row. The schema is .strict(), so an offered anchorId is
-      // an unrecognized key and REJECTED — the permanence is enforced here,
-      // not left to emitter convention.
-      verifierNodeId: NodeId; // the refused daemon naming itself
-      failureMode: "signing_key_slot_conflict";
-      failurePath: "signature";
-      detail: string; // names the refused (session_id, node_id) pair
-    };
-
-interface KeyReuseDetectedPayload {
-  offendingKeyFingerprint: string;
-  observedIdentities: Array<{ sessionId: SessionId; nodeId: NodeId }>; // >= 2, PAIRWISE DISTINCT — a repeated pair is one identity holding its own key
-  firstSeenAt: string; // ISO 8601
-  rotationInvariantViolated: "refuse_on_rotation"; // V1's only rotation posture
-  detectorNodeId: NodeId;
-}
-
+// Of these, only usage.model_rerouted is run-scoped (its payload carries runId),
+// so it alone admits the sourceEpoch + sourcePosition pair documented above.
 // relay.pin_refused payload (security_events) — base {nodeId, occurredAt} + the relay's host and the
 // two key-hash prefixes, per Spec-005 §Security Events. The daemon records it on its sentinel session
 // when a pinned relay presents a key other than the one pinned when it was linked, and refuses the
@@ -2932,6 +2761,21 @@ interface RelayPinRefusedPayload {
   relayHost: string;
   pinnedSpkiPrefix: string;
   presentedSpkiPrefix: string;
+}
+
+// usage.model_rerouted payload (usage_telemetry), per Spec-005 §Usage Telemetry, which maps each
+// provider frame onto these members. Draws the `Model switched` row (Spec-011 §Flow Row Kinds).
+interface UsageModelReroutedPayload {
+  sessionId: SessionId;
+  runId: RunId;
+  agentId?: AgentId;
+  fromModel: string;
+  toModel: string; // the model the request ran on, and the model it is priced at
+  scope: "turn" | "session" | "local"; // one turn; the rest of the session; only a subagent's, a side question's or a background fork's response
+  sentence?: string; // the provider's own sentence, absent when it sent none
+  explanation?: string; // the provider's explanation, shown verbatim
+  cause: "safety" | "model_unavailable" | "model_blocked" | "out_of_credits";
+  safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
 }
 
 // event_maintenance payload base — {nodeId, operationId, occurredAt}, per
@@ -2973,39 +2817,6 @@ interface EventSubscriptionRequest {
   afterCursor?: EventCursor; // replay from this point; omit for live-only
 }
 // Response: a stream of EventEnvelope
-```
-
-### Event-Anchor Upload Method Registry
-
-The Merkle-anchor integrity witness ([Security Architecture §Merkle Anchors (Control-Plane Witness)](../security-architecture.md#merkle-anchors-control-plane-witness)) is uploaded by the emitting daemon through a single control-plane procedure, `eventanchor.upload`, persisting into the Plan-005-owned [`event_log_anchors` table](../schemas/shared-postgres-schema.md#event-log-anchors-plan-005--integrity-witness). The method is **control-plane tRPC ONLY** and **daemon-called** — the `runtimenode.signingkeyregister` shape — because the store is control-plane-owned cross-node state and the daemon is the sole producer; it rides no daemon JSON-RPC transport. The request body is `AnchorPayload`, the exact seven-member metadata set bound to that table's columns, and it is **metadata only**: the canonical `AnchorPayloadSchema` in `packages/contracts/src/event-anchor.ts` is `.strict()` and carries no `payload`, `events`, or `pii_payload` member, so an upload smuggling event content is REFUSED at parse with `BAD_REQUEST` (400) rather than silently stripped — the structural enforcement of Plan-005 I-005-3-02 and of [ADR-017](../../decisions/017-shared-event-sourcing-scope.md)'s rejection of a shared event log. Event payloads never leave the emitting daemon.
-
-The upsert is **idempotent by range identity**: `INSERT ... ON CONFLICT (session_id, node_id, start_sequence, end_sequence) DO NOTHING RETURNING id`, whose zero-row arm is classified from the statement's own `RETURNING` rows into `{ stored: false }`. A re-upload of an identical range is therefore an acknowledged HTTP 200 success and deliberately **never a 409** — the daemon retries whenever an attempt's outcome is unknown to it, which is the normal case rather than the exceptional one, and an error status would strand the anchor in the local `pending_anchor_uploads` queue permanently. `end_sequence` is part of the key on purpose: a cadence anchor over `[1,1000]` and a wider compaction-covering anchor over `[1,5000]` share a `start_sequence` and MUST coexist, so the key dedups genuine re-uploads of the identical range and nothing else ("covering anchor" at verify time is a coverage test, `start_sequence <= range_start AND end_sequence >= range_end`, per [Spec-005 §Post-Compaction Integrity](../../specs/005-session-event-taxonomy-and-audit-log.md#post-compaction-integrity), never an exact-start match). Because Ed25519 is deterministic ([RFC 8032 §5.1.6](https://www.rfc-editor.org/rfc/rfc8032#section-5.1.6)), a re-signed anchor over the same root is byte-identical, so the conflicting row has nothing to reconcile and the server compares no commitment bytes. An anchor whose `nodeId` is not a machine the caller owns (`runtime_nodes.user_id`), or whose `rootSignature` does not verify under a key [`daemon_signing_public_keys`](../schemas/shared-postgres-schema.md#daemon-signing-public-keys-plan-005--verification-key-roster) holds for its `(sessionId, nodeId)` pair, current or retired, is refused tRPC `FORBIDDEN` (403) — a terminal answer the daemon needs, since re-sending the same body can never pass the check. The control plane keeps no session record, so the session id is checked only through the keys its machine registered. That refusal is also the backstop for node-scope chains: node-scope (sentinel-partitioned) chains anchor LOCALLY only, the daemon's upload worker filtering them out by the `DAEMON_SCOPE_SENTINEL_SESSION_ID` sentinel, no signing key is ever registered for the sentinel, and control-plane witnessing of them is out of scope per [ADR-017 §Node-Scope Anchor Witnessing (Local Only)](../../decisions/017-shared-event-sourcing-scope.md#node-scope-anchor-witnessing-local-only).
-
-The daemon authenticates as the **node-owner user** through the constructor-injected `DaemonCredentialProvider` interface (Plan-005 T3.3, the CP-005-13 shape), minted **per attempt** — a DPoP proof binds to one request, so reuse across attempts is replay ([RFC 9449 §11.1](https://www.rfc-editor.org/rfc/rfc9449#section-11.1)) — and presented as `Authorization: DPoP <token>` per [RFC 9449 §7.1](https://www.rfc-editor.org/rfc/rfc9449#section-7.1), never the `Bearer` form, alongside the proof bound to the attempt's `htm`/`htu` and carrying the token's `ath` hash ([RFC 9449 §4.3](https://www.rfc-editor.org/rfc/rfc9449#section-4.3)). Like the sibling §Signing-Key Registration Method Registry, the provider is dormant until Plan-016's PASETO wiring lands, so an auth failure is a RETRYABLE TRANSPORT failure on a bounded backoff and blocks no code that ships before it: until then the daemon still ANCHORS correctly and `event_log_anchors` is expected-empty, unflushed anchors accumulating durably in `pending_anchor_uploads` and flushing on reconnect.
-
-| Method | Procedure type | Request schema | Response schema |
-| --- | --- | --- | --- |
-| `eventanchor.upload` | `mutation` | `AnchorPayload` | `EventAnchorUploadResponse` — HTTP 200 `{ result: { data: { stored } } }`; control-plane tRPC ONLY, **daemon-called** from the anchor-upload worker (idempotent per the contract paragraph above; no daemon JSON-RPC registration; Plan-005 T3.3) |
-
-```ts
-// EventAnchorUpload — control-plane tRPC ONLY, daemon-called from the anchor-upload worker
-// (Plan-005 T3.3 per CP-005-2; metadata-only per I-005-3-02 / ADR-017).
-// The request is AnchorPayload itself rather than a distinct shape: the wire body IS the anchor,
-// and a second near-identical interface would drift from it.
-interface AnchorPayload {
-  sessionId: SessionId;
-  nodeId: NodeId;
-  startSequence: number; // first session_events.sequence in the anchored range (inclusive)
-  endSequence: number; // last session_events.sequence in the anchored range (inclusive); >= startSequence, mirroring the table CHECK
-  merkleRoot: string; // base64 of exactly 32 bytes — the RFC 9162 §2.1.1 MTH over the range's row_hash entries, BLAKE3 as HASH
-  rootSignature: string; // base64 of exactly 64 bytes — Ed25519 by the emitting daemon's session-scoped key over the ANCHOR CLAIM: the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-005 §Anchoring Cadence (the shipped T3.3 signer takes the preimage update in the immediate Plan-005 follow-up)
-  anchoredAt: string; // ISO 8601 with offset — the DAEMON's timestamp at anchor computation, not the server's now() default
-}
-// NO payload, events, or pii_payload member — AnchorPayloadSchema is .strict(), so a body carrying
-// one is refused BAD_REQUEST (400) at the procedure boundary rather than accepted and stripped.
-interface EventAnchorUploadResponse {
-  stored: boolean; // true = this upload inserted the row; false = an identical range was already stored (idempotent success, NOT 409)
-}
 ```
 
 ---
@@ -3395,6 +3206,12 @@ interface RunStateChangeEvent {
   failureCategory?: RunFailureCategory;
   recoveryCondition?: RecoveryCondition; // named type in §Plan-004 above: 'recovery-needed' | 'reauth-required'
   recoverySpanClassification?: RecoverySpanClassification; // span-content sibling of recoveryCondition
+  // The refusal's members, present only on a `run.failed` whose failureCategory is "refused"
+  // (Spec-005 §Run Lifecycle): the refusing model and the provider's words.
+  model?: string;
+  sentence?: string; // the provider's own sentence, absent when it sent none
+  explanation?: string; // the provider's explanation, shown verbatim
+  safetyCategory?: string; // the provider's open safety category, such as "cyber" or "bio"
   providerFailureDetail?: string; // populated on `run.failed` when failureCategory='provider'; two producers, one field — free-form prose from the resume-failure producer, one fixed `<registered code> origin=<arm>` form from the Spec-004 neutralization tripwire (parse rule in the comment block above)
   completionKind?: "turn" | "task"; // on `run.completed`: whether the completion closes a conversational turn or the whole task — optional in the shared shape only for pre-B1 history; post-B1 emitters MUST set it (Spec-005 §Run Lifecycle run-state payload)
   intendedClose?: true; // daemon-initiated closeSession clean-terminal discriminator: present only on that path, absent on every other terminal; consumers MUST NOT classify such a terminal as a crash (Spec-005 §Run Lifecycle "Intended-close discriminator")
@@ -4110,9 +3927,6 @@ interface ApprovalReviewerDeniedPayload {
   // False where the provider lets no person overrule the block — Claude Code's block without a
   // classifier verdict, and Codex's review that timed out — and the row then carries no button.
   overridable: boolean;
-  // BLAKE3 over the ciphertext in the row's `content_payload`, where the daemon keeps the provider's own
-  // denial; the signature covers this digest, so the stored denial is bound to the row that recorded it.
-  contentCiphertextDigest: string;
 }
 
 // approval.denial_overridden payload — an `approval_flow` event with its own shape. The person pressed
@@ -6559,7 +6373,7 @@ The receipt mints no event type, no error code and no table: it is a decompositi
 
 ### Plan-015 — Workflow Authoring And Execution
 
-A definition has ONE form on the wire and in the store: the node-graph document below. An author writes nodes and edges; the engine runs them, its agent and human node kinds delegating at run time to the daemon's own run-admission, orchestration, approval and form paths, so no second definition form exists to keep in step with it ([Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts)). `WorkflowGateResolveResponse` carries both halves of the SA-26 dual anchor. A member is required unless it is marked optional, and every optional member says when it is absent.
+A definition has ONE form on the wire and in the store: the node-graph document below. An author writes nodes and edges; the engine runs them, its agent and human node kinds delegating at run time to the daemon's own run-admission, orchestration, approval and form paths, so no second definition form exists to keep in step with it ([Spec-015 §Core SDK and persistence contracts](../../specs/015-workflow-authoring-and-execution.md#core-sdk-and-persistence-contracts)). `WorkflowGateResolveResponse` carries the id of the answer's row in `workflow_gate_resolutions`, the row `workflow.gate_resolved` names. A member is required unless it is marked optional, and every optional member says when it is absent.
 
 The visual builder ([Spec-015 §Visual Workflow Builder](../../specs/015-workflow-authoring-and-execution.md#visual-workflow-builder), ADR-026) is why the definition-create request carries the copy-on-write parent pointer, and why `WorkflowToolBinding` exists. Neither promotion to `shared` scope nor the submit half of a file import mints an operation of its own: both ride `workflow.definitionCreate`.
 
@@ -7200,12 +7014,8 @@ interface WorkflowGateResolveRequest {
   feedback?: string;
 }
 interface WorkflowGateResolveResponse {
-  // The SA-26 dual anchor. Every appended workflow_gate_resolutions row is paired with a
-  // session_events row carrying the same values, written in one Plan-013 writer-worker
-  // unit of work, so a partial pair is unreachable and the anchor stays readable through
-  // workflow.gateChainVerify.
+  // The answer's row in workflow_gate_resolutions, which the workflow.gate_resolved event names.
   gateResolutionId: string;
-  rowHash: string; // BLAKE3(prev_hash || JCS-canonical(row_body))
   // When the answer was recorded, which the step panel's past-tense receipt reads.
   decidedAt: string;
 }
@@ -7238,7 +7048,7 @@ interface WorkflowHumanFormDraftSaveResponse {
 // nothing, so the revision stays 0 and the next claimant's first submit succeeds
 // (Spec-015 §Fallback Behavior re-claim). The draft save above carries its own draft
 // counter (its store initializes at 1); that counter guards draft saves only and is
-// never this submit token, which derives from phase_outputs alone.
+// never this submit token, which derives from the step's stored output alone (`workflow_steps`).
 interface WorkflowHumanFormSubmitRequest {
   workflowRunId: WorkflowRunId;
   nodeId: WorkflowNodeId;
@@ -7252,22 +7062,6 @@ interface WorkflowHumanFormSubmitResponse {
   nodeId: WorkflowNodeId;
   outputCount: number;
   submittedAt: string;
-}
-
-// WorkflowGateChainVerify — workflow.gateChainVerify. Operator-triggered, not in the
-// hot path: recomputes each row's BLAKE3 chain link in `sequence` order and
-// cross-checks the paired session_events anchor. Reports the FIRST divergent
-// sequence rather than a bare pass/fail.
-interface WorkflowGateChainVerifyRequest {
-  workflowRunId: WorkflowRunId;
-}
-interface WorkflowGateChainVerifyResponse {
-  workflowRunId: WorkflowRunId;
-  verified: boolean;
-  rowsChecked: number;
-  // Present only when `verified` is false.
-  firstDivergentSequence?: number;
-  divergence?: "row_hash_mismatch" | "sequence_gap" | "missing_event_anchor" | "signature_invalid";
 }
 
 // ---- The builder, the catalog and the runs surface ----
@@ -8042,16 +7836,13 @@ interface WorkflowStepSkippedPayload extends WorkflowStepEventPayload {
 }
 // workflow.gate_resolved — the answer an approval took, in the same vocabulary
 // WorkflowGateResolveRequest uses, on the step it answered or, for a chain's question, on the
-// chain's first run. The answer is this session event, signed by the session's event-signing key
-// like every event, and it names the answering device by its id. The anchor members are the SA-26
-// dual anchor: the durable pairing is unconditional, so this payload carries them rather than
-// leaving the chain extension to a second event type, and no chain-advance type exists.
+// chain's first run. The gate's answer is a session event, and the answering device is recorded
+// by its id; the event names the answer's row in workflow_gate_resolutions by that row's id.
 interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
   nodeId?: WorkflowNodeId; // the human.approval node answered; absent for a chain's question
   outcome: "approved" | "rejected";
   deviceId: string; // the answering device's id
-  gateResolutionId: string;
-  rowHash: string; // BLAKE3(prev_hash || JCS-canonical(row_body))
+  gateResolutionId: string; // the answer's row id in workflow_gate_resolutions
 }
 ```
 
@@ -8068,10 +7859,9 @@ interface WorkflowGateResolvedPayload extends WorkflowRunEventPayload {
 | `workflow.runCancel` | `mutation` | `WorkflowRunCancelRequest` → `WorkflowRunCancelResponse` | The named producer of the `canceled` run status; emits `workflow.canceled` in the same unit of work as the status write (I-015-25); adjudicates `Action::"workflow::cancel"` and refuses `workflow.control_denied`, or `workflow.run_not_cancelable` against a run that ended `succeeded`, `failed` or `crashed` (an already-`canceled` run replays idempotently) |
 | `workflow.runResume` | `mutation` | `WorkflowRunResumeRequest` → `WorkflowRunResumeResponse` | Operator resumption of a parked run, carrying the optional explicit SA-41 re-pin as a request member rather than a method of its own; emits `workflow.resumed` (with the audited re-pin member on an accepted repair); adjudicates `Action::"workflow::resume"` and refuses `workflow.control_denied`, `workflow.resume_not_parked`, or one of the `workflow.repair_*` codes on the re-pin leg |
 | `workflow.stepOutputList` | `query` | `WorkflowStepOutputListRequest` → `WorkflowStepOutputListResponse` | The agent and human steps' output summaries and artifact references, for the CLI and an SDK; one step's full input, output or log comes only from `workflow.stepRead`; a retry adds entries, never changes one (SA-16) |
-| `workflow.gateResolve` | `mutation` | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Answers an approval step, or a chain's question (`approved` keeps going, `rejected` stops them all); appends one chain row plus its `session_events` anchor; emits `workflow.gate_resolved`; refuses `workflow.step_not_waiting` on a step no longer waiting |
+| `workflow.gateResolve` | `mutation` | `WorkflowGateResolveRequest` → `WorkflowGateResolveResponse` | Answers an approval step, or a chain's question (`approved` keeps going, `rejected` stops them all); appends one `workflow_gate_resolutions` row; emits `workflow.gate_resolved`; refuses `workflow.step_not_waiting` on a step no longer waiting |
 | `workflow.humanFormDraftSave` | `mutation` | `WorkflowHumanFormDraftSaveRequest` → `WorkflowHumanFormDraftSaveResponse` | Writes the daemon-held draft of a form step as it is typed; each save bumps the draft's own revision, and a stale one refuses `workflow.revision_stale` (SA-28) |
 | `workflow.humanFormSubmit` | `mutation` | `WorkflowHumanFormSubmitRequest` → `WorkflowHumanFormSubmitResponse` | Optimistic-concurrency submit that resumes the run; refuses `workflow.revision_stale` or `workflow.step_not_waiting` |
-| `workflow.gateChainVerify` | `query` | `WorkflowGateChainVerifyRequest` → `WorkflowGateChainVerifyResponse` | Backs the `sidekicks workflow verify-gate-chain <run_id>` CLI subcommand |
 | `workflow.definitionUpdate` | `mutation` | `WorkflowDefinitionUpdateRequest` → `WorkflowDefinitionUpdateResponse` | A new immutable version of an existing definition, optimistic on the expected version (`workflow.version_stale` when it is stale); an edit to a `shared` definition branches instead of touching the original |
 | `workflow.definitionDelete` | `mutation` | `WorkflowDefinitionDeleteRequest` → `WorkflowDefinitionDeleteResponse` | Soft delete; the runs that pinned its versions stay readable, and the response states how many |
 | `workflow.definitionExport` | `mutation` | `WorkflowDefinitionExportRequest` → `WorkflowDefinitionExportResponse` | Writes the canonical file form of one version, layout section and package locks included, to the file the platform's save dialog picked |
@@ -8209,7 +7999,7 @@ type McpServerBindingRef =
 // Event-side binding identity (Spec-025 §Status Observation and Events): the same discriminated
 // union with the filesystem path replaced by its keyed digest. scopeRef (canonical project root /
 // keying directory) is a user-specific filesystem path — a Spec-020 durable-tier PII class — and
-// event payloads are hash-chained, signed, and replayable, so the raw path never enters them:
+// event payloads are durable and replayable, so the raw path never enters them:
 // project/local variants carry scopeRefDigest — "b3:"-prefixed keyed BLAKE3 (key = the binding's
 // scope-ref subkey, derived from the governance key, which the database holds only sealed under the
 // daemon master key: computable before any event fires) over the canonical scopeRef — a database copy
@@ -8355,7 +8145,7 @@ type McpServerInventoryEntry = McpServerBindingRef & {
   legs?: McpServerLegStatus[]; // per-leg session-feed observations; absent when no live leg exists. Legs are LIVE-session observations with a bounded lifecycle: when a leg's backing runtime binding closes (session end / driver exit), the daemon retires it and recomputes the aggregate — a terminated session's last status never pins `status`
   observedAt?: string; // ISO-8601 of the newest status observation backing `status`
   requiredServer?: boolean; // Codex `required = true` — thread start/resume fails if the server cannot initialize
-  scopeRefDigest?: string; // present for project/local bindings in BOTH arms — the McpServerBindingAuditRef digest, served so clients can join mcp.subscribe / sentinel-chain event payloads to inventory entries without recomputing; derived from the governance key (the scope-ref subkey), so it needs no trust-store row and the key never leaves the daemon
+  scopeRefDigest?: string; // present for project/local bindings in BOTH arms — the McpServerBindingAuditRef digest, served so clients can join mcp.subscribe / sentinel-bound event payloads to inventory entries without recomputing; derived from the governance key (the scope-ref subkey), so it needs no trust-store row and the key never leaves the daemon
 } & (
     | {
         trustUnavailable?: never; // the normal (trust-store-available) arm
@@ -8472,7 +8262,7 @@ interface McpRegistryServer {
 // Every payload embeds the PATH-FREE binding identity via intersection with the
 // McpServerBindingAuditRef union (provider, scope, scopeRefDigest per the scope variant,
 // serverName) — never the raw scopeRef (see the audit-ref comment above): these payloads are
-// durable, hash-chained, signed audit rows, and Spec-025 forbids filesystem paths in them.
+// durable audit rows, and Spec-025 forbids filesystem paths in them.
 type McpServerStatusChangedPayload = McpServerBindingAuditRef & {
   previousStatus: McpServerStatus;
   status: McpServerStatus;

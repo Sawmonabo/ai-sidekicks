@@ -211,7 +211,7 @@ A session's artifacts are held by the daemon on the machine that runs the sessio
 
 - Artifact manifests are durable records and part of replayable session history.
 - Payload storage may differ from manifest storage, but provenance must stay intact across both.
-- Plan-012 owns the `artifact_manifests` table. Plan-009's `diff_artifacts` references manifests via foreign key.
+- Plan-012 owns the `artifact_manifests` table.
 - Local payload reclaim carries **no counter column**. The refcount for a stored CAS payload is derived by counting the surviving payload-reference rows that name its storage key, and the bytes are reclaimed only at zero (§Local Artifact Deletion And CAS Reclaim (V1)). Adding a stored counter is rejected: it is a second source of truth that drifts on any crash between the reference write and the counter write, and drift in the decrementing direction deletes bytes another manifest still names.
 - The ingest stream registry, its per-stream completion records, and the aggregate spool reservation are **in-memory daemon state, deliberately not tables**. A stream dies with the process — its spool goes quiescent for the `mtime` reaper, and a retried `AttachmentIngestComplete` after a restart takes the ordinary 409 restart-from-Init path. Making completion records durable would mint a table for a transient whose whole lifetime is bounded by `max_ingest_stream_lifetime`; the accepted cost is the named residual in §Ingest Validation And Payload Bounds (V1) — a second manifest row over one deduplicated CAS payload.
 - Any redacted or summarized derivative must be a separate artifact with its own manifest and provenance rather than an in-place mutation of the original artifact.
@@ -220,7 +220,7 @@ A session's artifacts are held by the daemon on the machine that runs the sessio
 ## Example Flows
 
 - `Example: A user uploads a design reference image, which becomes an immutable attachment artifact visible to the session.`
-- `Example: A run publishes a diff artifact and a terminal-output artifact. The timeline shows both manifests, but the large terminal payload requires explicit expansion.`
+- `Example: A run publishes a summary artifact and a terminal-output artifact. The timeline shows both manifests, but the large terminal payload requires explicit expansion.`
 - `Example: A user attaches a phone photo that carries its GPS position. The ingest worker applies its orientation, keeps its color profile and drops the GPS position with every other metadata block; the chip, the quick look and the provider all get only that rewritten copy.`
 - `Example: A user stages a screenshot that shows an access token, opens its quick look, zooms in, presses Cover part of it, drags a box over the token and presses Done. The quick look now shows the covered copy, the uncovered one is deleted from the store, and the agent receives only the covered picture.`
 - `Example: A user attaches a 65-page PDF. Its quick look shows page 1 as a picture with the page count, and the agent receives the PDF unchanged.`

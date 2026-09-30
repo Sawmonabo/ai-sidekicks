@@ -65,7 +65,7 @@ flowchart TD
  n016_4B["Plan-014 Phase 4B — session cost receipt"]
  %% Plan-015
  n017_1["Plan-015 Phase 1 — workflow contracts, schema, writer"]
- n017_2["Plan-015 Phase 2 — sequential execution and gate chain"]
+ n017_2["Plan-015 Phase 2 — sequential execution and gate resolution"]
  n017_2B["Plan-015 Phase 2B — usage-limit park and durable pacing"]
  n017_3["Plan-015 Phase 3 — multi-agent and human steps"]
  n017_4["Plan-015 Phase 4 — parallel steps and memory admission"]
@@ -301,7 +301,7 @@ Every phase in a group can be built in parallel; a group opens once the phases i
 |  | [Plan-010 Phase 2](../plans/010-approvals-permissions-and-trust-boundaries.md) | daemon policy and approval services. | Plan-010 Phase 1 |
 |  | [Plan-012 Phase 2](../plans/012-artifacts-files-and-attachments.md) | ingest and publication producers. | Plan-012 Phase 1 |
 |  | [Plan-013 Phase 2](../plans/013-persistence-recovery-and-replay.md) | replay rebuild and recovery status. | Plan-013 Phase 1 |
-|  | [Plan-015 Phase 2](../plans/015-workflow-authoring-and-execution.md) | sequential execution and gate chain. | Plan-015 Phase 1 |
+|  | [Plan-015 Phase 2](../plans/015-workflow-authoring-and-execution.md) | sequential execution and gate resolution. | Plan-015 Phase 1 |
 |  | [Plan-016 Phase 2](../plans/016-identity-and-user-state.md) | identity to user mapping. | Plan-016 Phase 1 |
 |  | [Plan-018 Phase 2](../plans/018-observability-and-failure-recovery.md) | diagnostic-bucket retention. | Plan-018 Phase 1 |
 |  | [Plan-019 Phase 2](../plans/019-rate-limiting-policy.md) | rate-limit backends. | Plan-019 Phase 1 |

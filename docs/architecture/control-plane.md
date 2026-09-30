@@ -20,7 +20,6 @@ The Control Plane exists so a user's devices can reach the machine a session run
 - relay one encrypted channel between each of the user's devices and each of their machines, and say whether each machine's relay connection is up
 - carry push notices each machine has already sealed, adding only the person's own push credentials
 - serve the web client
-- keep each machine's session signing keys and the event-log anchors it uploads, keyed by the machine; the control plane keeps no session record
 
 ## Component Boundaries
 
@@ -32,7 +31,7 @@ The Control Plane exists so a user's devices can reach the machine a session run
 | `Relay Broker` | Relays one Noise channel between each of the user's devices and each of their machines without taking over execution. It holds at most one live connection per key and enforces the per-device quota, and it sees ids, the channel profile, frame sizes and times, never a method, a name or a byte of a session. |
 | `Notification Service` | Carries push notices each machine has already sealed to a device's push key, adding only the person's own APNs, FCM or VAPID credentials. It holds nothing that opens a notice and queues nothing. |
 | `Web Client Host` | Serves the web client: the same front end the desktop runs, which a browser opens or a phone adds to its Home Screen. |
-| `Shared Metadata Store` | Persists the account, the statement chain, the device registry, each machine's registration and session signing keys, and the event-log anchors each machine uploads. It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's daemon is the session's one store. |
+| `Shared Metadata Store` | Persists the account, the statement chain, the device registry and each machine's registration. It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's daemon is the session's one store. |
 
 ## Implementation Home
 

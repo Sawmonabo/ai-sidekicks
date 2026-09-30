@@ -26,9 +26,9 @@ The system is split so that a user's devices can reach a session from anywhere w
 | `Desktop Renderer` | Session UI, orchestration UI, diff and artifact views, approvals, linked devices, and workflow authoring. |
 | `CLI Client` | Scriptable client surface over the same client SDK and daemon contract. |
 | `Local Runtime Daemon` | Session engine, provider drivers, git engine, terminal and tool execution, local persistence, replay, and local policy enforcement. |
-| `Control Plane` | The person's own control plane and relay: identity, the account's statement chain, the device and machine registry, machine registration, the relay between each device and each machine, delivery of push notices each machine has already sealed, the web client, and each machine's session signing keys and event-log anchors. It keeps no session record. |
+| `Control Plane` | The person's own control plane and relay: identity, the account's statement chain, the device and machine registry, machine registration, the relay between each device and each machine, delivery of push notices each machine has already sealed, and the web client. It keeps no session record. |
 | `Local Event Store And Projection Store` | Durable node-local record of run events, receipts, projections, and recovery state. |
-| `Shared Metadata Store` | Durable control-plane record of the account, the statement chain, the device registry, each machine's registration and session signing keys, and the event-log anchors each machine uploads. |
+| `Shared Metadata Store` | Durable control-plane record of the account, the statement chain, the device registry and each machine's registration. |
 
 ## Canonical Implementation Topology
 
@@ -62,7 +62,7 @@ The canonical monorepo layout for implementation is:
 
 ## Transport Protocols
 
-- The control plane uses tRPC v11 for request-response and SSE subscriptions: sign-in, token refresh, device linking, the statement chain, a machine's registration and signing keys, event-log anchors and sealed push notices. The relay's WSS connection speaks binary wire frames, each belonging to one Noise channel between one device and one machine; inside that channel the device drives the machine through its method proxy. The relay reads no method and no byte of a session, so session timelines and run output travel only inside those channels ([ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-014](../decisions/014-trpc-control-plane-api.md)).
+- The control plane uses tRPC v11 for request-response and SSE subscriptions: sign-in, token refresh, device linking, the statement chain, a machine's registration and sealed push notices. The relay's WSS connection speaks binary wire frames, each belonging to one Noise channel between one device and one machine; inside that channel the device drives the machine through its method proxy. The relay reads no method and no byte of a session, so session timelines and run output travel only inside those channels ([ADR-009](../decisions/009-json-rpc-ipc-wire-format.md), [ADR-014](../decisions/014-trpc-control-plane-api.md)).
 - The local daemon uses JSON-RPC 2.0 with LSP-style Content-Length framing over Unix domain socket (named pipe on Windows).
 
 ## Trust Boundaries

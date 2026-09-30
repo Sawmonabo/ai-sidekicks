@@ -2,7 +2,7 @@
 
 Canonical schema for the control plane's shared Postgres database. It is one schema, built whole: there are no numbered migration steps, and every table is in this one schema and its test.
 
-**Storage boundary:** The account and its sign-in state, the person's devices and machines with the signed statement chain that says which of them are trusted, abuse controls, and each machine's event-log anchors and signing keys. The control plane keeps no session record: a device reaches a session only through its machine over the relay, and the machine's service is the session's one store. It stores no artifact either: a session's artifacts stay on the machine that runs it. See [Data Architecture](../data-architecture.md).
+**Storage boundary:** The account and its sign-in state, the person's devices and machines with the signed statement chain that says which of them are trusted, and abuse controls. The control plane keeps no session record: a device reaches a session only through its machine over the relay, and the machine's service is the session's one store. It stores no artifact either: a session's artifacts stay on the machine that runs it. See [Data Architecture](../data-architecture.md).
 
 ---
 
@@ -10,12 +10,12 @@ Canonical schema for the control plane's shared Postgres database. It is one sch
 
 Per [ADR-017: Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), this schema declares the following invariants that constrain all downstream table additions:
 
-1. **Coordination records only.** Shared Postgres stores each device's last-seen time, written from its relay connection at most once a minute, event-log anchors (Merkle-root witnesses, not event payloads), daemon signing-key verification-roster rows (session-scoped Ed25519 PUBLIC keys only — the private halves stay sealed in daemon-local SQLite per ADR-004), device and machine rows (each one PUBLIC key with its algorithm — the private halves stay on the device or the machine and never reach the control plane), and the account's append-only signed statement chain. It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's service is the session's one store. It stores no notification preference and queues no notification: each machine decides and seals every push itself. It holds no attachment of a machine to a session and no heartbeat record, no terminal lease, which is the machine's alone, and no artifact, which stays on the machine that runs the session. It does **not** store event payloads.
+1. **Coordination records only.** Shared Postgres stores each device's last-seen time, written from its relay connection at most once a minute, device and machine rows (each one PUBLIC key with its algorithm — the private halves stay on the device or the machine and never reach the control plane), and the account's append-only signed statement chain. It keeps no session record: a device reaches a session only through its machine over the relay, and the machine's service is the session's one store. It stores no notification preference and queues no notification: each machine decides and seals every push itself. It holds no attachment of a machine to a session and no heartbeat record, no terminal lease, which is the machine's alone, and no artifact, which stays on the machine that runs the session. It does **not** store event payloads.
 2. **No `session_events_shared`, `session_events_global`, or equivalent cross-user event table exists in V1.** The absence is intentional, not an oversight. Grepping this file for `session_events_shared` must return this invariant note — never a table definition. Proposals to add one are out of V1 scope.
 3. **Per-daemon local `session_events` is authoritative** per ADR-017 and [local-sqlite-schema.md](./local-sqlite-schema.md). Each daemon owns its own event log with its own monotonic sequence number; an audit across the person's machines reads each machine's own log, per [Data Architecture §Event-Sourcing Scope](../data-architecture.md#event-sourcing-scope).
 4. **No shared session-event table.** Session events live in each machine's local log ([ADR-017](../../decisions/017-shared-event-sourcing-scope.md)).
 
-These invariants apply to every subsequent `CREATE TABLE` in this schema. Downstream authors extending this file must check compatibility with (1)–(4) before introducing a table whose name or semantics could read as a shared event log. Event-log anchors (see below under `event_log_anchors`) are deliberately metadata-only witnesses and do **not** violate (2).
+These invariants apply to every subsequent `CREATE TABLE` in this schema. Downstream authors extending this file must check compatibility with (1)–(4) before introducing a table whose name or semantics could read as a shared event log.
 
 ---
 
@@ -222,108 +222,14 @@ CREATE TABLE trust_statements (
 
 ---
 
-## Event Log Anchors (Plan-005 — Integrity Witness)
-
-The control plane stores Merkle-root **anchors** (metadata only) for per-daemon event logs; it does **not** store event payloads. This is consistent with [ADR-017 Shared Event-Sourcing Scope](../../decisions/017-shared-event-sourcing-scope.md), which rejected a shared event log for V1, and with [Security Architecture § Audit Log Integrity](../security-architecture.md#audit-log-integrity), which defines the tamper-evidence protocol. The table is part of the one schema, built by Plan-005 T3.3; the DDL is pinned here so the anchor-upload write path and the verification read below share one canonical shape.
-
-```sql
--- Owner: Plan-005 (T3.3)
--- Witness-only storage: Merkle roots + signatures for per-daemon local event logs.
--- Event payloads remain on the emitting daemon's local SQLite; never uploaded here.
--- Session-scoped anchors only. Node-scope (sentinel-partitioned, daemon-scope) chains are witnessed
--- locally only (ADR-017 §Node-Scope Anchor Witnessing (Local Only); Spec-005 §Daemon-Scope Event Binding).
--- Keyed by the machine (node_id, a runtime_nodes id) and the session id. The control plane keeps no
--- session record, so session_id carries no FK, and node_id carries none either: an anchor is retained
--- after user erasure removes its machine's row, as the signing keys that verify it are.
-CREATE TABLE event_log_anchors (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id        UUID NOT NULL,                    -- the anchored session; no control-plane session row exists
-  node_id           TEXT NOT NULL,                    -- the emitting machine's id (runtime_nodes.node_id; roster key)
-  start_sequence    BIGINT NOT NULL,                  -- first session_events.sequence in anchor range
-  end_sequence      BIGINT NOT NULL,                  -- last session_events.sequence in anchor range
-  merkle_root       BYTEA NOT NULL,                   -- 32 bytes; BLAKE3 Merkle root over row_hash leaves
-  root_signature    BYTEA NOT NULL,                   -- 64 bytes; Ed25519 by the emitting daemon over the anchor CLAIM -- the RFC 8785 canonicalization of {endSequence, merkleRoot, nodeId, sessionId, startSequence} per Spec-005 §Anchoring Cadence (coordinates signed, not merkle_root alone)
-  anchored_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  CHECK (end_sequence >= start_sequence),
-  -- end_sequence is part of the key (mirrors local pending_anchor_uploads): a cadence anchor [1,1000] and a wider
-  -- compaction-covering anchor [1,5000] share start_sequence=1 and MUST coexist, so the daemon's ON CONFLICT DO NOTHING
-  -- upload dedups only genuine re-uploads of the identical range. "Covering anchor" at verify time is a coverage test
-  -- (start_sequence <= range_start AND end_sequence >= range_end) per Spec-005 §Post-Compaction Integrity, not exact-start.
-  UNIQUE(session_id, node_id, start_sequence, end_sequence)
-);
-
-CREATE INDEX idx_event_log_anchors_session ON event_log_anchors(session_id, anchored_at DESC);
-CREATE INDEX idx_event_log_anchors_node ON event_log_anchors(node_id, anchored_at DESC);
-```
-
-**Verification**: an audit reader resolves the emitting daemon's Ed25519 public key by `node_id` from the [§Daemon Signing Public Keys](#daemon-signing-public-keys-plan-005--verification-key-roster) verification-key roster below and checks `root_signature` over the anchor claim — the row's coordinates and root together, per [Spec-005 §Anchoring Cadence](../../specs/005-session-event-taxonomy-and-audit-log.md#anchoring-cadence) — so a stored row whose span or log identity was relabeled after signing fails verification rather than passing a coverage test on unsigned coordinates. Signing keys rotate only through `sidekicks rotate-keys`: the roster keeps one current key per `(session_id, node_id)` pair and every earlier key marked retired, so an anchor signed before a rotation keeps verifying under the key that signed it, and a retired key is refused for good, per [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature). Anchor cadence defaults (`ANCHOR_INTERVAL_EVENTS = 1000` events or `ANCHOR_INTERVAL_SECONDS = 300` seconds, whichever first) are set in [Spec-005 § Integrity Protocol](../../specs/005-session-event-taxonomy-and-audit-log.md#integrity-protocol).
-
----
-
-## Daemon Signing Public Keys (Plan-005 — Verification-Key Roster)
-
-The `NodeId`-keyed resolution surface behind [Security Architecture §Per-Event Daemon Signature](../security-architecture.md#per-event-daemon-signature): one current session-scoped Ed25519 PUBLIC key per `(session, node)` pair, with every earlier key kept marked retired, registered by the emitting daemon when its session is admitted, via `runtimenode.signingkeyregister` (daemon-called mutation) and resolved by verifiers via `runtimenode.signingkeyroster` (query) — both registered in the [api-payload §Signing-Key Registration Method Registry](../contracts/api-payload-contracts.md#signing-key-registration-method-registry). The table is part of the one schema, built by Plan-005 T4.10 (Phase 4, CP-005-7 leg B) on the machine registration that [Plan-028 §Phase 3 — The relay and the channel](../../plans/028-remote-control.md#phase-3--the-relay-and-the-channel) builds; the DDL is pinned here so the registration service and the resolution query share one canonical shape.
-
-```sql
--- Owner: Plan-005 (T4.10 per CP-005-7 leg B)
--- Verification keys only: the 32-byte Ed25519 PUBLIC half of the daemon's session-scoped signing
--- keypair (64-char lowercase hex on the wire, hex-decoded at persist). The private half never
--- leaves the emitting daemon (local sealed daemon_signing_keys per ADR-004; local-sqlite-schema.md).
--- One current key per (session, node) pair, every earlier key kept marked retired. A registration
--- presenting a key that differs from the pair's current one is refused with typed
--- runtimenode.signingkeyregister_conflict, never overwritten (the Plan-005 T4.2 refuse_on_rotation
--- mirror), unless it is the registration `sidekicks rotate-keys` makes, which marks the current key
--- retired and registers the new one as current in the same transaction. Rows signed before a
--- rotation keep verifying under the key that signed them; a retired key is refused for good.
--- Every registration is signed by the machine's identity key, so one machine cannot register a key
--- into another machine's slot; a retired machine key is kept and refused through the statement chain's
--- runtimenode.key_rotated, and runtime_nodes.public_key holds only the current one.
--- Deliberately NO user FK: key material is machine-generated and carries no personal data,
--- so this table sits outside the Spec-020 §Erasure Paths Path-2 REFERENCES users(id)
--- closure and SURVIVES user erasure: account deletion never erases a machine, so the session
--- event streams the person's machines keep and the event_log_anchors rows these keys verify are
--- RETAINED post-erasure, and the verification keys are retained with them.
-CREATE TABLE daemon_signing_public_keys (
-  session_id      UUID NOT NULL,                 -- the session the key signs for; the control plane keeps no session record, so no FK
-  node_id         TEXT NOT NULL,                 -- emitting daemon's NodeId (roster key; matches event_log_anchors.node_id)
-  public_key      BYTEA NOT NULL,                -- 32 bytes; Ed25519 public key
-  machine_signature BYTEA NOT NULL,              -- 64 bytes; the machine identity key's Ed25519 signature over the registration, checked against
-                                                 -- runtime_nodes.public_key at write and served on the roster, so a device checks it against its own chain
-  registered_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-  retired_at      TIMESTAMPTZ,                   -- NULL for the pair's current key; set when a rotate-keys registration replaces it, never cleared
-  PRIMARY KEY (session_id, node_id, public_key)  -- a key is stored once per pair, so a retired key never becomes current again
-);
-
-CREATE UNIQUE INDEX idx_daemon_signing_public_keys_current
-  ON daemon_signing_public_keys(session_id, node_id) WHERE retired_at IS NULL;  -- one current key per pair
-```
-
-**Verification**: consistent with the invariants at the top of this file — one current key per `(session, node)` pair plus the keys it retired, never an event log; the session event stream stays in the daemon-local event store per ADR-017.
-
----
-
 ## Lock Ordering Across Shared Tables
 
 This is the canonical home for row-lock ordering over the tables above. Every control-plane transaction that takes row locks on more than one table in this schema acquires them in the order recorded here, in the modes recorded here. A transaction MAY skip a level it does not need — skipping is order-consistent and creates no cycle — but it MUST NOT reorder one. A plan whose ceremony locks only its **own** uncontested tables registers that internal order here as well, so there is exactly one place to read a lock order rather than one per plan.
 
-### The contested chain
-
-```
-runtime_nodes → daemon_signing_public_keys
-```
-
-Signing-key registration is the chain's one registrant and takes both levels.
-
-| Level | Table | Mode | Why this is the weakest sufficient mode |
-| --- | --- | --- | --- |
-| 1 | `runtime_nodes` | `FOR SHARE` on the registering machine's row | The registration checks the caller's ownership (`user_id`) and the machine signature (`public_key`) against this row. `FOR SHARE` conflicts with the `FOR NO KEY UPDATE` that a `runtimenode.key_rotated`, or a relinked machine's new `runtimenode.added`, takes to replace `public_key`, so the key a signature was checked under cannot change before the registration commits; `FOR KEY SHARE` would not conflict with that update |
-| 2 | `daemon_signing_public_keys` | No explicit row-lock mode on registration — the write is `INSERT … ON CONFLICT DO NOTHING` with no conflict target and in-transaction classification, so the current-key partial unique index `(session_id, node_id) WHERE retired_at IS NULL` and the primary key `(session_id, node_id, public_key)` are the serialization points and a raw `23505` is never raised; a rotation's `UPDATE … SET retired_at` takes the current key's row `FOR NO KEY UPDATE` implicitly | A key row is written once and changed once, when a rotation retires it. Two registrations racing for the same pair are settled by the conflict; two rotations racing for the same current key are settled by that row's lock, and the loser re-checks the row once the winner commits, finds it retired and is refused |
-
 ### Registrants
 
-| Registrant | Levels | Per-transaction detail |
+| Registrant | Lock order | Per-transaction detail |
 | --- | --- | --- |
-| Signing-key registration — `runtimenode.signingkeyregister` (Plan-005 T4.10) | 1 → 2 | Holds the machine's `runtime_nodes` row `FOR SHARE` to commit while it checks ownership and the machine signature, then writes level 2 through the conflict; a rotation retires the current key and inserts the new one in the same transaction |
 | WebAuthn ceremony verification (Plan-016 I-016-19) | `webauthn_challenges` → `webauthn_credentials` | A plan's own uncontested pair, registered here rather than in that plan alone. The challenge is consumed by a single `DELETE … RETURNING` (the single-use fence); the same transaction then takes `webauthn_credentials` `FOR UPDATE` before reading the stored signature counter and commits the advance conditionally on the presented value exceeding it. An unlocked read-then-write is defeated by exactly the cloned-authenticator replay the counter exists to detect: two concurrent replays each read the pre-existing value and each find the presented counter greater |
 
 ### Tables that deliberately register nothing

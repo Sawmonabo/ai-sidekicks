@@ -29,7 +29,7 @@ The workflow step model describes how each node of a workflow executes within a 
 
 - A step is not an independent run. An agent step creates runs — `agent.run` through the run admission, `agent.multi-agent` through `orchestration.runCreate` — and each of those runs has its own lifecycle per the run state machine.
 - A step status is not a run status. Step statuses track one node attempt; the workflow run's statuses are in the [Workflow Model](./workflow-model.md).
-- An approval is not a gate between steps. It is a `human.approval` node with `approved` and `rejected` outputs, whose request goes through the Plan-010 approval pipeline and Cedar, and whose resolution is recorded in the run's gate chain.
+- An approval is not a gate between steps. It is a `human.approval` node with `approved` and `rejected` outputs, whose request goes through the Plan-010 approval pipeline and Cedar, and whose resolution is recorded in `workflow_gate_resolutions`.
 - A retry is not unbounded. A node's `retry` is clamped by the engine and never trusted from the document; across runs, the chain's count and its one question bound runs that start runs.
 - A step is not a conversation of its own. `agent.multi-agent` runs a lead and the helpers it starts in the run's own session.
 
@@ -114,7 +114,7 @@ Error handling lives on the node that failed, inside the document body stored on
 - A waiting step is never swept to `crashed` on daemon start and never pruned.
 - A step's payload over 64 KiB becomes an artifact with `artifactType: 'workflow_output'` and the step row keeps the reference; a smaller payload is inline JSON on the step row.
 - A step record stores a secret's reference, never its value, and every resolved secret is redacted from logs and step payloads before they are written.
-- A gate is one of two kinds: a `human.approval` step's question or a chain's question. Each answer is appended to the run's gate chain, keyed by the run, naming the step's node for a `human.approval` gate and no node for a chain's; the chain is never rewritten. A form step is not a gate: its answer is the step's output.
+- A gate is one of two kinds: a `human.approval` step's question or a chain's question. Each answer is appended to `workflow_gate_resolutions`, keyed by the run, naming the step's node for a `human.approval` gate and no node for a chain's; a row is never rewritten. A form step is not a gate: its answer is the step's output.
 
 ## Relationships To Adjacent Concepts
 
@@ -123,7 +123,7 @@ Error handling lives on the node that failed, inside the document body stored on
 - `Run` (from the run state machine) is the execution primitive an agent step uses. Each `agent.run` attempt creates at least one run; each `agent.multi-agent` attempt creates one orchestration run in the workflow run's session.
 - `Agent` executes agent steps. The agent definition is named in the node's own `definition` param.
 - `Artifact` holds a step's payload over 64 KiB as a `workflow_output` artifact, and a step's output can be opened as an artifact.
-- `Approval` (from Plan-010) is what a `human.approval` step raises; its resolution is recorded in the run's gate chain and emitted as `workflow.gate_resolved`.
+- `Approval` (from Plan-010) is what a `human.approval` step raises; its resolution is recorded in `workflow_gate_resolutions` and emitted as `workflow.gate_resolved`.
 - `SessionEvent` timeline captures step events: `workflow.step_started`, `workflow.step_finished`, `workflow.step_failed`, `workflow.step_canceled`, `workflow.step_skipped`, `workflow.gate_resolved`. The list is illustrative; the full set of `workflow.*` types is in [Spec-015 §Workflow Timeline Integration](../specs/015-workflow-authoring-and-execution.md#workflow-timeline-integration).
 
 ## Example Flows

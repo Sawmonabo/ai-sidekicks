@@ -15,11 +15,11 @@
 
 ## Goal
 
-Implement the daemon's diagnostic signals: bounded retention on this machine for its diagnostic buckets, and the loopback `/metrics` endpoint with the audit-integrity families that report a halted session. No client reads a `health.*` method; Settings › Runtime reads the service's status from `daemon.status.read`.
+Implement the daemon's diagnostic signals: bounded retention on this machine for its diagnostic buckets, and the loopback `/metrics` endpoint. No client reads a `health.*` method; Settings › Runtime reads the service's status from `daemon.status.read`.
 
 ## Scope
 
-This plan covers the diagnostic buckets `driver_raw_events`, `command_output` and `tool_traces` (their tables, TTL retention and summary construction; nothing in them leaves the machine) and the daemon's `/metrics` endpoint with its registered families. The retry rules of [Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior) are built where their mechanisms live: the Codex service restart bound with the Codex service's lifecycle, the pane-read retry with the pane reads. The integrity halt's append gate is Plan-005's; its Send refusal is the console composer's; its status line is `daemon.status.read`'s ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)).
+This plan covers the diagnostic buckets `driver_raw_events`, `command_output` and `tool_traces` (their tables, TTL retention and summary construction; nothing in them leaves the machine) and the daemon's `/metrics` endpoint with its registered families. The retry rules of [Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior) are built where their mechanisms live: the Codex service restart bound with the Codex service's lifecycle, the pane-read retry with the pane reads.
 
 ## Non-Goals
 
@@ -42,7 +42,6 @@ Target paths below assume the canonical implementation topology defined in [Cont
 - `packages/runtime-daemon/src/observability/metrics-exposition.ts` — Prometheus `/metrics` endpoint (Spec-024 row 9 daemon scope)
 - `packages/runtime-daemon/src/observability/metrics-registry.ts` — allow-listed metric families with bounded label sets; PII-free by construction
 - `packages/runtime-daemon/src/observability/metrics-auth.ts` — bearer-token / mTLS gate for non-loopback `METRICS_BIND`
-- `packages/runtime-daemon/src/observability/audit-integrity-metrics.ts` — the audit-integrity families driven from the audit log's events (T3.5)
 
 ## PII in Diagnostics
 
@@ -69,7 +68,7 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 - Credential rotation/reload: `METRICS_AUTH_TOKEN_FILE` and `METRICS_TLS_CLIENT_ALLOWLIST_FILE` are change-detected and re-read on the authorization path, so replacing file contents rotates the credential without a daemon restart; a rotated-away token or de-listed fingerprint is rejected from the next request onward with no accept-both grace window (the behavior T3.3's rotation test pins). `METRICS_TLS_CERT_FILE` / `METRICS_TLS_KEY_FILE` / `METRICS_TLS_CLIENT_CA_FILE` take effect on daemon restart.
 - Disable: `METRICS_BIND=off` disables the endpoint entirely. Disabling MUST emit a banner + `security.default.override=metrics_disabled` log event per [Spec-024 §Fallback Behavior](../specs/024-self-host-secure-defaults.md#fallback-behavior).
 
-**Metric families (daemon scope — the relay mounts the equivalent relay-side set).** The daemon registry exposes these families: the Spec-024 row 9a families (D-019-8), the plan-owned `retention_policy_override` warning gauge mandated by [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and required by I-018-3 / T2.7, and the plan-owned audit-integrity families that are the consuming surface of CP-018-3. The plan-owned families are daemon-only — they report diagnostic retention and the daemon's own audit log, which have no relay-side equivalent — and sit outside the row-9a security set, so Spec-024's row-9a enumeration is unchanged. The audit counters live in the daemon's memory and reset when it restarts.
+**Metric families (daemon scope — the relay mounts the equivalent relay-side set).** The daemon registry exposes these families: the Spec-024 row 9a families (D-019-8), the plan-owned `retention_policy_override` warning gauge mandated by [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) and required by I-018-3 / T2.7. The plan-owned gauge is daemon-only — it reports diagnostic retention, which has no relay-side equivalent — and sits outside the row-9a security set, so Spec-024's row-9a enumeration is unchanged.
 
 | Family | Type | Labels (bounded) | Source |
 | --- | --- | --- | --- |
@@ -79,9 +78,6 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 | `backup_success_total` | counter | `kind: "event_end"\|"nightly"\|"manual"` (3 bounded values) | Backup job (Plan-001 + the persistence-hardening plan) |
 | `auto_update_check_status` | gauge | none | Update-notify poller (Plan-006 row 7a) — values: `0=ok`, `1=behind`, `2=poll_failed` |
 | `retention_policy_override` | gauge | none | Diagnostic-bucket retention policy (T2.7) — values: `0` = no TTL override beyond 30 days, `1` = an override > 30 days is active; re-asserted on every daemon startup and on every policy read (I-018-3). Plan-owned per [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics); outside the row-9a set |
-| `audit_integrity_failed_total` | counter | `scope: "session"\|"node"` (2 bounded values: a session's verified range, or the node-scope chain) | Audit-log verifier (Plan-005) — incremented on each `audit_integrity_failed` event; outside the row-9a set (T3.5) |
-| `key_reuse_detected_total` | counter | none | Key-reuse observer (Plan-005) — incremented on each `key_reuse_detected` event; outside the row-9a set (T3.5) |
-| `audit_last_full_verification_timestamp_seconds` | gauge | none | Audit-log verifier (Plan-005) — the Unix time the last full verification of the log finished; outside the row-9a set (T3.5) |
 
 **Rate-limit families are control-plane-side, not daemon-side (Plan-019 D-019-8).** The daemon has no rate-limit enforcer — [Spec-019 §Scope](../specs/019-rate-limiting-policy.md#scope) excludes the local IPC path, and its acceptance criteria assert that local daemon endpoints are not rate-limited — so no daemon-side `rate_limit_trip_total{bucket}` family appears in this table. The canonical rate-limit family set (`rate_limit_trip_total{endpoint,tier}`, `rate_limit_backend_error_total{backend}`, `rate_limit_failclosed_total{backend}`) is owned by [Plan-019](./019-rate-limiting-policy.md#design-decisions), registered + emitted control-plane-side under this section's label invariants (Plan-019 CP-019-4), and exposed on the self-hosted relay's `GET /metrics` by [Plan-028](./028-remote-control.md); the Workers relay writes the same counters as structured log lines, which the person reads in their own Cloudflare dashboard (Plan-019 D-019-15).
 
@@ -91,7 +87,7 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 - Labels MUST be enumerable at compile time — no dynamic label values. Tests assert the full label cardinality per family is bounded by the documented allow-list.
 - Any attempt to emit a label value outside the allow-list MUST throw at emission time, not silently coerce. Emission-time enforcement prevents accidental PII bleed when a new code path adds a metric observation.
 
-**Cardinality ceiling (I-018-1).** Total emitted series across all registered families MUST stay below 200 per daemon instance (the plan-owned families contribute one series each for the label-less families and two for `audit_integrity_failed_total`). Series-count assertion runs in integration tests; exceeding the ceiling is a violation of I-018-1 (not a warning), failing the test until the allow-list tightens.
+**Cardinality ceiling (I-018-1).** Total emitted series across all registered families MUST stay below 200 per daemon instance (the plan-owned `retention_policy_override` gauge contributes one series). Series-count assertion runs in integration tests; exceeding the ceiling is a violation of I-018-1 (not a warning), failing the test until the allow-list tightens.
 
 ## Data And Storage Changes
 
@@ -109,7 +105,7 @@ Plan-018 owns the daemon-side `/metrics` endpoint required by [Spec-024 row 9](.
 
 Load-bearing constraints every Plan-018 PR — and every downstream extension — must preserve. Weakening or removing one is a coordinated cross-plan change, not a local edit. Each entry names the governing clause it grounds in, or declares itself plan-owned.
 
-- **I-018-1 — The daemon `/metrics` cardinality ceiling is a hard limit, not a warning.** Total emitted series across the registered daemon families — the row-9a families, the `retention_policy_override` warning gauge, and the audit-integrity families — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on operator hardware nobody is watching. **Verification.** T3.4.
+- **I-018-1 — The daemon `/metrics` cardinality ceiling is a hard limit, not a warning.** Total emitted series across the registered daemon families — the row-9a families and the `retention_policy_override` warning gauge — stays below 200 per daemon instance. An integration test asserts the live series count; exceeding the ceiling blocks merge until the label allow-list tightens, rather than emitting a warning and shipping. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a states the ceiling ("cardinality ceiling < 200 series per daemon instance"). The merge-blocking enforcement posture layered on top of it is **plan-owned**: the spec states the ceiling but no enforcement mechanism for it. **Why load-bearing.** A metrics endpoint that degrades gracefully past its ceiling degrades silently — series growth is monotonic in practice, so a warning is observed once and then ignored while scrape cost and daemon memory grow unbounded on operator hardware nobody is watching. **Verification.** T3.4.
 - **I-018-2 — Metric labels are PII-free by construction, enforced at emission time.** Label values come from a closed, compile-time-enumerable allow-list per family; no label value derives from user IDs, session IDs, command text, file paths, URLs, tokens, or any free-form content; an out-of-allow-list value throws at emission time rather than being silently coerced or truncated. **Grounds in.** [Spec-024 §Required Behavior](../specs/024-self-host-secure-defaults.md#required-behavior) row 9a ("Labels MUST be bounded and PII-free"), serving [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics). The closed allow-list plus emission-time throw is the **plan-owned** enforcement mechanism for that MUST — the spec states the property, not how it is detected. **Why load-bearing.** `/metrics` is scraped by systems outside the daemon's trust boundary; a single dynamic label value leaks PII to every scraper and every retained scrape sample simultaneously, and truncating or masking it does not help because partial PII is still PII per Spec-018. Throwing at emission converts a silent leak into a loud test failure at the moment a new code path adds an observation. **Verification.** T3.1.
 - **I-018-3 — Diagnostic-bucket retention is TTL-bounded at ≤ 7 days by default, and any longer override announces itself.** All the buckets (`driver_raw_events`, `command_output`, `tool_traces`) default to a ≤ 7-day TTL; an operator override beyond 30 days emits the `retention_policy_override` warning metric on every daemon startup and on every policy read. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Bounded local retention"), with the storage side owned by [Spec-020 §PII Data Map](../specs/020-data-retention-and-gdpr.md#pii-data-map)'s bounded-retention tier. **Why load-bearing.** The buckets capture full prompts, full command arguments, and full tool results by the nature of their purpose; unbounded retention turns diagnostics into an Article-17 escape hatch where erasure obligations are satisfied on canonical stores while the same content persists indefinitely beside them. Repeating the warning on every policy read (not once at startup) is what keeps a long override visible to the operator who inherits the deployment. **Verification.** T2.7.
 - **I-018-4 — Diagnostics never leave the machine, and a compacted summary carries no free text.** The daemon runs no telemetry exporter and sends no diagnostic-bucket row to any sink. Where high-volume tool traces are compacted, the summary is built from counts, categories and durations, never truncated from free text. **Grounds in.** [Spec-018 §PII in Diagnostics](../specs/018-observability-and-failure-recovery.md#pii-in-diagnostics) ("Nothing leaves the machine", "Summary-only retention"). **Why load-bearing.** A summary cut from a prompt keeps part of the prompt past the TTL that bounds the raw row, and truncated personal data is still personal data. **Verification.** T2.8.
@@ -130,19 +126,13 @@ Each entry transcribes an obligation already committed in the named counterparty
 
 **Resolution.** Live and reciprocal. Plan-018's half is I-018-3, implemented by T2.7. Plan-020 places the bound in its retention tiers as Path 3. A new diagnostic bucket added by either side joins the same bound.
 
-### CP-018-3 — Audit-integrity events feed the audit-health surface (⇄ Plan-005 CP-005-10)
-
-**Obligation.** Plan-018 consumes Plan-005's audit-integrity events — `audit_integrity_verified`, `audit_integrity_failed`, `key_reuse_detected` — as the signals that report a failed integrity check or a reused key.
-
-**Resolution.** Live. The consuming surface is three signals, and no dashboard: no screen lists audit events. (1) The daemon's loopback `/metrics` carries `audit_integrity_failed_total{scope}`, `key_reuse_detected_total` and `audit_last_full_verification_timestamp_seconds` (§Prometheus `/metrics` Exposition; T3.5). (2) `sidekicks daemon status` prints one line per halted session, through `daemon.status.read` ([Plan-006 §Phase R1 — Namespace Handlers](./006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)). (3) The halted session's Send refuses with `This session's record failed its integrity check, so nothing more can be added to it.`, and one system message lands with the time; that refusal is the console composer's ([Spec-018 §Required Behavior](../specs/018-observability-and-failure-recovery.md#required-behavior)). `audit_integrity_verified` feeds the gauge's time when it covers the whole log. Plan-005 owns event emission, naming and the append gate that halts the session; Plan-018 owns the metric families.
-
 ## Implementation Steps
 
 - Contracts: See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed schemas this plan consumes.
 
 1. Define the diagnostic redaction policy state, daemon-local.
 2. Implement bounded-retention policy handling for raw diagnostics without weakening canonical diagnosis. Build compacted summaries from counts, categories and durations for every diagnostic bucket, with no exporter and no sink off the machine; emit `retention_policy_override` warning metric when TTL override > 30 days.
-3. Implement Prometheus `/metrics` endpoint with the registered daemon metric families (the row-9a families, the `retention_policy_override` warning gauge, and the audit-integrity families), bounded label sets, bearer/mTLS auth gate for non-loopback `METRICS_BIND`, and emission-time label enforcement (`metrics-exposition.ts`, `metrics-registry.ts`, `metrics-auth.ts`).
+3. Implement Prometheus `/metrics` endpoint with the registered daemon metric families (the row-9a families and the `retention_policy_override` warning gauge), bounded label sets, bearer/mTLS auth gate for non-loopback `METRICS_BIND`, and emission-time label enforcement (`metrics-exposition.ts`, `metrics-registry.ts`, `metrics-auth.ts`).
 
 ## Implementation Phase Sequence
 
@@ -221,8 +211,8 @@ preconditions:
 
 - **T3.1 — `metrics-registry.ts`: allow-listed families with bounded labels.**
   - **Files:** `packages/runtime-daemon/src/observability/metrics-registry.ts` (CREATE)
-  - Register the families §Prometheus `/metrics` Exposition documents — the row-9a daemon families (D-019-8), the plan-owned `retention_policy_override` warning gauge (label-less; the family I-018-3 / T2.7 require), and the audit-integrity families (T3.5) — with their documented bounded label sets. Label values are compile-time enumerable; emitting a value outside the allow-list throws rather than coercing — for the label-less gauge, emitting any label at all throws. No rate-limit family is registered daemon-side — those are control-plane-side per D-019-8.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/metrics-registry.test.ts` (CREATE) — one negative unit test per family asserting an out-of-allow-list label value throws at emission time (for `retention_policy_override`, that any label at all throws); the registry exposes exactly the row-9a families, `retention_policy_override`, and the audit-integrity families; no label value derives from user ids, session ids, command text, file paths, URLs, or tokens.
+  - Register the families §Prometheus `/metrics` Exposition documents — the row-9a daemon families (D-019-8), the plan-owned `retention_policy_override` warning gauge (label-less; the family I-018-3 / T2.7 require) — with their documented bounded label sets. Label values are compile-time enumerable; emitting a value outside the allow-list throws rather than coercing — for the label-less gauge, emitting any label at all throws. No rate-limit family is registered daemon-side — those are control-plane-side per D-019-8.
+  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/metrics-registry.test.ts` (CREATE) — one negative unit test per family asserting an out-of-allow-list label value throws at emission time (for `retention_policy_override`, that any label at all throws); the registry exposes exactly the row-9a families and `retention_policy_override`; no label value derives from user ids, session ids, command text, file paths, URLs, or tokens.
   - **Acceptance:** the registry is the only place a family or label can be introduced, so widening the surface is a reviewable diff.
   - **Spec coverage:** Spec-024 §Required Behavior
   - **Verifies invariant:** I-018-2
@@ -255,22 +245,12 @@ preconditions:
   - **Verifies invariant:** I-018-1
   - **Consumes:** the registry ← T3.1
 
-- **T3.5 — Audit-integrity families.**
-  - **Files:** `packages/runtime-daemon/src/observability/audit-integrity-metrics.ts` (CREATE)
-  - Subscribe to Plan-005's `audit_integrity_failed`, `key_reuse_detected` and `audit_integrity_verified` events and drive the families: `audit_integrity_failed_total{scope}` (`session` for a session's verified range, `node` for the node-scope chain), `key_reuse_detected_total`, and `audit_last_full_verification_timestamp_seconds`, set when a verification covering the whole log finishes. Counters live in memory and reset at restart. No screen reads them.
-  - **Tests:** `packages/runtime-daemon/src/observability/__tests__/audit-integrity-metrics.test.ts` (CREATE) — an `audit_integrity_failed` event for a session range increments the `session` series by one; one on the node-scope chain increments `node`; a `key_reuse_detected` event increments its counter; a full verification sets the gauge to its finish time and a partial one leaves it; a restart starts both counters at zero.
-  - **Acceptance:** an integrity failure or a key reuse is visible on `/metrics` the moment it is recorded.
-  - **Spec coverage:** Spec-018 §Required Behavior (the integrity halt), Spec-018 §Interfaces And Contracts
-  - **Verifies invariant:** I-018-2 (the `scope` label's values are the allow-list)
-  - **Consumes:** the `audit_integrity` events ← [Plan-005](./005-session-event-taxonomy-and-audit-log.md) (CP-018-3 ⇄ CP-005-10); the registry ← T3.1
-
 ## Parallelization Notes
 
-- T2.1's tables can proceed in parallel with T1.3; the metrics registry (T3.1) waits on nothing but Phase 2's merge, and T3.5 needs only Plan-005's event names, which are fixed.
+- T2.1's tables can proceed in parallel with T1.3; the metrics registry (T3.1) waits on nothing but Phase 2's merge.
 
 ## Test And Verification Plan
 
-- Audit-integrity metric tests (T3.5): each `audit_integrity_failed` and `key_reuse_detected` event moves its counter by one under the right label, and a full verification sets the gauge
 - Retention tests proving compaction of raw diagnostics does not erase canonical failure detail or recovery visibility
 - Summary construction (I-018-4): a compacted summary carries counts, categories and durations and none of the free-text fixture's words
 - TTL-bucket-purge-coverage (I-018-3): each bucket expires rows at or before the configured TTL
@@ -303,6 +283,6 @@ preconditions:
 - [ ] Tests added or updated
 - [ ] Verification completed
 - [ ] Related docs updated
-- [ ] Prometheus `/metrics` endpoint lands with the registered daemon metric families (the row-9a families, the `retention_policy_override` warning gauge, and the audit-integrity families), bounded label sets, bearer-token / mTLS auth gate for non-loopback bind, and emission-time label enforcement verified by negative tests (I-018-2)
+- [ ] Prometheus `/metrics` endpoint lands with the registered daemon metric families (the row-9a families and the `retention_policy_override` warning gauge), bounded label sets, bearer-token / mTLS auth gate for non-loopback bind, and emission-time label enforcement verified by negative tests (I-018-2)
 - [ ] Cardinality ceiling (< 200 series per daemon instance) asserted in integration tests and wired into CI (I-018-1)
 - [ ] Diagnostic-bucket discipline verified across every bucket: ≤ 7-day default TTL with `retention_policy_override` warning on every startup and policy read (I-018-3), and compacted summaries built from counts, categories and durations only, with nothing leaving the machine (I-018-4)

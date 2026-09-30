@@ -56,7 +56,7 @@ We will adopt the following V1 toolchain. Every choice is forward-declared as th
 Three integration constraints make these choices reinforce each other rather than stand alone:
 
 1. **Two-ABI native bindings.** The renderer (Electron 41 main + preload via `electron-v123` ABI) and the daemon (Node 24 native ABI) share `better-sqlite3` source but require different compiled binaries. The Electron-ABI axis of this constraint is dissolved for `better-sqlite3` by its 13.0.0 move to Node-API — one platform prebuild serves every Node and Electron version — and the V1 shell target is Electron 44 (ABI 149, Node 24.19), which no 12.x release ever shipped a prebuild for; the `pnpm rebuild` against Electron headers is no longer needed for this module. The isolated-linker rationale stands for any remaining per-ABI native module. pnpm's isolated linker is the only manager primitive that keeps each workspace's `node_modules` resolution-scoped, allowing `pnpm rebuild --filter=@ai-sidekicks/desktop better-sqlite3` against Electron headers without disturbing the daemon's Node build (`pnpm/pnpm#9073`, `WiseLibs/better-sqlite3#1393`). Hoisted layouts (npm, Bun default, Yarn `node-modules`) put a single `better-sqlite3` at `node_modules/better-sqlite3` and break one runtime or the other.
-2. **Hash-chain BLOB ergonomics.** Spec-005's integrity protocol (`prev_hash`, `row_hash`, `daemon_signature`) operates on Buffers — BLAKE3, Ed25519, RFC 8785 JCS canonicalization all consume Node `Buffer`. better-sqlite3 returns BLOBs as `Buffer`; node:sqlite returns `Uint8Array`, requiring an extra `Buffer.from(view)` per read. Across event replay (read-heavy) this is allocation noise we eliminate by binding choice.
+2. **BLOB ergonomics.** better-sqlite3 returns BLOBs as Node `Buffer`; node:sqlite returns `Uint8Array`, requiring an extra `Buffer.from(view)` per read wherever the daemon handles a column as a `Buffer`. Event replay reads the sealed `pii_payload` and `content_payload` columns on every pass, so this is allocation noise we eliminate by binding choice.
 3. **Single-toolchain renderer + Node coverage.** Vitest 4.x with `projects` is the only stable runner that handles Node-class packages, type-only packages, _and_ the React renderer in one toolchain — the renderer project running under a DOM shim (happy-dom), with Browser Mode (Playwright provider, stable since 4.0 / 2025-10-22) available in the same runner for any assertion that later needs a real layout engine. The load-bearing claim is `projects`, not the DOM implementation: one runner, one config, every package. Pairing Vitest with the existing esbuild dependency from the JS-emit toolchain produces zero-config TS execution everywhere.
 
 The pnpm + Turborepo combination is the empirical default among comparable TypeScript monorepos: vercel/turborepo itself runs `pnpm@10.28.0` + Turbo, trpc/trpc runs `pnpm@10.33.1` + Turbo with `engines.node: "^24.0.0"`, vercel/next.js runs pnpm + Turbo throughout (raw `package.json` reads, 2026-04-26). Adoption is corroborating evidence, not the primary justification, but it materially de-risks the integration paths we'll need (pnpm v10 lockfile parsing, `workspace:` protocol semantics, Turbo cache-key derivation).
@@ -84,7 +84,7 @@ A skeptical staff engineer would argue:
 ### Option A: pnpm + Turbo + Vitest + ESLint+Prettier + better-sqlite3 + pg + Node 24 (Chosen)
 
 - **What:** Per [Decision](#decision) table.
-- **Steel man:** Reinforcing constraints (two-ABI bindings, hash-chain BLOB Buffer, single-runner browser+Node coverage) all push to the same combination. Adoption-validated by largest comparable TypeScript monorepos.
+- **Steel man:** Reinforcing constraints (two-ABI bindings, BLOB `Buffer` ergonomics, single-runner browser+Node coverage) all push to the same combination. Adoption-validated by largest comparable TypeScript monorepos.
 - **Weaknesses:** Eight primitive choices to maintain; Turbo telemetry-on-by-default requires explicit opt-out plumbing; ESLint slower than Oxlint; tsc + esbuild dual-tool risk bounded but non-zero.
 
 ### Option B: Bun monorepo (Rejected)
@@ -115,7 +115,7 @@ A skeptical staff engineer would argue:
 
 - **What:** Use the Node.js built-in `node:sqlite` module (added 22.5.0, RC in Node 25.7.0).
 - **Steel man:** Zero native binding to manage. No `electron-rebuild` step. Maintained by the Node.js core team. API parity with better-sqlite3 (synchronous, `prepare`, `function`, `aggregate`, `loadExtension`, sessions). Node 25.x adds `SQLTagStore` LRU.
-- **Why rejected:** (a) on Node 24, the line the service runs, its stability label is Release candidate (1.2) from 24.15.0, not yet Stable (2); (b) BLOB return type is `Uint8Array`, not Node-canonical `Buffer` — every hash-chain read requires an extra wrap; (c) Electron 41 still requires `--experimental-sqlite` flag (`electron/electron#45532`) to use it from the renderer; (d) the SQG benchmark (2026-01-19, Node 22) shows better-sqlite3 ahead by 1.11×–1.67× across `getUserById`, `insertUser`, `updatePostViews`. Re-evaluate when node:sqlite reaches Stability 2 on a Node LTS line we actually run.
+- **Why rejected:** (a) on Node 24, the line the service runs, its stability label is Release candidate (1.2) from 24.15.0, not yet Stable (2); (b) BLOB return type is `Uint8Array`, not Node-canonical `Buffer` — every BLOB read requires an extra wrap; (c) Electron 41 still requires `--experimental-sqlite` flag (`electron/electron#45532`) to use it from the renderer; (d) the SQG benchmark (2026-01-19, Node 22) shows better-sqlite3 ahead by 1.11×–1.67× across `getUserById`, `insertUser`, `updatePostViews`. Re-evaluate when node:sqlite reaches Stability 2 on a Node LTS line we actually run.
 
 ### Option G: postgres.js (porsager) instead of pg (Rejected)
 
@@ -177,7 +177,7 @@ A skeptical staff engineer would argue:
 - Reinforcing primitive choices: pnpm enables Turbo's first-class lockfile support, and `better-sqlite3` 13.x's bundled Node-API prebuilds remove the one per-ABI rebuild the toolchain ever carried (2026-09-01), so the daemon's binding needs no `allowBuilds` entry and Vitest's single-runner Node + browser coverage runs with no compile step.
 - Empirical adoption-validated stack (pnpm + Turbo) confirmed in vercel/turborepo's own repo, trpc/trpc, vercel/next.js (raw `package.json` reads, 2026-04-26).
 - Strong type-aware lint coverage from day one (typescript-eslint full 61-rule set vs Biome's ~10).
-- Hash-chain BLOB ergonomics: `Buffer` end-to-end across BLAKE3 / Ed25519 / RFC 8785 JCS without per-read wrapping.
+- BLOB ergonomics: `Buffer` end-to-end without per-read wrapping.
 - One Node line across the workspace, with security support through 2028-04 (Node 24) rather than 2027-04 (Node 22), and a memory reading on macOS that counts the pages the machine can reclaim.
 - `isolatedDeclarations: true` adopted now is the maximally-smooth preparation for tsgo / TypeScript 7 migration.
 
@@ -225,7 +225,7 @@ The toolchain is locked for V1 but not frozen forever. Each of the following eve
 1. **Oxlint+tsgolint stabilization** — when tsgolint reaches 1.0 stable AND Oxfmt reaches 1.0 stable, evaluate ESLint+Prettier → Oxlint+Oxfmt+tsgolint migration with `@oxlint/migrate`.
 2. **tsgo / TypeScript 7 native compiler stabilization** — when watch-mode incremental rechecking lands and `--build` reaches feature parity with `tsc -b`, evaluate tsc+esbuild → tsgo migration.
 3. **Bun workspace + Turborepo lockfile parity** — when Bun publishes documented isolated-install workspace primitive AND Turborepo gains first-class Bun lockfile support (parity with current pnpm v10/v11 multi-document parsing), evaluate pnpm → Bun migration.
-4. **node:sqlite Stability 2 on Node LTS we run** — when `node:sqlite` reaches Stability 2 on the Node line the service runs (it is Release candidate from Node 24.15.0), evaluate better-sqlite3 → node:sqlite migration. Hash-chain BLOB ergonomics may still favor better-sqlite3, but the dependency-removal benefit becomes load-bearing.
+4. **node:sqlite Stability 2 on Node LTS we run** — when `node:sqlite` reaches Stability 2 on the Node line the service runs (it is Release candidate from Node 24.15.0), evaluate better-sqlite3 → node:sqlite migration. BLOB ergonomics may still favor better-sqlite3, but the dependency-removal benefit becomes load-bearing.
 5. **pnpm 11.0 stable with `minimumReleaseAge` default** — upgrade from pnpm 10 to pnpm 11 as soon as the supply-chain default flips.
 6. **Node 26 ships under new release cadence** — Node 27 onwards (April 2027) every release becomes LTS-eligible per `nodejs.org/en/blog/announcements/evolving-the-nodejs-release-schedule`. Re-evaluate the Node floor under the new cadence.
 7. **Electron drops Chromium-based renderer or `contextBridge`** — separately re-evaluates ADR-016, but cascades to ADR-022 by changing the daemon-renderer ABI relationship and possibly Node target.

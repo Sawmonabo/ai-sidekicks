@@ -16,7 +16,7 @@ Define the operator- and user-facing contract for detecting failures, diagnosing
 
 ## Scope
 
-This spec covers failure categories, the daemon's health signals and where each is read, the product's retry rules, the integrity halt, an app and its service on different versions, and degraded-mode behavior.
+This spec covers failure categories, the daemon's health signals and where each is read, the product's retry rules, an app and its service on different versions, and degraded-mode behavior.
 
 ## Non-Goals
 
@@ -64,8 +64,6 @@ This spec covers failure categories, the daemon's health signals and where each 
 
   A driver marks a failure non-retryable and never defines a retry budget of its own.
 
-- A session whose record fails its integrity check, or whose signing key is found in reuse, takes no new events. The composer's Send refuses with `This session's record failed its integrity check, so nothing more can be added to it.`; one system message, `Integrity check failed`, lands with the time; the session can still be read, forked from its last verified point, and deleted. The daemon's loopback `/metrics` counts integrity failures and key reuse (§Interfaces And Contracts), `sidekicks daemon status` prints one line per halted session, and no screen lists audit events.
-
 ## Default Behavior
 
 - A run's failure detail, carried on its run event, remains durable after bounded raw diagnostic payloads are compacted or removed.
@@ -80,8 +78,7 @@ This spec covers failure categories, the daemon's health signals and where each 
 
 - No `health.*` method exists. What a runtime surface prints about the service — whether it is answering, since when, its version, and how much of the machine's processor and memory it uses, each reading with the time it was taken — is `daemon.status.read` ([Plan-006 §Phase R1 — Namespace Handlers](../plans/006-local-ipc-and-daemon-control.md#phase-r1--namespace-handlers)), which Settings › Runtime and `sidekicks daemon status` read, backed by the supervisor's own status.
 - A run's failure carries its machine-readable failure category on the run's state-transition event, with the recovery condition where one applies. For a provider process that exited, the session's record carries the exit code or signal the daemon observed and the last output the process produced, so the one-line statement is not the only evidence of why it went.
-- The daemon's loopback `/metrics` carries, beside the families [Spec-024 row 9a](./024-self-host-secure-defaults.md#required-behavior) names, `audit_integrity_failed_total{scope}`, `key_reuse_detected_total`, and a gauge of the time of the last full verification. The counters live in the daemon's memory and reset when it restarts.
-- `sidekicks daemon status` prints one line per halted session.
+- The daemon's loopback `/metrics` carries the families [Spec-024 row 9a](./024-self-host-secure-defaults.md#required-behavior) names.
 - See [API Payload Contracts](../architecture/contracts/api-payload-contracts.md) for typed request/response schemas.
 - See [Error Contracts](../architecture/contracts/error-contracts.md) for error response schemas and error codes.
 
@@ -131,7 +128,6 @@ Diagnostic pipelines (driver raw events, raw command output, tool traces) carry 
 - [ ] A Claude Code session slept after 30 idle minutes wakes on the next message with no banner and no row, and a Codex session is never slept.
 - [ ] An app running against the service version before its own works normally; with any other pair of different versions the console is read-only and the working line names the side that is behind, with a press that opens its fix.
 - [ ] A Codex service that dies three times within five minutes is not restarted a fourth time until the person presses `Restart`, and no turn is retried except by `Try again` or `Restart`.
-- [ ] A session whose record fails its integrity check refuses Send with the stated words, can still be read, forked from its last verified point and deleted, increments `audit_integrity_failed_total`, and appears as one line in `sidekicks daemon status`.
 - [ ] Recovery failures remain visible and auditable until resolved.
 
 ## Open Questions

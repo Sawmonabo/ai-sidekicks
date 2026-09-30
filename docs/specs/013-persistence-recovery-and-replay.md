@@ -173,20 +173,18 @@ PRAGMA foreign_keys = ON;
 PRAGMA busy_timeout = 5000;
 ```
 
-The `synchronous = FULL` override is load-bearing. The `better-sqlite3` bundled distribution compiles with `SQLITE_DEFAULT_SYNCHRONOUS=1` (NORMAL), which the maintainers note trades _"a slight loss of durability"_ for WAL throughput ([better-sqlite3 `docs/performance.md`](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/performance.md), fetched 2026-04-19). That trade-off is unacceptable for `session_events` because each row is part of a cryptographic hash chain (see [Spec-005 §Integrity Protocol](005-session-event-taxonomy-and-audit-log.md#integrity-protocol)) — a lost write breaks verifiability irrecoverably.
+The `synchronous = FULL` override is load-bearing. The `better-sqlite3` bundled distribution compiles with `SQLITE_DEFAULT_SYNCHRONOUS=1` (NORMAL), which the maintainers note trades _"a slight loss of durability"_ for WAL throughput ([better-sqlite3 `docs/performance.md`](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/performance.md), fetched 2026-04-19). That trade-off is unacceptable for `session_events` because it is the canonical record replay rebuilds from: an acknowledged write that is lost is a session fact gone for good.
 
 ### Bounded Queue and Batched Transactions
 
 The writer worker consumes events from a bounded in-memory queue. The queue cap is `10_000` events and batches flush at `50` events OR `10 ms`, whichever fires first. Each batch runs under one `db.transaction(fn)` call — the `better-sqlite3` primitive that commits atomically on return and rolls back on throw ([API docs](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/api.md), fetched 2026-04-19).
-
-**Hash-chain serialization within a batch.** [Spec-005 §Integrity Protocol](./005-session-event-taxonomy-and-audit-log.md#integrity-protocol) chains `row_hash` **per `session_id`** (the chain is rooted at the session's sequence-0 zero-fill and each `prev_hash_i = row_hash_{i-1}` is scoped to the same session). Within a single transaction the writer therefore groups pending events by `session_id`, reads each session's last-persisted `row_hash` once at batch start, then for each group processes events in enqueue order: for each event `i` derive `prev_hash_i = row_hash_{i-1}` (from the same session), compute `row_hash_i = BLAKE3(prev_hash_i || canonical_bytes_i)`, sign the canonical envelope with the daemon Ed25519 key, and INSERT. A batch mixing sessions A and B runs two independent chain computations, one per session — never a single cross-session chain. Chain integrity and batching therefore coexist without weakening Spec-005.
 
 ### Backpressure
 
 When the queue is at cap, enqueue semantics dispatch on event category:
 
 - **Canonical state-change events** (every event type tracked by Spec-005 as canonical — `run_lifecycle.*`, `tool_activity.*`, `approval_*`, and all others) — the enqueuing call awaits an internal promise that resolves once the next batch drains; the event is never dropped and the write path never returns a silent failure.
-- **`assistant.thinking_update` only** — dropped at enqueue, with a per-session 1/s-rate-limited `event_dropped` counter emitted via the observability path (not the event log). The counter is tagged `session_id` and `event_type` so operators can distinguish drops across sessions. Per [Spec-005](005-session-event-taxonomy-and-audit-log.md) `assistant.thinking_update` is a non-canonical narration stream; drops preserve end-to-end run semantics and audit verifiability.
+- **`assistant.thinking_update` only** — dropped at enqueue, with a per-session 1/s-rate-limited `event_dropped` counter emitted via the observability path (not the event log). The counter is tagged `session_id` and `event_type` so operators can distinguish drops across sessions. Per [Spec-005](005-session-event-taxonomy-and-audit-log.md) `assistant.thinking_update` is a non-canonical narration stream; drops preserve end-to-end run semantics.
 
 No other event types are drop-eligible. Any future addition to the drop set must be explicit in this spec.
 
@@ -201,7 +199,6 @@ The `sqlite_queue_depth_p99` metric (queue depth at the 99th percentile, sampled
 - [better-sqlite3 performance](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/performance.md) — default `synchronous=NORMAL` trade-off
 - [better-sqlite3 threads](https://github.com/WiseLibs/better-sqlite3/blob/master/docs/threads.md) — per-worker connection pattern
 - [Node.js node:sqlite](https://nodejs.org/api/sqlite.html) — Stability `1.2 — Release candidate` on Node 24 LTS as of 2026-04-19
-- [Spec-005 §Integrity Protocol](005-session-event-taxonomy-and-audit-log.md#integrity-protocol) — per-session hash chain + signature commitments
 - [Spec-018](018-observability-and-failure-recovery.md) — target home for the `persistence_backpressure` alert taxonomy entry (forward-declared above; entry not yet landed)
 
 ## Clock Handling

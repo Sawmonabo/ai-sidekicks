@@ -9,7 +9,7 @@
   '--___--'
 ```
 
-AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agent-to-agent channels, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
+AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Claude Code, Codex) build software in live sessions — steerable agents, agents that delegate to other agents, approval-gated dispatch, git-worktree flow, and Remote Control from any of your linked devices. Every agent runs on your machine, on your own provider subscription. A sidekick is what the app calls an agent on screen; the code and the docs say agent.
 
 <p align="center">
   <img src="assets/hero/desktop-app-hero.png" alt="AI Sidekicks Desktop App" width="100%" />
@@ -37,7 +37,7 @@ AI Sidekicks is an agentic coding desktop runtime: you and your AI sidekicks (Cl
 Today's AI coding tools are single-agent and tied to one terminal. You run one agent at a time, on one machine, against your checkout. There's no way to:
 
 - Run Claude and Codex side-by-side on the same task with coordinated git flow
-- Have one sidekick hand work to another and watch the handoff resolve
+- Have one sidekick hand work to another
 - Pause an agent mid-run, steer its direction, then resume — without losing state
 - Get real approval gates before agents install packages, run migrations, or push code
 - Walk away from the desk and pick the same run back up on another device
@@ -50,7 +50,7 @@ AI Sidekicks exists to solve these problems. It treats **the session** — not t
 
 The first-class object is not `agent`. It is **`session`**.
 
-A session contains the user, agents, runs, channels, repo mounts, approvals, artifacts, and an event log. "Two agents talking," "one user chatting with one agent," and "workflow orchestration" are all different views over the same session and event model.
+A session contains the user, agents, runs, repo mounts, approvals, artifacts, and an event log. "Two agents talking," "one user chatting with one agent," and "workflow orchestration" are all different views over the same session and event model.
 
 ```text
                     ┌──────────────────────────────────┐
@@ -58,7 +58,6 @@ A session contains the user, agents, runs, channels, repo mounts, approvals, art
                     │                                  │
                     │   User         ←  You            │
                     │   Agents       ←  Claude, Codex  │
-                    │   Channels     ←  Chat, Workflow │
                     │   Runs         ←  Active work    │
                     │   Repo Mounts  ←  Git repos      │
                     │   Approvals    ←  Safety gates   │
@@ -76,7 +75,7 @@ You open a session from any linked device, chat directly in it, and attach one o
 
 ### Multi-Agent Sessions
 
-Start a session and attach as many sidekicks as the work needs — Claude and Codex together, each on your own provider subscription, with credentials that never leave the machine. Sidekicks coordinate over channels, hand work to each other, and run under one set of approval policies. Session content — messages, events, artifacts — is end-to-end encrypted in transit between your devices and your runtime node: the relay never sees plaintext.
+Start a session and attach as many sidekicks as the work needs — Claude and Codex together, each on your own provider subscription, with credentials that never leave the machine. Sidekicks hand work to each other, and run under one set of approval policies. Session content — messages, events, artifacts — is end-to-end encrypted in transit between your devices and your runtime node: the relay never sees plaintext.
 
 ### Queue, Steer, Pause, Resume
 
@@ -84,15 +83,15 @@ Real runtime control — not UI illusions. The queue is daemon-backed. Steer is 
 
 ### Approval Gates
 
-9 categories of approval gates (tool execution, file write, network access, destructive git, user input, plan approval, MCP elicitation, workflow gate, and human phase contribution) ensure agents never take unsupervised action on anything that matters. Approve, deny, or set remembered rules.
+7 categories of approval gates (tool execution, file write, network access, destructive git, plan approval, workflow gate, and human step contribution) ensure agents never take unsupervised action on anything that matters. Approve, deny, or set remembered rules.
 
 ### Worktree-First Git Flow
 
-Every coding run binds to a repo mount and execution mode: read-only, branch, worktree, or ephemeral clone. The default is **worktree** — agents work on isolated branches, produce attributed diffs, and prepare PRs without touching your main checkout.
+A session in a project works in one of two places: a worktree of its own, or the checkout the project already has. The default is **a new worktree** — agents work on an isolated branch, produce attributed diffs, and prepare PRs without touching your main checkout. How much a session may change is its permission level, not the place it works.
 
 ### Visibility and Replay
 
-Every message, tool call, approval, diff, state transition, and handoff is recorded as it happens. Any session replays from its event log.
+Every message, tool call, approval, diff, and state transition is recorded as it happens. Any session replays from its event log.
 
 ### Provider Drivers
 
@@ -108,7 +107,7 @@ Agent execution stays on your machine. Any device you have linked drives the sam
 
 ```text
 ┌──────────────────┐     ┌──────────────────┐
-│   Desktop Shell  │     │       CLI        │
+│   Desktop App    │     │       CLI        │
 │   (Electron)     │     │   (sidekicks)    │
 └────────┬─────────┘     └────────┬─────────┘
          │         Typed SDK      │
@@ -143,7 +142,7 @@ Agent execution stays on your machine. Any device you have linked drives the sam
            └─────────────────────┘
 ```
 
-**Desktop Shell** — Electron main process. Thin layer for windowing, native dialogs, notifications, and daemon supervision.
+**Desktop App** — Electron. Its main process is a thin layer for windowing, native dialogs, notifications, and daemon supervision; the React renderer draws every screen over the same typed SDK.
 
 **CLI** — First client delivery track. Proves the typed SDK and IPC contract before the desktop UI ships.
 
@@ -168,12 +167,12 @@ A short alias `sk` installs alongside it; if an unrelated `sk` is already on you
 | Layer | Technology |
 | --- | --- |
 | Language | TypeScript (daemon, CLI, desktop, contracts) |
-| Desktop Shell | Electron |
+| Desktop App | Electron |
 | Desktop UI | React + Vite |
-| Local Database | SQLite (WAL mode, 67 tables) |
-| Shared Database | Postgres (26 tables) |
+| Local Database | SQLite (WAL mode, 59 tables) |
+| Shared Database | Postgres (10 tables) |
 | Auth | PASETO v4 (access + refresh), WebAuthn, DPoP |
-| Relay Encryption | X25519 + XChaCha20-Poly1305 (V1), MLS RFC 9420 (V2) |
+| Relay Encryption | Noise `Noise_KK_25519_ChaChaPoly_SHA256`, one channel per device and machine |
 | State Machines | XState v5 |
 | API Framework | tRPC v11 |
 | IPC | Unix socket (macOS/Linux), named pipe (Windows) |
@@ -191,28 +190,26 @@ V1 ships 21 core features across CLI and Desktop GUI per [ADR-015: V1 Feature Sc
 | # | Feature | Description |
 | --- | --- | --- |
 | 1 | Session creation | Foundational session primitive; any of your linked devices can drive a session you own |
-| 4 | Runtime node attach | Your own machines contribute local compute |
+| 4 | Machine registration | The machine that runs your sessions registers once with the control plane and is reached through the relay |
 | 5 | Single-agent runs | Claude and Codex via provider drivers |
 | 6 | Queue, steer, pause, resume | Real runtime control and interventions |
-| 7 | Approval gates | 9 categories of human-in-the-loop safety |
+| 7 | Approval gates | 7 categories of human-in-the-loop safety |
 | 8 | Repo attach | Bind sessions to git repositories |
 | 9 | Worktree execution | Isolated branches per agent run |
 | 10 | Session timeline | Event-sourced session history, replayable |
 | 11 | Local daemon + CLI | First client over the typed SDK |
 | 13 | Event audit log | Event-sourced persistence backbone |
-| 14 | Artifacts (local + relayed) | Diffs, files, and attachments; an artifact stays fetchable from a linked device while the publishing runtime node is offline via an eager relay pin of E2EE ciphertext, up to the artifact's retention TTL |
-| 15 | Desktop GUI | Electron shell + React/Vite renderer over the same typed SDK |
-| 16 | Multi-agent channels | Agent-to-agent coordination primitives per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
-| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the intercepted `/workflow start` command, the composer affordance, and the `workflow_run` callback tool per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
+| 14 | Artifacts | Diffs, files, and attachments; a session's artifacts stay on the machine that runs it, and every linked device reads them through Remote Control |
+| 15 | Desktop GUI | Electron main process + React/Vite renderer over the same typed SDK |
+| 16 | Multi-agent orchestration | A session's lead agent runs helper agents as child runs inside the session; agents coordinate through run linkage, the session timeline, artifact references and approvals, per [Spec-014](docs/specs/014-multi-agent-orchestration.md) |
+| 17 | Workflow authoring and execution | Full workflow engine with a visual node-graph builder, session/project/shared definition scopes, chat-invoked start (the `/workflow` command root, whose verbs the `/` list shows and completes, and the agent's `workflow_*` tools, `workflow_run` among them, per [ADR-027](docs/decisions/027-chat-invoked-workflow-start.md)), and a park-and-recovery surface — a phase parked on a provider usage limit or a human wait is readable from one run-read and acted on through authorized run-cancel and run-resume operations, the resume carrying the audited definition re-pin — per [Spec-015](docs/specs/015-workflow-authoring-and-execution.md), [ADR-026](docs/decisions/026-visual-node-graph-workflow-authoring.md) |
 | 18 | MCP server configuration and governance | Server-config CRUD, operator-managed trusted-server store, status/health probing, server OAuth per [Spec-025](docs/specs/025-mcp-server-configuration-and-governance.md) + [Plan-025](docs/plans/025-mcp-server-configuration-and-governance.md) |
-| 19 | Session time-travel | Run rollback as a version-guarded intervention plus a forward `run.rolled_back` event, so the log never truncates; durable file restoration rides the turn-snapshot restore leg, and the superseded-turn timeline rendering is built by [Plan-011](docs/plans/011-live-timeline-visibility-and-reasoning-surfaces.md) |
-| 20 | Session goals | Per-session structured goal with set/clear RPC and goal events |
+| 19 | Undo to an earlier message | Put back the conversation and the files, the conversation alone, or the files alone, as one request with one reported result; the conversation goes back through the provider's own cut and the files through the daemon's checkpoints, and every undo is recorded forward, so the log never truncates |
+| 20 | Session goals | `/goal` gives one agent a condition to work toward until it is met, cleared or stopped unmet; a session is never named by its goal |
 | 21 | Session callback tools | Daemon-registered tools exposed into every run, Cedar-governed |
 | 22 | Execution postures and sandbox profiles | Per-run sandbox posture as an authorization input, provider-uniform presets |
-| 23 | Realtime voice channels | Reserved, and capability-gated on upstream Codex realtime-flag stabilization |
+| 23 | Voice (`/voice`) | Dictation into the composer on a Claude Code session; Codex's own realtime voice call on a Codex session |
 | 24 | Remote Control | Drive any session from any of your linked devices with full parity per [Spec-028](docs/specs/028-remote-control.md) + [Plan-028](docs/plans/028-remote-control.md) |
-
-**V1.1 additions:** MLS relay E2EE, plus the criterion-gated sub-feature commitments named in ADR-015 (workflow BIND channel reuse; `human`-phase default timeout; automated GDPR erasure endpoint; direct-first artifact fetch).
 
 ---
 
@@ -239,7 +236,7 @@ Code execution is under way. What is left to build, and the order between the pi
 | Domain Models | [`docs/domain/`](docs/domain/) | State machines, glossary, entity models |
 | ADRs | [`docs/decisions/`](docs/decisions/) | Architectural decision records |
 | Operations | [`docs/operations/`](docs/operations/) | Runbooks, SLOs, on-call routing |
-| V1 Scope | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md) | What ships in V1 vs V2 |
+| V1 Scope | [`docs/architecture/v1-feature-scope.md`](docs/architecture/v1-feature-scope.md) | What V1 ships and what is out of scope |
 | Build Order | `docs/architecture/cross-plan-dependencies.md` | Forward phase DAG and dispatch groups |
 | Contributing | [`CONTRIBUTING.md`](CONTRIBUTING.md) | Branch naming, commit format, PR workflow |
 

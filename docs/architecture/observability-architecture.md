@@ -16,7 +16,7 @@ An agentic coding runtime is only operable if the user and their agents can unde
 
 - provide a canonical event history for replay and audit
 - expose live runtime status, traces, and metrics for local and shared services
-- support the person's own diagnosis of provider failures, halted sessions, and session desyncs on the machine, through the daemon's diagnostic logs, its loopback `/metrics` endpoint, and `sidekicks daemon status`
+- support the person's own diagnosis of provider failures and session desyncs on the machine, through the daemon's diagnostic logs, its loopback `/metrics` endpoint, and `sidekicks daemon status`
 - power user-facing timeline and attention surfaces from authoritative data
 
 ## Component Boundaries
@@ -38,14 +38,14 @@ An agentic coding runtime is only operable if the user and their agents can unde
 
 ## Trust Boundaries
 
-- Audit data must preserve provenance and tamper visibility.
+- Audit data must preserve provenance.
 - Reasoning or tool-output observability must respect artifact visibility and permission policy.
 - Shared telemetry must not expose machine-local secrets that were never meant to leave the runtime node.
 
 ## Failure Modes
 
 - Metrics and traces are healthy but canonical event projection is stale, producing misleading UI.
-- Replay cannot rebuild projections because event integrity is broken or retained history is incomplete.
+- Replay cannot rebuild projections because retained history is incomplete.
 - Diagnostics on the person's relay record more than the relay may see. The relay carries sealed channel frames and knows only ids, the channel profile, frame sizes and times; a diagnostic surface that logs anything beyond that breaks the boundary.
 
 ## Related Domain Docs

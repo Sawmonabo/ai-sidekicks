@@ -11,7 +11,7 @@
 
 ## Context
 
-The system needs durable local execution truth, replay, and recovery on the user's machines, while also needing shared coordination storage for the account's statement chain, the device and machine registry, and each machine's session signing keys and event-log anchors. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
+The system needs durable local execution truth, replay, and recovery on the user's machines, while also needing shared coordination storage for the account's statement chain and the device and machine registry. A single storage model for both concerns would either over-centralize local execution data or under-serve the coordination queries every device makes.
 
 ## Problem Statement
 
@@ -62,7 +62,7 @@ JSON files are too weak for replay-heavy, event-oriented runtime truth. A single
 | # | Assumption | Evidence | What Breaks If Wrong |
 | --- | --- | --- | --- |
 | 1 | Local daemon workloads fit SQLite well. | The persistence spec requires SQLite with WAL for node-local execution truth and restart recovery. | SQLite could become a bottleneck or operational pain. |
-| 2 | Shared coordination data needs relational guarantees. | Statement-chain, device-registry, machine-registration, and signing-key rows are read and written by several of the user's devices and machines at once. | A lighter shared store might suffice. |
+| 2 | Shared coordination data needs relational guarantees. | Statement-chain, device-registry and machine-registration rows are read and written by several of the user's devices and machines at once. | A lighter shared store might suffice. |
 | 3 | The system can keep local and shared data boundaries explicit. | Data architecture and security docs already separate them. | Replication or visibility bugs could blur the model. |
 
 ## Failure Mode Analysis
