@@ -1,52 +1,13 @@
-// Conditional-type negative test against the `PreloadApi` interface.
+// Type-level guard: no property name reachable from `PreloadApi` contains "token", "dpop" or
+// "secret", so no auth material appears on `window.desktopBridge`. The typecheck fails with
+// TS2344 at the `AssertNever<Offenders>` line the moment such a key enters the bridge.
 //
-//   "No auth material (daemon session token, PASETO tokens, DPoP key)
-//   appears anywhere on `window.desktopBridge` — verified by a negative
-//   contract test against the bridge's exposed type."
-//
-// How it works
-// ------------
-// 1. `AllKeys<T>` recursively flattens every string property name reachable
-//    from `T` into a single union. The walker stops at function types (their
-//    `keyof Function` chain is irrelevant) and at primitives (which are not
-//    assignable to `object`).
-// 2. `ContainsForbidden<K>` matches any key whose lowercased form contains
-//    "token", "dpop", or "secret" as a substring, via template-literal
-//    types.
-// 3. `Offenders` is the union of every flattened bridge key that matches one
-//    of the forbidden substrings. The bridge is invariant-compliant iff
-//    `Offenders` is `never`.
-// 4. `AssertNever<T extends never>` is a type-level assertion that fails to
-//    compile (with TS2344: "Type X does not satisfy the constraint 'never'")
-//    if `T` is anything other than `never`. Using `Offenders` as the argument
-//    makes the file fail to typecheck the moment a forbidden key enters the
-//    bridge.
-//
-// Why `AssertNever` instead of `const _: Offenders = null as never`
-// ----------------------------------------------------------------
-// The naive guard `const _g: Offenders = null as never` does NOT enforce the
-// invariant because `never` is assignable to ANY type — the assignment would
-// typecheck regardless of `Offenders`. The constraint-violation pattern
-// (`AssertNever<T extends never>`) is the canonical TS recipe: TS errors
-// with TS2344 when `T` is non-never, which is the failure we want.
-//
-//   • inject `sessionToken: string;` under `PreloadApi["app"]`
-//   • run `pnpm --filter @ai-sidekicks/desktop typecheck`
-//   • expect TS2344 at the `AssertNever<Offenders>` line below
-//   • restore + re-run to confirm typecheck passes
-// This dance is run during the implementing task; subsequent edits to the
-// bridge re-trigger the same check in CI typecheck.
+// `AssertNever<T extends never>` is the guard rather than `const _: Offenders = null as never`,
+// because `never` is assignable to any type and that assignment would typecheck regardless.
 
 import type { PreloadApi } from "./preload-api.js";
 
-/**
- * Flatten every string property name reachable from `T` into a single union.
- *
- * Stops at:
- *   • function types (their `keyof Function` chain is irrelevant and would
- *     otherwise expand into call/apply/bind/name/length/prototype keys)
- *   • primitives (not assignable to `object`, so the conditional terminates)
- */
+/** Every string property name reachable from `T`, stopping at function types and primitives. */
 type AllKeys<T> = T extends (...args: never[]) => unknown
   ? never
   : T extends object
@@ -57,16 +18,9 @@ type AllKeys<T> = T extends (...args: never[]) => unknown
 type BridgeKeys = AllKeys<PreloadApi>;
 
 /**
- * Match any key whose lowercased form contains a forbidden substring.
- * Template-literal types perform substring match with `${string}…${string}`.
- *
- * Distribution: the outer `K extends string ? … : never` wrapper forces TS to
- * distribute the conditional over each member of the input union (e.g., the
- * `BridgeKeys` union below). WITHOUT the wrapper, `Lowercase<K>` is not a
- * naked type parameter so the conditional does NOT distribute — the whole
- * union must satisfy the template-literal extends check, which it almost
- * never does, silently yielding `never` and defeating the invariant check.
- * This is the standard TS recipe for substring-match-over-a-union.
+ * Any key whose lowercased form contains a forbidden substring. The outer `K extends string`
+ * makes the conditional distribute over the union; without it `Lowercase<K>` is not a naked
+ * type parameter, the check silently yields `never`, and the guard passes vacuously.
  */
 type ContainsForbidden<K extends string> = K extends string
   ? Lowercase<K> extends `${string}token${string}`
@@ -78,31 +32,11 @@ type ContainsForbidden<K extends string> = K extends string
         : never
   : never;
 
-/**
- * Union of every bridge key matching a forbidden substring.
- * invariant holds iff this resolves to `never`.
- */
+/** Every bridge key matching a forbidden substring; `never` when the bridge is clean. */
 type Offenders = ContainsForbidden<BridgeKeys>;
 
-/**
- * Type-level constraint failure when `T` is non-never. TS2344 fires at the
- * `AssertNever<Offenders>` instantiation below if `Offenders` is anything
- * other than `never` — i.e., if any key in `PreloadApi` matches the
- * forbidden-substring set.
- *
- * Note: `@typescript-eslint/no-unused-vars` (the rule active in this repo's
- * flat config) does not flag unused type aliases — only unused values. No
- * eslint-disable is required.
- */
+/** Fails to compile (TS2344) when `T` is anything other than `never`. */
 type AssertNever<T extends never> = T;
 
-/**
- * Load-bearing assertion. If `PreloadApi` ever grows a property name
- * matching /token|dpop|secret/i (at any depth), `Offenders` becomes a
- * non-never union and this line fails compilation with TS2344, blocking
- * `pnpm --filter @ai-sidekicks/desktop typecheck`.
- *
- * The `_` prefix matches the repo lint config's `varsIgnorePattern: "^_"`
- * (eslint.config.mjs), but as a type alias it would not be flagged anyway.
- */
+/** Fails the typecheck if `PreloadApi` grows a property name matching /token|dpop|secret/i. */
 type _NoForbiddenKeysOnBridge = AssertNever<Offenders>;

@@ -1,16 +1,15 @@
 // What the Electron preload exposes on `window.desktopBridge`.
 //
-// Every namespace and `app` member is `readonly`, so a compromised renderer cannot reassign
-// `bridge.daemon`. No auth material (daemon session token, PASETO tokens, DPoP key) appears
-// here: `preload-api.test-d.ts` fails the typecheck when any property name at any depth
-// matches /token|dpop|secret/i. Paths reach the renderer only as opaque `FilePathRef` tokens,
-// which main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node
-// built-ins never appear.
+// No auth material (daemon session token, PASETO tokens, DPoP key) appears here:
+// `preload-api.test-d.ts` fails the typecheck when any property name at any depth matches
+// /token|dpop|secret/i. Paths reach the renderer only as opaque `FilePathRef` values, which
+// main mints and dereferences. Raw `ipcRenderer`, `require`, `process` and Node built-ins
+// never appear.
 //
 // The daemon's calls and subscriptions are typed by the daemon's method map in
-// `@ai-sidekicks/contracts`. The control plane's procedure types are still stubs, because the
-// control plane serves no procedure yet. Every other shape is declared here or beside this
-// file in `src/shared/`, with no dependency on the `electron` package.
+// `@ai-sidekicks/contracts`. The control plane's procedure types are stubs until it serves a
+// procedure. Every other shape is declared here or beside this file in `src/shared/`, with no
+// dependency on the `electron` package.
 //
 // A member whose main handler is not built throws `NotImplementedError`; `createStubBridge`
 // is that whole object, and the preload replaces the members main answers.
@@ -38,34 +37,27 @@ import type { AppFacts } from "./app-facts.js";
 import type { AppearanceGrounds, AppearanceRecord } from "./appearance.js";
 import type { DAEMON_STATUS_TOPIC, MainProcessState } from "./daemon-status-topic.js";
 
-/**
- * Control-plane tRPC procedure name brand (stub). Replaced by the typed-procedure union
- * derived from `AppRouter` once the control plane serves a procedure.
- */
+/** Control-plane tRPC procedure name brand (stub until the control plane serves a procedure). */
 export type CpProcedure = string & { readonly __cp_procedure__: never };
 
-/** Control-plane procedure input (stub; the real shape comes from tRPC inference). */
+/** Control-plane procedure input (stub). */
 export type CpInput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
-/** Control-plane procedure output (stub; the real shape comes from tRPC inference). */
+/** Control-plane procedure output (stub). */
 export type CpOutput<P extends CpProcedure> = P extends CpProcedure ? unknown : never;
 
-/** Relay subscription event handler (stub; the relay event shape replaces `unknown`). */
+/** Relay subscription event handler (stub). */
 export type RelayEventHandler = (event: unknown) => void;
 
 /** Handle returned by every subscription. Idempotent: a second call does nothing. */
 export type Unsubscribe = () => void;
 
-/**
- * Opaque reference to a file path. The renderer never sees the raw path: every operation
- * that returns or takes a path uses this token, and main dereferences it.
- */
+/** Opaque reference to a file path; the renderer never sees the raw path, main dereferences it. */
 export type FilePathRef = string & { readonly __brand: "FilePathRef" };
 
 /**
- * What an open dialog answers for each purpose, which also decides what it lets a person
- * pick: `attachFiles` picks files, several at once, for the composer; `importFile` picks
- * one file to import; `pickFolder` picks one folder.
+ * What an open dialog answers for each purpose, which also decides what a person can pick:
+ * `attachFiles` several files for the composer, `importFile` one file, `pickFolder` one folder.
  */
 export interface OpenDialogResults {
   readonly attachFiles: OpenDialogResult;
@@ -82,10 +74,7 @@ export interface OpenDialogOptions<Purpose extends OpenDialogPurpose = OpenDialo
   readonly purpose: Purpose;
 }
 
-/**
- * One file a person picked: its token, and the name and size a chip draws before anything
- * is read. The name is the file's own name, never a folder.
- */
+/** One file a person picked: its token, and the name and size a chip draws before it is read. */
 export interface PickedFile {
   readonly ref: FilePathRef;
   readonly name: string;
@@ -110,20 +99,17 @@ export interface NotificationOptions {}
 /**
  * Whether this machine will show an OS notification for this application.
  *
- * `not-determined` is the state before the person has been asked, the one a fresh install is
- * in; folding it onto `denied` would tell the person the notification center is the only place
- * they will see a notification, on a machine that would show the first one it is sent.
- * `unsupported` is a platform main cannot read the permission on. Only `denied` says the
- * notification center is the only place.
+ * `not-determined` is the state before the person has been asked; it must not fold onto
+ * `denied`, which says the notification center is the only place a notification will show.
+ * `unsupported` is a platform main cannot read the permission on.
  */
 export interface NotificationPermission {
   readonly state: "granted" | "denied" | "not-determined" | "unsupported";
 }
 
 /**
- * One editor the app looks for. `installed` is whether this machine has it, found through
- * the operating system's register of installed apps; one that is not can be shown and not
- * chosen.
+ * One editor the app looks for. `installed` is whether this machine has it, found through the
+ * operating system's register of installed apps; one that is not can be shown, not chosen.
  */
 export interface EditorEntry {
   readonly id: string;
@@ -142,14 +128,10 @@ export type UpdateSelfBlock =
 /**
  * Auto-update state surfaced to the renderer: one arm, and the members every arm may carry.
  *
- * The `idle` arm carries the instant of the last completed check, because the settings
- * read-out has to say when its answer was established; an `idle` with no time behind it reads
- * as "there is no update" when it means "we do not know". It is optional: a build that has
- * never completed a check has no instant to report.
- *
- * `available` is an update the updater found and has not downloaded, with the version and
- * the instant that version was released, both as the update feed states them. `verifying` is
- * the updater checking the downloaded update's signature, before it is ready to install.
+ * `idle` carries the instant of the last completed check so the settings read-out can say when
+ * its answer was established; a build that has never completed a check has none. `available`
+ * is an update found and not downloaded, with its version and release instant as the update
+ * feed states them. `verifying` is the updater checking the downloaded update's signature.
  */
 export type UpdateState = (
   | { readonly status: "idle"; readonly lastCheckedAt?: string }
@@ -164,10 +146,7 @@ export type UpdateState = (
   readonly version?: string;
   /** That version's notes, in plain sentences, drawn under `What changed`. */
   readonly notes?: string;
-  /**
-   * An update a previous run staged and never applied, kept beside whichever arm is current
-   * until an update lands; filled at launch from the updater's cached pending update.
-   */
+  /** An update a previous run staged and never applied, read at launch from the updater's cache. */
   readonly staged?: { readonly version: string };
   /** Set on an install that cannot update itself. */
   readonly cannotUpdateItself?: UpdateSelfBlock;
@@ -177,9 +156,8 @@ export type UpdateState = (
 export type ServiceUpdateStep = "checking" | "downloading" | "verifying" | "waiting" | "restarting";
 
 /**
- * The running work a service update waits for: the sessions and workflow runs by their
- * titles, each opening its own, and the terminal Codex sessions inside the service as a
- * count.
+ * The running work a service update waits for: the sessions and workflow runs by title, and
+ * the terminal Codex sessions inside the service as a count.
  */
 export interface ServiceUpdateWaitingOn {
   readonly sessions: readonly { readonly sessionId: SessionId; readonly title: string }[];
@@ -254,15 +232,14 @@ export type ServiceMoveProgress =
     };
 
 /**
- * The keyboard map: only the rows that differ from the chord they ship with, keyed by the
- * act's command id. A chord string rebinds the act; `null` leaves it with no chord at all.
+ * The keyboard map: only the rows that differ from the shipped chord, keyed by the act's
+ * command id. A chord string rebinds the act; `null` leaves it with no chord.
  */
 export type KeyboardMap = Readonly<Record<string, string | null>>;
 
 /**
- * The keyboard map as main read it, and the repair it made when the file was broken: a
- * broken file reads as the chords the app ships with, main writes it back, and the page says
- * both happened, under the rule the machine settings file follows.
+ * The keyboard map as main read it, and the repair it made when the file was broken: a broken
+ * file reads as the shipped chords and main writes that back.
  */
 export interface KeyboardMapReading {
   readonly map: KeyboardMap;
@@ -283,16 +260,12 @@ export interface BrowserPaneRect {
 }
 
 /**
- * An act the pane performs on its page: the page's own editing, copying its address, and
- * moving focus into it. Back, forward and reload are the daemon's navigation, so history has
- * one owner.
+ * An act the pane performs on its page: its own editing, copying its address, and moving focus
+ * into it. Back, forward and reload are the daemon's navigation, so history has one owner.
  */
 export type BrowserPaneAct = "cut" | "copy" | "paste" | "selectAll" | "copyLink" | "focus";
 
-/**
- * A captured page, for marks: the image as PNG bytes and its size, the scale read from the
- * image itself.
- */
+/** A captured page, for marks: PNG bytes, their size, and the scale read from the image. */
 export interface CapturedPage {
   readonly image: Uint8Array;
   readonly width: number;
@@ -325,10 +298,9 @@ export interface DaemonWire {
 }
 
 /**
- * The one object the preload exposes on `window.desktopBridge`: the daemon's JSON-RPC over
- * IPC and the supervisor's own acts, the control plane's tRPC and relay, the OS calls main
- * makes for the renderer, the auto-updater, the machine's settings file and the keyboard map,
- * the window's own acts and pushes, the preview pane's page host, and read-only build meta.
+ * The one object the preload exposes on `window.desktopBridge`: the daemon's calls and the
+ * supervisor's acts, the control plane, OS calls main makes for the renderer, the updater,
+ * machine settings, the keyboard map, window acts, the preview pane's page host, and build meta.
  */
 export interface PreloadApi {
   readonly daemon: DaemonWire & {
@@ -359,10 +331,9 @@ export interface PreloadApi {
 
   readonly controlPlane: {
     /**
-     * Forwards a control-plane request/response procedure. Relay negotiation is never
-     * reachable here: main negotiates the relay and consumes its token in-process, the
-     * renderer reaches the relay only through `subscribeRelay`, and main's handler rejects
-     * any relay-negotiation procedure.
+     * Forwards a control-plane request/response procedure. The renderer never negotiates the
+     * relay: main does and consumes its token in-process, and the renderer reaches the relay
+     * only through `subscribeRelay`.
      */
     call<P extends CpProcedure>(procedure: P, input: CpInput<P>): Promise<CpOutput<P>>;
     subscribeRelay(sessionId: SessionId, handler: RelayEventHandler): Unsubscribe;
@@ -449,7 +420,7 @@ export interface PreloadApi {
 
 /**
  * Thrown by a preload method whose IPC handler is not wired yet. Its `name` is stable, so a
- * caller can test `error.name === "NotImplementedError"` without importing the class.
+ * caller can test it without importing the class.
  */
 export class NotImplementedError extends Error {
   public constructor(method: string) {
@@ -464,8 +435,7 @@ function stubThrow(method: string): never {
 
 /**
  * The preload API with every round-trip method throwing `NotImplementedError`. The caller
- * supplies the build meta, because only the preload can read what main passed and this module
- * is also compiled into the renderer.
+ * supplies the build meta, because only the preload can read what main passed.
  */
 export function createStubBridge(app: AppFacts): PreloadApi {
   return {

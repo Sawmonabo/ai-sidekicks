@@ -1,5 +1,5 @@
-// The facts main hands a window reach the preload intact, and a platform, an architecture
-// or a memory figure outside what a build runs on never reaches the page.
+// The facts main hands a window reach the preload intact; an unsupported platform,
+// architecture or memory figure never does.
 
 import { describe, expect, it } from "vitest";
 

@@ -1,9 +1,5 @@
 // The appearance record's vocabulary: the theme, the color scheme, the text size and the
-// transcript width.
-//
-// Main keeps the record in its own file and stamps it on every console document before the
-// first paint; a window changes it through the bridge and hears it back through the bridge.
-// Main and the renderer both read these values, so they are declared here once.
+// transcript width. Main and the renderer both read these values, so they are declared here once.
 
 /** The two themes, and no third. */
 export const APPEARANCE_THEMES = ["meridian", "graphite"] as const;
@@ -11,10 +7,7 @@ export const APPEARANCE_THEMES = ["meridian", "graphite"] as const;
 /** One theme. */
 export type AppearanceTheme = (typeof APPEARANCE_THEMES)[number];
 
-/**
- * Every scheme the console renders in. The tuple is the declaration and `ColorScheme`
- * follows from it, so a walk over the list and a switch over the union cannot disagree.
- */
+/** Every scheme the console renders in; `ColorScheme` is derived from this tuple. */
 export const COLOR_SCHEMES = ["light", "dark"] as const;
 
 /** A scheme the console renders in: a resolved answer that always paints something. */
@@ -37,8 +30,8 @@ export interface AppearanceRecord {
 }
 
 /**
- * The current theme's two grounds, as CSS colors. Both are sent, because under `system`
- * main cannot know which one the first frame after an operating-system change needs.
+ * The current theme's two grounds, as CSS colors. Both are sent because under `system` main
+ * cannot know which one the first frame after an operating-system change needs.
  */
 export interface AppearanceGrounds {
   readonly light: string;

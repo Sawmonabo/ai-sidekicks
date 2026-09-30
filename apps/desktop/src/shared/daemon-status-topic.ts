@@ -1,21 +1,16 @@
 // The supervisor's `daemon.status` topic: what main knows about the background service and
 // its link to it, published to every window on `daemon.subscribe`.
 //
-// Main owns the supervisor, so main is the one writer; the renderer is the one reader. The
-// payload is neither the service's own status read (`daemon.status.read`, answered by a
-// running service) nor anything the daemon's method map carries: it has to speak while no
-// service answers at all, at boot, while a start is retried, and on Windows when the service
-// wrote down why it cannot start.
+// Main is the one writer and the renderer the one reader. The topic is not part of the
+// daemon's method map because it must speak while no service answers: at boot, while a start
+// is retried, and on Windows when the service wrote down why it cannot start.
 
 /** The topic's name on `daemon.subscribe`. */
 export const DAEMON_STATUS_TOPIC = "daemon.status";
 
 /**
- * What the handshake settled, as `DaemonHelloAck` carries it.
- *
- * The members are the ack's own: whether the daemon called this build compatible, the
- * version it chose, its full supported set where it sent one, and the reason string on the
- * incompatible arm. The console renders them and compares nothing.
+ * What the handshake settled, as `DaemonHelloAck` carries it. The members are the ack's own;
+ * the console renders them and compares nothing.
  */
 export interface MainProcessNegotiation {
   readonly compatible: boolean;
@@ -28,21 +23,18 @@ export interface MainProcessNegotiation {
   /** The ack's own `reason`, present only on the incompatible arm. */
   readonly reason: string | undefined;
   /**
-   * Which side is behind when the two are outside each other's range: each app accepts its
-   * own service version and the one before it, and the side that is behind is the one whose
-   * update fixes it. Absent while the two are compatible.
+   * Which side is behind when the two are outside each other's range (each app accepts its own
+   * service version and the one before it); its update fixes it. Absent while compatible.
    */
   readonly behind: "app" | "service" | undefined;
 }
 
 /**
- * Where this window stands with its local runtime.
- *
- * The supervisor's steps: `probing` is the startup probe, `starting` the spawn and its
- * readiness wait, `version-incompatible` a refused handshake, `connected` the live link,
- * `reconnecting` the backoff ladder, `offline` that ladder's end, and `stopped` a deliberate
- * shutdown, which is not a failure. `unreported` is the state a window holds before main's
- * first delivery; main never publishes it.
+ * Where this window stands with its local runtime, in the supervisor's steps: `probing` is
+ * the startup probe, `starting` the spawn and its readiness wait, `version-incompatible` a
+ * refused handshake, `connected` the live link, `reconnecting` the backoff ladder, `offline`
+ * that ladder's end, and `stopped` a deliberate shutdown. `unreported` is what a window holds
+ * before main's first delivery; main never publishes it.
  */
 export type DaemonConnection =
   | { readonly kind: "unreported" }
@@ -74,9 +66,9 @@ export type MainProcessKeystoreState = "available" | "unavailable";
 export type WhileSignedOut = "on" | "off" | "passwordOutOfDate" | "notOffered";
 
 /**
- * On Windows, why the service cannot start, as the service's Windows half wrote it down when
- * the connection is absent: WSL not responding, its restarts used up (with the error it gave,
- * word for word), the place it ran in gone, or its connection's name held by another program.
+ * On Windows, why the service cannot start, as the service's Windows half wrote it down: WSL
+ * not responding, its restarts used up (with the error it gave, verbatim), the place it ran
+ * in gone, or its connection's name held by another program.
  */
 export type ServiceCannotStart =
   | { readonly reason: "wslNotResponding" }
@@ -85,11 +77,9 @@ export type ServiceCannotStart =
   | { readonly reason: "connectionNameTaken" };
 
 /**
- * One delivery of the topic, the first being the current state.
- *
- * Every member other than the connection is `undefined` until main has read it, and
- * `undefined` means unreported rather than a default: a console that rendered `os-local`
- * because nothing had said would be claiming a transport posture it never read.
+ * One delivery of the topic, the first being the current state. Every member other than the
+ * connection is `undefined` until main has read it, and `undefined` means unreported, never a
+ * default: rendering `os-local` before anything said so would claim a transport never read.
  */
 export interface MainProcessState {
   readonly connection: DaemonConnection;
@@ -99,10 +89,7 @@ export interface MainProcessState {
   readonly lastHeartbeatAt: string | undefined;
   readonly transport: DaemonTransport | undefined;
   readonly keystore: MainProcessKeystoreState | undefined;
-  /**
-   * Whether this app started the service itself or found one already running, which decides
-   * the opening cover's line.
-   */
+  /** Whether this app started the service itself or found one already running. */
   readonly startedByApp: boolean | undefined;
   /** Windows only; absent elsewhere. */
   readonly whileSignedOut: WhileSignedOut | undefined;
