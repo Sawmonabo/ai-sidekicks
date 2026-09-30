@@ -1,81 +1,12 @@
-// Repo-mount health, workspace health, and execution-mode capability
-// projection
+// Pure projection of repo-mount health, workspace health and execution-mode capabilities. Nothing
+// here touches the filesystem, a clock or a database: the service layer probes and hands in the
+// `{row, probe}` pair.
 //
-// PURE PROJECTION, per the shipped `session/session-projector.ts` precedent:
-// no filesystem call, no clock read, no database handle, no I/O of any kind
-// inside a fold. The service layer (`repo-mount-service.ts` /
-// `workspace-service.ts`) performs the synchronous availability probe the
-// on-read floor mandates and feeds the `{row, probe}` pair in; the functions
-// below turn that pair into a verdict and nothing else. Probe inputs are
-// caller-supplied ARGUMENTS, never imports — which is what lets every branch
-// here be driven deterministically from a test without a temp directory.
-//
-//   • "If a workspace cannot support one or more git-backed execution modes,
-//     the daemon must expose that capability gap explicitly rather than
-//     silently substituting a different mode", and "If a workspace path
-//     becomes unavailable after binding, the workspace transitions to
-//     `stale`".
-//   • `WorkspaceExecutionModeCapabilitiesRead` "must expose which execution
-//     modes are currently valid for the bound repo mount or workspace".
-//   • mount health is the daemon-probed reachability of the canonical root,
-//     `healthy` when that root is present and readable at probe time and
-//     `unreachable` otherwise, with `checkedAt` the instant of the probe that
-//     produced the verdict.
-//
-// Invariants carried here:
-//   • An unavailable execution root is observable as `stale` on every daemon
-//     read surface. This module carries the DERIVATION half:
-//     `computeWorkspaceHealth` answers `stale` for a probe-failed row and
-//     reports that the transition is owed, so every read surface routed
-//     through it observes the same verdict. The persistence half (the
-//     `markStale` write) and the write gate (`assertWritable`) are the
-//     workspace service's, and the "every read surface" universal is closed by
-//     the producers routing their reads through this seam.
-//   • Capability projection never silently substitutes a mode: every mode
-//     absent from `availableModes` appears in `restrictions` with a reason.
-//     Here that is STRUCTURAL, not merely tested. The per-vcs-type profiles
-//     below are TOTAL over `ExecutionMode`, and the per-mode verdict type
-//     admits an unavailable mode only WITH a reason string, so a mode cannot
-//     be dropped from `availableModes` without one — the omission the
-//     invariant forbids is unrepresentable rather than caught after the fact.
-//
-// ----------------------------------------------------------------------------
-// Two-layer health detection: only layer 1 lands here
-// ----------------------------------------------------------------------------
-//
-// Layer 1 is the ON-READ PROBE FLOOR — every health-reporting read surface and
-// every write gate probes filesystem availability synchronously before
-// answering, which is the layer this module projects and the layer that
-// satisfies on its own, with zero scheduler dependency.
-//
-// Layer 2 is the daemon-owned BACKGROUND REFRESH — a periodic re-probe of
-// attached mounts on a daemon idle scheduler. Its wiring is NOT here,
-// deliberately: no idle scheduler exists in this package. The
-// precedent points at compactor, exposes a `tick()` and deliberately declines
-// to invent the scheduler that would own its cadence (its header: "The idle
-// scheduler that owns `tick()` owns the precondition"), and nothing in
-// production code calls that `tick()` yet. Declaring a scheduler seam here to
-// hang a re-probe off would be a premature interface in exactly the way the
-// compactor refused, so the background layer lands with the scheduler. The
-// on-read floor keeps the spec satisfied until then.
-//
-// ----------------------------------------------------------------------------
-// One scope only: this module projects capabilities from a MOUNT
-// ----------------------------------------------------------------------------
-//
-// `repo.executionModeCapabilitiesRead` has two scopes (see the two-scopes note
-// on `WorkspaceExecutionModeCapabilitiesReadRequest` in
-// `@ai-sidekicks/contracts`): a MOUNT-scoped read answers "what could a
-// workspace on this mount do", which is the static matrix below, and a
-// WORKSPACE-scoped read answers "what may THIS workspace do now", which
-// additionally narrows the modes for a `stale` workspace.
-//
-// Whoever lands it MUST route it through the same per-mode verdict shape:
-// narrowing by filtering `availableModes` in a handler would drop a mode
-// without a reason and violate at the one surface the invariant exists to
-// protect. Restricting a mode means giving it a verdict with a reason, in
-// every scope.
-//
+// - An unavailable execution root reads as `stale` on every read surface, detected on read only;
+//   `markStale` and `assertWritable` belong to the workspace service.
+// - Capability projection never silently substitutes a mode: every mode missing from
+//   `availableModes` appears in `restrictions` with a reason, including any narrowing for a
+//   `stale` workspace.
 
 import {
   RepoMountHealthSchema,
@@ -87,72 +18,27 @@ import {
   type WorkspaceState,
 } from "@ai-sidekicks/contracts";
 
-// --------------------------------------------------------------------------
-// Probe input — what the service layer measured, handed in
-// --------------------------------------------------------------------------
-
 /**
- * One synchronous filesystem availability measurement, performed by the
- * service layer and handed to a projection below. Deliberately not an
- * abstraction over HOW the probe ran: this module never learns whether it was
- * a `stat`, an `opendir`, or a cached kernel answer, because the projection is
- * the same either way.
- *
- * `probedPath` is what makes the measurement ATTRIBUTABLE. Every projection
- * that consumes a probe checks it against the path its row declares and
- * refuses a mismatch — see the subject-binding guards below. Without it, a
- * list fold over several workspaces on several mounts that mispairs rows and
- * probes reports a confident, wrong verdict for both rows.
+ * One synchronous filesystem measurement, handed in by the service layer. Every projection checks
+ * `probedPath` against its row's path and refuses a mismatch, so a mispaired fold cannot report a
+ * wrong verdict.
  */
 export interface FilesystemPathProbe {
-  // The absolute path the probe actually measured.
   readonly probedPath: string;
-  // `true` when the path was present and readable at `checkedAt`, `false`
-  // otherwise. Binary because the verdict it feeds is binary:
-  // `RepoMountHealth.status` has exactly two members, and rejects a third "we
-  // did not check" value outright — the on-read floor means every read carries
-  // a fresh verdict.
+  // Binary because `RepoMountHealth.status` has exactly two members.
   readonly reachable: boolean;
-  // ISO 8601 instant of the measurement. The daemon's wall clock, read by the
-  // service layer — never by this module, which owns no clock.
   readonly checkedAt: string;
 }
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
 /**
- * The `repo_mounts` fields the health projection reads — and ONLY those.
- * Narrow and structural on purpose, the same stance the sibling emitter takes
- * on its append seam: naming a full mount-row type here would pre-commit the
- * repo-mount service's row shape from a module that reads one column of it.
- *
- * `state` is deliberately absent. Mount health and mount lifecycle are
- * DISTINCT AXES (health is "the daemon-probed reachability of the mount's
- * canonical root", full stop, and picks `"unreachable"` over `"stale"`
- * precisely so the two vocabularies cannot be confused). A `detached` mount
- * whose root is still on disk is `healthy`; folding the lifecycle state in
- * would invent a semantics neither the spec nor the ratified shape carries.
+ * The `repo_mounts` field the health projection reads. Lifecycle `state` is absent on purpose:
+ * health is root reachability alone, so a `detached` mount whose root is on disk is `healthy`.
  */
 export interface RepoMountHealthRow {
-  // The resolver's absolute, symlink-resolved root — the path health is the
-  // reachability OF, and the only path a mount health probe may target
-  // (every trust-envelope and routing decision keys off `canonical_root`,
-  // never `local_path`).
   readonly canonicalRoot: string;
 }
 
-/**
- * Project one mount's health from the probe of its canonical root — `{status,
- * checkedAt}` derived projection, never a persisted column.
- *
- * Returns the value PARSED through `RepoMountHealthSchema` rather than the
- * object literal: this is a wire shape (`RepoMountReadResponse.health`
- * composes the same schema), so a malformed `checkedAt` fails HERE, at the
- * projection that produced it, instead of surviving to the outbound
- * response-validation boundary where the failure would be attributed to the
- * whole read rather than to the probe.
- */
+/** Projects a mount's health from the probe of its canonical root; throws on a path mismatch. */
 export function computeRepoMountHealth(
   mountRow: RepoMountHealthRow,
   probe: FilesystemPathProbe,
@@ -164,23 +50,11 @@ export function computeRepoMountHealth(
   });
 }
 
-// --------------------------------------------------------------------------
-// --------------------------------------------------------------------------
-
-// Same `_AssertExtends` idiom as the sibling emitter and contracts' event-core:
-// a compile-time assignability pin, with the `_` prefix the root eslint
-// config's `varsIgnorePattern` exempts from `no-unused-vars`. Declared locally
-// rather than imported — a three-word type alias is not worth a module edge.
+// Compile-time assignability pin; the `_` prefix exempts it from `no-unused-vars`.
 type _AssertExtends<A extends B, B> = A;
 
-// The probe-owed / no-probe partition, spelled as two literal rosters so it can
-// be pinned BOTH DIRECTIONS at compile time (the same pair-of-checks idiom as
-// `EXECUTION_MODES_IN_TAXONOMY_ORDER` below): `satisfies` proves every element
-// is a real state, and the two aliases beneath prove the pair is TOTAL over
-// `WorkspaceState` and DISJOINT. A sixth workspace state added to contracts
-// fails the totality pin here instead of silently landing on whichever side a
-// runtime `!has(...)` negation happened to put it — the same silent-default
-// threat `capabilityProfileFor` closes for `vcs_type` with its `never` guard.
+// The probe-owed and no-probe states, pinned total over `WorkspaceState` and disjoint below, so a
+// new workspace state fails a compile instead of landing on one side.
 const PROBE_BEARING_STATE_ROSTER = ["ready", "busy"] as const satisfies readonly WorkspaceState[];
 const NON_PROBE_BEARING_STATE_ROSTER = [
   "preparing",
@@ -201,94 +75,39 @@ type _AssertProbePolicyRostersAreDisjoint = _AssertExtends<
 >;
 
 /**
- * The workspace states that carry a live execution root, and therefore the
- * states for which the on-read floor owes a probe. Exported because the
- * service layer must decide whether to perform the I/O BEFORE it can call
- * `computeWorkspaceHealth`, and the alternative to sharing this set is the
- * service re-deriving the same rule — two copies of one policy, free to drift.
- *
- * The three excluded states are excluded for three different reasons, and each
- * is load-bearing:
- *
- *   • `preparing` — its execution root is in flux by definition (`fs_root`
- *     is updated as the switch completes). There is nothing stable to probe,
- *     and a failed probe of a half-provisioned root would report a fault
- *     where the model expects absence.
- *   • `stale` — already the fault verdict, and NOT auto-healed; see
- *     `computeWorkspaceHealth`.
- *   • `archived` — terminal (archives dependents and they stay historically
- *     linked to completed runs). A probe verdict cannot change a terminal row,
- *     and flipping one to `stale` would resurrect history into an active-fault
- *     state.
+ * The workspace states that carry a live execution root and so owe a probe on read; exported so
+ * the service can skip the I/O for the others. `preparing` has a root in flux, `stale` is already
+ * the fault verdict and never auto-healed, and `archived` is terminal history.
  */
 export const PROBE_BEARING_WORKSPACE_STATES: ReadonlySet<WorkspaceState> = new Set<WorkspaceState>(
   PROBE_BEARING_STATE_ROSTER,
 );
 
-// The complement, module-private: the exported set alone is the policy a
-// consumer needs (probe or don't), while this one exists so the dispatch in
-// `computeWorkspaceHealth` can tell "owes no probe" from "state outside the
-// vocabulary entirely" and fail closed on the latter.
+// The complement, so `computeWorkspaceHealth` fails closed on a state outside the vocabulary.
 const NON_PROBE_BEARING_WORKSPACE_STATES: ReadonlySet<WorkspaceState> = new Set<WorkspaceState>(
   NON_PROBE_BEARING_STATE_ROSTER,
 );
 
-/**
- * The `workspaces` fields the health projection reads — narrow and structural,
- * for the same reason as {@link RepoMountHealthRow}.
- */
+/** The `workspaces` fields the health projection reads, structural like the mount row. */
 export interface WorkspaceHealthRow {
-  // The lifecycle position, which is also the workspace's HEALTH surface on
-  // the wire (`WorkspaceListResponse.workspaces[].state`) — a workspace has no
-  // second health object the way a mount does.
   readonly state: WorkspaceState;
-  // The resolved execution root. `string | null`, matching the nullable
-  // `workspaces.fs_root` column rather than the wire shape's optional
-  // `fsRoot?: string` — a row is not a payload, and a bind legitimately
-  // persists NULL until provisioning completes.
+  // NULL until provisioning completes, like the `workspaces.fs_root` column.
   readonly fsRoot: string | null;
 }
 
-/**
- * One workspace's health as of a read. `observedState` is what every daemon
- * read surface reports; `staleTransitionRequired` tells the service whether
- * that verdict is a CHANGE it must persist through `markStale`.
- */
+/** One workspace's health: the state to report, and whether `markStale` must persist it. */
 export interface WorkspaceHealthProjection {
-  // The state to report. Equal to the row's state except when a probe found
-  // the execution root unavailable, in which case it is `stale`.
+  // The row's state, or `stale` when the probe found the root unavailable.
   readonly observedState: WorkspaceState;
-  // Provenance of the verdict: the probe instant, or `null` for a row whose
-  // state owes no probe (see {@link PROBE_BEARING_WORKSPACE_STATES}) — the two
-  // nulls are one rule, not two cases. Daemon-internal, unlike
-  // `RepoMountHealth.checkedAt`: workspace health rides the wire as `state`
-  // alone, so this value has no response schema to satisfy and is not parsed.
+  // The probe instant, or `null` when none is owed; daemon-internal, the wire carries `state` only.
   readonly checkedAt: string | null;
-  // `true` iff `observedState` differs from the row — i.e. the service owes a
-  // `markStale` write for the verdict just derived. Derived from that
-  // comparison rather than tracked separately, so the two fields cannot
-  // disagree.
   readonly staleTransitionRequired: boolean;
 }
 
 /**
- * Project one workspace's health from its row plus the probe of its execution
- * root, if its state owes one.
- *
- * A successful probe of a `stale` workspace's root reports `stale`, unchanged.
- * Recovering a workspace because a path reappeared would substitute a probe
- * for the repair the operator never performed. `stale` is therefore not
- * probe-bearing at all, and the caller is refused if it probes one.
- *
- * Fails closed on every row/probe pairing the model does not produce, rather
- * than answering from a partial input: a projection that quietly returned the
- * row's own state for a caller that skipped the probe would report `ready` for
- * a workspace nobody checked — the exact failure exists to prevent, and one no
- * downstream surface could detect.
- *
- * @param probe the measurement of `workspaceRow.fsRoot`, or `null` for a row
- *   whose state owes none. REQUIRED for a probe-bearing state and FORBIDDEN
- *   otherwise; either mismatch throws.
+ * Projects a workspace's health from its row and the probe of its root. The probe is required for
+ * a probe-bearing state and forbidden otherwise, and a mismatch throws rather than answering from
+ * partial input. A reachable probe never heals a `stale` workspace.
  */
 export function computeWorkspaceHealth(
   workspaceRow: WorkspaceHealthRow,
@@ -311,11 +130,7 @@ export function computeWorkspaceHealth(
     };
   }
   if (!PROBE_BEARING_WORKSPACE_STATES.has(workspaceRow.state)) {
-    // Positive membership on BOTH sides, never a negation: a state string
-    // outside the closed vocabulary (a raw database row past the compiler)
-    // lands here rather than inheriting whichever branch a `!has(...)` would
-    // have handed it. Guessing either policy would answer a health read from
-    // a row the model does not describe.
+    // Positive membership on both sides, so a state outside the closed vocabulary fails closed.
     throw new Error(
       "computeWorkspaceHealth: no probe policy is registered for workspace state " +
         `"${String(workspaceRow.state)}". Every value of the closed WorkspaceState union is ` +
@@ -340,48 +155,27 @@ export function computeWorkspaceHealth(
     );
   }
   assertProbeTargets(probe, workspaceRow.fsRoot, "workspace's execution root");
-  // The ONLY health transition this projection derives. A reachable root
-  // leaves the row's state untouched — `busy` stays `busy`, and this module
-  // takes no position on run holds.
+  // The only health transition derived here; a reachable root leaves the state untouched.
   const observedState: WorkspaceState = probe.reachable ? workspaceRow.state : "stale";
   return {
     observedState,
     checkedAt: probe.checkedAt,
-    // Which transitions are LEGAL to persist (notably `busy -> stale`, where a
-    // run is holding the workspace whose root just vanished) is the workspace
-    // service's call, not this module's. The projection reports what a reader
-    // must be told; the service decides what it may write.
+    // Whether it is legal to persist (notably `busy -> stale`) is the workspace service's call.
     staleTransitionRequired: observedState !== workspaceRow.state,
   };
 }
 
-// --------------------------------------------------------------------------
-// Execution-mode capabilities — V1 static matrix
-// --------------------------------------------------------------------------
-//
-// STATIC BY `vcs_type`, by ratified decision. V1 does NOT probe per-repository
-// worktree availability at capability-read time (accepted trade-off): that
-// surfaces at provisioning time through failure path, which is the surface. A
-// later probe-derived matrix extends `restrictions` additively without a
-// contract change, which is why the verdict table below is keyed by mode
-// rather than by a boolean list.
+// The matrix is keyed by `vcs_type` alone: worktree availability is not probed at read time, and a
+// mode that cannot be provisioned fails at provisioning.
 
-/**
- * One mode's standing for one kind of mount. The unavailable arm REQUIRES a
- * reason, and that requirement is the whole design: it is what makes a
- * property of the type rather than of a test. A mode cannot be excluded
- * silently because there is no way to spell an exclusion without saying why.
- */
+/** One mode's standing for one kind of mount; the unavailable arm requires a reason. */
 type ExecutionModeVerdict =
   | { readonly available: true }
   | { readonly available: false; readonly reason: string };
 
 /**
- * The capability answer for one `vcs_type`, before it is folded into the wire
- * shape. `Record<ExecutionMode, ...>` makes the verdict table TOTAL over the
- * canonical mode taxonomy — a mode added in contracts fails THIS compile rather
- * than silently arriving with no standing at all, which would leave it neither
- * available nor restricted.
+ * The capability answer for one `vcs_type`. The `Record<ExecutionMode, ...>` makes the verdict
+ * table total, so a mode added in contracts fails this compile.
  */
 interface VcsTypeCapabilityProfile {
   readonly defaultMode: ExecutionMode;
@@ -390,8 +184,7 @@ interface VcsTypeCapabilityProfile {
 
 // A git mount: both modes, nothing restricted.
 const GIT_CAPABILITY_PROFILE = {
-  // Coding runs default to a `provisioned-worktree` rather than mutating the
-  // main checkout.
+  // Coding runs default to a worktree rather than mutating the main checkout.
   defaultMode: "provisioned-worktree",
   modeVerdicts: {
     "bound-root": { available: true },
@@ -399,15 +192,7 @@ const GIT_CAPABILITY_PROFILE = {
   },
 } as const satisfies VcsTypeCapabilityProfile;
 
-// The canonical taxonomy order, which is the order `availableModes` and
-// `restrictions` are emitted in — deterministic output, so a test may compare
-// against a literal array and a reader sees the modes in the order every
-// document lists them.
-//
-// The pair of checks is what makes this a faithful enumeration rather than a
-// hand-kept list: `satisfies` proves every ELEMENT is a real mode, and the
-// assertion below proves every MODE is an element. Neither direction alone
-// would catch a mode added to contracts and forgotten here.
+// The taxonomy order in which `availableModes` and `restrictions` are emitted, pinned total below.
 const EXECUTION_MODES_IN_TAXONOMY_ORDER = [
   "bound-root",
   "provisioned-worktree",
@@ -418,24 +203,12 @@ type _AssertTaxonomyOrderIsExhaustive = _AssertExtends<
   (typeof EXECUTION_MODES_IN_TAXONOMY_ORDER)[number]
 >;
 
-/**
- * The `repo_mounts` field the capability projection reads — narrow and
- * structural, for the same reason as {@link RepoMountHealthRow}.
- */
+/** The `repo_mounts` field the capability projection reads. */
 export interface ExecutionModeCapabilityRow {
-  // Fixed at resolution time. The capability matrix keys off it and off
-  // nothing else.
   readonly vcsType: VcsType;
 }
 
-/**
- * Project the execution modes a workspace on this mount may use, with an
- * explicit reason for every mode it may not.
- *
- * The answer depends on the mount's `vcs_type` and on nothing else in V1 — see
- * the static-matrix note above, and the two-scopes note in the file header for
- * why a per-workspace answer is a different surface.
- */
+/** Projects a mount's allowed execution modes, with a reason for each mode it does not allow. */
 export function computeExecutionModeCapabilities(
   mountRow: ExecutionModeCapabilityRow,
 ): WorkspaceExecutionModeCapabilitiesReadResponse {
@@ -443,13 +216,8 @@ export function computeExecutionModeCapabilities(
 }
 
 /**
- * Resolve the profile for one `vcs_type`. A `switch` with a `never` default
- * rather than a lookup table: the `never` binding makes a new `VcsType` member
- * fail this compile, AND the throw fails closed at runtime for a value that
- * reached here past the compiler (a raw database row, a plain-JS caller).
- * Answering an unrecognized `vcs_type` with the git profile would claim git
- * modes for a mount that is not a git repository. There is no safe default, so
- * there is no default.
+ * Resolves the profile for one `vcs_type`. The `never` binding fails the compile for a new member,
+ * and the throw fails closed for a raw database value instead of answering with git modes.
  */
 function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
   switch (vcsType) {
@@ -467,16 +235,10 @@ function capabilityProfileFor(vcsType: VcsType): VcsTypeCapabilityProfile {
   }
 }
 
-/**
- * Fold one profile's verdict table into the wire shape.
- */
 function projectCapabilityProfile(
   profile: VcsTypeCapabilityProfile,
 ): WorkspaceExecutionModeCapabilitiesReadResponse {
-  // Mutable, matching the wire shape's `ExecutionMode[]` (the canonical doc
-  // spells it mutable), and freshly built PER CALL rather than memoized off
-  // the static profile: a shared array handed to every caller is one caller's
-  // `.push` away from corrupting every later response.
+  // Built fresh per call: a shared array is one caller's `.push` from corrupting later responses.
   const availableModes: ExecutionMode[] = [];
   const restrictions: Partial<Record<ExecutionMode, string>> = {};
   for (const executionMode of EXECUTION_MODES_IN_TAXONOMY_ORDER) {
@@ -490,36 +252,15 @@ function projectCapabilityProfile(
   return {
     availableModes,
     defaultMode: profile.defaultMode,
-    // OMITTED ENTIRELY when nothing is restricted, not sent as `{}` — the wire
-    // shape declares `restrictions` optional and the canonical doc omits the
-    // whole field for an unrestricted answer. The declared `| undefined` means
-    // an explicit `undefined` key would still type-check, so the omission is
-    // enforced here by the conditional spread, not by the compiler.
+    // Omitted, not `{}`, when nothing is restricted; the spread stops an explicit `undefined` key.
     ...(Object.keys(restrictions).length > 0 ? { restrictions } : {}),
   };
 }
 
-// --------------------------------------------------------------------------
-// Shared guards
-// --------------------------------------------------------------------------
-
 /**
- * Refuse a probe that measured something other than the row's own path.
- *
- * BYTE EQUALITY, deliberately not the case-folded, component-aware comparison
- * the trust-envelope validator performs. Those semantics answer "is this path
- * inside that one" for USER-SUPPLIED input; this guard answers "did the caller
- * probe the row it handed me", and the caller's only lawful source for
- * `probedPath` is the very row it passed — both values are daemon-produced and
- * already canonical. A normalizing comparison would accept a probe of a
- * DIFFERENT path that merely normalizes alike, which is the case this guard
- * exists to catch.
- *
- * Neither path appears in the message: a daemon error can reach a remote
- * caller through the JSON-RPC error mapping, and filesystem paths are not
- * disclosed there (the same sanitization discipline that keeps the attempted
- * path out of a trust-envelope violation). The call site identifies the
- * mispairing without them.
+ * Refuses a probe that measured something other than the row's own path. Compares bytes, not the
+ * trust-envelope validator's normalized semantics, so a probe of a path that merely normalizes
+ * alike is refused. Neither path appears in the message, as paths stay out of errors callers see.
  */
 function assertProbeTargets(
   probe: FilesystemPathProbe,
@@ -535,37 +276,14 @@ function assertProbeTargets(
   }
 }
 
-// --------------------------------------------------------------------------
-// Static-matrix validation, once at import
-// --------------------------------------------------------------------------
-
-// Every `vcs_type`, pinned both directions like the rosters above: `satisfies`
-// proves each element is a real member, and the alias beneath proves no member
-// is missing — so a new `VcsType` cannot leave the validation below silently
-// covering a subset of the profiles `capabilityProfileFor` dispatches to.
+// Every `vcs_type`, pinned like the rosters above, so the validation below covers every profile.
 const ALL_VCS_TYPES = ["git"] as const satisfies readonly VcsType[];
 type _AssertVcsTypeRosterIsComplete = _AssertExtends<VcsType, (typeof ALL_VCS_TYPES)[number]>;
 
 /**
- * Parse each profile's projection through the canonical response schema and
- * check that its `defaultMode` is one a caller may actually use.
- *
- * Driven by the pinned `ALL_VCS_TYPES` roster THROUGH `capabilityProfileFor`,
- * not over a hand-kept profile list: in a module whose thesis is that
- * hand-kept lists drift, the validator's own enumeration must not be one. A
- * profile reachable from the dispatch cannot be skipped here, and the dispatch
- * itself is exercised once per member at import.
- *
- * At IMPORT, not per call: the matrix is static, so a violation is a source
- * defect, and the import-time throw surfaces it in every consumer and every
- * test run rather than on the first capability read against a real mount. Same
- * posture as the sibling emitter's import-time parse of its envelope version.
- *
- * The schema pass is not ceremony — it is what bounds each reason string
- * against the ratified restriction-reason cap. An over-long reason would
- * otherwise persist happily here and fail outbound response validation at the
- * wire (validates both directions), turning a wordy sentence into a broken
- * read surface.
+ * Parses each profile's projection through the response schema (which bounds reason strings) and
+ * checks its `defaultMode` is available. Runs at import: the matrix is static, so a violation is
+ * a source defect and should fail every consumer.
  */
 function validateStaticCapabilityMatrix(): void {
   for (const vcsType of ALL_VCS_TYPES) {

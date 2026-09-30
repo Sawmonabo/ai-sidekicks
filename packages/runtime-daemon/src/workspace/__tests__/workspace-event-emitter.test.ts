@@ -1,51 +1,14 @@
-// WorkspaceEventEmitter behavior.
+// The emitter is the single seam every repo-mount and workspace state transition appends its
+// `session_lifecycle` event through. These tests run it over a real SQLite database with
+// `EventLogService` as the durable append path; the last block drives it through plain-object logs
+// to pin the parts of the seam contract a real database cannot show.
 //
-// Exercises the single seam every repo-mount / workspace state transition
-// appends its `session_lifecycle` event through, over a real test SQLite DB
-// (same lifecycle as the neighboring emitter suite: `openDatabase` factory →
-// per-test tmp file → `afterEach` close + unlink), with the `EventLogService`
-// as the durable append path. A structural block at the bottom drives the
-// same emitter through a plain-object log to pin the parts of the seam
-// contract a real database cannot show.
+// The registry anchor test pins `SESSION_EVENT_CATEGORY_BY_TYPE` once, so the per-event category
+// assertions, which read the same registry, are not circular.
 //
-// Coverage map (cites are the authoritative contract, not just the ACs):
-//   * Registry anchor: `SESSION_EVENT_CATEGORY_BY_TYPE` maps all six types to
-//     `session_lifecycle`. This is what keeps the per-event category
-//     assertions below non-circular — the emitter READS that registry, so
-//     comparing a persisted row against it proves only propagation until the
-//     registry's own contents are pinned once, here.
-//   * Per-event persistence: each of the six methods appends exactly ONE row
-//     carrying its own type, its registry category, and the schema-parsed
-//     payload — including the post-transition state the method determines.
-//   * monotonic_ns: the emitter forwards its injected clock, and the append
-//     path persists it.
-//   * Reconciliation: one `sessionId` / `actor` input populates BOTH the
-//     envelope and the payload, and the envelope-only linkage fields stay OUT
-//     of the payload.
-//   * Subject identification: a workspace event names its workspace, and it
-//     names a mount only when its producer supplies the association — the
-//     birth events and the detach cascade's `workspace.archived` both do.
-//   * Emission boundary: a payload the family schema refuses makes the emit
-//     throw BEFORE the append, so nothing is persisted — the `.parse()` seam
-//     is a true gate, not a post-hoc check.
-//   * Determinism: injected `now` / `newEventId` flow through to the
-//     persisted row and the receipt, and the DEFAULT id source is unique per
-//     emit (a constant would collide on the primary key).
-//   * Seam contract: the emitter names no concrete storage class, forwards a
-//     caller's `transactionalPrelude` verbatim — and against the real append
-//     path a THROWING prelude aborts before the INSERT, so no row persists —
-//     admits any thenable, propagates a rejecting append unchanged, and
-//     refuses a synchronous append at both layers (the compile-time `Promise`
-//     return, pinned by a `@ts-expect-error` control, plus the runtime
-//     fail-closed tripwire).
-//
-// One arm is deliberately ABSENT: there is no "rejects an out-of-vocabulary
-// state" test, because the emitter accepts no state to reject. Each method
-// derives its own from the type it emits, so the malformed-state case is
-// unrepresentable rather than merely refused — pinned by the compile-time
-// control below instead. The schema's own state vocabulary is `repo.test.ts`'s
-// beat, and asserting it from here would test contracts, not this seam.
-//
+// There is no "rejects an out-of-vocabulary state" test: each method derives its own state, so the
+// case cannot be written, and a `@ts-expect-error` control pins that. The state vocabulary itself
+// belongs to the contracts tests.
 
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,18 +37,15 @@ import type { WorkspaceEventEmitterDeps, WorkspaceEventLog } from "../workspace-
 // Fixtures
 // ----------------------------------------------------------------------------
 
-// All three ids are validated through branded UUID schemas at the emission
-// boundary, so the fixtures must be real UUIDs — not arbitrary opaque scalars.
+// The emission boundary validates all three ids as UUIDs, so the fixtures must be real UUIDs.
 const SESSION_ID: string = "0190f8a0-7e2d-7c4a-9b1c-1b7c5b3e8f00";
 const REPO_MOUNT_ID: string = "0190f8a1-1c3d-7e6a-8f21-2c7d6b4e9a10";
 const WORKSPACE_ID: string = "0190f8a2-2d4e-7f7b-9a32-3d8e7c5f0b21";
-// `actor` is the free-form envelope actor string (a bounded audit scalar), NOT
-// a branded id — any bounded non-blank string is valid.
+// `actor` is a free-form bounded string, not an id; any non-blank string is valid.
 const USER_ID: string = "01J0PA0000NN5J5J5J5J5J5J5J";
 
-// The six types this emitter owns. `SessionEventType`-annotated so a literal
-// that left the census fails this file's compile rather than silently
-// asserting against a name nothing registers.
+// The six types this emitter owns. The `SessionEventType` annotation makes a name that leaves the
+// registry fail compilation instead of asserting against nothing.
 const LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "repo.attached",
   "repo.detached",
@@ -95,7 +55,7 @@ const LIFECYCLE_EVENT_TYPES: readonly SessionEventType[] = [
   "workspace.archived",
 ];
 
-// Raw read shape — `monotonic_ns` is not exposed by any read model.
+// Raw row shape; no read model exposes `monotonic_ns`.
 interface LifecycleRow {
   readonly sequence: bigint;
   readonly type: string;
@@ -120,19 +80,17 @@ function readRawRows(db: DatabaseType, sessionId: string): ReadonlyArray<Lifecyc
     .all(sessionId) as ReadonlyArray<LifecycleRow>;
 }
 
-// A deterministic, COLLISION-FREE id source: a constant id would violate the
-// `TEXT PRIMARY KEY` on the second emit, so tests that emit more than once
-// inject this counter.
+// A constant id would violate the `TEXT PRIMARY KEY` on the second emit, so tests that emit more
+// than once inject this counter.
 function makeCounterIdSource(prefix: string): () => string {
   let counter: number = 0;
   return () => `${prefix}-${(counter++).toString()}`;
 }
 
 /**
- * A plain-object append seam that records what it was handed and hands back a
- * receipt of its own. Proves the emitter names no concrete storage class, and
- * gives the envelope-level assertions a view no SQL query offers (the
- * correlation pair's ABSENCE, for one).
+ * A plain-object append seam that records each envelope and returns its own receipt. It shows the
+ * emitter needs no concrete storage class, and exposes envelope facts SQL cannot, such as the
+ * absence of the correlation pair.
  */
 function recordingEventLog(appended: UnsequencedEventEnvelope[]): WorkspaceEventLog {
   return {
@@ -161,10 +119,8 @@ let ctx: TestContext;
 beforeEach(() => {
   const tmpDir: string = mkdtempSync(join(tmpdir(), "ai-sidekicks-workspace-emitter-test-"));
   const dbPath: string = join(tmpDir, "test.db");
-  // Canonical factory — same open semantics (pragmas + migrations) as
-  // production. No session row is seeded: `session_events.session_id` carries
-  // no foreign key, so emitting against a bare session id is valid, exactly as
-  // the existing append suites do.
+  // The production factory (pragmas and migrations). No session row is seeded because
+  // `session_events.session_id` has no foreign key.
   const db: DatabaseType = openDatabase(dbPath);
   ctx = {
     db,
@@ -176,10 +132,8 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  // The per-session append lock is a MODULE SINGLETON, so a case that left a
-  // queue entry behind would stall the next case touching the same session id
-  // — and the failure would present as an unrelated timeout. Reset between
-  // cases, never during one.
+  // The per-session append lock is a module singleton; a queue entry left behind would stall the
+  // next case on the same session id and surface as an unrelated timeout.
   __resetSessionAppendLocksForTest();
   if (ctx.db.open) {
     ctx.db.close();
@@ -196,10 +150,8 @@ function makeEmitter(overrides: Partial<WorkspaceEventEmitterDeps> = {}): Worksp
 }
 
 /**
- * Read back the single row an emit is expected to have appended, asserting the
- * "exactly once" half of plus the envelope fields every one of the six
- * carries. The category comes from the registry rather than a literal — the
- * anchor test above is what stops that from being circular.
+ * Reads back the single row an emit appended and asserts the envelope fields all six types carry.
+ * The category comes from the registry; the anchor test above keeps that from being circular.
  */
 function readSingleRow(expectedType: SessionEventType): LifecycleRow {
   const rows: ReadonlyArray<LifecycleRow> = readRawRows(ctx.db, SESSION_ID);
@@ -215,21 +167,11 @@ function readSingleRow(expectedType: SessionEventType): LifecycleRow {
 }
 
 /**
- * Assert the persisted payload BOTH matches the literal shape mandates and
- * equals what the family schema itself returns for that input.
- *
- * The literal comparison is the load-bearing one: `toEqual` fails on a missing
- * key AND on an extra one, so an envelope-only field leaking into the payload
- * — or a state that is not the emitting method's — breaks it. The schema
- * comparison is identical TODAY, because the family schema normalizes nothing
- * (its branded-UUID parsers are pure validators and its actor parser does not
- * trim) — and on a CANONICAL fixture it would stay identical even after a
- * normalizer landed, since normalization is the identity on canonical input.
- * The tripwire is therefore only live where a fixture is deliberately
- * non-canonical: the whitespace-padded-actor arm below is that fixture, and
- * the day a parser starts normalizing, its literal comparison fails and the
- * schema comparison names the NORMALIZED value the emitter must persist
- * instead.
+ * Asserts the persisted payload equals both the expected literal and what the family schema
+ * returns for it. The literal comparison catches a missing or extra key, such as an envelope-only
+ * field leaking into the payload. The schema comparison only discriminates for a non-canonical
+ * input, which the whitespace-padded-actor test supplies: if a parser starts normalizing, the
+ * literal comparison fails there and the schema comparison shows the value to persist.
  */
 function expectPersistedPayload(row: LifecycleRow, expected: Record<string, unknown>): void {
   const persisted: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
@@ -238,7 +180,7 @@ function expectPersistedPayload(row: LifecycleRow, expected: Record<string, unkn
 }
 
 // ----------------------------------------------------------------------------
-// Registry anchor — the fact every category assertion below leans on
+// Registry anchor
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — category registry anchor", () => {
@@ -255,8 +197,8 @@ describe("WorkspaceEventEmitter — category registry anchor", () => {
 });
 
 // ----------------------------------------------------------------------------
-// One method per event type — exactly one row, right type, right category,
-// schema-parsed payload, method-determined state
+// One method per event type: one row, its type and category, a schema-parsed payload, and a state
+// the method determines
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — per-event emission", () => {
@@ -300,8 +242,7 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
       state: "preparing",
-      // A system-driven transition: absent input actor narrows to null, the
-      // wire form for "no user or agent did this".
+      // A system-driven transition: an absent actor becomes null on the wire.
       actor: null,
     });
   });
@@ -350,10 +291,7 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
   });
 
   it("takes no state from the caller — the method determines it", async () => {
-    // BOTH halves of the "unrepresentable, not merely rejected" claim in one
-    // case. Compile-time: `state` is not a member of the input, so the literal
-    // below is an excess property. Deleting the directive must yield that
-    // excess-property error, never an unused-directive TS2578.
+    // Compile time: `state` is not part of the input, so the literal below is an excess property.
     await makeEmitter().emitWorkspaceStale({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
@@ -362,9 +300,8 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
       state: "ready",
     });
 
-    // Runtime: a state forced past the compiler is not read at all. The
-    // persisted state is the one `emitWorkspaceStale` owns, so the seam cannot
-    // be talked into writing a row that lies about its own transition.
+    // Runtime: a state forced past the compiler is ignored, so a row cannot misstate its own
+    // transition.
     expectPersistedPayload(readSingleRow("workspace.stale"), {
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
@@ -374,13 +311,8 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
   });
 
   it("persists a whitespace-padded actor VERBATIM — the family schema normalizes nothing", async () => {
-    // The one deliberately NON-canonical fixture in the file, and the arm that
-    // keeps `expectPersistedPayload`'s literal-vs-parsed pair discriminating
-    // (see its doc comment): "  alice  " is accepted today — the actor regex
-    // requires only one non-whitespace character and no parser trims — so both
-    // comparisons pass. The day a `.trim()` lands in the actor parser, the
-    // literal comparison here fails and the schema comparison names the
-    // normalized value the emitter must persist instead.
+    // The one non-canonical fixture: it keeps `expectPersistedPayload`'s literal-versus-parsed pair
+    // discriminating. The actor schema accepts padding today and trims nothing.
     await makeEmitter().emitRepoAttached({
       sessionId: SESSION_ID,
       repoMountId: REPO_MOUNT_ID,
@@ -397,7 +329,7 @@ describe("WorkspaceEventEmitter — per-event emission", () => {
 });
 
 // ----------------------------------------------------------------------------
-// monotonic_ns — forwarded by the emitter, persisted by the append path
+// monotonic_ns and sequence
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — monotonic_ns and sequence", () => {
@@ -422,15 +354,14 @@ describe("WorkspaceEventEmitter — monotonic_ns and sequence", () => {
       workspaceId: WORKSPACE_ID,
     });
 
-    // The receipts report what the append path ASSIGNED, and the rows agree —
-    // no sequence this emitter invented.
+    // The receipts carry the sequences the append path assigned, not ones the emitter invented.
     expect([attached.sequence, ready.sequence]).toEqual([0, 1]);
     expect(readRawRows(ctx.db, SESSION_ID).map((row) => row.sequence)).toEqual([0n, 1n]);
   });
 });
 
 // ----------------------------------------------------------------------------
-// Envelope/payload reconciliation and subject identification
+// Envelope and payload agreement, and which subject id an event carries
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
@@ -443,9 +374,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
 
     const row: LifecycleRow = readSingleRow("repo.attached");
     const persisted: Record<string, unknown> = JSON.parse(row.payload) as Record<string, unknown>;
-    // The row's own actor column IS the payload's actor, and the row lives
-    // under the session the payload names — a caller has no second input with
-    // which to make the two disagree.
+    // One input feeds both, so the row and its payload cannot disagree.
     expect(row.actor).toBe(USER_ID);
     expect(persisted["actor"]).toBe(USER_ID);
     expect(persisted["sessionId"]).toBe(SESSION_ID);
@@ -466,9 +395,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
     const envelope: UnsequencedEventEnvelope | undefined = appended[0];
     expect(envelope?.correlationId).toBe("corr-1");
     expect(envelope?.causationId).toBe("cause-1");
-    // The payload is the FAMILY shape and nothing else: correlation and
-    // causation are envelope linkage, and a payload carrying copies of them
-    // would be schema drift the strict parse would refuse anyway.
+    // Correlation and causation are envelope linkage and stay out of the payload.
     expect(envelope?.payload).toEqual({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
@@ -478,9 +405,7 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("omits the correlation pair entirely when the caller supplies none", async () => {
-    // Negative control for the arm above. `EventEnvelope` types the pair
-    // optional and NOT nullable, so absent — not present-and-null — is the
-    // no-value wire state.
+    // The envelope types the pair as optional, not nullable, so absent is the no-value form.
     const appended: UnsequencedEventEnvelope[] = [];
     const emitter: WorkspaceEventEmitter = new WorkspaceEventEmitter({
       sessionEvents: recordingEventLog(appended),
@@ -494,9 +419,8 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("names both ids on a detach-cascade workspace archival", async () => {
-    // a workspace archived BECAUSE its mount detached is the one flow whose
-    // payload legitimately carries two ids — a reader holding only the mount
-    // would otherwise have no way to attribute the archival.
+    // A workspace archived because its mount detached carries both ids, so a reader holding only
+    // the mount can attribute the archival.
     await makeEmitter().emitWorkspaceArchived({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
@@ -514,9 +438,8 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
   });
 
   it("omits repoMountId from a workspace payload when the caller names no mount", async () => {
-    // The subject of an event is identified by WHICH optional id it carries,
-    // so a present-but-undefined key would be as wrong as a populated one:
-    // the key must be ABSENT.
+    // Which optional id an event carries identifies its subject, so the key must be absent, not
+    // present with an undefined value.
     await makeEmitter().emitWorkspaceReady({
       sessionId: SESSION_ID,
       workspaceId: WORKSPACE_ID,
@@ -530,13 +453,11 @@ describe("WorkspaceEventEmitter — envelope/payload reconciliation", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Emission boundary — the family schema's `.parse()` is a true gate
+// Emission boundary: the family schema is a gate before the append
 // ----------------------------------------------------------------------------
 //
-// Every case below is reachable with a TYPE-VALID input: these exercise the
-// runtime `.parse()`, not a TypeScript error. Each asserts BOTH the rejection
-// and that nothing was persisted — a schema that ran after the append would
-// pass the first half and fail the second.
+// Each input is type-valid, so these exercise the runtime parse. Each test asserts the rejection
+// and that nothing was persisted; a parse that ran after the append would fail the second check.
 
 describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
   it("rejects a non-UUID repoMountId and appends nothing", async () => {
@@ -570,10 +491,8 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
   });
 
   it("rejects a whitespace-only actor and appends nothing", async () => {
-    // The family payload's actor is a wire free-form string: blank is a
-    // producer bug, not a system actor (that is `null` or an absent key).
-    // Only ALL-whitespace is blank — padding around content (`"  alice  "`)
-    // passes, and the padded-actor arm above proves it persists verbatim.
+    // A blank actor is a producer bug; a system actor is null or absent. Only all-whitespace is
+    // blank: padding around content passes and persists verbatim.
     await expect(
       makeEmitter().emitRepoDetached({
         sessionId: SESSION_ID,
@@ -585,9 +504,7 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
   });
 
   it("rejects an over-length actor and appends nothing", async () => {
-    // 257 chars trips the payload actor's 256-char cap — the same bound the
-    // envelope's own actor carries, so a value accepted here could never be
-    // rejected one layer down.
+    // 257 characters exceeds the 256-character cap, which matches the envelope's actor cap.
     await expect(
       makeEmitter().emitWorkspaceArchived({
         sessionId: SESSION_ID,
@@ -600,14 +517,13 @@ describe("WorkspaceEventEmitter — emission-boundary rejection", () => {
 });
 
 // ----------------------------------------------------------------------------
-// Determinism — injected clock + id flow through to the persisted row
+// Determinism: injected clock and id reach the persisted row
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — determinism (injected monotonicNow/now/newEventId)", () => {
   it("flows injected monotonicNow, now, and newEventId through to the persisted row", async () => {
-    // Canonical RFC 3339 UTC milliseconds on purpose: the append path
-    // normalizes non-canonical timestamps, so only a canonical fixture
-    // asserts the INJECTED value flowed through verbatim.
+    // The timestamp is canonical on purpose: the append path normalizes anything else, which would
+    // hide whether the injected value flowed through.
     const FIXED_MONOTONIC: bigint = 4_242_000_000n;
     const FIXED_OCCURRED_AT: string = "2026-08-04T09:15:00.000Z";
     const FIXED_EVENT_ID: string = "evt-deterministic-0";
@@ -624,10 +540,8 @@ describe("WorkspaceEventEmitter — determinism (injected monotonicNow/now/newEv
       repoMountId: REPO_MOUNT_ID,
     });
 
-    // The receipt echoes the injected id source; the clocks are asserted on
-    // the persisted row — the surface a verifier reads. An emitter that
-    // ignored the injected deps and called the production sources directly
-    // would pass every other arm in this file; this one is what fails.
+    // Only this test fails for an emitter that ignores the injected sources and calls the
+    // production ones directly.
     expect(returned.id).toBe(FIXED_EVENT_ID);
 
     const row: LifecycleRow = readSingleRow("repo.attached");
@@ -636,10 +550,8 @@ describe("WorkspaceEventEmitter — determinism (injected monotonicNow/now/newEv
   });
 
   it("defaults newEventId to a unique-per-emit source so successive emits do not collide on the PRIMARY KEY", async () => {
-    // No `newEventId` override → the production `mintUuidV7` default.
-    // Two emits must land two rows with DISTINCT ids — this is what pins the
-    // dep comment's claim that a CONSTANT id would collide on the TEXT
-    // PRIMARY KEY across successive emits.
+    // With no override the default `mintUuidV7` must give each emit a distinct id; a constant would
+    // collide on the primary key.
     const emitter: WorkspaceEventEmitter = new WorkspaceEventEmitter({
       sessionEvents: ctx.eventLog,
     });
@@ -659,8 +571,7 @@ describe("WorkspaceEventEmitter — determinism (injected monotonicNow/now/newEv
 });
 
 // ----------------------------------------------------------------------------
-// WorkspaceEventLog seam — structural arms against plain-object logs, plus
-// the one real-append arm the structural set cannot carry (prelude abort).
+// WorkspaceEventLog seam: plain-object logs, plus one real-append test for the prelude abort
 // ----------------------------------------------------------------------------
 
 describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
@@ -683,16 +594,13 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
     expect(appended).toHaveLength(2);
     expect(appended[0]?.type).toBe("repo.attached");
     expect(appended[1]?.type).toBe("workspace.ready");
-    // The emitter surfaced the seam's assigned sequences verbatim — it
-    // invented neither.
+    // The emitter returns the seam's sequences as given.
     expect([attached.sequence, ready.sequence]).toEqual([0, 1]);
   });
 
   it("forwards a caller-supplied transactionalPrelude to the append verbatim", async () => {
-    // The prelude is the producers' dual-write atomicity seam. This emitter's
-    // job is to FORWARD it — not to wrap, re-order, or invoke it — so identity
-    // is the assertion: anything done to the closure would break the atomicity
-    // the append path provides around it.
+    // The prelude is how a producer writes atomically with the event. The emitter must forward the
+    // same closure untouched, so identity is the assertion.
     const forwardedOptions: Array<{ transactionalPrelude?: () => void }> = [];
     const capturingEventLog: WorkspaceEventLog = {
       append: (envelope, options) => {
@@ -713,8 +621,7 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
   });
 
   it("omits transactionalPrelude entirely when the caller supplies none", async () => {
-    // Negative control for the arm above: the KEY is absent, not
-    // present-and-undefined.
+    // The key must be absent, not present with an undefined value.
     const forwardedOptions: Array<Record<string, unknown>> = [];
     const capturingEventLog: WorkspaceEventLog = {
       append: (envelope, options) => {
@@ -733,15 +640,9 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
   });
 
   it("aborts the append when the forwarded prelude throws against the real path — no row persists", async () => {
-    // The identity arms above prove the closure REACHES the options object;
-    // this arm proves the mechanism the module header rests the dual-write
-    // story on: against the real append path the prelude runs INSIDE the
-    // transaction, so its throw aborts before the INSERT and the failure
-    // surfaces to the producer. A future emitter that wrapped, deferred, or
-    // invoked the prelude itself — or swallowed the append rejection —
-    // passes the identity arms and fails here. (The positive control, a
-    // prelude whose write commits atomically with the row, ships with the
-    // first real dual-write producer.)
+    // Against the real append path the prelude runs inside the transaction, so its throw aborts
+    // before the INSERT and reaches the producer. An emitter that wrapped, deferred or ran the
+    // prelude itself, or swallowed the rejection, passes the identity tests and fails here.
     await expect(
       makeEmitter().emitRepoAttached({
         sessionId: SESSION_ID,
@@ -755,18 +656,14 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
   });
 
   it("rejects a synchronous append at COMPILE time (Promise return, not undefined)", async () => {
-    // Layer 1 of the seam contract, pinned: `undefined` is not assignable to
-    // `Promise<EventLogAppendReceipt>`, so the synchronous shape fails the
-    // assignment. Deleting the directive below must yield that underlying
-    // assignment error — an unused-directive TS2578 here would mean the
-    // compile-time layer silently regressed to accepting synchronous
-    // appenders.
+    // The compile-time layer of the contract: `undefined` is not assignable to
+    // `Promise<EventLogAppendReceipt>`.
     const compileRejectedEventLog: WorkspaceEventLog = {
       // @ts-expect-error — a synchronous `append` (returns `undefined`) does
       // not satisfy `append(envelope, options): Promise<EventLogAppendReceipt>`.
       append: (): undefined => undefined,
     };
-    // The object still exists at runtime; the runtime tripwire covers it.
+    // The object still exists at runtime, where the fail-closed guard catches it.
     await expect(
       new WorkspaceEventEmitter({ sessionEvents: compileRejectedEventLog }).emitRepoAttached({
         sessionId: SESSION_ID,
@@ -776,11 +673,8 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
   });
 
   it("refuses a non-thenable append fail-closed", async () => {
-    // The seam is ASYNC-transactional by contract, and the compile-time layer
-    // is its `Promise` return type — so reaching the runtime tripwire at all
-    // requires wiring the compiler never saw, which the cast below models. A
-    // synchronous append would report success before the write is durable and
-    // would never commit the caller's prelude atomically with the row.
+    // Only wiring the compiler never saw reaches the runtime guard, which the cast below models. A
+    // synchronous append would report success before the write is durable.
     const appendCalls: UnsequencedEventEnvelope[] = [];
     const syncEventLog: WorkspaceEventLog = {
       append: (envelope): Promise<EventLogAppendReceipt> => {
@@ -796,19 +690,13 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
       }),
     ).rejects.toThrow(/did not return a promise[\s\S]*transactionalPrelude/);
 
-    // Tripwire, not prevention: the implementation has already run by the time
-    // the non-promise comes back. The guard's job is to be LOUD on the first
-    // emit, not to undo that work.
+    // The guard is loud, not preventive: the append has already run when the non-promise returns.
     expect(appendCalls).toHaveLength(1);
   });
 
   it("admits a custom thenable (duck-typed, not instanceof Promise)", async () => {
-    // Positive control for the guard's duck test: `await` latches onto ANY
-    // `then` function, so the guard must too — an `instanceof Promise` check
-    // would reject a valid async implementation built on a userland promise
-    // or a wrapper, a false positive on the fail-closed side. A regression to
-    // `instanceof` leaves every other arm green (their fakes return real
-    // Promises); this one is what fails.
+    // `await` accepts any object with a `then` function, so the guard must too. An `instanceof
+    // Promise` check would wrongly reject a userland promise, and only this test would notice.
     const receipt: EventLogAppendReceipt = { id: "x", sequence: 3 };
     const customThenableEventLog: WorkspaceEventLog = {
       append: (): Promise<EventLogAppendReceipt> =>
@@ -826,9 +714,8 @@ describe("WorkspaceEventEmitter — WorkspaceEventLog seam", () => {
   });
 
   it("propagates a REJECTING append unchanged", async () => {
-    // The failure channel a producer learns from: its durable write did not
-    // commit. The emitter awaits, so the rejection reaches the caller
-    // verbatim rather than becoming a fire-and-forget that reported success.
+    // A rejection is how a producer learns its write did not commit; it must reach the caller
+    // instead of being reported as success.
     const rejectingEventLog: WorkspaceEventLog = {
       append: (): Promise<EventLogAppendReceipt> => Promise.reject(new Error("append lock lost")),
     };
