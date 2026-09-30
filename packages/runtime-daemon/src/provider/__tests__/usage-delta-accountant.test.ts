@@ -38,6 +38,48 @@ describe("UsageDeltaAccountant", () => {
     expect(secondDelta?.axisDeltas.input).toBe(50);
   });
 
+  it("a recorded cumulative sequence re-sums to the newest reading minus the establishment base", () => {
+    const { accountant } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    const cumulativeReadings = [40, 90, 90, 210, 400];
+    let metered = 0;
+    for (const [index, cumulativeValue] of cumulativeReadings.entries()) {
+      const delta = accountant.meterReading({
+        threadId: "thread-1",
+        namedTurnId: `turn-${index}`,
+        cumulative: { output: cumulativeValue },
+      });
+      metered += delta?.axisDeltas.output ?? 0;
+    }
+    expect(metered).toBe(400);
+  });
+
+  it("a fresh session's first reading meters IN FULL from base zero", () => {
+    const { accountant } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    const delta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 12_000, output: 300 },
+    });
+    expect(delta?.axisDeltas.input).toBe(12_000);
+    expect(delta?.axisDeltas.output).toBe(300);
+  });
+
+  it("a replay-seeded session is fresh: seeding meters nothing, the first turn's reading meters whole", () => {
+    // Replay-seeding injects transcript, not billed spend: the provider's counter starts at zero
+    // either way, so the first post-seed reading is entirely real spend.
+    const { accountant } = makeAccountant();
+    accountant.establishThread("replay-seeded-thread", { mode: "fresh" });
+    const delta = accountant.meterReading({
+      threadId: "replay-seeded-thread",
+      namedTurnId: "turn-after-seeding",
+      cumulative: { input: 55_000, output: 900 },
+    });
+    expect(delta?.axisDeltas.input).toBe(55_000);
+    expect(delta?.axisDeltas.output).toBe(900);
+  });
+
   it("a provider-native resume meters only the excess over the prior-emitted sum, and zero when there is none", () => {
     const { accountant } = makeAccountant();
     accountant.establishThread("resumed-thread", {
@@ -62,6 +104,46 @@ describe("UsageDeltaAccountant", () => {
     expect(excessDelta?.axisDeltas.output).toBe(100);
   });
 
+  it("a compaction between two readings does not re-base — the interval stays exact", () => {
+    // The accountant has no compaction entry point; readings straddling a compaction difference
+    // exactly as if none had occurred.
+    const { accountant } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 90_000 },
+    });
+    // <-- provider-side compaction happens here; the counter is unaffected.
+    const postCompactionDelta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-B",
+      cumulative: { input: 95_000 },
+    });
+    expect(postCompactionDelta?.axisDeltas.input).toBe(5_000);
+  });
+
+  it("a turn-A usage frame delivered after turn B opened attributes to turn A, not floored, not credited to B", () => {
+    const { accountant } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    // Turn B has already opened dispatch-side; the late frame names turn A, and the
+    // stream-ordered base meters its interval to the named turn.
+    const lateDelta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 700 },
+    });
+    expect(lateDelta?.attributedTurnId).toBe("turn-A");
+    expect(lateDelta?.axisDeltas.input).toBe(700);
+    const turnBDelta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-B",
+      cumulative: { input: 1_000 },
+    });
+    expect(turnBDelta?.attributedTurnId).toBe("turn-B");
+    expect(turnBDelta?.axisDeltas.input).toBe(300);
+  });
+
   it("a synthetic decrease emits zero AND a floor-hit diagnostic, then re-bases at the observed value", () => {
     const { accountant, diagnostics } = makeAccountant();
     accountant.establishThread("thread-1", { mode: "fresh" });
@@ -84,6 +166,23 @@ describe("UsageDeltaAccountant", () => {
       cumulative: { input: 260 },
     });
     expect(recoveredDelta?.axisDeltas.input).toBe(60);
+  });
+
+  it("a declared per-turn figure disagreeing with the derived interval records a cross-check diagnostic without substituting", () => {
+    const { accountant, diagnostics } = makeAccountant();
+    accountant.establishThread("thread-1", { mode: "fresh" });
+    const delta = accountant.meterReading({
+      threadId: "thread-1",
+      namedTurnId: "turn-A",
+      cumulative: { input: 100 },
+      declaredPerTurn: { input: 90 },
+    });
+    // The derived interval stands; the wire's own `last` figure is corroboration only.
+    expect(delta?.axisDeltas.input).toBe(100);
+    const mismatchRecords = diagnostics.recentRecordsOfKind("usage_cross_check_mismatch");
+    expect(mismatchRecords).toHaveLength(1);
+    expect(mismatchRecords[0]?.details["declaredValue"]).toBe(90);
+    expect(mismatchRecords[0]?.details["derivedInterval"]).toBe(100);
   });
 
   it("a reading whose input contains its cached figure partitions to the uncached total exactly once", () => {

@@ -86,6 +86,19 @@ describe("McpTaskHandleRecorder", () => {
   }
 
   describe("the active state", () => {
+    it("leaves NULL when the acceptance never arrived — the crash case", () => {
+      // A crash before the acceptance is stored leaves no `CreateTaskResult` to parse, so nothing
+      // reaches the recorder and the receipt stays on the `manual_reconcile_only` halt.
+      observeCodexMcpTaskAcceptance(
+        recorder.asSink(),
+        { commandId: COMMAND_ID, serverName: "filesystem", toolName: "read_file" },
+        undefined,
+      );
+
+      expect(storedHandle(COMMAND_ID)).toBeNull();
+      expect(loggedRecords).toEqual([]);
+    });
+
     it("carries a handle from each driver's observation seam through to the column", () => {
       // The recorder is provider-neutral and each driver has its own seam module, so both are
       // exercised.
@@ -151,6 +164,23 @@ describe("McpTaskHandleRecorder", () => {
     // typed: editors render it as a replacement glyph.
     const LONE_HIGH_SURROGATE = "task-\uD800-9";
     const LONE_LOW_SURROGATE = "task-\uDC00-9";
+
+    it("proves the hazard is real before asserting the guard against it", () => {
+      // Written straight to the column, bypassing the recorder: if the round trip were lossless
+      // the refusals below would guard nothing.
+      db.prepare("UPDATE command_receipts SET mcp_task_id = ? WHERE command_id = ?").run(
+        LONE_HIGH_SURROGATE,
+        COMMAND_ID,
+      );
+
+      const readBack = storedHandle(COMMAND_ID);
+      expect(readBack).not.toBe(LONE_HIGH_SURROGATE);
+      // A lone surrogate has no UTF-8 encoding, so the row holds U+FFFD replacement characters
+      // in place of a handle the receiver never issued. How many depends on the platform (one per
+      // surrogate on macOS, one per WTF-8 byte on the Linux CI runners), so the width is not
+      // pinned.
+      expect(readBack).toMatch(/^task-\uFFFD+-9$/);
+    });
 
     it.each([
       ["a lone HIGH surrogate", LONE_HIGH_SURROGATE],

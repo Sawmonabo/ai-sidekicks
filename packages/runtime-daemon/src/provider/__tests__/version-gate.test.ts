@@ -6,6 +6,7 @@ import { chmod, mkdtemp, mkdir, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { DriverCliVersionReport } from "@ai-sidekicks/contracts";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
@@ -397,6 +398,17 @@ describe("the floor gate at the spawn", () => {
     expect(sink.calls[0]?.result.cliVersion).toStrictEqual({ raw: "9.99.0", semver: "9.99.0" });
   });
 
+  it("refuses an unparseable in-band report before the floor is ever compared", async () => {
+    const handshake = new RecordingHandshake({
+      [CODEX_EXECUTABLE]: { userAgent: "codex-cli (unknown build)" },
+    });
+    const sink = new RecordingDeclarationSink();
+    await expect(attachCodex(sink, handshake)).rejects.toBeInstanceOf(
+      DriverCliVersionUnparseableError,
+    );
+    expect(sink.calls).toHaveLength(0);
+  });
+
   it("spawns the RESOLVED path and names the daemon's client on the request", async () => {
     const handshake = new RecordingHandshake({
       [CODEX_EXECUTABLE]: { userAgent: codexUserAgent("0.149.1") },
@@ -456,5 +468,16 @@ describe("the binding carriers come from one reading", () => {
         toBindingVersionCarriers(READING),
       ),
     ).toThrow(/one reading/);
+  });
+
+  it("records a version the reading produced, never one a caller supplied", () => {
+    // Type-level: `cliVersion` is omitted from the input, so a reading is the only way to reach
+    // the column pair. Runtime: a stray member on an untyped caller's object is overwritten.
+    const smuggled = {
+      ...BASE_INPUT,
+      cliVersion: { raw: "9.9.9", semver: "9.9.9" } satisfies DriverCliVersionReport,
+    } as Omit<CreateRuntimeBindingInput, "cliVersion">;
+    const input = withSpawnedVersionCarriers(smuggled, toBindingVersionCarriers(READING));
+    expect(input.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
   });
 });

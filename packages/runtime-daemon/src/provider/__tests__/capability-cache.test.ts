@@ -62,6 +62,17 @@ describe("DriverCapabilityCache", () => {
     expect(cache.read("claude").outputSpeedLevels).toStrictEqual(declaredLevels);
   });
 
+  it("omits the vocabulary entirely for a driver that declares output_speed false", () => {
+    // Absence means the axis is unsettable; an empty array would claim a settable axis with
+    // nothing on it.
+    const cache = new DriverCapabilityCache({
+      hydrateDurableCapabilities: () => hydrationHit(flagsWith({ output_speed: false }), "codex"),
+    });
+
+    const report = cache.read("codex");
+    expect(Object.hasOwn(report, "outputSpeedLevels")).toBe(false);
+  });
+
   it("omits the vocabulary when the flag is ABSENT from the durable row", () => {
     // The cache fails closed on `!== true`: flags come from a durable row, so a missing key is
     // reachable, and it must read as unsupported.

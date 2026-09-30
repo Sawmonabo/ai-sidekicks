@@ -197,6 +197,19 @@ describe("ThreadFrameRouter", () => {
     expect(router.routeFrame(earlyUsageFrame, 2).decision).toBe("carve-out-usage");
   });
 
+  it("a pending hold that outlives its timeout is shed with a diagnostic — distinct from quarantine", () => {
+    const { router, diagnostics } = makeRouter({ pendingRegistrationTimeoutMs: 500 });
+    router.registerSessionThread("session-thread");
+    router.routeFrame(usageFrame("never-announced"), 0);
+    expect(router.pendingHeldFrameCount()).toBe(1);
+    router.expirePendingHolds(500);
+    expect(router.pendingHeldFrameCount()).toBe(0);
+    expect(diagnostics.recentRecordsOfKind("thread_pending_hold_shed")).toHaveLength(1);
+    // A shed hold is not a quarantine entry: the two buffers stay distinct.
+    expect(router.quarantinedFrames()).toHaveLength(0);
+    expect(diagnostics.recentRecordsOfKind("thread_frame_quarantined")).toHaveLength(0);
+  });
+
   it("the pending-hold buffer is bounded: exceeding the cap sheds the oldest with a diagnostic", () => {
     const { router, diagnostics } = makeRouter({ maxPendingHoldFrames: 2 });
     router.registerSessionThread("session-thread");

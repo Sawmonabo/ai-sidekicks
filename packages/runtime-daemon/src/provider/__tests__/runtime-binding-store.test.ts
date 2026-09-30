@@ -1,6 +1,8 @@
-// The runtime binding store over real SQLite: the row recovery resumes from round-trips, a
-// corrupt spawn-bound record fails loud instead of resuming unsandboxed, the version pair holds
-// its CHECK, and the resume request is rebuilt from the row.
+// The runtime binding store over real SQLite: the row recovery resumes from round-trips, the
+// provider's contract version and resume handle are bounded before they land, the batch lookup
+// returns superseded rows too, a corrupt spawn-bound record fails loud instead of resuming
+// unsandboxed, the version pair holds its CHECK and records the build that answered, and the
+// resume request is rebuilt from the row.
 
 import type {
   CallbackToolResult,
@@ -13,13 +15,23 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { openDatabase } from "../../session/migration-runner.js";
 import { makeAdvancingClock } from "../__fixtures__/advancing-clock.js";
-import { ProviderOutputValidationError } from "../provider-output-validation.js";
+import {
+  CONTRACT_VERSION_MAX_LEN,
+  ProviderOutputValidationError,
+  RESUME_HANDLE_MAX_LEN,
+} from "../provider-output-validation.js";
 import {
   composeResumeSessionParams,
   RuntimeBindingNotResumableError,
   RuntimeBindingStore,
   type RuntimeBindingSpawnConfig,
+  withSpawnedVersionCarriers,
 } from "../runtime-binding-store.js";
+import {
+  readSpawnedProviderVersion,
+  toBindingVersionCarriers,
+  type ProviderVersionHandshakeRequest,
+} from "../version-gate.js";
 
 const RUN_ID: string = "run-01J0ND0000NN5J5J5J5J5J5J";
 const OTHER_RUN_ID: string = "run-01J0ND0000NN5K5K5K5K5K5K";
@@ -278,7 +290,68 @@ describe("RuntimeBindingStore — CRUD round-trips", () => {
   });
 });
 
+describe("RuntimeBindingStore — contract_version is canonical semver and length-bounded", () => {
+  it("rejects a CONTRACT_VERSION_MAX_LEN+1-length contract_version", () => {
+    const overVersion: string = "1.0.0-" + "a".repeat(CONTRACT_VERSION_MAX_LEN - 6 + 1);
+    expect(overVersion.length).toBe(CONTRACT_VERSION_MAX_LEN + 1);
+
+    const store = makeStore();
+    expect(() =>
+      store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: overVersion,
+        spawnConfig: {},
+      }),
+    ).toThrow(ProviderOutputValidationError);
+  });
+
+  const rejectedVersions: string[] = [
+    "1.0",
+    "1",
+    "01.2.3",
+    "v1.2.3",
+    " 1.2.3 ",
+    "1.2.3+build.5",
+    "",
+  ];
+
+  for (const version of rejectedVersions) {
+    it(`rejects non-canonical / loose / malformed ${JSON.stringify(version)}`, () => {
+      const store = makeStore();
+      let thrown: unknown;
+      try {
+        store.create({
+          runId: RUN_ID,
+          driverName: DRIVER_NAME,
+          contractVersion: version,
+          spawnConfig: {},
+        });
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+      const validationError = thrown as ProviderOutputValidationError;
+      expect(validationError.fields?.["field"]).toBe("contract_version");
+    });
+  }
+});
+
 describe("RuntimeBindingStore — resume_handle", () => {
+  it("rejects a RESUME_HANDLE_MAX_LEN+1-length resume_handle", () => {
+    const overHandle: string = "h".repeat(RESUME_HANDLE_MAX_LEN + 1);
+    const store = makeStore();
+    expect(() =>
+      store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: CONTRACT_VERSION,
+        spawnConfig: {},
+        resumeHandle: overHandle,
+      }),
+    ).toThrow(ProviderOutputValidationError);
+  });
+
   it("rejects a whitespace-only resume_handle (the /\\S/ hardening beyond the DB CHECK)", () => {
     const store = makeStore();
     let thrown: unknown;
@@ -295,6 +368,19 @@ describe("RuntimeBindingStore — resume_handle", () => {
     }
     expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
     expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("resume_handle");
+  });
+
+  it("rejects a NUL-containing resume_handle", () => {
+    const store = makeStore();
+    expect(() =>
+      store.create({
+        runId: RUN_ID,
+        driverName: DRIVER_NAME,
+        contractVersion: CONTRACT_VERSION,
+        spawnConfig: {},
+        resumeHandle: "before\0after",
+      }),
+    ).toThrow(ProviderOutputValidationError);
   });
 });
 
@@ -332,6 +418,26 @@ describe("RuntimeBindingStore — findResumableBindings", () => {
 });
 
 describe("RuntimeBindingStore — update revalidation", () => {
+  it("rejects an update to a non-canonical contract_version and leaves the row unchanged", () => {
+    const store = makeStore();
+    const created = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: "1.0.0",
+      spawnConfig: {},
+      resumeHandle: "h",
+    });
+
+    expect(() => store.update(created.id, { contractVersion: "1.0" })).toThrow(
+      ProviderOutputValidationError,
+    );
+
+    // Validation runs before the transaction, so the row is untouched.
+    const after = store.findById(created.id);
+    expect(after?.contractVersion).toBe("1.0.0");
+    expect(after?.updatedAt).toBe(created.updatedAt);
+  });
+
   it("rejects an update to an invalid resume_handle and leaves the row unchanged", () => {
     const store = makeStore();
     const created = store.create({
@@ -391,6 +497,49 @@ describe("RuntimeBindingStore — update revalidation", () => {
     // from the advancing clock even if the other columns matched.
     expect(raw.updated_at).toBe(created.updatedAt);
     expect(readRawSpawnConfig(created.id)).toBe("{not json at all");
+  });
+});
+
+describe("RuntimeBindingStore — findByRuns (batch lookup)", () => {
+  it("agrees with findByRun for a single run id", () => {
+    const store = makeStore();
+    store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: {},
+    });
+    store.create({
+      runId: OTHER_RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: {},
+    });
+
+    expect(store.findByRuns([RUN_ID])).toEqual(store.findByRun(RUN_ID));
+  });
+
+  it("returns SUPERSEDED pre-relaunch bindings alongside the current one", () => {
+    // A relaunch mints a new binding row and retains the old one as history. The store has no
+    // liveness column, so both come back and the caller owns the liveness intersection.
+    const store = makeStore();
+    const beforeRelaunch = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      resumeHandle: "handle-before-relaunch",
+      spawnConfig: { resolvedExecutablePath: "/opt/homebrew/bin/claude" },
+    });
+    const afterRelaunch = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      resumeHandle: "handle-after-relaunch",
+      spawnConfig: { resolvedExecutablePath: "/opt/homebrew/bin/claude" },
+    });
+
+    const found = store.findByRuns([RUN_ID]);
+    expect(found.map((binding) => binding.id)).toEqual([beforeRelaunch.id, afterRelaunch.id]);
   });
 });
 
@@ -541,6 +690,74 @@ describe("RuntimeBindingStore — cliVersion pair", () => {
 // resumable provider session refuses locally and classifiably instead of pushing an empty
 // handle at the provider.
 
+describe("RuntimeBindingStore — spawned-version carriers", () => {
+  // `version-gate.test.ts` proves the reading is taken from the dereferenced build. This proves
+  // that value is what a later reader gets back out of the database, through `create()`'s
+  // report validation, the both-or-neither DDL CHECK and the `spawn_config` parser, none of
+  // which the in-memory projection helpers exercise: the version compared, the version
+  // recorded and the version run are one reading.
+  const LAUNCHER_PATH: string = "/opt/homebrew/bin/claude";
+  const DEREFERENCED_BUILD_PATH: string = "/opt/homebrew/Cellar/claude/2.1.245/bin/claude";
+
+  // Keyed by resolved path. The launcher answers a build below the version floor, so a
+  // resolver that failed to dereference would make the read refuse; every assertion also
+  // witnesses which process was asked.
+  const REPORTED_VERSION_BY_PATH: ReadonlyMap<string, string> = new Map([
+    [LAUNCHER_PATH, "2.1.198"],
+    [DEREFERENCED_BUILD_PATH, "2.1.245"],
+  ]);
+
+  async function claudeHandshake(request: ProviderVersionHandshakeRequest): Promise<unknown> {
+    const reportedVersion: string | undefined = REPORTED_VERSION_BY_PATH.get(
+      request.resolvedExecutablePath,
+    );
+    if (reportedVersion === undefined) {
+      throw new Error(`no fixture build installed at ${request.resolvedExecutablePath}`);
+    }
+    return { version: reportedVersion, buildTime: "2026-08-20T00:00:00Z" };
+  }
+
+  // Injected rather than filesystem-backed: drift is "realpath answers a different path than
+  // the candidate", which runs on every platform (the real-symlink fixture in
+  // `version-gate.test.ts` is posix-only).
+  const DRIFTING_RESOLVER = {
+    isExecutableFile: async (): Promise<boolean> => true,
+    realpath: async (candidate: string): Promise<string> =>
+      candidate === LAUNCHER_PATH ? DEREFERENCED_BUILD_PATH : candidate,
+  };
+
+  it("records the BUILD's version and path under launcher drift", async () => {
+    const reading = await readSpawnedProviderVersion({
+      driverName: "claude",
+      requestedCommand: LAUNCHER_PATH,
+      handshake: claudeHandshake,
+      baseEnvironment: {},
+      resolver: DRIFTING_RESOLVER,
+    });
+
+    const store = makeStore();
+    const created = store.create(
+      withSpawnedVersionCarriers(
+        {
+          runId: RUN_ID,
+          driverName: DRIVER_NAME,
+          contractVersion: CONTRACT_VERSION,
+          spawnConfig: {},
+        },
+        toBindingVersionCarriers(reading),
+      ),
+    );
+
+    // Read back out of the database: the persisted row is the claim, not `create()`'s return.
+    const found = store.findById(created.id);
+    expect(found?.cliVersion).toStrictEqual({ raw: "2.1.245", semver: "2.1.245" });
+    expect(found?.spawnConfig.resolvedExecutablePath).toBe(DEREFERENCED_BUILD_PATH);
+    // The launcher's build appears nowhere in the row, neither in the version pair nor in the
+    // spawn-bound record.
+    expect(JSON.stringify(found)).not.toContain("2.1.198");
+  });
+});
+
 describe("composeResumeSessionParams", () => {
   const SESSION_ID = "11111111-1111-4111-8111-111111111111" as SessionId;
   const NO_FUNCTION_LEGS = {
@@ -573,6 +790,30 @@ describe("composeResumeSessionParams", () => {
       onCallbackToolCall: undefined,
       onMcpServerStatus: undefined,
     });
+  });
+
+  it("stores a NO-IDENTIFIER create without any account key, byte for byte", () => {
+    // With no identifier the stored bytes carry no account member at all, so nothing downstream
+    // can read an unbound account as bound-but-empty.
+    const store = makeStore();
+    const unboundSpawnConfig: RuntimeBindingSpawnConfig = {
+      executionPosture: EXECUTION_POSTURE,
+      admittedCostCapUsdMicros: 25_000_000,
+    };
+    const binding = store.create({
+      runId: RUN_ID,
+      driverName: DRIVER_NAME,
+      contractVersion: CONTRACT_VERSION,
+      spawnConfig: unboundSpawnConfig,
+      resumeHandle: "opaque-handle-abc",
+    });
+
+    expect(readRawSpawnConfig(binding.id)).toBe(JSON.stringify(unboundSpawnConfig));
+    expect(readRawSpawnConfig(binding.id)).not.toContain("providerAccountId");
+    expect(binding.spawnConfig.providerAccountId).toBeUndefined();
+    expect(
+      composeResumeSessionParams(SESSION_ID, binding, NO_FUNCTION_LEGS).providerAccountId,
+    ).toBeUndefined();
   });
 
   it("binds the injected function legs, which no row can carry", () => {

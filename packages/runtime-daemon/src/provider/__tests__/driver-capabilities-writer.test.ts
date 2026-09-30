@@ -18,6 +18,8 @@ import {
   DriverCapabilitiesWriter,
   type DriverCapabilityHydrationResult,
 } from "../driver-capabilities-writer.js";
+import { DRIVER_OUTPUT_SPEED_LEVELS } from "../driver-output-speed.js";
+import { ProviderOutputValidationError } from "../provider-output-validation.js";
 
 const DRIVER_NAME: string = "claude";
 const CONTRACT_VERSION: string = "1.2.3";
@@ -224,6 +226,32 @@ describe("DriverCapabilitiesWriter — contractVersion-only bump", () => {
       .prepare(`SELECT contract_version FROM driver_contract_meta WHERE driver_name = ?`)
       .get(DRIVER_NAME) as { readonly contract_version: string };
     expect(meta.contract_version).toBe("2.0.0");
+  });
+});
+
+describe("DriverCapabilitiesWriter — contract_version is canonical semver", () => {
+  it("rejects `1.2.3+build.5` (SemVer section 10 build metadata) with a reason that names build metadata + writes NO rows", async () => {
+    const writer = makeWriter();
+    let thrown: unknown;
+    try {
+      await writer.declare({
+        driverName: DRIVER_NAME,
+        // Build metadata does not identify a version: `semver.valid` strips it, so the
+        // canonical-identity check rejects it. Accepting it would store byte-different strings
+        // for the same version and report a spurious "changed".
+        result: makeResult({
+          capabilities: { flags: makeFlags(), contractVersion: "1.2.3+build.5" },
+        }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBeInstanceOf(ProviderOutputValidationError);
+    expect((thrown as ProviderOutputValidationError).fields?.["field"]).toBe("contract_version");
+    expect((thrown as ProviderOutputValidationError).fields?.["reason"]).toMatch(/build metadata/i);
+
+    expect(countCapabilityRows(DRIVER_NAME)).toBe(0);
+    expect(countContractMetaRows(DRIVER_NAME)).toBe(0);
   });
 });
 
@@ -552,5 +580,27 @@ describe("DriverCapabilitiesWriter — hydrate (cold-start cache read)", () => {
     });
     expect(outcome).toEqual({ snapshotChange: "unchanged", cliVersionRefreshed: true });
     expect(expectHydrationHit(writer.hydrate(DRIVER_NAME)).cliVersion).toEqual(CLI_VERSION_REPORT);
+  });
+
+  it("serves `outputSpeedLevels` on the CACHE path for a driver whose cached flag declares the axis", async () => {
+    // The result must carry this member whenever `flags.output_speed` is true. The cache stores
+    // flag values but no vocabulary, so a hydrate that only replayed columns would omit it.
+    const writer = makeWriter();
+    await writer.declare({
+      driverName: DRIVER_NAME,
+      result: makeResult({
+        capabilities: {
+          flags: makeFlags({ output_speed: true }),
+          contractVersion: CONTRACT_VERSION,
+        },
+      }),
+    });
+
+    const hydrated: GetCapabilitiesResult = expectHydrationHit(writer.hydrate(DRIVER_NAME));
+
+    expect(hydrated.capabilities.flags.output_speed).toBe(true);
+    expect(Object.hasOwn(hydrated, "outputSpeedLevels")).toBe(true);
+    // Compared with the table the live declaration reads, so the two paths cannot drift.
+    expect(hydrated.outputSpeedLevels).toStrictEqual([...DRIVER_OUTPUT_SPEED_LEVELS.claude]);
   });
 });
