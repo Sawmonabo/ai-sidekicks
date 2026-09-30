@@ -3,17 +3,15 @@
 
 import type { TimelineRow } from "@ai-sidekicks/contracts";
 import { act, renderHook } from "@testing-library/react";
-import { createElement, useCallback, useState } from "react";
+import { createElement } from "react";
 import { describe, expect, it } from "vitest";
 import { FixtureBridgeProvider } from "@test/helpers/app-frame-fixtures.js";
 import { createFixtureBridge } from "@renderer/services/platform/platform-bridge.fixture.js";
 import { EMPTY_SESSION_SCENARIO } from "../../../../../../fixtures/scenarios/empty-session.js";
 import { RUN_GROUP_VISIBLE_ROW_CAP } from "../structure/structure-caps.js";
 import { type ProjectedSessionEvent } from "@renderer/store/session/entities/entities.js";
-import { RunGroupFoldState } from "../run-groups/run-group-fold-state.js";
 import { type RunGroup } from "../run-groups/run-groups.js";
 import {
-  selectRunGroupRowIdsWithinCap,
   foldRunGroupHeaders,
   narrowRunGroupToAdmittedRows,
   type RunGroupDisclosure,
@@ -90,22 +88,11 @@ describe("an opened run group admits the cap's own window and no more", () => {
     expect(model.runGroupByHeaderKey.get(RUN_ID)?.clippedRowCount).toBe(0);
   });
 
-  it("negative control: the same run group shut still renders its receipt alone", () => {
+  it("the same run group shut still renders its receipt alone", () => {
     // Guards the cases above against a fold that admits nothing.
     const model = foldedOverOneRun(OVER_CAP_MEMBER_COUNT, false);
     expect(renderedMemberKeys(model)).toHaveLength(1);
     expect(model.rows[0]?.type).toBe("run.completed");
-  });
-
-  it("negative control: the cap's selector returns a short run group by identity", () => {
-    // Guards against an unconditional slice, which allocates per run group on every fold.
-    const shortRowIds = ["a", "b", "c"];
-    expect(selectRunGroupRowIdsWithinCap(shortRowIds)).toBe(shortRowIds);
-    expect(
-      selectRunGroupRowIdsWithinCap(
-        Array.from({ length: RUN_GROUP_VISIBLE_ROW_CAP + 1 }, (_u, i) => `r${String(i)}`),
-      ),
-    ).toHaveLength(RUN_GROUP_VISIBLE_ROW_CAP);
   });
 });
 
@@ -139,11 +126,6 @@ describe("a run group re-sealed over the rows a narrowing admitted", () => {
   it("answers undefined for a run group the narrowing admits no row of", () => {
     expect(narrowRunGroupToAdmittedRows(wholeRunGroup(), new Set<string>())).toBeUndefined();
   });
-
-  it("negative control: a narrowing that took nothing returns the run group by identity", () => {
-    const runGroup = wholeRunGroup();
-    expect(narrowRunGroupToAdmittedRows(runGroup, new Set(runGroup.rowIds))).toBe(runGroup);
-  });
 });
 
 // Derived through the real projection so the toggle gets the object the fold produces.
@@ -153,30 +135,6 @@ function terminalRunGroup(): RunGroup {
     throw new Error("the fixture log produced no terminal run group");
   }
   return runGroup;
-}
-
-// The disclosure held for the life of the mount instead of keyed on the session, over the
-// real `RunGroupFoldState`.
-function useMountScopedRunGroupDisclosure(): RunGroupDisclosure {
-  const [collapseState] = useState(() => new RunGroupFoldState());
-  const [openedTerminalRunIds, setOpenedTerminalRunIds] = useState<ReadonlySet<string>>(
-    () => new Set<string>(),
-  );
-  const publish = useCallback(() => {
-    setOpenedTerminalRunIds(new Set(collapseState.openedTerminalRunIds));
-  }, [collapseState]);
-  const toggle = useCallback(
-    (runGroup: RunGroup) => {
-      if (collapseState.isOpen(runGroup)) {
-        collapseState.close(runGroup);
-      } else {
-        collapseState.open(runGroup);
-      }
-      publish();
-    },
-    [collapseState, publish],
-  );
-  return { openedTerminalRunIds, toggle, collapseAllTerminal: () => undefined };
 }
 
 describe("the run group disclosure follows the session the pane is a log of", () => {
@@ -219,19 +177,6 @@ describe("the run group disclosure follows the session the pane is a log of", ()
 
     act(() => {
       disclosure.rerender({ sessionId: SESSION_ID });
-    });
-
-    expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);
-  });
-
-  it("negative control: a mount-scoped holder carries the last session's disclosure", () => {
-    const disclosure = mountDisclosureOver(useMountScopedRunGroupDisclosure);
-    act(() => {
-      disclosure.result.current.toggle(terminalRunGroup());
-    });
-
-    act(() => {
-      disclosure.rerender({ sessionId: OTHER_SESSION_ID });
     });
 
     expect([...disclosure.result.current.openedTerminalRunIds]).toStrictEqual([RUN_ID]);

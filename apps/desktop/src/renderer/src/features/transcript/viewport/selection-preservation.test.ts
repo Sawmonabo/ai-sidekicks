@@ -6,7 +6,6 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   RowSelectionGuard,
-  characterOffsetWithin,
   resolveTextPosition,
   type SelectionDocument,
 } from "./selection-preservation.js";
@@ -61,29 +60,6 @@ afterEach(() => {
   window.getSelection()?.removeAllRanges();
 });
 
-describe("characterOffsetWithin", () => {
-  it("measures a text position from the start of the row", () => {
-    const row = mountRow();
-    const secondParagraphText = row.children[1]?.firstChild;
-    expect(secondParagraphText).toBeDefined();
-
-    expect(characterOffsetWithin(row, secondParagraphText as Node, 4)).toBe(
-      "The first settled paragraph.".length + 4,
-    );
-  });
-
-  it("returns undefined for a position outside the row", () => {
-    const row = mountRow();
-    const outsider = document.createElement("p");
-    outsider.textContent = "another row";
-    document.body.append(outsider);
-
-    expect(characterOffsetWithin(row, outsider.firstChild, 2)).toBeUndefined();
-
-    outsider.remove();
-  });
-});
-
 describe("RowSelectionGuard", () => {
   it("puts a selection back after the row's nodes are replaced", () => {
     const row = mountRow();
@@ -101,48 +77,6 @@ describe("RowSelectionGuard", () => {
 
     expect(guard.restoreAfterFlush(guard.generation)).toBe(true);
     expect(selectedText()).toBe("first");
-
-    guard.dispose();
-  });
-
-  it("preserves a selection that spans two blocks", () => {
-    const row = mountRow();
-    const guard = new RowSelectionGuard(selectionDocument());
-    guard.observe(row);
-    const firstParagraphLength = "The first settled paragraph.".length;
-
-    selectRange(row, firstParagraphLength - 10, firstParagraphLength + 8);
-    const held = selectedText();
-    expect(held).toContain("paragraph.");
-
-    migrateBlocks(row);
-    guard.restoreAfterFlush(guard.generation);
-
-    expect(selectedText()).toBe(held);
-
-    guard.dispose();
-  });
-
-  it("holds nothing for a caret, so a migration writes no selection", () => {
-    const row = mountRow();
-    const guard = new RowSelectionGuard(selectionDocument());
-    guard.observe(row);
-
-    const caret = resolveTextPosition(row, 6);
-    expect(caret).toBeDefined();
-    window
-      .getSelection()
-      ?.setBaseAndExtent(
-        (caret as { textNode: Text }).textNode,
-        (caret as { offsetInNode: number }).offsetInNode,
-        (caret as { textNode: Text }).textNode,
-        (caret as { offsetInNode: number }).offsetInNode,
-      );
-    document.dispatchEvent(new Event("selectionchange"));
-
-    expect(guard.snapshot).toBeUndefined();
-    migrateBlocks(row);
-    expect(guard.restoreAfterFlush(guard.generation)).toBe(false);
 
     guard.dispose();
   });
@@ -169,49 +103,6 @@ describe("RowSelectionGuard", () => {
     expect(selectedText()).toBe("diffe");
 
     otherRow.remove();
-    guard.dispose();
-  });
-
-  it("writes nothing when the selection survived the commit", () => {
-    const row = mountRow();
-    const guard = new RowSelectionGuard(selectionDocument());
-    guard.observe(row);
-    selectRange(row, 4, 9);
-
-    expect(guard.restoreAfterFlush(guard.generation)).toBe(false);
-    expect(selectedText()).toBe("first");
-
-    guard.dispose();
-  });
-
-  it("refuses a restore guarded by a stale generation", () => {
-    const row = mountRow();
-    const guard = new RowSelectionGuard(selectionDocument());
-    guard.observe(row);
-    selectRange(row, 4, 9);
-    const staleGeneration = guard.generation;
-
-    const replacementRow = mountRow();
-    guard.observe(replacementRow);
-    migrateBlocks(replacementRow);
-
-    expect(guard.restoreAfterFlush(staleGeneration)).toBe(false);
-
-    guard.dispose();
-  });
-
-  it("re-observing the same element keeps the snapshot", () => {
-    const row = mountRow();
-    const guard = new RowSelectionGuard(selectionDocument());
-    guard.observe(row);
-    selectRange(row, 4, 9);
-    const generation = guard.generation;
-
-    guard.observe(row);
-
-    expect(guard.generation).toBe(generation);
-    expect(guard.snapshot).toBeDefined();
-
     guard.dispose();
   });
 

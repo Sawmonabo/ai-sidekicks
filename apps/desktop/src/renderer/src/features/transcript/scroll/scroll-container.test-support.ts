@@ -17,7 +17,7 @@ export interface CountingScrollContainer extends ScrollContainer {
 }
 
 /** Starting geometry for `createCountingScrollContainer`, in pixels. */
-export interface CountingScrollContainerOptions {
+interface CountingScrollContainerOptions {
   readonly initialScrollTop?: number;
   readonly clientHeight?: number;
   readonly scrollHeight?: number;

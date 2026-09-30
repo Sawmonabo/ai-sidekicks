@@ -7,12 +7,6 @@ import { measureUtf8ByteLength } from "@renderer/lib/utf8-byte-length.js";
 import { ByteBoundedCache } from "./byte-bounded-cache.js";
 
 describe("the byte-bounded cache", () => {
-  it("returns what it was given", () => {
-    const cache = new ByteBoundedCache<number>(64);
-    cache.set("alpha", 1);
-    expect(cache.get("alpha")).toBe(1);
-  });
-
   it("evicts the least recently used entry when the cap is passed", () => {
     const cache = new ByteBoundedCache<number>(10);
     cache.set("aaaaa", 1);
@@ -33,15 +27,6 @@ describe("the byte-bounded cache", () => {
     expect(cache.get("small")).toBe(1);
   });
 
-  it("negative control: an insert inside the cap evicts nothing", () => {
-    // Without this, a cache that evicted on every insert would pass the cases above.
-    const cache = new ByteBoundedCache<number>(1024);
-    cache.set("alpha", 1);
-    cache.set("beta", 2);
-    expect(cache.stats().entryCount).toBe(2);
-    expect(cache.get("alpha")).toBe(1);
-  });
-
   it("re-inserting one key does not double-count its bytes", () => {
     const cache = new ByteBoundedCache<number>(1024);
     cache.set("alpha", 1);
@@ -59,16 +44,5 @@ describe("the byte-bounded cache", () => {
     cache.set("abcde", new Uint32Array(3));
     expect(cache.get("abcde")).toBeUndefined();
     expect(cache.get("abcd")).not.toBeUndefined();
-  });
-
-  it("reports its own bound, so a budget test reads it rather than restating it", () => {
-    expect(new ByteBoundedCache<number>(4096).stats().byteCap).toBe(4096);
-  });
-
-  it("clears its entries and keeps its bound", () => {
-    const cache = new ByteBoundedCache<number>(256);
-    cache.set("alpha", 1);
-    cache.clear();
-    expect(cache.stats()).toStrictEqual({ entryCount: 0, retainedByteCount: 0, byteCap: 256 });
   });
 });

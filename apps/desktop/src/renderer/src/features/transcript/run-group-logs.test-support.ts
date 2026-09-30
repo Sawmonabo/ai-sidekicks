@@ -75,7 +75,7 @@ export function openSessionStoreWithTerminalRunGroup(): SessionStore {
 }
 
 /** Message rows the finished run in `foldedMessageRunGroupLog` holds, all folded away. */
-export const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
+const FOLDED_RUN_GROUP_MESSAGE_ROW_COUNT = 3;
 
 /**
  * A finished run full of message rows, beside a live run holding a tool call.

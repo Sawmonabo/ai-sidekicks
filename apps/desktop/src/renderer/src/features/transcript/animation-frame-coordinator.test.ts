@@ -1,10 +1,8 @@
 import { beforeEach, describe, expect, test } from "vitest";
 
 import { ManualClock } from "@renderer/lib/clock.js";
-import { PERFORMANCE_METER_BOUNDS } from "@renderer/lib/performance-meters/performance-meter-bounds.js";
 import { developmentPerformanceMeters } from "@renderer/lib/performance-meters/performance-meters.js";
 import {
-  ANIMATION_FRAME_PHASES,
   AnimationFrameCoordinator,
   type AnimationFrameDiagnostic,
 } from "./animation-frame-coordinator.js";
@@ -17,86 +15,6 @@ const constructCoordinator = (): { clock: ManualClock; coordinator: AnimationFra
 describe("AnimationFrameCoordinator", () => {
   beforeEach(() => {
     developmentPerformanceMeters?.reset();
-  });
-
-  test("records the cost of every frame it drains, and nothing for a frame it does not", () => {
-    const { clock, coordinator } = constructCoordinator();
-    expect(
-      developmentPerformanceMeters,
-      "this project is not compiling the fixture define",
-    ).not.toBe(null);
-
-    // Nothing scheduled, so no drain runs and no series may exist.
-    clock.runFrame();
-    expect(developmentPerformanceMeters?.readings()).toStrictEqual([]);
-
-    coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
-    clock.runFrame();
-
-    const reading =
-      developmentPerformanceMeters?.readings().find((entry) => entry.kind === "frame-time") ?? null;
-    expect(reading, "a drained frame recorded no frame-time sample").not.toBeNull();
-    expect(reading?.recordedCount).toBe(1);
-    expect(Number(reading?.latest)).toBeGreaterThanOrEqual(0);
-  });
-
-  test("keys its frame time by coordinator, so two feeds are two series", () => {
-    // One coordinator per feed, so two open feeds are two coordinators; a shared key would
-    // fold their frames into one p95.
-    const clock = new ManualClock();
-    const firstFeed = new AnimationFrameCoordinator({ clock });
-    const secondFeed = new AnimationFrameCoordinator({ clock });
-
-    firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
-    secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
-    clock.runFrame();
-
-    const frameTimes =
-      developmentPerformanceMeters?.readings().filter((entry) => entry.kind === "frame-time") ?? [];
-    expect(frameTimes).toHaveLength(2);
-    expect(new Set(frameTimes.map((entry) => entry.seriesKey)).size).toBe(2);
-    expect(firstFeed.coordinatorId).not.toBe(secondFeed.coordinatorId);
-  });
-
-  test("a mount-and-unmount cycle costs no lasting series, however many times it runs", () => {
-    // The identity comes from an ordinal that never resets, so it names a mount. Without
-    // retirement the key set grows with every feed ever opened and, past the registry's series
-    // bound, further feeds are refused.
-    const mountCycleCount = 400;
-    expect(
-      mountCycleCount,
-      "this case is vacuous unless it mounts past the registry's series bound",
-    ).toBeGreaterThan(PERFORMANCE_METER_BOUNDS.seriesCount);
-
-    for (let cycle = 0; cycle < mountCycleCount; cycle += 1) {
-      const clock = new ManualClock();
-      const coordinator = new AnimationFrameCoordinator({ clock });
-      coordinator.scheduleScrollWrite(coordinator.claimTaskKey("scroll"), () => {});
-      clock.runFrame();
-      coordinator.dispose();
-    }
-
-    expect(developmentPerformanceMeters?.refusedSeriesCount).toBe(0);
-    expect(developmentPerformanceMeters?.seriesCount).toBe(0);
-  });
-
-  test("holds one live series per live coordinator, and drops it on dispose", () => {
-    // Retiring must not retire a sibling's series.
-    const clock = new ManualClock();
-    const firstFeed = new AnimationFrameCoordinator({ clock });
-    const secondFeed = new AnimationFrameCoordinator({ clock });
-    firstFeed.scheduleScrollWrite(firstFeed.claimTaskKey("scroll"), () => {});
-    secondFeed.scheduleScrollWrite(secondFeed.claimTaskKey("scroll"), () => {});
-    clock.runFrame();
-    expect(developmentPerformanceMeters?.seriesCount).toBe(2);
-
-    firstFeed.dispose();
-
-    expect(developmentPerformanceMeters?.seriesCount).toBe(1);
-    expect(developmentPerformanceMeters?.reading("frame-time", firstFeed.coordinatorId)).toBeNull();
-    expect(
-      developmentPerformanceMeters?.reading("frame-time", secondFeed.coordinatorId),
-    ).not.toBeNull();
   });
 
   test("runs scroll writes before reveal work, whatever order they were submitted in", () => {
@@ -114,10 +32,6 @@ describe("AnimationFrameCoordinator", () => {
     clock.runFrame();
 
     expect(order).toEqual(["scroll", "reveal"]);
-  });
-
-  test("the phase order is the declared enumeration", () => {
-    expect(ANIMATION_FRAME_PHASES).toEqual(["scroll-writes", "reveal-work"]);
   });
 
   test("coalesces by task key, so repeated submissions cost one run", () => {

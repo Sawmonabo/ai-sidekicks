@@ -1,6 +1,8 @@
 // Filler prose for the reveal suites: plain text with no markdown, so the gate hands it over in
 // full and only the frame budget bounds the reveal.
 
+import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";
+
 const ALPHABET = "abcdefghijklmnopqrstuvwxyz";
 
 /**
@@ -20,4 +22,3 @@ export function revealProse(characterCount: number): string {
  * revealed text apart from the delta echoed back.
  */
 export const TWO_FRAME_REVEAL_SOURCE: string = revealProse(REVEAL_FRAME_CHARACTER_BUDGET * 2);
-import { REVEAL_FRAME_CHARACTER_BUDGET } from "../frame/frame-caps.js";

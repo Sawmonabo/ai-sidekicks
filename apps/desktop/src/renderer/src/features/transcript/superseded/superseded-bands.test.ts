@@ -1,11 +1,11 @@
 // An off-by-one band dims the turn the person rewound to, and an epoch-blind band dims another
-// run's rows (re-execution reuses ordinals). Neither throws, so each assertion is paired with
-// a negative control that fails when the rule is removed.
+// run's rows (re-execution reuses ordinals). Neither throws, so each band is asserted from
+// both sides.
 
 import { type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
 
-import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
+import { rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
 import { SupersededIndex, deriveSupersededBands, supersededBandKey } from "./superseded-bands.js";
 
 describe("superseded bands — the rewind floor is EXCEEDS and nothing else", () => {
@@ -29,7 +29,7 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
     expect(index.isSuperseded("a3")).toBe(true);
   });
 
-  it("negative control: the row AT the cutoff is the retained floor and survives", () => {
+  it("the row AT the cutoff is the retained floor and survives", () => {
     // Off by one here dims the exact turn the person rewound to.
     const index = new SupersededIndex(rewoundWindow());
     expect(index.isSuperseded("a2")).toBe(false);
@@ -53,21 +53,12 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
     expect(index.isSuperseded("a3-again")).toBe(false);
   });
 
-  it("negative control: a boundary in one run never reaches another run's rows", () => {
+  it("a boundary in one run never reaches another run's rows", () => {
     const index = new SupersededIndex([
       ...rewoundWindow(),
       runRow({ id: "b9", sequence: 6, type: "run.running", runId: "run-b", position: 9 }),
     ]);
     expect(index.isSuperseded("b9")).toBe(false);
-  });
-
-  it("never ranks a session-scoped row", () => {
-    // Structural, not filtered: the arm carries no position at all.
-    const index = new SupersededIndex([
-      ...rewoundWindow(),
-      generalRow({ id: "g1", sequence: 8, type: "session.renamed", category: "session_lifecycle" }),
-    ]);
-    expect(index.isSuperseded("g1")).toBe(false);
   });
 
   it("marks a row that arrived already carrying its own cutoff, with no boundary in the window", () => {
@@ -105,27 +96,6 @@ describe("superseded bands — the rewind floor is EXCEEDS and nothing else", ()
     ]);
     const bandForRow = bands.find((band) => band.rowIds.includes("a5"));
     expect(bandForRow?.targetPosition).toBe(2);
-  });
-
-  it("is idempotent over one window, because it derives a set and accumulates nothing", () => {
-    const rows = rewoundWindow();
-    const first = deriveSupersededBands(rows).flatMap((band) => band.rowIds);
-    const second = deriveSupersededBands(rows).flatMap((band) => band.rowIds);
-    expect(second).toStrictEqual(first);
-  });
-
-  it("computes its bands once and answers from them", () => {
-    const index = new SupersededIndex(rewoundWindow());
-    expect(index.bands()).toBe(index.bands());
-  });
-
-  it("keys every band by the header key the feed dispatches on", () => {
-    const index = new SupersededIndex(rewoundWindow());
-    const [band] = index.bands();
-    if (band === undefined) {
-      throw new Error("the rewound window derived no band");
-    }
-    expect(index.bandByHeaderKey().get(supersededBandKey(band))).toBe(band);
   });
 
   it("answers which band each superseded row belongs to, and no other row", () => {

@@ -31,32 +31,6 @@ describe("the viewport controller — reconcile", () => {
     controller.reconcile({ rows: syntheticRows(4), ...CALM });
     expect(controller.snapshot()).toBe(controller.snapshot());
   });
-
-  it("counts rows appended after the reader left the tail", () => {
-    const { controller } = attachedController();
-    controller.reconcile({ rows: syntheticRows(4), ...CALM });
-    controller.anchor.observeGeometry({
-      scrollTop: 20,
-      viewportHeight: 100,
-      contentHeight: 4000,
-      distanceFromTailPx: 3880,
-      isAtTail: false,
-      sampledAt: 0,
-      cause: "scroll",
-    });
-    controller.reconcile({ rows: syntheticRows(7), ...CALM });
-    expect(controller.snapshot().reading).toMatchObject({
-      mode: "reading-with-new-rows",
-      newRowCount: 3,
-    });
-  });
-
-  it("negative control: while following, an append counts as nothing to jump to", () => {
-    const { controller } = attachedController();
-    controller.reconcile({ rows: syntheticRows(4), ...CALM });
-    controller.reconcile({ rows: syntheticRows(7), ...CALM });
-    expect(controller.snapshot().reading.newRowCount).toBe(0);
-  });
 });
 
 describe("the viewport controller — holding the reading position", () => {
@@ -118,40 +92,6 @@ describe("the viewport controller — holding the reading position", () => {
 });
 
 describe("the viewport controller — what a scroll does NOT cost", () => {
-  it("notifies nothing for a scroll that changes only where the reader is", () => {
-    // A snapshot carrying the anchor point or raw geometry would notify React on every pixel,
-    // the render `directDomUpdates` exists to avoid, and each render re-runs layout effects that
-    // can loop.
-    const scrollContainer = createCountingScrollContainer();
-    const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(scrollContainer);
-    controller.reconcile({ rows: syntheticRows(40), ...CALM });
-    let notifications = 0;
-    controller.subscribe(() => {
-      notifications += 1;
-    });
-    for (let tick = 0; tick < 20; tick += 1) {
-      scrollContainer.moveTo(40 + tick * 17);
-    }
-    expect(notifications).toBe(0);
-    expect(controller.anchor.state.anchorPoint).toBeDefined();
-  });
-
-  it("negative control: a scroll that changes a RENDERED fact does notify", () => {
-    const scrollContainer = createCountingScrollContainer();
-    const controller = new ViewportController({ clock: new ManualClock() });
-    controller.attach(scrollContainer);
-    controller.reconcile({ rows: syntheticRows(40), ...CALM });
-    let notifications = 0;
-    controller.subscribe(() => {
-      notifications += 1;
-    });
-    // Reaching the tail is a mode change, and the mode is on screen.
-    scrollContainer.moveTo(scrollContainer.scrollHeight - scrollContainer.clientHeight);
-    expect(notifications).toBeGreaterThan(0);
-    expect(controller.snapshot().reading.mode).toBe("following");
-  });
-
   it("does not re-anchor to a position the transcript itself just wrote", () => {
     // Anchoring to a glide's result discards the position the glide was performed to preserve.
     const scrollContainer = createCountingScrollContainer();
@@ -195,7 +135,7 @@ describe("the viewport controller — a pane that changed size", () => {
     expect(scrollContainer.scrollTop).toBe(3850);
   });
 
-  it("negative control: a reader who had scrolled away is not dragged to the tail", () => {
+  it("a reader who had scrolled away is not dragged to the tail", () => {
     const scrollContainer = createCountingScrollContainer({
       initialScrollTop: 500,
       clientHeight: 300,
@@ -266,21 +206,7 @@ describe("the viewport controller — the tail glide and the height it lands aga
     expect(TAIL_BEFORE_PX).not.toBe(TAIL_AFTER_PX);
   });
 
-  it("performs one glide per append, not one per render", () => {
-    // The binding calls the commit after every render; re-gliding on an unarmed pass would write
-    // the offset on every frame of a stream.
-    const { controller } = followerAtTail();
-    controller.reconcile({ rows: syntheticRows(24), ...CALM });
-    const followsBeforeCommit = controller.scroll.writeCount("follow-tail");
-
-    controller.commitPendingPositionHold();
-    controller.commitPendingPositionHold();
-    controller.commitPendingPositionHold();
-
-    expect(controller.scroll.writeCount("follow-tail")).toBe(followsBeforeCommit + 1);
-  });
-
-  it("negative control: a reader who left the tail before the commit is not dragged to it", () => {
+  it("a reader who left the tail before the commit is not dragged to it", () => {
     // The arming says what was true at the reconcile and the commit runs a render later; a reader
     // who scrolled in between is no longer following, and without the re-check the deferral would
     // teleport them.

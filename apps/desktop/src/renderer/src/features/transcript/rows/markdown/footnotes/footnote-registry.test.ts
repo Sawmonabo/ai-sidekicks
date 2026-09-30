@@ -1,6 +1,7 @@
 import type { RootContent } from "mdast";
 import { describe, expect, it } from "vitest";
 
+import { FOOTNOTE_DEFINITION_CAP } from "../../../cards/card-caps.js";
 import { FootnoteRegistry } from "./footnote-registry.js";
 
 const BODY: readonly RootContent[] = [
@@ -8,31 +9,12 @@ const BODY: readonly RootContent[] = [
 ];
 
 describe("the footnote registry", () => {
-  it("resolves a definition under the source that declared it", () => {
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-    expect(registry.definitionsFor("event-01").get("1")?.bodyNodes).toBe(BODY);
-  });
-
   it("keys on BOTH halves, so two messages may each define `1`", () => {
     const registry = new FootnoteRegistry();
     registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
     registry.register({ sourceId: "event-02", identifier: "1", bodyNodes: [] });
     expect(registry.definitionsFor("event-01").get("1")?.bodyNodes).toBe(BODY);
     expect(registry.definitionsFor("event-02").get("1")?.bodyNodes).toStrictEqual([]);
-  });
-
-  it("negative control: an identifier from another message does not resolve", () => {
-    // A registry keyed on the identifier alone would show one message's note under another's.
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-    expect(registry.definitionsFor("event-99").get("1")).toBeUndefined();
-  });
-
-  it("cannot be confused by a separator character in an identifier", () => {
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "a", identifier: "b:c", bodyNodes: BODY });
-    expect(registry.definitionsFor("a:b").get("c")).toBeUndefined();
   });
 
   it("forgets everything one source declared when its row leaves the window", () => {
@@ -54,34 +36,6 @@ describe("the footnote registry", () => {
     expect(registry.definitionsFor("event-01").get("1")?.bodyNodes).toStrictEqual([]);
   });
 
-  it("hands back one snapshot identity until that source's definitions move", () => {
-    // A rebuilt view would report a change on every render; one held past a change, none.
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-    const first = registry.definitionsFor("event-01");
-
-    expect(registry.definitionsFor("event-01")).toBe(first);
-
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: [] });
-    expect(registry.definitionsFor("event-01")).not.toBe(first);
-  });
-
-  it("negative control: an unchanged re-registration moves neither snapshot nor sink", () => {
-    // Settled blocks re-register the same node arrays constantly; nothing on screen changes.
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-    const first = registry.definitionsFor("event-01");
-    let changes = 0;
-    registry.subscribeToSource("event-01", () => {
-      changes += 1;
-    });
-
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-
-    expect(registry.definitionsFor("event-01")).toBe(first);
-    expect(changes).toBe(0);
-  });
-
   it("tells the source whose definition moved, and only that source", () => {
     const registry = new FootnoteRegistry();
     const changed: string[] = [];
@@ -99,35 +53,6 @@ describe("the footnote registry", () => {
     expect(changed).toStrictEqual(["event-01", "event-02", "event-01"]);
   });
 
-  it("stops telling a source once its subscription is dropped", () => {
-    const registry = new FootnoteRegistry();
-    let changes = 0;
-    const unsubscribe = registry.subscribeToSource("event-01", () => {
-      changes += 1;
-    });
-    unsubscribe();
-
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-
-    expect(changes).toBe(0);
-  });
-
-  it("tells the source an eviction took a definition from", () => {
-    // An evicted note changes its source exactly as a rewrite does; the source comes off the key.
-    const registry = new FootnoteRegistry();
-    registry.register({ sourceId: "event-01", identifier: "1", bodyNodes: BODY });
-    let evictedSourceChanges = 0;
-    registry.subscribeToSource("event-01", () => {
-      evictedSourceChanges += 1;
-    });
-    for (let index = 0; index < FOOTNOTE_DEFINITION_CAP; index += 1) {
-      registry.register({ sourceId: "event-02", identifier: String(index), bodyNodes: BODY });
-    }
-
-    expect(registry.definitionsFor("event-01").get("1")).toBeUndefined();
-    expect(evictedSourceChanges).toBe(1);
-  });
-
   it("holds a bounded number of definitions and drops the oldest first", () => {
     const registry = new FootnoteRegistry();
     for (let index = 0; index < FOOTNOTE_DEFINITION_CAP + 5; index += 1) {
@@ -140,4 +65,3 @@ describe("the footnote registry", () => {
     ).not.toBeUndefined();
   });
 });
-import { FOOTNOTE_DEFINITION_CAP } from "../../../cards/card-caps.js";

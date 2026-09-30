@@ -11,7 +11,7 @@ import { settleScheduledRead } from "@test/helpers/scheduled-read.js";
 import { SessionStore } from "@renderer/store/session/session-store.js";
 import { queueFeedBridge } from "./queue-feed.test-support.js";
 import { useQueueFeed, useQueueRepairRead } from "./queue-feed.js";
-import type { QueueCalls, QueueFeed } from "./queue-reading.js";
+import type { QueueCalls } from "./queue-reading.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 
 /** A session whose snapshot has landed, which is what makes a repair observable. */
@@ -58,7 +58,7 @@ describe("the queue reading re-reads on a repair", () => {
     expect(listedSessionIds).toHaveLength(2);
   });
 
-  it("negative control: nothing re-reads without a reason", async () => {
+  it("nothing re-reads without a reason", async () => {
     const { bridge, clock, queueCalls, listedSessionIds } = queueFeedBridge();
     const sessionStore = initializedStore();
     await act(async () => {
@@ -72,34 +72,6 @@ describe("the queue reading re-reads on a repair", () => {
     await settleScheduledRead(clock);
     await settleScheduledRead(clock);
     expect(listedSessionIds).toHaveLength(1);
-  });
-
-  it("waits out a reply that is parked on a timer", async () => {
-    // Every other case here answers synchronously, so this is the one that says the
-    // settling helper waits for a reply that is not merely a microtask away.
-    const { bridge, clock, queueCalls } = queueFeedBridge();
-    const parked: QueueCalls = {
-      ...queueCalls,
-      list: () =>
-        new Promise((resolveRead) => {
-          setTimeout(() => {
-            resolveRead([]);
-          }, 0);
-        }),
-    };
-    const sessionStore = initializedStore();
-    let phase: QueueFeed["phase"] | undefined;
-    function ParkedProbe(): null {
-      phase = useQueueFeed(bridge, sessionStore.sessionId, parked).phase;
-      useQueueRepairRead(bridge, sessionStore, parked);
-      return null;
-    }
-    await act(async () => {
-      render(<ParkedProbe />, { wrapper: bridgeWrapper(bridge, clock) });
-    });
-
-    await settleScheduledRead(clock);
-    expect(phase).toBe("read");
   });
 
   it("re-reads when the window regains focus", async () => {

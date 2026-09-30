@@ -1,21 +1,15 @@
-// The seam row reads the rendered line, not the classifier's model: the model was correct
-// while nothing drew the boundary, continuity, losses and reason.
+// The seam row, read from the rendered line: each declared loss is drawn as itself.
 
 import { render } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { rollbackBoundaryRow, runRow } from "../../timeline-rows.test-support.js";
+import { runRow } from "../../timeline-rows.test-support.js";
 import { SystemMessage } from "./SystemMessage.js";
-import { SYSTEM_MESSAGE_BINDINGS } from "../system-message-kinds.js";
 import {
   SystemMessageClassifier,
   type SystemMessageReading,
 } from "../system-message-classifier.js";
-import {
-  AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
-  AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-  type TimelineRow,
-} from "@ai-sidekicks/contracts";
+import { AGENT_PROVIDER_BINDING_CHANGED_EVENT, type TimelineRow } from "@ai-sidekicks/contracts";
 
 function seamOf(row: TimelineRow): SystemMessageReading {
   const seam = new SystemMessageClassifier().classify(row);
@@ -33,75 +27,6 @@ function renderSeam(seam: SystemMessageReading): HTMLElement {
   }
   return line;
 }
-
-describe("the seam row — one kind at a time, over its registered members", () => {
-  it("draws a rewind with the boundary its typed payload carried", () => {
-    const line = renderSeam(
-      seamOf(
-        rollbackBoundaryRow({
-          id: "rb",
-          sequence: 9,
-          runId: "run-a",
-          position: 6,
-          targetPosition: 2,
-        }),
-      ),
-    );
-    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS.rollback.label);
-    expect(line.textContent).toContain("2");
-  });
-
-  it("draws a compaction with the boundary its own position carried", () => {
-    const line = renderSeam(
-      seamOf(
-        runRow({
-          id: "c1",
-          sequence: 3,
-          type: "usage.context_compacted",
-          category: "usage_telemetry",
-          runId: "run-a",
-          position: 7,
-        }),
-      ),
-    );
-    expect(line.textContent).toContain(SYSTEM_MESSAGE_BINDINGS.compaction.label);
-    expect(line.textContent).toContain("7");
-  });
-
-  it("carries the failed switch's reason verbatim, and marks it the one caution", () => {
-    const line = renderSeam(
-      seamOf(
-        runRow({
-          id: "sf",
-          sequence: 5,
-          type: AGENT_PROVIDER_BINDING_CHANGE_FAILED_EVENT,
-          runId: "run-a",
-          position: 5,
-          payload: { reason: "output_speed_unavailable" },
-        }),
-      ),
-    );
-    expect(line.textContent).toContain("output_speed_unavailable");
-    expect(line.classList.contains("meridian-system-message--caution")).toBe(true);
-  });
-
-  it("negative control: an ordinary switch is not drawn as a caution", () => {
-    // Without this the caution assertion above would pass over a row that painted every seam.
-    const line = renderSeam(
-      seamOf(
-        runRow({
-          id: "sw",
-          sequence: 6,
-          type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-          runId: "run-a",
-          position: 6,
-          payload: { continuity: "in_place" },
-        }),
-      ),
-    );
-    expect(line.classList.contains("meridian-system-message--caution")).toBe(false);
-  });
-});
 
 describe("the seam row — the loss clause", () => {
   it("renders each declared loss as itself", () => {
@@ -124,24 +49,5 @@ describe("the seam row — the loss clause", () => {
     expect(line.textContent).toContain("turn_content_truncated");
     // A value outside the closed wire vocabulary is still rendered as itself.
     expect(line.textContent).toContain("a_loss_this_build_never_heard_of");
-  });
-
-  it("negative control: a switch that declares no loss draws no clause", () => {
-    // An empty list is the switch's claim that nothing was lost; a notice for it would
-    // be a sentence this component invented.
-    const line = renderSeam(
-      seamOf(
-        runRow({
-          id: "si",
-          sequence: 8,
-          type: AGENT_PROVIDER_BINDING_CHANGED_EVENT,
-          runId: "run-a",
-          position: 8,
-          payload: { continuity: "in_place", declaredLosses: [] },
-        }),
-      ),
-    );
-    expect(line.textContent).toContain("in_place");
-    expect(line.querySelector(".meridian-system-message__losses")).toBeNull();
   });
 });

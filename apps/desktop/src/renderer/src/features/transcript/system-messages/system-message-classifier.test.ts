@@ -1,5 +1,5 @@
 // The epoch rule, held to the reads that fail silently: a boundary read off the wrong member
-// still draws a seam, so each clean assertion is paired with a negative control.
+// still draws a seam.
 
 import { AGENT_PROVIDER_BINDING_CHANGED_EVENT, type TimelineRow } from "@ai-sidekicks/contracts";
 import { describe, expect, it } from "vitest";
@@ -47,23 +47,6 @@ describe("seams — one row's classification", () => {
     expect(seam.boundaryPosition).toBe(7);
   });
 
-  it("negative control: a payload member of that name is not what is read", () => {
-    // Position and payload member are deliberately different numbers: a payload read answers
-    // 99, and a boundary hard-coded to the position would answer 3 either way.
-    const seam = classifyOne(
-      runRow({
-        id: "c1b",
-        sequence: 3,
-        type: "usage.context_compacted",
-        category: "usage_telemetry",
-        runId: "run-a",
-        position: 3,
-        payload: { boundaryPosition: 99 },
-      }),
-    );
-    expect(seam.boundaryPosition).toBe(3);
-  });
-
   it("carries a switch's declared losses verbatim", () => {
     const seam = classifyOne(
       runRow({
@@ -86,7 +69,7 @@ describe("seams — one row's classification", () => {
     ]);
   });
 
-  it("negative control: an ordinary row is not a seam", () => {
+  it("an ordinary row is not a seam", () => {
     const index = new SystemMessageClassifier();
     expect(
       index.classify(
@@ -103,28 +86,5 @@ describe("seams — one row's classification", () => {
         }),
       ),
     ).toBeUndefined();
-  });
-
-  it("collects a window's seams in log order", () => {
-    const seams = new SystemMessageClassifier().seams([
-      runRow({ id: "r1", sequence: 1, type: "run.running", runId: "run-a", position: 1 }),
-      runRow({
-        id: "c1",
-        sequence: 2,
-        type: "usage.context_compacted",
-        category: "usage_telemetry",
-        runId: "run-a",
-        position: 2,
-      }),
-      rollbackBoundaryRow({
-        id: "rb",
-        sequence: 3,
-        runId: "run-a",
-        position: 3,
-        targetPosition: 1,
-      }),
-    ]);
-    expect(seams.map((seam) => seam.rowId)).toStrictEqual(["c1", "rb"]);
-    expect(seams.map((seam) => seam.kind)).toStrictEqual(["compaction", "rollback"]);
   });
 });

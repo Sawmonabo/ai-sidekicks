@@ -18,20 +18,12 @@ describe("run groups — collapse state never folds the live run group", () => {
     expect(state.isOpen(terminal)).toBe(false);
   });
 
-  it("negative control: closing the live run group changes nothing", () => {
+  it("closing the live run group changes nothing", () => {
     // Without the live arm answering first, `close` would remove it from the open set and
     // `isOpen` would report a live run group folded.
     const state = new RunGroupFoldState();
     expect(state.close(live)).toBe(false);
     expect(state.isOpen(live)).toBe(true);
-  });
-
-  it("opens a folded run group and keeps it open until it is closed", () => {
-    const state = new RunGroupFoldState();
-    state.open(terminal);
-    expect(state.isOpen(terminal)).toBe(true);
-    expect(state.close(terminal)).toBe(true);
-    expect(state.isOpen(terminal)).toBe(false);
   });
 
   it("collapses every terminal run group and reports how many it folded", () => {

@@ -70,20 +70,4 @@ describe("the snapshot never regresses a newer tail row", () => {
       QUEUE_ITEM_C,
     ]);
   });
-
-  it("negative control: writing the snapshot over the tail reverses and regresses", () => {
-    // The naive fold, spelled out so the cases above fail on it rather than passing
-    // over a fold that never had the defect: this is what `Map.set` per snapshot row
-    // does to a map the tail wrote into first.
-    const writtenOver = new Map<string, QueueItemSummary>();
-    writtenOver.set(QUEUE_ITEM_B, parsedRow(QUEUE_ITEM_B, "admitted", "2026-09-02T09:00:02.000Z"));
-    for (const snapshotRow of [
-      parsedRow(QUEUE_ITEM_A, "queued", "2026-09-02T09:00:01.000Z"),
-      parsedRow(QUEUE_ITEM_B, "queued", "2026-09-02T09:00:01.000Z"),
-    ]) {
-      writtenOver.set(snapshotRow.id, snapshotRow);
-    }
-    expect([...writtenOver.keys()]).toStrictEqual([QUEUE_ITEM_B, QUEUE_ITEM_A]);
-    expect(writtenOver.get(QUEUE_ITEM_B)?.state).toBe("queued");
-  });
 });

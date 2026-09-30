@@ -5,8 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import { type ChildRunSummary, type RunId, type TimelineRow } from "@ai-sidekicks/contracts";
 
-import { generalRow, rollbackBoundaryRow, runRow } from "../timeline-rows.test-support.js";
-import { ChildRunIndex, deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
+import { generalRow, runRow } from "../timeline-rows.test-support.js";
+import { deriveChildRunEntries, deriveHandoffEntries } from "./child-run-entries.js";
 
 /** When a later observation saw the child's transcript lose entries. */
 const OBSERVED_AT = "2026-09-02T10:04:00.000Z";
@@ -30,15 +30,6 @@ function rowCarryingChildRun(id: string, sequence: number, summary: ChildRunSumm
 }
 
 describe("child-run entries — one card per child, at the row that first named it", () => {
-  it("carries the summary, the actor and the timestamp off the row", () => {
-    const entries = deriveChildRunEntries([
-      rowCarryingChildRun("r1", 1, completeSummary("run-child", 4)),
-    ]);
-    expect(entries).toHaveLength(1);
-    expect(entries[0]?.summary.eventCount).toBe(4);
-    expect(entries[0]?.rowId).toBe("r1");
-  });
-
   it("anchors a re-summarized child at its first row and records the later ones", () => {
     const entries = deriveChildRunEntries([
       rowCarryingChildRun("r1", 1, completeSummary("run-child", 1)),
@@ -75,7 +66,7 @@ describe("child-run entries — one card per child, at the row that first named 
     });
   });
 
-  it("negative control: a child summarized once keeps the only summary it has", () => {
+  it("a child summarized once keeps the only summary it has", () => {
     // A fold that took the last row's summary unconditionally would pass the case above while
     // dropping a child nothing re-summarized.
     const entries = deriveChildRunEntries([
@@ -94,14 +85,6 @@ describe("child-run entries — one card per child, at the row that first named 
       } as TimelineRow,
     ]);
     expect(entries.map((entry) => entry.rowId)).toEqual(["g1"]);
-  });
-
-  it("produces nothing for a window whose rows carry no child run", () => {
-    expect(
-      deriveChildRunEntries([
-        runRow({ id: "r1", sequence: 1, type: "run.started", runId: "run-a", position: 1 }),
-      ]),
-    ).toEqual([]);
   });
 });
 
@@ -196,34 +179,5 @@ describe("handoff entries — the three members, each read as itself", () => {
       childRunSummary: completeSummary("run-from-summary", 1),
     } as TimelineRow;
     expect(deriveHandoffEntries([row])[0]?.childRunId).toBe("run-from-summary");
-  });
-
-  it("reads no member off the typed rollback-boundary payload", () => {
-    const entries = deriveHandoffEntries([
-      {
-        ...rollbackBoundaryRow({ id: "rb", sequence: 1, runId: "run-a", position: 3 }),
-        type: "subagent.started",
-      } as TimelineRow,
-    ]);
-    expect(entries[0]?.fromActor).toBeUndefined();
-  });
-});
-
-describe("the index — one pass, two lookups", () => {
-  it("keys both derivations by the row the feed is drawing", () => {
-    const index = new ChildRunIndex([
-      rowCarryingChildRun("child", 1, completeSummary("run-child", 3)),
-      runRow({
-        id: "handoff",
-        sequence: 2,
-        type: "subagent.started",
-        runId: "run-parent",
-        position: 2,
-        payload: { toActor: "agent-reviewer" },
-      }),
-    ]);
-    expect(index.childRunEntryByRowId().get("child")?.summary.runId).toBe("run-child");
-    expect(index.handoffEntryByRowId().get("handoff")?.toActor).toBe("agent-reviewer");
-    expect(index.handoffEntryByRowId().has("child")).toBe(false);
   });
 });

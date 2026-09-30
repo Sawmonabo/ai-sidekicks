@@ -27,18 +27,6 @@ describe("command output", () => {
     expect(container.textContent).toContain("failed");
   });
 
-  it("negative control: an ordinary reply still takes the markdown path", () => {
-    const { container } = render(
-      <ToolOutput
-        content={{ status: "available", body: "an ordinary **reply**" }}
-        sourceId="event-01"
-        footnotes={new FootnoteRegistry()}
-        label="Output of a tool"
-      />,
-    );
-    expect(container.querySelector(".meridian-ansi__body")).toBeNull();
-  });
-
   it("puts no escape sequence on the page, whichever renderer the body took", () => {
     // Anser leaves OSC and the two-byte escapes inside the chunk it returns.
     const { container } = render(

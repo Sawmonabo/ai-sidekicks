@@ -107,7 +107,7 @@ describe("a row body reading its lane", () => {
     expect(TWO_FRAME_REVEAL_SOURCE.startsWith(revealed)).toBe(true);
   });
 
-  it("negative control: a row whose lane nothing streams into stays empty", () => {
+  it("a row whose lane nothing streams into stays empty", () => {
     // Without this the case above would pass over a channel that answered every lane
     // with whatever was last ingested anywhere.
     const clock = new ManualClock();

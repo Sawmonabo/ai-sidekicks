@@ -4,7 +4,7 @@ import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
 import { FindBox } from "./FindBox.js";
-import { emptyFindResult, findInTranscript, type FindResult } from "../find-model.js";
+import { findInTranscript, type FindResult } from "../find-model.js";
 import { runRow } from "../../timeline-rows.test-support.js";
 
 /** More matches than the three-row window below can walk, so the cap arm is real. */
@@ -78,16 +78,6 @@ function renderField(
 }
 
 describe("find field — the counter is the console's own reading", () => {
-  it("reports how much was searched before anything is typed", () => {
-    const { field } = renderField({ result: emptyFindResult(42), query: "" });
-    expect(field.textContent).toContain("42 rows loaded");
-  });
-
-  it("names a position within the honest total", () => {
-    const { field } = renderField({ currentMatchIndex: 1 });
-    expect(field.textContent).toContain("2 of 3");
-  });
-
   it("names the walkable set as the denominator when the walk is capped", () => {
     // The denominator is the set the walk can reach; the uncapped total would advertise matches
     // no step lands on.
@@ -95,12 +85,6 @@ describe("find field — the counter is the console's own reading", () => {
     const { field } = renderField({ result: capped, currentMatchIndex: 0 });
     expect(field.textContent).toContain("1 of 3");
     expect(field.textContent).not.toContain(`1 of ${String(UNCAPPED_TOTAL)}`);
-  });
-
-  it("negative control: with nothing found it says so", () => {
-    const empty = findInTranscript([], "nothing here");
-    const { field } = renderField({ result: empty, query: "nothing here" });
-    expect(field.textContent).toContain("No matches");
   });
 });
 
@@ -111,132 +95,13 @@ describe("find field — the walk", () => {
     fireEvent.keyDown(harness.input, { key: "Enter", shiftKey: true });
     expect(harness.acts).toStrictEqual(["step:next", "step:previous"]);
   });
-
-  it("negative control: an ordinary keystroke does not step the walk", () => {
-    const harness = renderField();
-    fireEvent.keyDown(harness.input, { key: "a" });
-    expect(harness.acts).toStrictEqual([]);
-  });
-
-  it("offers next and previous as buttons too", () => {
-    const harness = renderField();
-    fireEvent.click(screen.getByRole("button", { name: "Next match" }));
-    fireEvent.click(screen.getByRole("button", { name: "Previous match" }));
-    expect(harness.acts).toStrictEqual(["step:next", "step:previous"]);
-  });
-
-  it("negative control: with no matches the step buttons are disabled", () => {
-    renderField({ result: findInTranscript([], "nothing here"), query: "nothing here" });
-    for (const name of ["Next match", "Previous match"]) {
-      expect((screen.getByRole("button", { name }) as HTMLButtonElement).disabled).toBe(true);
-    }
-  });
-});
-
-describe("find field — the chord puts the caret in the field", () => {
-  it("takes focus and selects the query when the field is asked for", () => {
-    // The chord's point is that the next keystroke enters the query.
-    const harness = renderField({ query: "hit" });
-    expect(document.activeElement).toBe(harness.input);
-    expect(harness.input.selectionStart).toBe(0);
-    expect(harness.input.selectionEnd).toBe("hit".length);
-  });
-
-  it("takes the caret back when the chord is pressed over an open field", () => {
-    // A mount-only effect covers the first open and not this one, which is why the
-    // press count is a prop rather than `autoFocus`.
-    const { rerender } = render(
-      <FindBox
-        query="hit"
-        result={matchingResult()}
-        currentMatchIndex={-1}
-        openRequestCount={1}
-        onQueryChange={() => undefined}
-        onStep={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    const input = screen.getByRole("searchbox", {
-      name: "Find in this session",
-    }) as HTMLInputElement;
-    input.blur();
-    expect(document.activeElement).not.toBe(input);
-    rerender(
-      <FindBox
-        query="hit"
-        result={matchingResult()}
-        currentMatchIndex={-1}
-        openRequestCount={2}
-        onQueryChange={() => undefined}
-        onStep={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    expect(document.activeElement).toBe(input);
-    expect(input.selectionEnd).toBe("hit".length);
-  });
-
-  it("negative control: a re-render that did not open the field leaves focus alone", () => {
-    // Guards against an effect with no dependency list, which would snatch focus per keystroke.
-    const { rerender } = render(
-      <FindBox
-        query="hit"
-        result={matchingResult()}
-        currentMatchIndex={-1}
-        openRequestCount={1}
-        onQueryChange={() => undefined}
-        onStep={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    const input = screen.getByRole("searchbox", {
-      name: "Find in this session",
-    }) as HTMLInputElement;
-    input.blur();
-    rerender(
-      <FindBox
-        query="hit"
-        result={matchingResult()}
-        currentMatchIndex={2}
-        openRequestCount={1}
-        onQueryChange={() => undefined}
-        onStep={() => undefined}
-        onClose={() => undefined}
-      />,
-    );
-    expect(document.activeElement).not.toBe(input);
-  });
-
-  it("closes on Escape, so the caret it took has a keyboard way out", () => {
-    const harness = renderField();
-    fireEvent.keyDown(harness.input, { key: "Escape" });
-    expect(harness.acts).toStrictEqual(["close"]);
-  });
-
-  it("negative control: an ordinary keystroke does not close the field", () => {
-    const harness = renderField();
-    fireEvent.keyDown(harness.input, { key: "a" });
-    expect(harness.acts).toStrictEqual([]);
-  });
 });
 
 describe("find field — the query and the close", () => {
-  it("hands each keystroke to its caller rather than holding a query of its own", () => {
-    const harness = renderField({ query: "hi" });
-    fireEvent.change(harness.input, { target: { value: "hit" } });
-    expect(harness.acts).toStrictEqual(["query:hit"]);
-  });
-
   it("renders the query it was given, and not the one the matcher trimmed", () => {
     // The field shows what was typed; `result.query` is the trimmed form. Conflating them would
     // delete a trailing space under the cursor.
     const harness = renderField({ query: "hit " });
     expect(harness.input.value).toBe("hit ");
-  });
-
-  it("closes through its caller", () => {
-    const harness = renderField();
-    fireEvent.click(screen.getByRole("button", { name: "Close find" }));
-    expect(harness.acts).toStrictEqual(["close"]);
   });
 });

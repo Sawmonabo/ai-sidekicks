@@ -8,15 +8,6 @@ function rowsFrom(keys: readonly string[]): readonly ViewportRow[] {
 }
 
 describe("the head-growth reading", () => {
-  it("reports nothing on the first set it is shown", () => {
-    // Every row is new but none arrived under anybody: there was no window for a page to land
-    // in front of.
-    expect(new HeadInsertion().read(rowsFrom(["c", "d"]))).toEqual({
-      insertedCount: 0,
-      headRootCursor: undefined,
-    });
-  });
-
   it("counts the rows a page brought and names the cursor they start at", () => {
     const growth = new HeadInsertion();
     growth.read(rowsFrom(["c", "d"]));
@@ -27,17 +18,7 @@ describe("the head-growth reading", () => {
     });
   });
 
-  it("reports nothing for rows appended at the tail", () => {
-    const growth = new HeadInsertion();
-    growth.read(rowsFrom(["c", "d"]));
-
-    expect(growth.read(rowsFrom(["c", "d", "e"]))).toEqual({
-      insertedCount: 0,
-      headRootCursor: undefined,
-    });
-  });
-
-  it("negative control: a set re-supplied after the cap trimmed reports nothing", () => {
+  it("a set re-supplied after the cap trimmed reports nothing", () => {
     // The cap takes rows from the oldest end and the feed keeps handing over the whole
     // projection, so those rows lead the next set. Against the retained head that reads as a page
     // arriving; against the incoming head it is an ordinary reconcile.

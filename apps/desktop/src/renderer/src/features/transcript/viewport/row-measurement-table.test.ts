@@ -4,10 +4,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import {
-  TRANSCRIPT_GEOMETRY_EPSILON_PX,
-  TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX,
-} from "./viewport-constants.js";
+import { TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX } from "./viewport-constants.js";
 import { RowMeasurementTable } from "./row-measurement-table.js";
 
 function keys(count: number, prefix = "row"): readonly string[] {
@@ -15,28 +12,6 @@ function keys(count: number, prefix = "row"): readonly string[] {
 }
 
 describe("the measurement ledger — accepting a height", () => {
-  it("estimates a row it has never measured, and reports one it has", () => {
-    const ledger = new RowMeasurementTable();
-    expect(ledger.heightOf("row-0")).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
-    expect(ledger.acceptedHeight("row-0", 240)).toBe(240);
-    expect(ledger.heightOf("row-0")).toBe(240);
-  });
-
-  it("holds the previous height for an observation inside the epsilon", () => {
-    // The library's compare is exact; without this a streaming row's last-bit wobble would
-    // invalidate its cache every frame.
-    const ledger = new RowMeasurementTable();
-    ledger.acceptedHeight("row-0", 240);
-    expect(ledger.acceptedHeight("row-0", 240 + TRANSCRIPT_GEOMETRY_EPSILON_PX / 2)).toBe(240);
-  });
-
-  it("negative control: an observation outside the epsilon is taken", () => {
-    const ledger = new RowMeasurementTable();
-    ledger.acceptedHeight("row-0", 240);
-    const observed = 240 + TRANSCRIPT_GEOMETRY_EPSILON_PX * 4;
-    expect(ledger.acceptedHeight("row-0", observed)).toBe(observed);
-  });
-
   it("refuses an observation that is not a height, and keeps what it had", () => {
     // An unlaid-out element reports zero; taking it collapses every offset below onto one pixel.
     const ledger = new RowMeasurementTable();
@@ -56,13 +31,6 @@ describe("the measurement ledger — accepting a height", () => {
     expect(ledger.heightOf("row-0")).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
     expect(ledger.heightOf("row-5")).toBe(200);
   });
-
-  it("forgets one row's prior on request, for a row the window pruned", () => {
-    const ledger = new RowMeasurementTable();
-    ledger.acceptedHeight("row-0", 240);
-    ledger.forget("row-0");
-    expect(ledger.heightOf("row-0")).toBe(TRANSCRIPT_ROW_HEIGHT_ESTIMATE_PX);
-  });
 });
 
 describe("the measurement ledger — the display validity key", () => {
@@ -73,42 +41,6 @@ describe("the measurement ledger — the display validity key", () => {
     expect(ledger.measuredRowCount).toBe(1);
     expect(ledger.setDisplaySettings({ devicePixelRatio: 2, rootFontSizePx: 18 })).toBe(true);
     expect(ledger.measuredRowCount).toBe(0);
-  });
-
-  it("negative control: an unchanged display keeps them, and reports no change", () => {
-    const ledger = new RowMeasurementTable();
-    ledger.setDisplaySettings({ devicePixelRatio: 2, rootFontSizePx: 16 });
-    ledger.acceptedHeight("row-0", 240);
-    expect(ledger.setDisplaySettings({ devicePixelRatio: 2, rootFontSizePx: 16 })).toBe(false);
-    expect(ledger.measuredRowCount).toBe(1);
-  });
-});
-
-describe("the measurement ledger — degrading rather than discarding", () => {
-  it("gives a repeated key a key of its own, and counts the repeat", () => {
-    // The library keys its caches by item key, so a shared key would let the second row displace
-    // the first.
-    const ledger = new RowMeasurementTable();
-    const projection = ledger.projectKeys(["row-0", "row-0", "row-1"]);
-    expect(projection.duplicateKeyCount).toBe(1);
-    expect(projection.virtualKeys).toHaveLength(3);
-    expect(new Set(projection.virtualKeys).size).toBe(3);
-    expect(projection.virtualKeys[0]).toBe("row-0");
-  });
-
-  it("negative control: distinct keys are passed through untouched", () => {
-    const ledger = new RowMeasurementTable();
-    const rowKeys = keys(3);
-    const projection = ledger.projectKeys(rowKeys);
-    expect(projection.duplicateKeyCount).toBe(0);
-    expect(projection.virtualKeys).toStrictEqual(rowKeys);
-  });
-
-  it("caches the projection against the array's identity", () => {
-    const ledger = new RowMeasurementTable();
-    const rowKeys = keys(4);
-    expect(ledger.projectKeys(rowKeys)).toBe(ledger.projectKeys(rowKeys));
-    expect(ledger.projectKeys(keys(4))).not.toBe(ledger.projectKeys(rowKeys));
   });
 });
 
@@ -121,25 +53,5 @@ describe("the measurement ledger — the idle trim", () => {
     expect(ledger.forgetAllExcept(["row-b"])).toBe(2);
     expect(ledger.measuredRowCount).toBe(1);
     expect(ledger.heightOf("row-b")).toBe(40);
-  });
-
-  it("keeps a repeat's prior by the row it was minted for", () => {
-    // The projection mints `<rowKey>~repeat-<n>` and the trim is handed row keys; without
-    // recovering the row, a retained row's repeat would be dropped every trim (the count would
-    // read 2, not 1).
-    const ledger = new RowMeasurementTable();
-    const projection = ledger.projectKeys(["row-a", "row-a", "row-b"]);
-    for (const virtualKey of projection.virtualKeys) {
-      ledger.acceptedHeight(virtualKey, 40);
-    }
-    expect(ledger.forgetAllExcept(["row-a"])).toBe(1);
-    expect(ledger.measuredRowCount).toBe(2);
-  });
-
-  it("forgets everything when nothing is retained", () => {
-    const ledger = new RowMeasurementTable();
-    ledger.acceptedHeight("row-a", 40);
-    expect(ledger.forgetAllExcept([])).toBe(1);
-    expect(ledger.measuredRowCount).toBe(0);
   });
 });

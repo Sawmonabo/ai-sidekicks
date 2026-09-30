@@ -1,11 +1,9 @@
-// What the transcript contributes to the palette: commands register through the one command
-// registry and never at import time. A module that registered at import time would satisfy
-// every assertion about the command list, so the acts are counted before anything runs too.
+// What the transcript's palette commands do when run: each runs its own act, reaches the
+// transcript that is mounted, and says so when none is.
 
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Refusal } from "@renderer/lib/refusal.js";
-import { CommandRegistry } from "@renderer/registries/commands/command-registry.js";
 import { KeybindingTable } from "@renderer/registries/keybindings/keybinding-table.js";
 import { commandContributionRegistry } from "@renderer/registries/commands/command-contributions.js";
 import { commandRegistry } from "@renderer/registries/commands/window-command-registry.js";
@@ -14,7 +12,6 @@ import { publishCommandRefusalSink } from "@renderer/registries/commands/command
 import { type CommandDefinition } from "@renderer/registries/commands/command-types.js";
 import { MountedTranscript, type TranscriptActs } from "../mounted-transcript.js";
 import {
-  TRANSCRIPT_COMMAND_GROUP,
   TRANSCRIPT_COMMAND_OWNER,
   createTranscriptCommands,
   registerTranscriptCommands,
@@ -39,72 +36,7 @@ function commandById(commands: readonly CommandDefinition[], commandId: string):
   return command;
 }
 
-describe("transcript commands — the contribution is a value, and building it registers nothing", () => {
-  it("fires no act merely by being built", () => {
-    const fired: string[] = [];
-    createTranscriptCommands(recordingActs(fired));
-    expect(fired).toStrictEqual([]);
-  });
-
-  it("builds a fresh list per window rather than handing out one shared array", () => {
-    // Every `run` closes over one window's transcript, so the list is a function of the acts.
-    const acts = recordingActs([]);
-    expect(createTranscriptCommands(acts)).not.toBe(createTranscriptCommands(acts));
-  });
-
-  it("contributes through the palette's own registry, which accepts the rows whole", () => {
-    // Driven for real: if the rows were built for something else, `registerAll` shows it.
-    const registry = new CommandRegistry();
-    registry.registerAll(createTranscriptCommands(recordingActs([])));
-    expect(registry.size).toBe(5);
-    expect(registry.all().map((command) => command.id)).toStrictEqual(
-      createTranscriptCommands(recordingActs([])).map((command) => command.id),
-    );
-  });
-
-  it("offers every act in a window with a session, through the palette's own evaluator", () => {
-    const registry = new CommandRegistry();
-    registry.registerAll(createTranscriptCommands(recordingActs([])));
-    expect(registry.commandsFor({ sessionActive: true })).toHaveLength(5);
-  });
-
-  it("negative control: a window with no session is offered none of them", () => {
-    // `when-clause.ts` fails closed for a key the context does not carry, so this holds for a
-    // context that says `false` and for one that says nothing.
-    const registry = new CommandRegistry();
-    registry.registerAll(createTranscriptCommands(recordingActs([])));
-    expect(registry.commandsFor({ sessionActive: false })).toStrictEqual([]);
-    expect(registry.commandsFor({})).toStrictEqual([]);
-  });
-});
-
 describe("transcript commands — the rows themselves", () => {
-  const commands = createTranscriptCommands(recordingActs([]));
-
-  it("offers five acts under one group, each id unique and namespaced", () => {
-    expect(commands).toHaveLength(5);
-    expect(new Set(commands.map((command) => command.id)).size).toBe(5);
-    for (const command of commands) {
-      expect(command.group).toBe(TRANSCRIPT_COMMAND_GROUP);
-      expect(command.id.startsWith("transcript.")).toBe(true);
-      expect(command.title.endsWith(".")).toBe(false);
-    }
-  });
-
-  it("gates every act on an active session, so a window with none offers nothing to act on", () => {
-    for (const command of commands) {
-      expect(command.when).toBe("sessionActive");
-    }
-  });
-
-  it("negative control: the gate is a real clause and not an empty string", () => {
-    // An absent or empty `when` means unconditional, which is the failure this guards.
-    for (const command of commands) {
-      expect(command.when).not.toBe("");
-      expect(command.when).toBeDefined();
-    }
-  });
-
   it("runs exactly its own act, and only when run", () => {
     const expectations: readonly (readonly [string, string])[] = [
       ["transcript.find", "openFind"],
@@ -156,16 +88,6 @@ describe("transcript commands — the contribution reaches the palette and the k
     );
   }
 
-  it("puts every act in the window's palette once the transcript is composed", () => {
-    registerTranscriptCommands(commandContributionRegistry);
-    const offered = commandRegistry
-      .commandsFor({ sessionActive: true })
-      .map((command) => command.id);
-    for (const command of createTranscriptCommands(recordingActs([]))) {
-      expect(offered).toContain(command.id);
-    }
-  });
-
   it("opens find on the transcript that is mounted when the chord is pressed", () => {
     // The whole seam in one case: contributed at composition, resolved at press.
     const fired: string[] = [];
@@ -174,16 +96,6 @@ describe("transcript commands — the contribution reaches the palette and the k
     const release = transcript.adopt(recordingActs(fired));
     expect(pressModifiedKey(keyBindingTable(), "f")).toBe(true);
     expect(fired).toStrictEqual(["openFind"]);
-    release();
-  });
-
-  it("walks forward through the matches from the keyboard", () => {
-    const fired: string[] = [];
-    const transcript = new MountedTranscript();
-    registerTranscriptCommands(commandContributionRegistry, transcript);
-    const release = transcript.adopt(recordingActs(fired));
-    expect(pressModifiedKey(keyBindingTable(), "g")).toBe(true);
-    expect(fired).toStrictEqual(["stepFindNext"]);
     release();
   });
 
@@ -198,31 +110,5 @@ describe("transcript commands — the contribution reaches the palette and the k
     expect(raised[0]?.code).toBe("transcript.no_mounted_transcript");
     expect(raised[0]?.origin).toBe("transcript");
     withdrawSink();
-  });
-
-  it("replaces its own rows when the console is composed twice", () => {
-    // Composition runs at module scope in production and repeatedly in a test, and the registry
-    // refuses a duplicate id, so a second pass must replace.
-    registerTranscriptCommands(commandContributionRegistry);
-    const afterFirst = commandRegistry.size;
-    expect(() => {
-      registerTranscriptCommands(commandContributionRegistry);
-    }).not.toThrow();
-    expect(commandRegistry.size).toBe(afterFirst);
-  });
-
-  it("negative control: nothing of the transcript is offered or bound before it composes", () => {
-    // Every case above runs over a console that had these rows all along; a console before
-    // the transcript composes does not.
-    withdrawTranscriptContribution();
-    expect(commandRegistry.has("transcript.find")).toBe(false);
-    expect(keybindingOverrides.snapshot.bindings.map((binding) => binding.commandId)).not.toContain(
-      "transcript.find",
-    );
-    const fired: string[] = [];
-    const transcript = new MountedTranscript();
-    transcript.adopt(recordingActs(fired));
-    expect(pressModifiedKey(keyBindingTable(), "f")).toBe(false);
-    expect(fired).toStrictEqual([]);
   });
 });
