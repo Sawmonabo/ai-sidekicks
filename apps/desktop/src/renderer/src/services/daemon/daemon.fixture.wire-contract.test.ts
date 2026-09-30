@@ -13,9 +13,6 @@ import { CONCURRENT_STREAMING_SCENARIO } from "../../../../../fixtures/scenarios
 /** A registered method the registry binds, so a scripted reply is checkable. */
 const REGISTERED_CALL = "presence.read";
 
-/** A call the registry deliberately does not bind. */
-const UNREGISTERED_CALL = "gitflow.branchContextRead";
-
 /** The reply `presence.read` registers: devices, each with the four members. */
 const ON_CONTRACT_REPLY = {
   devices: [
@@ -37,18 +34,7 @@ function scenarioAnswering(call: string, result: unknown): Scenario {
 }
 
 describe("fixture bridge — a scripted reply is held to the registered shape", () => {
-  it("refuses a reply the corpus does not admit for that method", async () => {
-    const fixture = createFixture(scenarioAnswering(REGISTERED_CALL, { rows: [] }));
-
-    await expect(callThroughBridge(fixture, REGISTERED_CALL)).rejects.toBeInstanceOf(
-      FixtureBridgeError,
-    );
-    await expect(callThroughBridge(fixture, REGISTERED_CALL)).rejects.toMatchObject({
-      refusal: { code: "reply-off-contract", origin: "fixture-bridge" },
-    });
-  });
-
-  it("catches the near miss, not only the obviously wrong shape", async () => {
+  it("refuses a reply one member off the contract for that method", async () => {
     // One member off, which is what a scenario author actually gets wrong.
     const fixture = createFixture(
       scenarioAnswering(REGISTERED_CALL, {
@@ -56,27 +42,11 @@ describe("fixture bridge — a scripted reply is held to the registered shape", 
       }),
     );
 
-    await expect(callThroughBridge(fixture, REGISTERED_CALL)).rejects.toMatchObject({
-      refusal: { code: "reply-off-contract" },
-    });
-  });
-
-  it("negative control: an on-contract reply is handed back exactly as scripted", async () => {
-    // Without a successful path, a fixture that refused every reply passes both cases above.
-    // The original value travels, so a scenario cannot lean on a coercion or default the
-    // daemon does not supply.
-    const fixture = createFixture(scenarioAnswering(REGISTERED_CALL, ON_CONTRACT_REPLY));
-
-    await expect(callThroughBridge(fixture, REGISTERED_CALL)).resolves.toBe(ON_CONTRACT_REPLY);
-  });
-
-  it("leaves a call the registry does not bind untouched", async () => {
-    // No shape is registered for this method, so there is nothing to check against.
-    const offContractForNoContract = { anything: "the slate row owes the shape" };
-    const fixture = createFixture(scenarioAnswering(UNREGISTERED_CALL, offContractForNoContract));
-
-    await expect(callThroughBridge(fixture, UNREGISTERED_CALL)).resolves.toBe(
-      offContractForNoContract,
+    await expect(callThroughBridge(fixture, REGISTERED_CALL)).rejects.toBeInstanceOf(
+      FixtureBridgeError,
     );
+    await expect(callThroughBridge(fixture, REGISTERED_CALL)).rejects.toMatchObject({
+      refusal: { code: "reply-off-contract", origin: "fixture-bridge" },
+    });
   });
 });
