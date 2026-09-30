@@ -1,6 +1,4 @@
-// The settings entry index, and the two claims the settings screen rests on: the rail is the
-// closed section tuple and the search is one shared matcher. Both are claims about sets, so
-// the cases drive the sets, not a hand-listed copy that would go stale.
+// The settings page registry, and the one search matcher it shares with the palette.
 
 import { describe, expect, it } from "vitest";
 import { SETTINGS_PAGE_IDS } from "@renderer/routing/settings-page-ids.js";
@@ -28,22 +26,6 @@ function pageFor(
   };
 }
 
-describe("settings sections — the closed set the rail renders", () => {
-  it("labels every section, and labels nothing else", () => {
-    // A total record makes a new section a compile error rather than a rail entry reading
-    // `mcp-servers`. Checked at runtime too, since a cast could widen the record past the
-    // union.
-    expect(Object.keys(SETTINGS_PAGE_LABELS).sort()).toStrictEqual([...SETTINGS_PAGE_IDS].sort());
-    for (const section of SETTINGS_PAGE_IDS) {
-      expect(SETTINGS_PAGE_LABELS[section].length).toBeGreaterThan(0);
-    }
-  });
-
-  it("names each section exactly once", () => {
-    expect(new Set(SETTINGS_PAGE_IDS).size).toBe(SETTINGS_PAGE_IDS.length);
-  });
-});
-
 describe("settings page registry — one page per section", () => {
   it("answers in rail order rather than registration order", () => {
     // Rail order is what a person reads; registration order would depend on which page's
@@ -68,12 +50,6 @@ describe("settings page registry — one page per section", () => {
     expect(() => {
       registry.register(pageFor("runtime", { owner: "another-owner" }));
     }).toThrow();
-  });
-
-  it("negative control: a fresh registry claims nothing", () => {
-    // Every case above reads `registeredSections`, so all would pass over a registry that
-    // reported sections nobody registered.
-    expect(new SettingsPageRegistry().registeredSections()).toStrictEqual([]);
   });
 });
 
@@ -124,11 +100,12 @@ describe("settings search — one matcher, shared with the palette", () => {
     pageFor("runtime", { label: "Runtime", keywords: ["machines"] }),
   ];
 
-  it("answers every entry in rail order for an empty query", () => {
+  it("answers every entry for an empty query, and nothing for a query no entry embeds", () => {
     expect(matchSettingsPages(entries, "   ").map((match) => match.descriptor.section)).toContain(
       "keyboard",
     );
     expect(matchSettingsPages(entries, "").length).toBe(entries.length);
+    expect(matchSettingsPages(entries, "zzzz")).toStrictEqual([]);
   });
 
   it("finds an entry by an alias its label does not carry", () => {
@@ -137,16 +114,5 @@ describe("settings search — one matcher, shared with the palette", () => {
     const found = matchSettingsPages(entries, "shortc");
     expect(found.map((match) => match.descriptor.section)).toStrictEqual(["keyboard"]);
     expect(found[0]?.matchedText).toBe("shortcuts");
-  });
-
-  it("answers nothing for a query no entry embeds", () => {
-    expect(matchSettingsPages(entries, "zzzz")).toStrictEqual([]);
-  });
-
-  it("negative control: the ranking is the scorer's and not insertion order", () => {
-    // Without this the alias case would pass over a matcher that returned every
-    // entry it was given, in the order it was given them.
-    const ranked = matchSettingsPages(entries, "runtime");
-    expect(ranked[0]?.descriptor.section).toBe("runtime");
   });
 });

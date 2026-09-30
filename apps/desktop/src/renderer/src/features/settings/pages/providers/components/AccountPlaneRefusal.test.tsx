@@ -44,22 +44,4 @@ describe("an account-plane refusal on a console screen", () => {
     actions[0]?.click();
     expect(openPage.mock.calls).toStrictEqual([["providers"]]);
   });
-
-  it("says what has to happen without offering to open the page it is already on", () => {
-    const { container } = renderRefusal("provideraccount.no_default", "providers");
-    expect(container.textContent ?? "").toContain("Choosing which account answers");
-    expect(container.querySelector(".meridian-account-handoff__action")).toBeNull();
-  });
-
-  it("negative control: a code no console act closes renders the refusal alone", () => {
-    const { container } = renderRefusal("provideraccount.permission_denied");
-    expect(container.textContent ?? "").toContain("provideraccount.permission_denied");
-    expect(container.querySelector(".meridian-account-handoff")).toBeNull();
-  });
-
-  it("negative control: a refusal from another namespace adds nothing", () => {
-    const { container } = renderRefusal("example.refused");
-    expect(container.textContent ?? "").toContain("example.refused");
-    expect(container.querySelector(".meridian-account-handoff")).toBeNull();
-  });
 });

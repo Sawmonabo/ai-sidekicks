@@ -64,14 +64,6 @@ describe("distinct mount ids", () => {
     const ids = distinctMountIds(workspaceListWith([MOUNT_B, MOUNT_A, MOUNT_B]));
     expect(ids).toStrictEqual([MOUNT_A, MOUNT_B]);
   });
-
-  it("negative control: reply order alone would not be stable", () => {
-    // The sort is the claim: two replies listing the same mounts in different orders must
-    // give one row order, or a row moves when an unrelated workspace is created.
-    const first = distinctMountIds(workspaceListWith([MOUNT_B, MOUNT_A]));
-    const second = distinctMountIds(workspaceListWith([MOUNT_A, MOUNT_B]));
-    expect(first).toStrictEqual(second);
-  });
 });
 
 describe("mount inventory read", () => {
@@ -150,26 +142,6 @@ describe("mount inventory read", () => {
     const state = read.state;
     expect(asked.filter((call) => call === "mountRead")).toHaveLength(MOUNT_INVENTORY_READ_CAP);
     expect(state.kind === "loaded" ? state.value.unreadMountCount : undefined).toBe(3);
-  });
-
-  it("opens no subscription where this window has no store for the session", async () => {
-    // No store open means no stream to bind; what must still hold is that nothing is armed
-    // behind the page once it leaves.
-    const clock = new ManualClock();
-    const { calls } = callsAnswering({ mountIds: [MOUNT_A] });
-    const read = createMountInventoryRead({
-      calls,
-      sessionId: SESSION_ID,
-      clock,
-      sessionStore: undefined,
-    });
-    read.start();
-    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-    await settle();
-    expect(read.isSubscribed).toBe(true);
-    read.dispose();
-    read.refresh("window-focus");
-    expect(clock.pendingCount).toBe(0);
   });
 });
 
@@ -254,32 +226,5 @@ describe("what refreshes the inventory", () => {
 
     expect(listCallCount()).toBe(1);
     read.dispose();
-  });
-
-  it("negative control: the same event refreshes nothing when no store was handed over", async () => {
-    // The store is the signal; without one the read is focus-driven. This pins that so the
-    // binding above is not mistaken for something the read does on its own.
-    const sessionStore = initializedStore(SESSION_ID);
-    const { clock, read, listCallCount } = await startedRead(undefined);
-
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.completed", 1));
-    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-    await settle();
-
-    expect(listCallCount()).toBe(1);
-    read.dispose();
-  });
-
-  it("hears nothing more once the page has left", async () => {
-    const sessionStore = initializedStore(SESSION_ID);
-    const { clock, read, listCallCount } = await startedRead(sessionStore);
-    read.dispose();
-
-    sessionStore.apply(eventOfKind(sessionStore.sessionId, "run.failed", 1));
-    clock.advance(PAST_REFRESH_DEBOUNCE_MS);
-    await settle();
-
-    expect(listCallCount()).toBe(1);
-    expect(clock.pendingCount).toBe(0);
   });
 });

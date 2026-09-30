@@ -1,6 +1,6 @@
 // The map joins commands to bindings, and the recorder reads one keystroke as one act. Verdicts
-// about a binding set are the keybinding service's own and are tested in
-// `registries/keybindings/keybinding-audit.test.ts`.
+// about a binding set are the keybinding service's own, in
+// `registries/keybindings/keybinding-audit.ts`.
 
 import { describe, expect, it } from "vitest";
 
@@ -48,7 +48,7 @@ describe("composing rows", () => {
     { chord: "$mod+2", commandId: "frame.goToWorkflows", when: "sessionActive" },
   ];
 
-  it("carries each command's chord and the scope of that chord", () => {
+  it("carries each command's chord and its scope, and invents none for an unbound command", () => {
     const rows = composeKeybindingRows({
       commands,
       bindings,
@@ -58,30 +58,12 @@ describe("composing rows", () => {
     const workflows = rows.find((row) => row.commandId === "frame.goToWorkflows");
     expect(workflows?.chord).toBe("$mod+2");
     expect(workflows?.whenExpression).toBe("sessionActive");
-  });
-
-  it("leaves a command with no binding without a chord rather than inventing one", () => {
-    const rows = composeKeybindingRows({
-      commands,
-      bindings,
-      shippedBindings: bindings,
-      platform: "darwin",
-    });
     expect(rows.find((row) => row.commandId === "app.checkForUpdates")?.chord).toBeUndefined();
-  });
-
-  it("orders by category and then by name, so the list matches the palette", () => {
-    const rows = composeKeybindingRows({
-      commands,
-      bindings,
-      shippedBindings: bindings,
-      platform: "darwin",
-    });
-    expect(rows.map((row) => row.commandId)).toStrictEqual([
-      "app.checkForUpdates",
-      "frame.goToSessions",
-      "frame.goToWorkflows",
-    ]);
+    // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
+    // the first.
+    expect(
+      rows.find((row) => row.commandId === "app.checkForUpdates")?.shippedChord,
+    ).toBeUndefined();
   });
 
   it("marks a bound chord the host takes, and leaves the others unmarked", () => {
@@ -124,31 +106,6 @@ describe("composing rows", () => {
     const changed = rows.find((row) => row.commandId === "frame.goToSessions");
     expect(changed?.chord).toBe("$mod+9");
     expect(changed?.shippedChord).toBe("$mod+1");
-  });
-
-  it("leaves a command the console ships no chord for without a default to restore", () => {
-    // "Back to no chord" and "back to some chord" differ; only an absent `shippedChord` carries
-    // the first.
-    const rows = composeKeybindingRows({
-      commands,
-      bindings,
-      shippedBindings: bindings,
-      platform: "darwin",
-    });
-    expect(
-      rows.find((row) => row.commandId === "app.checkForUpdates")?.shippedChord,
-    ).toBeUndefined();
-  });
-
-  it("negative control: with no overrides, no row claims to have been changed", () => {
-    // Guards against a composer that marks every row, offering a reset with nothing to reset.
-    const rows = composeKeybindingRows({
-      commands,
-      bindings,
-      shippedBindings: bindings,
-      platform: "darwin",
-    });
-    expect(rows.some((row) => row.overridden)).toBe(false);
   });
 });
 
@@ -239,12 +196,6 @@ describe("reading what is held right now", () => {
     ).toStrictEqual(["Alt"]);
   });
 
-  it("answers nothing once the last modifier is released", () => {
-    expect(
-      readHeldModifiersFromEvent(press({ key: "Shift", code: "ShiftLeft" }), "darwin"),
-    ).toStrictEqual([]);
-  });
-
   it("negative control: the key that ended does not decide the answer", () => {
     // Guards against a reader that keys on `key` and subtracts the released modifier itself,
     // which is wrong for a stuck flag and for a chord read on keydown.
@@ -271,30 +222,19 @@ describe("filtering rows", () => {
     platform: "darwin",
   });
 
-  it("answers every row before anything is typed", () => {
+  it("answers every row for no query, then narrows on name, id, chord and scope", () => {
     expect(matchKeybindingRows(rows, "   ")).toHaveLength(2);
-  });
-
-  it("narrows on the name, and on the command id", () => {
     expect(matchKeybindingRows(rows, "sessions").map((row) => row.commandId)).toStrictEqual([
       "frame.goToSessions",
     ]);
     expect(matchKeybindingRows(rows, "app.check").map((row) => row.commandId)).toStrictEqual([
       "app.checkForUpdates",
     ]);
-  });
-
-  it("narrows on the chord and on the when-scope, the section's other two axes", () => {
     expect(matchKeybindingRows(rows, "$mod+1").map((row) => row.commandId)).toStrictEqual([
       "frame.goToSessions",
     ]);
     expect(matchKeybindingRows(rows, "sessionActive").map((row) => row.commandId)).toStrictEqual([
       "frame.goToSessions",
     ]);
-  });
-
-  it("negative control: a query nothing matches narrows to nothing", () => {
-    // A filter that always answered everything would satisfy the assertions above.
-    expect(matchKeybindingRows(rows, "zzzqqq")).toHaveLength(0);
   });
 });

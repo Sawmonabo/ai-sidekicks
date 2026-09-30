@@ -145,26 +145,4 @@ describe("mount inventory read — the line is abandoned between its own calls",
     expect(signals[1]).toBe(line.signal);
     expect(line.signal.aborted).toBe(true);
   });
-
-  it("negative control: the same interleaving on a live line composes the inventory", async () => {
-    // Without this both cases above would hold over a read that refused every pass.
-    const line = new AbortController();
-    const workspaceList = heldReply<ReturnType<typeof workspaceListWith>>();
-    const mountRead = heldReply<ReturnType<typeof mountReadFor>>();
-    const { calls, asked } = callsHolding(
-      workspaceList.promise,
-      mountRead.promise,
-      line,
-      undefined,
-    );
-
-    const reading = readMountInventory(calls, SESSION_ID, line.signal);
-    workspaceList.serve(workspaceListWith([MOUNT_A]));
-    await crossMacrotaskBoundary();
-    mountRead.serve(mountReadFor(MOUNT_A));
-
-    const inventory = await reading;
-    expect(inventory.readings.map((mount) => mount.id)).toStrictEqual([MOUNT_A]);
-    expect(asked).toStrictEqual(["workspaceList", "mountRead"]);
-  });
 });

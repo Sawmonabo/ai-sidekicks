@@ -3,7 +3,7 @@
 //
 // Beside `mounted-folders.test-support.ts`, which holds the fixture vocabulary (mount ids,
 // workspace rows, read shapes) and renders nothing. This one mounts a React tree with a live
-// announcer, so it is a `.tsx`, and both suites that drive the block share it.
+// announcer, so it is a `.tsx`.
 
 import type { RepoMountReadResponse, WorkspaceListResponse } from "@ai-sidekicks/contracts";
 import { act, render } from "@testing-library/react";
@@ -12,10 +12,7 @@ import { createFixtureBridge } from "@renderer/services/platform/platform-bridge
 import { unscriptedScenario } from "@test/helpers/fixture-bridge.js";
 import { ManualClock } from "@renderer/lib/clock.js";
 import { PAST_REFRESH_DEBOUNCE_MS } from "@test/helpers/settle.js";
-import { LiveAnnouncer } from "@renderer/components/LiveAnnouncer/live-announcer.js";
 import { LiveAnnouncerProvider } from "@renderer/components/LiveAnnouncer/LiveAnnouncerProvider.js";
-import { politeText } from "@test/helpers/live-region.js";
-import type { SessionStore } from "@renderer/store/session/session-store.js";
 import { frozenClockOf } from "@test/helpers/scheduled-read.js";
 import { settingsPageContextWith } from "@test/helpers/settings-page-mount.js";
 import type { SettingsPageContext } from "../../../types.js";
@@ -36,9 +33,6 @@ import { MountedFoldersBlock } from "./MountedFoldersBlock.js";
  */
 export function contextReading(options: {
   readonly mountIds: readonly string[];
-  readonly mountOverrides?: Readonly<Record<string, Partial<RepoMountReadResponse>>>;
-  /** The retained session's store, where the window has one open. */
-  readonly sessionStore?: SessionStore | undefined;
   /** Counts what the page asked for, so a refresh can be proved rather than assumed. */
   readonly onCall?: (call: "workspaceList" | "mountRead") => void;
   /** Makes the calls reject with this message, which fails the read. */
@@ -75,27 +69,14 @@ export function contextReading(options: {
     mountRead: (request): Promise<RepoMountReadResponse> => {
       options.onCall?.("mountRead");
       rejectIfAsked();
-      return Promise.resolve(
-        mountReadFor(request.repoMountId, options.mountOverrides?.[request.repoMountId] ?? {}),
-      );
+      return Promise.resolve(mountReadFor(request.repoMountId));
     },
   };
   return {
-    context: settingsPageContextWith(fixture.bridge, SESSION_ID, {
-      retainedSessionStore: options.sessionStore,
-    }),
+    context: settingsPageContextWith(fixture.bridge, SESSION_ID),
     clock,
     calls,
   };
-}
-
-/** The block's own element, so a case never reads the announcer's regions by accident. */
-export function mountedFoldersBlockOf(root: HTMLElement): HTMLElement {
-  const block = root.querySelector<HTMLElement>('section[aria-label="Mounted repositories"]');
-  if (block === null) {
-    throw new Error("the mounted-folders block did not render");
-  }
-  return block;
 }
 
 /**
@@ -109,21 +90,13 @@ export async function renderSettledBlock(reading: {
   readonly context: SettingsPageContext;
   readonly clock: ManualClock;
   readonly calls: MountInventoryCalls;
-}): Promise<{
-  readonly page: HTMLElement;
-  readonly clock: ManualClock;
-  readonly politeText: () => string;
-  readonly settle: () => Promise<void>;
-}> {
+}): Promise<{ readonly page: HTMLElement; readonly settle: () => Promise<void> }> {
   const { context, clock, calls } = reading;
-  // One announcer on the page's own frozen clock, as `AppFrame` resolves it in a window; a
-  // second time base would make "was it said again" a question about the runner.
-  const announcer = new LiveAnnouncer({ clock });
   // Under the bridge provider, because the list takes the window's clock from `useClock`.
   // The bridge is the context's and the clock the case's.
   const { container } = render(
     <PlatformBridgeProvider bridge={context.bridge} clock={clock}>
-      <LiveAnnouncerProvider announcer={announcer}>
+      <LiveAnnouncerProvider>
         <MountedFoldersBlock>
           <MountedFolderList
             bridge={context.bridge}
@@ -144,10 +117,14 @@ export async function renderSettledBlock(reading: {
     });
   };
   await settle();
-  return {
-    page: mountedFoldersBlockOf(container),
-    clock,
-    politeText: () => politeText(container),
-    settle,
-  };
+  return { page: mountedFoldersBlockOf(container), settle };
+}
+
+/** The block's own element, so a case never reads the announcer's regions by accident. */
+function mountedFoldersBlockOf(root: HTMLElement): HTMLElement {
+  const block = root.querySelector<HTMLElement>('section[aria-label="Mounted repositories"]');
+  if (block === null) {
+    throw new Error("the mounted-folders block did not render");
+  }
+  return block;
 }
