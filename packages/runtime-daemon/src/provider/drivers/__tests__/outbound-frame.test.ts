@@ -48,7 +48,7 @@ import {
 import {
   classifyCodexTurnEvidence,
   classifyCodexTurnEvidenceObservation,
-} from "../codex/event-normalizer.js";
+} from "../codex/turn-evidence.js";
 import {
   CodexInterventionDispatcher,
   type CodexInterventionRuntime,

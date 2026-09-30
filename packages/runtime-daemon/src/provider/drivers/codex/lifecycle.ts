@@ -102,12 +102,14 @@ import {
   CODEX_THREAD_STARTED_METHOD,
   CODEX_THREAD_TOKEN_USAGE_METHOD,
   CODEX_TURN_COMPLETED_METHOD,
-  classifyCodexTurnEvidence,
-  classifyCodexTurnEvidenceObservation,
-  CodexTerminalEmissionGate,
   classifyCodexFrameFamilyForRouting,
   deriveCodexChildThreadAnnouncement,
 } from "./event-normalizer.js";
+import {
+  classifyCodexTurnEvidence,
+  classifyCodexTurnEvidenceObservation,
+  CodexTerminalEmissionGate,
+} from "./turn-evidence.js";
 import {
   OutboundFrameTripwire,
   OutboundTextFrameWriter,

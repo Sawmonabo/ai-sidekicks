@@ -38,23 +38,24 @@ import {
   type CodexInboundFrameMethod,
   type CodexInboundFrameTransport,
   type CodexNormalizedFamilyEmission,
-  CodexTerminalEmissionGate,
-  type CodexTerminalRunFrame,
 } from "../event-normalizer.js";
+import { CodexTerminalEmissionGate, type CodexTerminalRunFrame } from "../turn-evidence.js";
 import { DriverDiagnosticsEmitter } from "../../../driver-diagnostics.js";
 import {
   classifyCodexFrameFamilyForRouting,
+  CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS,
+  CODEX_THREAD_STARTED_METHOD,
+  CODEX_THREAD_TOKEN_USAGE_METHOD,
+  deriveCodexChildThreadAnnouncement,
+  resolveCodexFrameEmissionRoute,
+} from "../event-normalizer.js";
+import {
   classifyCodexUsageLimitSignal,
   CODEX_ACCOUNT_RATE_LIMITS_READ_METHOD,
   CODEX_ACCOUNT_RATE_LIMITS_UPDATED_METHOD,
   CODEX_RATE_LIMIT_REACHED_TYPES,
-  CODEX_SUBAGENT_ATTRIBUTED_THREAD_SOURCE_KINDS,
-  CODEX_THREAD_STARTED_METHOD,
-  CODEX_THREAD_TOKEN_USAGE_METHOD,
   CODEX_USAGE_LIMIT_EXCLUDED_REACHED_TYPES,
-  deriveCodexChildThreadAnnouncement,
-  resolveCodexFrameEmissionRoute,
-} from "../event-normalizer.js";
+} from "../usage-limit-signal.js";
 import { CODEX_TOOL_NAMES } from "../tools.js";
 
 // The expectation table, written independently of the production record.
