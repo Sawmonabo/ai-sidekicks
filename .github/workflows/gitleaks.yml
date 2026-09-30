@@ -1,9 +1,6 @@
-# Gitleaks v8.30.1 secret scan per ADR-023 §Axis 4 sub-axis 4.
-#
-# MIT-licensed (compatible with Apache-2.0 OSS posture per ADR-020), used as the
-# CI-side complement to the local lefthook gitleaks step. GitHub native secret
-# scanning + push protection (free in public repos) is the primary defense; this
-# workflow is the paranoid-belt-and-suspenders second pass.
+# Secret scan with gitleaks. GitHub's native secret scanning and push protection are the primary
+# defense; this workflow is the CI-side second pass and complements the local lefthook gitleaks
+# step.
 
 name: Secret Scan
 
@@ -16,8 +13,8 @@ on:
 permissions:
   contents: read
 
-# Mirror ci.yml event-split concurrency: PR runs cancel-in-progress on superseding
-# pushes; integration branch (develop, main) runs queue serially.
+# Same event-split concurrency as ci.yml: pull-request runs cancel superseded pushes; runs on
+# develop and main queue serially.
 concurrency:
   group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.head_ref || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
@@ -33,17 +30,12 @@ jobs:
           fetch-depth: 0
 
       - name: Run gitleaks
-        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene; Renovate's
-        # helpers:pinGitHubActionDigests preset (renovate.json5) keeps this current.
+        # SHA-pinned; Renovate's pinGitHubActionDigests preset (renovate.json5) keeps it current.
         uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Canonical gitleaks version per ADR-023 §Axis 4 sub-axis 4; harmonized
-          # with the local lefthook pin so authoring drift cannot mask findings.
-          # `gitleaks-action@v2.3.9` reads this at runtime
-          # (https://github.com/gitleaks/gitleaks-action/blob/v2.3.9/src/index.js)
-          # and downloads the matching upstream release.
+          # Pinned to the same version as the lefthook step so local-versus-CI drift cannot mask
+          # findings. `gitleaks-action` reads this at runtime and downloads that release.
           GITLEAKS_VERSION: 8.30.1
-          # GITLEAKS_LICENSE not required for OSS / public repos.
-          # WARNING: making this repo private requires registering a
-          # GITLEAKS_LICENSE secret first; this job will start failing without it.
+          # No GITLEAKS_LICENSE is needed for a public repo; a private repo must register that
+          # secret or this job fails.

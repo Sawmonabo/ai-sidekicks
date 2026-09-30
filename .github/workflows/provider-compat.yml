@@ -1,33 +1,29 @@
 # Nightly provider-CLI compatibility check.
 #
-# Keeps `docs/reference/provider-wire/` honest. Those files pin the Codex and
-# Claude Code wire surfaces to exact CLI versions and name a supported floor;
-# both vendors ship often enough that a pin written by hand rots within weeks.
-# This workflow re-probes the shapes those files assert, on a schedule, and
-# reports drift by opening or updating ONE tracking issue rather than passing
-# quietly.
+# Keeps `docs/reference/provider-wire/` honest. Those files pin the Codex and Claude Code wire
+# surfaces to exact CLI versions and name a supported floor; both vendors ship often enough that a
+# hand-written pin rots within weeks. This workflow re-probes the asserted shapes on a schedule and
+# reports drift by opening or updating one tracking issue rather than passing quietly.
 #
-# The policy it enforces (see ADR-023 §Decision Log and the provider-wire
-# README §Versioning and pinning policy):
-#   - ABOVE the pin: warn and keep going. A newer CLI that moved a surface
-#     degrades that one capability; it does not refuse a session. A failing
-#     `latest` leg is a re-pin signal, not a build break.
-#   - BELOW the floor: refuse. A failing `floor` leg is the serious one — the
-#     oldest supported CLI can no longer do what the driver assumes.
+# Policy (provider-wire README, "Versioning and pinning policy"):
+#   - Above the pin: warn and keep going. A newer CLI that moved a surface degrades that one
+#     capability; it does not refuse a session. A failing `latest` leg is a re-pin signal, not a
+#     build break.
+#   - Below the floor: refuse. A failing `floor` leg is the serious one: the oldest supported CLI
+#     can no longer do what the driver assumes.
 #
 # Security posture:
 #   - No `pull_request` trigger. Nothing here runs on untrusted contributor input.
 #   - Workflow-default `contents: read`; only the reporting job gets `issues: write`.
 #   - No repository checkout in the probe jobs; nothing persists credentials.
-#   - The one credentialed job never echoes its token, runs no `set -x`, and
-#     exists only when the repository secret is present.
-#   - Every provider CLI is installed into a throwaway directory under
-#     RUNNER_TEMP. Nothing is installed globally, and no real credential home
-#     (Keychain, ~/.codex, ~/.claude) is read, written, or seeded.
+#   - The one credentialed job never echoes its token, runs no `set -x`, and exists only when the
+#     repository secret is present.
+#   - Every provider CLI is installed into a throwaway directory under RUNNER_TEMP. Nothing is
+#     installed globally, and no real credential home (Keychain, ~/.codex, ~/.claude) is read,
+#     written, or seeded.
 #
-# NOTE ON REACHABILITY: GitHub runs `schedule` and `workflow_dispatch` only from
-# the DEFAULT branch (`main`). Landing on `develop` therefore stages this check;
-# it starts firing at the next `develop` -> `main` release promotion.
+# Reachability: GitHub runs `schedule` and `workflow_dispatch` only from the default branch
+# (`main`), so a change landing on `develop` starts firing at the next promotion to `main`.
 
 name: Provider CLI Compatibility
 
@@ -65,9 +61,8 @@ jobs:
   secret-gate:
     name: Auth secret gate
     runs-on: ubuntu-latest
-    # GitHub's default job timeout is 360 minutes. Nothing here needs
-    # minutes at all, and this workflow's concurrency group does not
-    # cancel in progress, so a stalled job would block later probes.
+    # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
+    # stalled job would block later probes.
     timeout-minutes: 5
     outputs:
       claude-token-present: ${{ steps.probe.outputs.present }}
@@ -107,9 +102,8 @@ jobs:
   codex-protocol:
     name: Codex ${{ matrix.channel }} (${{ matrix.version }})
     runs-on: ubuntu-latest
-    # GitHub's default job timeout is 360 minutes. Nothing here needs
-    # minutes at all, and this workflow's concurrency group does not
-    # cancel in progress, so a stalled job would block later probes.
+    # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
+    # stalled job would block later probes.
     timeout-minutes: 20
     strategy:
       fail-fast: false
@@ -388,11 +382,9 @@ jobs:
             exit 1
           fi
 
-      # Per-channel outcome, recorded because a matrix job collapses all of its
-      # legs into ONE `result`. Without this the report cannot tell a `latest`
-      # failure from a `floor` failure, and the check cannot honour the policy
-      # it exists to enforce: above the pin warn and keep going, below the
-      # floor refuse. `always()` so a FAILED leg still reports its outcome.
+      # Per-channel outcome, recorded because a matrix job collapses its legs into one `result`;
+      # without this the report cannot tell a `latest` failure from a `floor` failure and so cannot
+      # honor the policy. `always()` so a failed leg still reports.
       - name: Record this leg's outcome
         if: always()
         run: |
@@ -428,16 +420,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: leg-codex-${{ matrix.channel }}
-          # The whole leg directory, not just outcome.txt. drift.txt and
-          # broken.txt hold the actionable reason -- which flag, method,
-          # shape, or step failed -- and without them the tracking issue
-          # decays to a provider/channel/status row whose evidence lives only
-          # in run logs that expire.
+          # The whole leg directory, not just outcome.txt: drift.txt and broken.txt hold the
+          # actionable reason (which flag, method, shape or step failed), and without them the
+          # tracking issue decays to a status row whose evidence lives only in run logs that expire.
           path: ${{ runner.temp }}/leg/
-          # `error`, not the default `warn`. The report compares the
-          # artifacts it downloads against the expected channel set, so a
-          # silently-empty upload would present as a missing channel anyway --
-          # failing loudly here names the leg that lost its own verdict.
+          # `error`, not the default `warn`: the report compares the downloaded artifacts against
+          # the expected channel set, so failing loudly here names the leg that lost its verdict.
           if-no-files-found: error
           retention-days: 7
 
@@ -451,23 +439,17 @@ jobs:
   claude-surface:
     name: Claude ${{ matrix.channel }} (${{ matrix.version }})
     runs-on: ubuntu-latest
-    # GitHub's default job timeout is 360 minutes. Nothing here needs
-    # minutes at all, and this workflow's concurrency group does not
-    # cancel in progress, so a stalled job would block later probes.
+    # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
+    # stalled job would block later probes.
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
         include:
-          # Keep these three in step with docs/reference/provider-wire/claude.md.
-          # `floor` is the RATIFIED floor: the 2026-08-26 Spec-004 provider-CLI
-          # version-tolerance amendment raised the mandated floor to 2.1.234.
-          # This leg is REGRESSION EVIDENCE for that release, not enforcement
-          # of the floor: it installs 2.1.234 and checks its provider surfaces
-          # still answer. It runs no daemon code and has no below-floor arm --
-          # admission is enforced at spawn by the driver gate (Plan-004 T3.23).
-          # Spec-004 §Required Behavior remains the normative home of the
-          # value; this leg follows it. See ADR-023 §Decision Log.
+          # Keep these three in step with docs/reference/provider-wire/claude.md. `floor` is the
+          # ratified floor. This leg is regression evidence, not enforcement: it installs 2.1.234
+          # and checks its provider surfaces still answer. It runs no daemon code and has no
+          # below-floor arm; the driver gate enforces admission at spawn.
           - channel: floor
             version: "2.1.234"
           - channel: pin
@@ -665,16 +647,12 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: leg-claude-${{ matrix.channel }}
-          # The whole leg directory, not just outcome.txt. drift.txt and
-          # broken.txt hold the actionable reason -- which flag, method,
-          # shape, or step failed -- and without them the tracking issue
-          # decays to a provider/channel/status row whose evidence lives only
-          # in run logs that expire.
+          # The whole leg directory, not just outcome.txt: drift.txt and broken.txt hold the
+          # actionable reason (which flag, method, shape or step failed), and without them the
+          # tracking issue decays to a status row whose evidence lives only in run logs that expire.
           path: ${{ runner.temp }}/leg/
-          # `error`, not the default `warn`. The report compares the
-          # artifacts it downloads against the expected channel set, so a
-          # silently-empty upload would present as a missing channel anyway --
-          # failing loudly here names the leg that lost its own verdict.
+          # `error`, not the default `warn`: the report compares the downloaded artifacts against
+          # the expected channel set, so failing loudly here names the leg that lost its verdict.
           if-no-files-found: error
           retention-days: 7
 
@@ -689,9 +667,8 @@ jobs:
       # report needs the distinction; a bare job result cannot carry it.
       smoke-outcome: ${{ steps.smoke.outputs.smoke_outcome }}
     runs-on: ubuntu-latest
-    # GitHub's default job timeout is 360 minutes. Nothing here needs
-    # minutes at all, and this workflow's concurrency group does not
-    # cancel in progress, so a stalled job would block later probes.
+    # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
+    # stalled job would block later probes.
     timeout-minutes: 15
     needs: secret-gate
     if: needs.secret-gate.outputs.claude-token-present == 'true'
@@ -726,12 +703,10 @@ jobs:
         env:
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           CLAUDE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-config
-          # Secure storage relocates under its OWN key -- CLAUDE_CONFIG_DIR
-          # does not cover it. docs/reference/provider-wire/claude.md records
-          # the literal, and the control-request census asserts it is still
-          # present in the binary. Without this the one token-bearing
-          # invocation in the workflow could still read or write the runner's
-          # default secure-storage location.
+          # Secure storage relocates under its own key, which CLAUDE_CONFIG_DIR does not cover.
+          # docs/reference/provider-wire/claude.md records the literal, and the control-request
+          # census asserts it is still present in the binary. Without this the one token-bearing
+          # invocation could still read or write the runner's default secure-storage location.
           CLAUDE_SECURESTORAGE_CONFIG_DIR: ${{ runner.temp }}/claude-smoke-securestorage
         run: |
           # No `set -x` anywhere in this job: tracing would echo the environment.
@@ -780,9 +755,8 @@ jobs:
   report:
     name: Report drift
     runs-on: ubuntu-latest
-    # GitHub's default job timeout is 360 minutes. Nothing here needs
-    # minutes at all, and this workflow's concurrency group does not
-    # cancel in progress, so a stalled job would block later probes.
+    # The default job timeout is 360 minutes and this workflow never cancels in progress, so a
+    # stalled job would block later probes.
     timeout-minutes: 10
     needs: [secret-gate, codex-protocol, claude-surface, claude-authenticated-smoke]
     if: always()
@@ -1012,9 +986,8 @@ jobs:
       # surface moved, and a report showing no drift would erase it.
       - name: Open or update the drift tracker
         if: steps.classify.outputs.drift == 'true'
-        # SHA-pinned per ADR-023 §Axis 4 supply-chain hygiene, matching the
-        # gitleaks-action pin convention. `issue-number` makes this an in-place
-        # update, which is what keeps the tracker to a single issue.
+        # SHA-pinned. `issue-number` makes this an in-place update, which keeps the tracker to a
+        # single issue.
         uses: peter-evans/create-issue-from-file@fca9117c27cdc29c6c4db3b86c48e4115a786710 # v6.0.0
         with:
           title: ${{ env.TRACKING_ISSUE_TITLE }}
@@ -1029,14 +1002,10 @@ jobs:
           content-filepath: ${{ runner.temp }}/report.md
           issue-number: ${{ steps.existing.outputs.broken_number }}
 
-      # Each tracker closes on ITS OWN verdict. A run with drift but no
-      # broken legs is exactly when the not-measuring tracker should close,
-      # and vice versa -- gating either on both would strand one open.
-      # Requires a FULLY MEASURED run. `drift=false` on a run with a broken
-      # or missing leg is not evidence of recovery -- it is the absence of
-      # evidence, and closing prior drift on it discards a real finding. The
-      # not-measuring tracker below closes on its own verdict, so nothing is
-      # stranded: the broken run is still reported, just not as recovery.
+      # Each tracker closes on its own verdict: a run with drift but no broken legs is when the
+      # not-measuring tracker should close, and vice versa. Closing the drift tracker requires a
+      # fully measured run, since `drift=false` with a broken or missing leg is the absence of
+      # evidence, not recovery.
       - name: Close the drift tracker on recovery
         if: steps.classify.outputs.drift == 'false' && steps.classify.outputs.broken == 'false' && steps.existing.outputs.state == 'OPEN'
         run: |
@@ -1053,11 +1022,9 @@ jobs:
             --repo "$GITHUB_REPOSITORY" \
             --comment "Every leg reported a verdict on run ${GITHUB_RUN_ID}. Closing; the nightly check will reopen this issue if it stops measuring again."
 
-      # Only a SUPPORTED channel (floor or pin) fails the run. A `latest` leg
-      # that moved has already opened or updated the tracking issue above,
-      # which is the whole reporting mechanism; failing here as well would
-      # make every routine upstream release a red nightly and contradict the
-      # above-pin "warn and keep going" policy recorded in ADR-023.
+      # Only a supported channel (floor or pin) fails the run. A `latest` leg that moved has already
+      # opened or updated the tracking issue; failing here too would make every routine upstream
+      # release a red nightly and contradict the above-pin "warn and keep going" policy.
       - name: Fail the run on supported-channel drift
         if: steps.classify.outputs.fatal == 'true'
         run: |
