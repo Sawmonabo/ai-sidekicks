@@ -10,7 +10,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { emulateSystemScheme } from "../helpers/app-harness.js";
-import { mountDiffPane, mountRepoSection } from "../helpers/feature-mounts/repos.js";
+import { mountDiffPane, mountMountList } from "../helpers/feature-mounts/repos.js";
 import { type MountedView } from "../helpers/feature-mounts/mount-queries.js";
 import {
   PLANTED_VIOLATION_RULE_ID,
@@ -27,7 +27,7 @@ const AUDITED_VIEWS: readonly {
   readonly label: string;
   readonly mount: () => Promise<MountedView>;
 }[] = [
-  { label: "the repos section with a degraded mount", mount: mountRepoSection },
+  { label: "the mount list with a degraded mount", mount: mountMountList },
   { label: "the diff pane over a parsed change set", mount: mountDiffPane },
 ];
 
@@ -40,7 +40,7 @@ afterEach(async () => {
   await emulateSystemScheme("light");
 });
 
-describe("accessibility — the repos section and diff pane", () => {
+describe("accessibility — the mount list and diff pane", () => {
   for (const view of AUDITED_VIEWS) {
     for (const scheme of COLOR_SCHEMES) {
       it(`has no axe violation on ${view.label} in the ${scheme} scheme`, async () => {

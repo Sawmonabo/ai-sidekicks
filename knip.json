@@ -135,6 +135,8 @@
         "src/renderer/src/features/composer/run-controls/hooks/useRunDriverBindings.ts",
         // The inspector's Rules section with Revoke.
         "src/renderer/src/features/inspector/rules/components/RulesSection.tsx",
+        // Attaching a folder by path, for the session strip's `Attach a repo` and `Open folder…`.
+        "src/renderer/src/features/repos/mounts/attach/AttachRepositoryDialog.tsx",
         // What the git host reports about a pull request, for the Pull request tab's header,
         // check rows and review list.
         "src/renderer/src/features/repos/mounts/hosting-status.ts",
