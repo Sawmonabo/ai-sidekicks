@@ -9,7 +9,12 @@
 // The macrotask wait the settling cases use is a timing helper, so it lives in
 // `macrotask-boundary.ts`.
 
-import type { DaemonEvent, DaemonMethod, EventEnvelope } from "@ai-sidekicks/contracts";
+import type {
+  DaemonEvent,
+  DaemonMethod,
+  DaemonParams,
+  EventEnvelope,
+} from "@ai-sidekicks/contracts";
 import type { Unsubscribe } from "@shared/preload-api.js";
 import type { PlatformBridge } from "@renderer/services/platform/platform-bridge.js";
 import type { Clock } from "@renderer/lib/clock.js";
@@ -92,9 +97,9 @@ export function createFixture(
 /**
  * Subscribe through the bridge exactly as a view would.
  *
- * The event name is cast to the `DaemonEvent` brand and the payload left `unknown` — the same
- * single brand bypass the shipped renderer makes, because `DaemonEvent` is a `never`-shaped stub
- * and a tighter payload type here would be a fiction.
+ * The event name is cast to `DaemonEvent` and the payload left `unknown`: the suites name
+ * streams by string, including the bare event types the daemon's method map does not list,
+ * and each names what it expects to receive through the type parameter below.
  *
  * The delivered type is a PARAMETER because the answer depends on the name: the
  * whole-session stream and a bare event type deliver the canonical `EventEnvelope`,
@@ -120,14 +125,16 @@ export function subscribeThroughBridge<Delivered = EventEnvelope>(
  *
  * The raw call, written once. {@link callThroughBridge} is the fixture-shaped caller
  * and a suite holding a WRAPPED bridge — the answer arm below — has one too, so the
- * cast to the `DaemonMethod` brand lives here rather than at each of them.
+ * casts live here rather than at each of them. The suites that use it test the fixture's
+ * reply seam, which answers by method name whatever the request carries, so a request
+ * that does not match the method's contract (or none at all) is part of what they send.
  */
 export function callBridge(
   bridge: PlatformBridge,
   method: string,
   params?: unknown,
 ): Promise<unknown> {
-  return bridge.daemon.call(method as DaemonMethod, params);
+  return bridge.daemon.call(method as DaemonMethod, params as DaemonParams<DaemonMethod>);
 }
 
 export function callThroughBridge(fixture: FixtureUnderTest, method: string): Promise<unknown> {
