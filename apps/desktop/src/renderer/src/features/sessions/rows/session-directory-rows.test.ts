@@ -20,7 +20,6 @@ function projectedRow(overrides: Partial<SessionListRow> & { sessionId: string }
     state: "active",
     touchedAtIso: "2026-01-01T10:00:00.000Z",
     userIds: [],
-    attentionSeverity: undefined,
     ...overrides,
   };
 }

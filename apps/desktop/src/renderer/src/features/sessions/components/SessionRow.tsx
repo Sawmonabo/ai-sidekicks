@@ -10,7 +10,7 @@ export interface SessionRowProps {
 }
 
 /**
- * One session row, memoized so one session's attention change re-renders only that row.
+ * One session row, memoized so one session's change re-renders only that row.
  * The default shallow comparison suffices: `rows` reuses the store's references and the
  * callback is stable for the life of the screen.
  */

@@ -50,7 +50,6 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         state: summary.state,
         touchedAtIso: undefined,
         userIds: [],
-        attentionSeverity: undefined,
       });
     }
   }
@@ -61,7 +60,6 @@ export function mergeSessionRows(sources: SessionRowSources): readonly SessionLi
         state: undefined,
         touchedAtIso: undefined,
         userIds: [],
-        attentionSeverity: undefined,
       });
     }
   }
