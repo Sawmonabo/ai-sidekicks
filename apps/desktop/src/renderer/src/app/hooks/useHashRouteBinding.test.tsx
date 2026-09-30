@@ -7,11 +7,11 @@ import { act, cleanup, render } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { crossMacrotaskBoundary } from "@test/helpers/macrotask-boundary.js";
+import { SESSIONS_HASH } from "@test/helpers/mount-app.js";
 import { WindowStore } from "@renderer/store/window/window-store.js";
 import { useLocationHash } from "@renderer/routing/hooks/useLocationHash.js";
 import { useHashRouteBinding } from "./useHashRouteBinding.js";
 
-const SESSIONS_HASH = "#/sessions";
 const SETTINGS_HASH = "#/settings";
 const SESSION_HASH = "#/session/session-alpha";
 

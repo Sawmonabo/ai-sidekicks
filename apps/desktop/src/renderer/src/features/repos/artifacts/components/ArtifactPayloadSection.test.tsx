@@ -10,6 +10,7 @@ import type { ArtifactReadResponse } from "@ai-sidekicks/contracts";
 import { handAnsweredCall } from "@test/helpers/held-calls.js";
 import {
   LISTED_ONE_ROW,
+  OTHER_ARTIFACT_ID,
   artifactOperations,
   deferredRead,
   inlineRead,
@@ -17,7 +18,6 @@ import {
   settleAct,
 } from "@test/helpers/artifact-list-readers.js";
 import {
-  OTHER_ARTIFACT_ID,
   OPENED_ARTIFACT_ID,
   artifactPayloadSubject,
   artifactPayloadTree,
