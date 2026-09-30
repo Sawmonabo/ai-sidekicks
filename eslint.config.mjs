@@ -65,6 +65,21 @@ export default tseslint.config(
     ignores: ["**/*.d.ts"],
     rules: { "no-restricted-syntax": ["error", ENUM_DECLARATION] },
   },
+  // An interface takes no `I` prefix (`IUser`); an acronym such as `IPCClient` still passes.
+  // Only this selector is configured, so no other naming is checked.
+  {
+    files: ["**/*.{ts,tsx,mts,cts}"],
+    rules: {
+      "@typescript-eslint/naming-convention": [
+        "error",
+        {
+          selector: "interface",
+          format: null,
+          custom: { regex: "^I[A-Z][a-z]", match: false },
+        },
+      ],
+    },
+  },
   // Node globals for build tooling (`tools/`) and root config files, which ESLint parses without TS
   // type info; packages and apps get theirs from `@types/node`.
   {
