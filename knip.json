@@ -172,6 +172,9 @@
         "src/renderer/src/features/sessions/session-header/hooks/useSessionIdentity.ts",
         "src/renderer/src/services/daemon/session-identity.fixture.ts",
         "src/renderer/src/services/daemon/session-reads.ts",
+        // The fixture bridge's session read, which plays the transcript-states scenario's refused
+        // resume position for the resume refusal banner.
+        "src/renderer/src/services/daemon/session-answers.fixture.ts",
         // Which provider each agent runs on, for the run controls' Interrupt and Interrupt
         // everything.
         "src/renderer/src/services/driver-capabilities/agent-driver-reads.ts",
